@@ -2,8 +2,8 @@ package main
 
 import (
 	"errors"
-	"tellurion/pkg/httpserver"
 	"net/http"
+	"tellurion/pkg/httpserver"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // ─── 测试替身（自造自用，不共享 DefaultRegistry）────────────────────

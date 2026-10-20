@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/expression"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // P2-12：引擎侧的基本面注入。

@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/clock"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestPaperSession_RunAgainstRealDB 是 PaperSession.Run 的真库**只读**冒烟：

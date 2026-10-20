@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/fees"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // 本文件在**外部测试包** live_test 里：它要 import pkg/backtest/execution 做

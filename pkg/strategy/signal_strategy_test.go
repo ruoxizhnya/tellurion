@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // fakeSignalStore 是 SignalStore 的内存实现（测试专用）。

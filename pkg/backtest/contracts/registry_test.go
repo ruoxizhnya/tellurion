@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/backtest/contracts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/backtest/contracts"
 )
 
 // registryFakeRunner 记录每次调用的 EngineRunner stub，带可辨识 marker

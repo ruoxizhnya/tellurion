@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/fees"
 	"tellurion/pkg/logging"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
-	"github.com/spf13/viper"
 )
 
 // synthOHLCV generates deterministic synthetic OHLCV data for benchmarking.

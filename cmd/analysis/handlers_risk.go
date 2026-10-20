@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"tellurion/pkg/httpserver"
 	"net/http"
+	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

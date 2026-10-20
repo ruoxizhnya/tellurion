@@ -21,10 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/storage"
 )
 
 func universeDSN(t *testing.T) string {

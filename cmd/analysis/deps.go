@@ -11,6 +11,7 @@ package main
 
 import (
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/contracts"
@@ -20,7 +21,6 @@ import (
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
-	"github.com/spf13/viper"
 )
 
 type ServerDeps struct {

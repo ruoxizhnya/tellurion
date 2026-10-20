@@ -9,11 +9,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/observability"
-	"tellurion/pkg/storage"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/observability"
+	"tellurion/pkg/storage"
 )
 
 // TestServerDeps_HasExpectedFields verifies that ServerDeps exposes

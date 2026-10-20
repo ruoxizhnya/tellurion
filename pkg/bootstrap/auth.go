@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/storage"
-	"github.com/spf13/viper"
 )
 
 // InsecureExposureLoopbackPublished 是 auth.allow_insecure_exposure

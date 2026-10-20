@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/fees"
 	"tellurion/pkg/marketdata"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // AUD-22 — the two wiring guards for the risk-warning daily buy cap.

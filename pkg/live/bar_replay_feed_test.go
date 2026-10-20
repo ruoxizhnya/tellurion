@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/clock"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // fakeReplayProvider 只实现 BarReplayFeed 需要的 BulkLoadOHLCV。

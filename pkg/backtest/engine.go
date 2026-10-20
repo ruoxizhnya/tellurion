@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/backtest/metrics"
 	"tellurion/pkg/domain"
@@ -23,7 +24,6 @@ import (
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
-	"github.com/spf13/viper"
 )
 
 // Config holds backtest engine configuration.

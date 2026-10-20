@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // AUD-10: GetPositions / GetAccount used to write the refreshed price

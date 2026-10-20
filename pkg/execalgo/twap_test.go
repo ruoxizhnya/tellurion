@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/portfolio"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func twapParent(qty float64, slices int) execalgo.ParentOrder {

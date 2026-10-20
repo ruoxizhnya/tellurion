@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
+	"tellurion/pkg/domain"
 )
 
 func TestCalculateTradeMetrics_Empty(t *testing.T) {

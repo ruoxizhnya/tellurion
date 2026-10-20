@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // Representative symbols per board. Kept as named constants so the

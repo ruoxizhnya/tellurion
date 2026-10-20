@@ -4,13 +4,13 @@ import (
 	"context"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
-	"github.com/spf13/viper"
 )
 
 // BuildBacktestEngine 构造回测引擎与 HTTP 行情 provider。HTTP provider

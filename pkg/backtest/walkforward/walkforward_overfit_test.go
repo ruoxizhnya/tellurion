@@ -4,9 +4,9 @@ import (
 	"math"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/statistics"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestDetectOverfitting_LessThan2Windows(t *testing.T) {

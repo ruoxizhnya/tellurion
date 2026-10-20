@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/fees"
 )
 
 // ---- helpers -------------------------------------------------------------

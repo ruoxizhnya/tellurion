@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/fees"
 	"tellurion/pkg/portfolio"
 	"tellurion/pkg/settlement"
-	"github.com/stretchr/testify/assert"
 )
 
 // Two fixed trading days either side of the 2023-08-28 stamp-tax cut

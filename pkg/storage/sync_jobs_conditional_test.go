@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	sync "tellurion/pkg/sync/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sync "tellurion/pkg/sync/types"
 )
 
 func uniqueSyncJobID(t *testing.T) string {

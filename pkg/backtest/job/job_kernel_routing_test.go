@@ -23,9 +23,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/backtest/contracts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/backtest/contracts"
 )
 
 // kernelMarkerRunner 带 marker 的 EngineRunner stub —— 产物响应里写

@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/marketdata"
-	_ "tellurion/pkg/strategy/plugins" // registers momentum strategy via init()
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/marketdata"
+	_ "tellurion/pkg/strategy/plugins" // registers momentum strategy via init()
 )
 
 // fixtureData holds the loaded momentum-5stock-1yr.json fixture.

@@ -3,8 +3,8 @@ package backtest
 import (
 	"testing"
 
-	"tellurion/pkg/fees"
 	"github.com/stretchr/testify/assert"
+	"tellurion/pkg/fees"
 )
 
 // TestBacktestFeeConstants_AliasedToFees (S7-P1-4, ODR-043)

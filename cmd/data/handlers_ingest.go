@@ -20,8 +20,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"tellurion/pkg/httpserver"
 	"net/http"
+	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

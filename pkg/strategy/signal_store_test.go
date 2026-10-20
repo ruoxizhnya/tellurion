@@ -17,10 +17,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/testenv"
-	"github.com/stretchr/testify/require"
 )
 
 // sigNewStore 建一个独占 model_id 的 PGSignalStore + 连接池，并把清理挂到

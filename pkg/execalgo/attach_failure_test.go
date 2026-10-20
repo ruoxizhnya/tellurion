@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/execalgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/execalgo"
 )
 
 // TestIsKnownStyle 是信号校验期静态判据的正反例。

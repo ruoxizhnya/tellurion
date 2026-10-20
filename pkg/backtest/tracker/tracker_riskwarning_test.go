@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/fees"
 	"tellurion/pkg/marketdata"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // AUD-22 — 风险警示（ST 系）股票当日累计买入上限。

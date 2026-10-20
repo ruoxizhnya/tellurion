@@ -3,8 +3,8 @@ package bootstrap_test
 import (
 	"testing"
 
-	"tellurion/pkg/bootstrap"
 	"github.com/stretchr/testify/assert"
+	"tellurion/pkg/bootstrap"
 )
 
 // P0-4: 鉴权默认关闭 —— 无 JWT_SECRET 时服务静默进入 open-access，

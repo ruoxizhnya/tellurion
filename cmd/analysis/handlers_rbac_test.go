@@ -26,10 +26,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/auth"
-	"tellurion/pkg/live"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/auth"
+	"tellurion/pkg/live"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────

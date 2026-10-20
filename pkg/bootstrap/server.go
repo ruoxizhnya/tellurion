@@ -12,12 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/httpserver"
 	"tellurion/pkg/storage"
-	"github.com/spf13/viper"
 )
 
 // ─── 限流中间件（原 cmd/analysis/middleware.go，逐字搬运）──────────────

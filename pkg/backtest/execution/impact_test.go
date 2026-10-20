@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/fees"
 )
 
 // fixedQuote 返回一个典型报价：收盘价 10，成交量 100000（作 ADV 代理）。

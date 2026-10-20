@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/testenv"
 )
 
 func testStore(t *testing.T) *PostgresStore {

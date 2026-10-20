@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // Note: ScreenFundamentals uses pgxpool.Query which cannot be directly mocked

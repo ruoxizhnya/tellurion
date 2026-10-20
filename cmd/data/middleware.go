@@ -1,9 +1,9 @@
 package main
 
 import (
-	"tellurion/pkg/httpserver"
 	"net/http"
 	"sync"
+	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 func TestEngine_NewEngine_DefaultConfig(t *testing.T) {

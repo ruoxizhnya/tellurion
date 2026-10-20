@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"tellurion/pkg/clock"
 	"tellurion/pkg/domain"
-	"github.com/stretchr/testify/require"
 )
 
 // ─── 测试辅助 ──────────────────────────────────────────────────────

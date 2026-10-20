@@ -3,8 +3,8 @@ package contracts
 import (
 	"testing"
 
-	"tellurion/pkg/fees"
 	"github.com/stretchr/testify/assert"
+	"tellurion/pkg/fees"
 )
 
 // TestDefaultTradingConfig_Values (S7-P2-1) verifies every field of the

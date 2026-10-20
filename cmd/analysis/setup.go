@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/authz"
@@ -31,7 +32,6 @@ import (
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
-	"github.com/spf13/viper"
 )
 
 // ─── 委托 shim（共享 builder 已上收 internal/bootstrap）────────────────

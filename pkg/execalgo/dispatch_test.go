@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/execalgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/execalgo"
 )
 
 // dispatchParent 构造一个 7 片 TWAP 父单的 AttachSpec（窗口 7 个自然日）。

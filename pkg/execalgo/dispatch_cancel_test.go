@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/execalgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/execalgo"
 )
 
 // TestDispatcher_CancelDropsRemainingKeepsFilled 是 K18 的派发器层核心判据：

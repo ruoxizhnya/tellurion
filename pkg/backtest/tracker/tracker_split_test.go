@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/backtest/contracts"
+	"tellurion/pkg/domain"
 )
 
 // TestTracker_ProcessSplit_StockDividend —— 原始价口径：10 送 5，股数 1000→1500、

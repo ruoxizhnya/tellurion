@@ -15,9 +15,9 @@ verified-by: 第 3 代台账（DBT-13~18，6 项，全 ⬜）整体归档（2026
 
 # TASKS — 未完成项
 
-> **只放未完成项**，完成即标 ✅（附日期）并移入 `archive/`。历史代：[archive/TASKS-2026-10-14-archived.md](archive/TASKS-2026-10-14-archived.md)、[archive/TASKS-2026-10-16-archived.md](archive/TASKS-2026-10-16-archived.md)（第 1 代 35 项）、[archive/TASKS-2026-10-16-gen2-archived.md](archive/TASKS-2026-10-16-gen2-archived.md)（第 2 代 27 项，追加式滚存 + 2026-10-19 状态标记订正，正文未改）。
+> **只放未完成项**，完成即标 ✅（附日期）并移入 `archive/`。历史代：[archive/TASKS-2026-10-14-archived.md](TASKS-2026-10-14-archived.md)、[archive/TASKS-2026-10-16-archived.md](TASKS-2026-10-16-archived.md)（第 1 代 35 项）、[archive/TASKS-2026-10-16-gen2-archived.md](TASKS-2026-10-16-gen2-archived.md)（第 2 代 27 项，追加式滚存 + 2026-10-19 状态标记订正，正文未改）。
 > 状态标记：`⬜ 待做` / `🔶 进行中` / `⛔ 阻塞（有未解除前置）` / `✅ 完成（附日期）`
-> 每张 task 必须写全六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../AGENTS.md)：**独立 agent 拿着 task + 它显式引用的冻结契约，不需要读其他 task、不需要问人，就能完成并自证。**
+> 每张 task 必须写全六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../../AGENTS.md)：**独立 agent 拿着 task + 它显式引用的冻结契约，不需要读其他 task、不需要问人，就能完成并自证。**
 
 ---
 
@@ -141,7 +141,7 @@ verified-by: 第 3 代台账（DBT-13~18，6 项，全 ⬜）整体归档（2026
 
 ## 维护本文件
 
-- 新增 task 必须按 [AGENTS.md §8.5](../AGENTS.md) 写全六字段（目标/上下文/要求/约束与非目标/验收/边界）。
+- 新增 task 必须按 [AGENTS.md §8.5](../../AGENTS.md) 写全六字段（目标/上下文/要求/约束与非目标/验收/边界）。
 - 完成即标 ✅（附日期）并移入 `archive/`；本文件只留未完成项。
 - **派工前必须先证伪工单前提**（第 3 代的来由就是第 2 代 ✅ 记录正文里的"另立"，而其中三条登记已被源码/真库证伪）：读码核对 → 不符就停下回报 + 给拆法，不硬做、不扩范围。
 - 大任务开工前，若六字段不够细，先补细再派工——**独立可运行判据达不到 = task 没写好，不是 agent 的问题**。

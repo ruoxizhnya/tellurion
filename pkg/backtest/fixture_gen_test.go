@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/marketdata"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/marketdata"
 )
 
 // TestGenerateFixtures generates the 4 Phase 1 determinism regression fixtures.

@@ -25,10 +25,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/live"
 	"tellurion/pkg/live/reconciliation"
-	"github.com/spf13/viper"
 )
 
 // traderAccountView 把 live.LiveTrader 的账户视图适配成对账两侧的快照

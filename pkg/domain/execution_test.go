@@ -3,8 +3,8 @@ package domain
 import (
 	"testing"
 
-	"tellurion/pkg/fees"
 	"github.com/stretchr/testify/assert"
+	"tellurion/pkg/fees"
 )
 
 // TestDefaultExecutionConfig_UsesCanonicalFees (S7-P1-4, D1)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/bootstrap"
@@ -16,7 +17,6 @@ import (
 	"tellurion/pkg/observability"
 	"tellurion/pkg/strategy"
 	_ "tellurion/pkg/strategy/plugins"
-	"github.com/spf13/viper"
 )
 
 // httpClient wraps the outbound data-service / ai-service calls.

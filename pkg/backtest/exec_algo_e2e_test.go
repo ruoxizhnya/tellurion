@@ -37,11 +37,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/spf13/viper"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
-	"github.com/spf13/viper"
 )
 
 // execAlgoFlatBars 造确定性振荡 bar：close 在 10.00/10.02 间交替，

@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/clock"
@@ -50,7 +51,6 @@ import (
 	"tellurion/pkg/msgbus"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
-	"github.com/spf13/viper"
 )
 
 // kernelPublisher 是内核写入 audit.message_log 的 publisher 标识（继承

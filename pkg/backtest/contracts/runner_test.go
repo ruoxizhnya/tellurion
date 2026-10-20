@@ -20,9 +20,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/domain"
-	"github.com/stretchr/testify/assert"
 )
 
 // stubRunner is a minimal concrete type that satisfies BacktestRunner.
