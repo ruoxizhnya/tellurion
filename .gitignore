@@ -103,3 +103,10 @@ FRONTEND_*.md
 # 这正是本文件上面 P0-3 那条注释记下的失败形状 —— 宽规则静默忽略本该入库的新文件。
 # 只收窄到 memory/，其余内容留在 `git status` 里可见。
 .workbuddy/memory/
+
+# go.work 是开发机的本地联调产物（ADR-D31 / D29 §9 C2）：让 core 同时指向
+# ../tellurion-contracts 与 ../tellurion-kit 的本地目录，不入库。
+# CI 与 Docker 没有它 —— 它们按 go.mod 的 require 版本 + go.sum 去拉真实版本，
+# 这正是我们想要的「别人机器上构建行为一致」。
+go.work
+go.work.sum
