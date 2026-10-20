@@ -122,6 +122,16 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > ③ `contracts` 的 port 表把已存在（`EngineRunner`/`SignalProvider`）与设计中（`DataPort`/`BrokerGateway`/`ExecutionPort`，源码 0 命中）混在一起 → 加状态列；并澄清 `RunSpec`/`SignalSpec`/`ResultSpec` 是**设计术语**，今天由 `BacktestRequest`/`BacktestResponse` 承载。
 > ④ `data` 仓归属表曾按类型名臆造表名（`market.ohlcv`/`market.symbols`/`ingest.data_sync_state` 等**一个都不存在**）→ 用全量内联 DDL 实测重写。
 > **`tellurion-docs` 同时改造为「总体设计知识库」**（此前两轮被排除）：新增 `SYSTEM-DESIGN` / `REPO-MAP` / `SERVICE-INDEX` 三份总体层索引、`AGENTS.md`、链接检查脚本与 CI；修 153 条拆仓后坏链（含 41 条 `file:///Users/.../quant-trading/*` 本机路径）；`ARCHITECTURE.md` 降级为历史 Reference。活跃层 198 条链接 0 断。
+> **第四批（2026-10-20 深夜，已推送）**：**逐仓审查「职责与边界是否写清」**，修掉 8 类问题（证据逐条 grep 过）：
+> ① **core 的 AGENTS 三节失真**（932 行，停在 2026-09-21）：§3 目录结构列着 `pkg/ai/**`（15 子包）/ `pkg/validation` / `pkg/tools` / `web/src/`——全部已迁 agent 或 ui；§4 工作范围把「前端」算成本仓的活；§1/§6/§9 有 58 行前端规范。→ 目录换成实测（38 个 pkg 全覆盖）+「已迁出」表；§6 前端整节换指针；§9 UI 条目打 `[ui]`；新增 **§0 分仓拓扑：我在哪**（12 仓表 + 三条硬规则）。
+> ② **迁移机制我在上一版写错**：说「core 没有迁移执行器」，实际是 `migrationStatements()` + `migrate()` 启动按序执行（幂等、无版本表、无 down、无记录），`migrations/*.sql` 是**不执行的**历史镜像；我用的 `grep 'func Migrate'` 漏了方法接收者的小写签名。六仓 db-schema 已按真实机制重写。
+> ③ **订单/成交/持仓的归属三方矛盾**：broker 写「归运行域（`run` 或 `exec`，待裁）」、orchestration 拥有 `run`——字面合起来 = 让「只派活不裁决」的服务拥有交易真相。→ 统一为 **core `quant`**；`run` 明确是**任务域**（含 `strategy_state` 检查点），不含订单。
+> ④ **analytics 自相矛盾**：四处写「不写业务表/只读是硬边界」，但它拥有 `analysis.*` 五张结果表 → 统一为「只读**上游**，只写自己的结果表」。
+> ⑤ **两个 `audit` 没说清**：`audit` schema（事件存储，core 的 eventstore/msgbus，用于重放）vs `risk.audit_logs`（人操作审计）→ 两边各加一段判据。
+> ⑥ **6 个服务仓不说「今天的实现在 core 哪里」** → 每仓 AGENTS §1 加「今天的实现」一行（如 risk = `pkg/risk` + `pkg/compliance` + `pkg/alert`）。
+> ⑦ **未裁事项散落**：`cmd/dualrun` 只写在 orchestration 单仓文档里 → core `repo-inventory.md` 新增 **§3.1 未裁边界 U1~U5**，单仓只留指针。其中 **U3（`strategy_state` 迁出后 core 缺 `RunStateStore` port）** 已补进 QT-44 的前置——不补这条，X5 一动 core 就编不过。
+> ⑧ 顺带：ui「不做权限模型」太含糊 → 改成「不做权限**判定**，只做展示级隐藏（隐藏不等于保护）」；orchestration 的「持有回测结果真相」→「持有结果**内容**」（它本来就该存指针 + 三 hash）。
+> 验证：十仓 292 条相对链接 0 断；core 的 `tools/check_doc_links.py` 通过；docs 仓活跃层 0 断。
 > **剩余**：① `tools/check_repo_autonomy.py`（本单 ①，未做）；③ 的 `docs` 仓 CI/TASKS（用户本轮明确排除 `docs`）；④ core `AGENTS.md` 的「分仓规则」节；⑤ 各仓 CI 首次绿的线上确认（8 个新仓的 workflow 是本次新增，首跑结果待看）。
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~**R6**（R6 = 三份功能边界契约存在且非空），**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
@@ -454,7 +464,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：批量扫描的算力出口独立成服务；`backtest_jobs` / `strategy_state` 归属迁出内核；三 hash 落 `run_artifacts`。
 - **② 上下文**：`orchestration-service-design.md`（D22）+ BE-03；`BatchEngine` 已按 `contracts.EngineRunner` 注入，摘出成本低。
-- **③ 要求**：① `job`/`batch`/`walkforward` 从 `pkg/backtest` 上移；② worker 池调度 + 断点续跑协调；③ `run` schema（`backtest_jobs`/`walk_forward_reports`/`run_artifacts`）；④ `/api/runs/{id}/provenance` 端点；⑤ 内核通过 port 读写这些表。
+- **③ 要求**：① `job`/`batch`/`walkforward` 从 `pkg/backtest` 上移；② worker 池调度 + 断点续跑协调；③ `run` schema（`backtest_jobs`/`walk_forward_reports`/`run_artifacts`/`strategy_state`）；④ `/api/runs/{id}/provenance` 端点；⑤ 内核通过 port 读写这些表。
+- **② 前置（U3，2026-10-20 审查补登记）**：`strategy_state` 迁 `run` 之前，core 必须先有 **`RunStateStore` port**（`Save(ctx, runID, state)` / `Load(ctx, runID)`），否则**内核失去状态持久化、X5 一动就编不过**。这个 port 以前谁都没登记，只在 `orchestration-service-design.md` 里被当成"内核走 port"一句带过。
 - **④ 约束与非目标**：不在内核保留编排逻辑；不改 `EngineRunner` 契约；不做 K8s。
 - **⑤ 验收**：`pkg/backtest` 里 `job|batch|walkforward` 零命中；同一 batch 在编排服务与旧路径结果一致；provenance 端点返回三 hash。
 - **⑥ 边界**：只做编排与结果归属。
