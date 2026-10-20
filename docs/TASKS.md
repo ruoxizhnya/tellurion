@@ -81,8 +81,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
   - ✅ **运行时标识全部改名**（用户 2026-10-20 追加要求）：库名 `quant_trading`→`tellurion`、测试库→`tellurion_test`、k8s namespace/configmap/ingress/host、镜像名、compose 变量、JWT Issuer、HTTP UA、默认 DSN、vscode workspace；**旧 Docker 卷名按事实保留在注释里**（改了会让运维删错卷）；
   - ✅ 验证：core/agent `go build ./...`+`go vet ./...` 绿；`tools/check_deploy_consistency.py` 全绿（含 compose↔k8s↔config 库名一致）；`check_doc_links.py` 40 md 零坏链；
   - ✅ 另外 8 仓的**本地占位仓**已建（README/AGENTS/go.mod/doc.go，`go build ./...` 全绿）：`contracts` / `kit` / `data` / `strategy` / `risk` / `analytics` / `orchestration` / `broker`；
-  - ⏳ **未完成（阻塞）**：12 个仓的**远端创建与 push**。当前 `gh` 登录身份是 `ruoxizhang`，而 owner 是 `ruoxizhnya`（两个不同账号），GitHub 拒绝跨账号建仓。解法见 `Workspace/push-tellurion-repos.sh` 的身份守卫输出（`gh auth login` 切账号 / 网页建仓加 collaborator / 改 owner）；
-  - ⏳ 未做：旧仓 archive、两份 `AGENTS.md`（agent/ui/docs 仓）的三件套、QT-08 的自检脚本。
+  - ✅ 12 个仓的**远端创建与 push**（2026-10-20 14:10）：全部在 `ruoxizhnya` 下建好，`main` 已推。中途撞 GitHub 二级限流（连续建 10 仓后 `temporarily blocked from content creation`），最后 2 仓由退避脚本补上；
+  - ✅ 首次 CI 发现的**两个改名回归已修**：gofmt（121 文件 import 排序）+ 归档 5 条坏链；复跑后 `Doc link check` 与 `gofmt` 均 success；
+  - ⏳ 未做：旧仓 archive（**待用户确认**，建议观察一周）、agent/ui/docs 三仓的 AGENTS 三件套、QT-08 的自检脚本；
+  - 📌 剩下的 CI 红是**预存在**问题，已立 **QT-61**（NT catalog 生成物未入库 / agent OBS-08 注册表与护栏漂移 / ui 疑似 flaky / core universe 需成分数据 seed）。
 
 ---
 

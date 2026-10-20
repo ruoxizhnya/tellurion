@@ -68,9 +68,9 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 | 项 | 状态 |
 |---|---|
 | 12 个仓的**本地目录** | ✅ 全部就绪，各有一笔初始 commit（4 个迁移仓含全部代码；8 个占位仓含 README/AGENTS/go.mod/doc.go） |
-| 12 个仓的**远端创建 + push** | ⏳ **阻塞**：`gh` 当前登录 `ruoxizhang`，而 owner 是 `ruoxizhnya`（两个不同 GitHub 账号，API 拒绝跨账号建仓） |
-| 解锁方式 | `gh auth login` 切到 `ruoxizhnya` → 跑 `Workspace/push-tellurion-repos.sh`（幂等：已存在则跳过创建，remote 已存在则改写）；或网页建空仓 + 加 `ruoxizhang` 为 Write collaborator 后重跑 |
-| 旧仓 archive | ⏳ 等新仓 push 成功后再做（先 archive 会让改动无处可回退） |
+| 12 个仓的**远端创建 + push** | ✅ **已完成**（2026-10-20 14:10）：12/12 仓在 `ruoxizhnya` 下创建，`main` 分支已推送。过程中遇到 GitHub 二级限流（连续建 10 仓后被 `temporarily blocked from content creation`），最后 2 仓由 `finish-two-repos.sh` 退避重试补上 |
+| 复用脚本 | `Workspace/push-tellurion-repos.sh`（幂等：已存在则跳过创建，remote 已存在则改写）——以后加新仓可直接复用；`finish-two-repos.sh` 是限流退避版，可弃 |
+| 旧仓 archive | ⏸ **待确认**：新仓已可独立工作，但 archive 会让旧仓变成只读；建议再观察一周（等 S0 的 tag 与 CI 稳定）再归档 |
 
 > 占位仓的含义：**有仓、有边界、无实现**。README 写明触发条件，AGENTS 写明「台账出现本仓单号前不要写实现」，避免 agent 进去后凭空造代码。
 
