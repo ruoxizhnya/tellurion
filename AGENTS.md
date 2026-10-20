@@ -195,7 +195,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 ├── cmd/
 │   ├── analysis/                 # 主 HTTP 服务 (:8085)：API + 内嵌前端静态资源 + AI 四族路由纯反代
 │   ├── data/                     # 数据服务 (:8081)：同步 / connector / ETL
-│   └── dualrun/                  # 双跑对账（⚠️ 归属待裁，见 repo-inventory「未裁边界」）
+│   └── dualrun/                  # K15 双跑对账 = 引擎对齐门禁（2026-10-20 裁决**留 core**，见 repo-inventory §3）
 ├── pkg/
 │   ├── api/                      # HTTP 层（gin 路由与中间件）
 │   ├── bootstrap/                # 启动装配（配置 / 监听 / 依赖注入）

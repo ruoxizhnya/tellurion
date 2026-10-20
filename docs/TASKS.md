@@ -132,6 +132,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > ⑦ **未裁事项散落**：`cmd/dualrun` 只写在 orchestration 单仓文档里 → core `repo-inventory.md` 新增 **§3.1 未裁边界 U1~U5**，单仓只留指针。其中 **U3（`strategy_state` 迁出后 core 缺 `RunStateStore` port）** 已补进 QT-44 的前置——不补这条，X5 一动 core 就编不过。
 > ⑧ 顺带：ui「不做权限模型」太含糊 → 改成「不做权限**判定**，只做展示级隐藏（隐藏不等于保护）」；orchestration 的「持有回测结果真相」→「持有结果**内容**」（它本来就该存指针 + 三 hash）。
 > 验证：十仓 292 条相对链接 0 断；core 的 `tools/check_doc_links.py` 通过；docs 仓活跃层 0 断。
+> **第五批（2026-10-20，已推送）**：**U1 裁决落地——`cmd/dualrun` 留 core**（用户拍板）。已从「未裁」挪进 `repo-inventory.md` §3「已裁决的边界」，并同步 core AGENTS §3、`repo-topology-and-naming.md` §3.2/§3.3、QT-44 非目标、orchestration 三处（AGENTS/README/db-schema）、docs 仓 REPO-MAP。
+> **顺带纠正我先前给的一条理由**：我写「它读订单/成交（运行域真相）」——**不准确**。`cmd/dualrun` 读的是**回测内**的成交明细（`pkg/backtest/tracker` 在进程内产出），不碰实盘 `quant.orders`/`fills`。真正理由是：要**同进程**链接 `pkg/backtest` + `pkg/backtest/nautilus` 两套内核（跨进程拿不到同一次运行的逐笔成交），且它是**引擎的验收门**（CI `align-gate`），不是生产服务。
+> 未裁边界由 5 条降为 4 条（U1 留空号，不重编号——避免各仓文档里的 `U3` 指针失效）。
 > **剩余**：① `tools/check_repo_autonomy.py`（本单 ①，未做）；③ 的 `docs` 仓 CI/TASKS（用户本轮明确排除 `docs`）；④ core `AGENTS.md` 的「分仓规则」节；⑤ 各仓 CI 首次绿的线上确认（8 个新仓的 workflow 是本次新增，首跑结果待看）。
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~**R6**（R6 = 三份功能边界契约存在且非空），**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
@@ -466,7 +469,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **② 上下文**：`orchestration-service-design.md`（D22）+ BE-03；`BatchEngine` 已按 `contracts.EngineRunner` 注入，摘出成本低。
 - **③ 要求**：① `job`/`batch`/`walkforward` 从 `pkg/backtest` 上移；② worker 池调度 + 断点续跑协调；③ `run` schema（`backtest_jobs`/`walk_forward_reports`/`run_artifacts`/`strategy_state`）；④ `/api/runs/{id}/provenance` 端点；⑤ 内核通过 port 读写这些表。
 - **② 前置（U3，2026-10-20 审查补登记）**：`strategy_state` 迁 `run` 之前，core 必须先有 **`RunStateStore` port**（`Save(ctx, runID, state)` / `Load(ctx, runID)`），否则**内核失去状态持久化、X5 一动就编不过**。这个 port 以前谁都没登记，只在 `orchestration-service-design.md` 里被当成"内核走 port"一句带过。
-- **④ 约束与非目标**：不在内核保留编排逻辑；不改 `EngineRunner` 契约；不做 K8s。
+- **④ 约束与非目标**：不在内核保留编排逻辑；不改 `EngineRunner` 契约；不做 K8s；**不搬 `cmd/dualrun`**——它 2026-10-20 已裁决留 core（要同进程链接两个内核，且是引擎的验收门，见 `repo-inventory.md` §3）。
 - **⑤ 验收**：`pkg/backtest` 里 `job|batch|walkforward` 零命中；同一 batch 在编排服务与旧路径结果一致；provenance 端点返回三 hash。
 - **⑥ 边界**：只做编排与结果归属。
 

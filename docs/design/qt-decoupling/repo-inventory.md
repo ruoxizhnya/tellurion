@@ -54,7 +54,7 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 | 8 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-strategy` | `tellurion-strategy` | X2 策略资产（定义 / 版本 / artifact）；运行时留 core |
 | 9 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-risk` | `tellurion-risk` | X3 风控规则真相源；`RiskPolicy` 同步裁决留 core |
 | 10 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-analytics` | `tellurion-analytics` | X4 分析（`cmd/analysis` + 归因 / 基准纯函数） |
-| 11 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-orchestration` | `tellurion-orchestration` | X5 编排 / worker（`pkg/backtest/batch` + `walkforward`；`cmd/dualrun` 归属待裁） |
+| 11 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-orchestration` | `tellurion-orchestration` | X5 编排 / worker（`pkg/backtest/batch` + `walkforward`）；**`cmd/dualrun` 不属本仓**（留 core，见 §3） |
 | 12 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-broker` | `tellurion-broker` | X6 交易网关（`pkg/live` + 实盘侧） |
 
 **触发条件不变**（ADR-027 / D20 口径）：需要独立伸缩或独立部署，且只走高 / 低频路径；逐 bar、逐笔、风控裁决**永驻 core 进程内**。**未触发不建仓**。
@@ -110,6 +110,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | `quant-trading-worktrees/` | 目录容器，不是仓 |
 | `contracts/` 顶层数据契约文件 | **core 内目录，不是仓，且不迁**：运行时按 cwd 相对路径发现（`cmd/data/setup.go:223-225`），搬走会让字典静默加载失败（ADR-D31） |
 | `nautilus_trader` / `vnpy` / `claudeer` / `gdpr-preferenc` | 上游或其他项目，不属本清单 |
+| **`cmd/dualrun`（K15 双跑对账）** | **留 core**（2026-10-20 用户裁决）。理由：① 它必须在**同一进程**里链接两个内核（`pkg/backtest` + `pkg/backtest/nautilus` 适配器）与 `tracker` / `metrics` / `storage`，跨进程就拿不到「同一次运行的逐笔成交」；② 它是**引擎的验收门**（CI `align-gate`），不是生产服务，没有独立伸缩需求。**被否选项**：搬 `tellurion-orchestration`——那会让「只派活、不跑引擎」的服务内置一个引擎运行器，X5 的边界当场破掉 |
 
 ---
 
@@ -117,14 +118,19 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 
 > 单仓文档里写"待裁"的条目，读的人无法判断该找谁拍。所以凡是"归属没定"的，一律登记在这里，并在单仓文档里只留一行指针。
 > 这张表在 2026-10-20 审查时建立——之前 `cmd/dualrun` 的归属只写在 `tellurion-orchestration` 的 AGENTS 里，等于没人知道去哪看。
+>
+> **当前 4 条**：U1 已于 2026-10-20 裁决（`cmd/dualrun` 留 core，见 §3）。**编号不回收**——U1 留空号，避免各仓文档里的 `U3` 指针失效。
 
 | # | 待裁事项 | 现状 | 备选与倾向 | 影响 |
 |---|---|---|---|---|
-| U1 | `cmd/dualrun`（双跑对账）归 core 还是 `tellurion-orchestration` | 代码在 core | 倾向 **留 core**：它读订单/成交（运行域真相），而编排只派活不裁决 | 若判给 orchestration，必须同时把订单读模型搬过去 → 与"只派活"冲突 |
 | U2 | 订单 / 成交 / 持仓 的最终归属 | **core 的 `quant`**（`quant.orders` / `fills` / `positions` / `portfolio_snapshot`） | 将来拆 `exec` schema 时**先立 ADR**；在此之前 broker 只透传，不做本地真相 | 2026-10-20 审查发现 broker 文档写"run 或 exec（待裁，倾向 run）"——**已纠正**：`run` 是任务域，不含订单 |
 | U3 | `strategy_state` 迁 `run` 之后，core 侧的持久化义务 | 设计已定"迁 `run`"，core 走 port | core 需要新增 `RunStateStore` port（Save/Load），实现由 orchestration 提供 | **尚未登记为工单**；不补这条，X5 一动 core 就编不过 |
 | U4 | `eventstore` / `msgbus`（`audit` schema）是否出仓 | 留 core，无出仓计划 | 倾向**永不出仓**：事件存储是引擎与总线的底座，拆出去等于把热路径变成远程调用 | 若出仓，`audit.message_log` 的写入会被卷进网络抖动 |
 | U5 | `testenv` / `testutil`（测试脚手架） | 留 core | 倾向**留 core**（服务仓各自造，或多仓共享时再进 `kit`） | 进 `kit` 会让 `kit` 沾上测试依赖（`testing` 包） |
+
+> **原 U1（已裁，不再讨论）**：`cmd/dualrun` 归 core 还是 orchestration —— 2026-10-20 裁决 **留 core**，理由与被否选项见 §3。
+> 附纠正：我先给的理由「它读订单/成交（运行域真相）」**不准确** —— 它读的是**回测内**的成交明细（`pkg/backtest/tracker` 在进程内产出），
+> 不碰实盘 `quant.orders` / `fills`。真正的理由是「同进程链接两套内核」+「引擎验收门」，这两条都不随 X5 改变。
 
 ---
 

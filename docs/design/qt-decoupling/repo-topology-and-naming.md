@@ -104,7 +104,7 @@
 | 8 | `tellurion-strategy` | 触发式 | `pkg/strategy` 的**定义/资产一半**（版本、artifact、resolve）；**运行时留 core** | 同上 |
 | 9 | `tellurion-risk` | 触发式 | `pkg/risk` 的**规则真相源**；**`RiskPolicy` 同步裁决留 core** | 同上 |
 | 10 | `tellurion-analytics` | 触发式 | `cmd/analysis`（**已有进程入口**，:8085）+ 归因/基准纯函数（新增部分见 `analytics-service-design.md`，**代码位置待核实**） | 同上 |
-| 11 | `tellurion-orchestration` | 触发式 | `pkg/backtest/batch` + `pkg/backtest/walkforward` + `cmd/dualrun`（**归属待裁决**，见下） | 同上 |
+| 11 | `tellurion-orchestration` | 触发式 | `pkg/backtest/batch` + `pkg/backtest/walkforward`（`cmd/dualrun` **不搬，留 core**，见 §3.2 末） | 同上 |
 | 12 | `tellurion-broker` | 触发式 | `pkg/live` + `pkg/execution` 的实盘侧 | 同上 |
 
 **触发条件**（ADR-027 / D20 口径）：该服务需要独立伸缩或独立部署，且**只走高/低频路径**——逐 bar、逐笔、风控裁决**永驻 core 进程内**。**未触发前不建仓**：空壳仓会让 agent 无事可做，反而制造「跨仓才能验证」。
@@ -113,7 +113,7 @@
 
 1. **`data` 与 `analytics` 已经是有 `main` 的进程**（`cmd/data` / `cmd/analysis`，各有 Dockerfile），拆仓成本最低；另外四个（strategy / risk / orchestration / broker）目前只有库，拆之前要先有 `main`。
 2. **`pkg/strategy` 与 `pkg/risk` 是「切一半」而不是「整包搬」**：定义/真相源出去，运行时/同步裁决留 core（D6 / D20）。把整包搬走会让内循环变成远程调用（硬否决）。
-3. **`cmd/dualrun`（K15 双跑）归属未定**：它同时依赖两个内核的进程内调用，既像 orchestration 的能力，又必须留在能同时链接两个内核的地方。**下次评估 X5 时必须先回答它归谁**，否则双跑会在拆分中失去运行位置。
+3. **`cmd/dualrun`（K15 双跑）已裁决留 core（2026-10-20）**：它必须在同一进程里链接两个内核（`pkg/backtest` + `pkg/backtest/nautilus`）与 `tracker`/`metrics`/`storage`，跨进程拿不到同一次运行的逐笔成交；且它是引擎的验收门（CI `align-gate`），不是生产服务。**X5 不搬它**，`tellurion-orchestration` 只承接 job/batch/walkforward 的排队与状态。
 
 ### 3.3 每仓的职责与禁止
 
@@ -121,7 +121,7 @@
 |---|---|---|
 | `tellurion-contracts` | `EngineRunner`/`SignalProvider`/`ExecutionPort`/`BrokerPort`/`DataPort`；`RunSpec`/`SignalSpec`/`ResultSpec`；值对象（`BacktestResult`/`OHLCV`/`Trade`/`Factor*`/`Direction`…）；哨兵错误；abi v2 常量与上限；OpenAPI 源 | 实现、业务规则、DB 访问、任何 `Impl`/`Config`/`Options` 类型 |
 | `tellurion-kit` | logging · errors · id · decimal · statistics · httpclient · httpserver · auth/authz · observability · clock · sandbox(staticcheck/runner) · **db**（仅 connection/migrate/DSN） | 任何业务概念（backtest/strategy/order/factor/market…）；任何表结构 |
-| `tellurion`（core） | 引擎、行情、风控、策略运行时、存储、因子、`sandbox/wasm`、`domain` 中**仅 core 内部使用**的类型 | import agent/ui；装配逻辑留 `pkg/kernel`（QT-50 外移） |
+| `tellurion`（core） | 引擎、行情、风控、策略运行时、存储、因子、`sandbox/wasm`、`cmd/dualrun`（K15 对齐门禁）、`domain` 中**仅 core 内部使用**的类型 | import agent/ui；装配逻辑留 `pkg/kernel`（QT-50 外移） |
 | `tellurion-agent` | 实验循环、基因池、验证、工具编排、Copilot、`ai.*` schema | import core 实现包；逐 bar/逐笔远程调用；直连 core 表 |
 | `tellurion-ui` | 前端 | 直连 DB |
 | `tellurion-docs` | ADR、SPEC、指南、跨仓导航 | 代码 |
