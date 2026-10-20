@@ -1,0 +1,105 @@
+# ── Credentials (never commit) ──────────────────
+.github-token
+.env
+.env.local
+.env.*.local
+
+# ── IDE ────────────────────────────────────────
+.idea/
+.vscode/
+.trae/
+*.swp
+*.swo
+*~
+.sublime-workspace
+.sublime-project
+
+# ── OS ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Go ─────────────────────────────────────────
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/test/
+*.test
+*.out
+/bin/
+/dist/
+# Scratch dir for locally built service binaries used by runtime forensics.
+/build/
+
+# Root-level Go build outputs (cmd/analysis, cmd/ai, etc. — `go build` produces
+# binary named after the package at CWD root if no -o flag is given).
+/analysis
+/data
+/ai
+
+# 注意（2026-09-16 修复，TASKS P0-3）：此处原有 `*_test.go` 规则，
+# 会静默忽略所有新建的 Go 测试文件，导致新测试无法入库、CI 也跑不到。已移除。
+# Go 测试文件必须纳入版本控制；构建产物由上面的 *.test / /bin/ 等规则覆盖。
+
+# Go coverage / profiling
+*.prof
+*.pprof
+coverage.html
+coverage.out
+
+# ── Node.js / Frontend (web/) ──────────────────
+# Root-level node_modules (e.g. from running npx at repo root) — never commit.
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+web/.cache/
+web/tsconfig.tsbuildinfo
+web/.eslintcache
+web/.parcel-cache
+web/coverage/
+
+# ── E2E Test Artifacts ─────────────────────────
+e2e/node_modules/
+e2e/test-results/
+e2e/e2e-report/
+e2e/playwright-report/
+# Ad-hoc `--output` dirs (e.g. when the sandbox blocks playwright's startup
+# cleanup of the default output dir). Never meant to be tracked.
+e2e/.pw-out-*/
+# Visual baselines are environment-dependent (fonts/rendering) and were never
+# tracked; each machine regenerates them on first run (ODR-063).
+e2e/tests/visual-regression.spec.ts-snapshots/
+
+# ── Python / AI ────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── Docker ─────────────────────────────────────
+docker-compose.override.yml
+
+# ── Generated / Temp Files ─────────────────────
+FRONTEND_*.md
+*.bak
+*.tmp
+*.temp
+
+# ── AI Session State (gitignored, per-session) ─────
+.session/
+.session/*
+# AI 助手的会话/项目记忆（本机状态，随会话演进，不进版本库）。
+# 注意：不删除该目录，只是不跟踪。
+.workbuddy-ai/
+
+# AI 助手的本机记忆目录（`.workbuddy/`）—— 只忽略 memory/ 这一层。
+#
+# 有意**不用** `.workbuddy/` 整目录规则：同一目录下还会有项目级 `skills/`
+# （那是要入库的团队资产），整目录忽略会把将来新建的 skill 静默吞掉。
+# 这正是本文件上面 P0-3 那条注释记下的失败形状 —— 宽规则静默忽略本该入库的新文件。
+# 只收窄到 memory/，其余内容留在 `git status` 里可见。
+.workbuddy/memory/

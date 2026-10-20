@@ -1,0 +1,144 @@
+%% ============================================================
+%% Quant Lab · quant-trading 构件图（高层抽象版）
+%% 大模块 + 模块内聚合子块 + 主数据流；明细版见 quant-trading-components.mmd
+%% ============================================================
+
+flowchart TB
+
+%% ─────────── 外部依赖 ───────────
+subgraph EXT["外部依赖"]
+  EXT_DS["行情数据源<br/>tushare（主）· 东财 / 巨潮 / 雪球 等"]:::ext
+  EXT_LLM["LLM API"]:::ext
+  EXT_XTP["XTP 券商柜台（实盘预留）"]:::ext
+end
+
+%% ─────────── 文档仓 ───────────
+DOCS["quant-trading-docs<br/>ADR · VISION · guides"]:::docn
+
+%% ─────────── 前端 ───────────
+subgraph FE["前端 quant-trading-ui · Vue 3"]
+  FE_APP["nginx :8080 SPA<br/>13 页面 · Pinia · api 客户端 14（JWT）"]:::fe
+  FE_E2E["Playwright E2E"]:::fe
+end
+
+%% ─────────── analysis-service ───────────
+subgraph ANA["analysis-service :8085 · API 网关 + 业务主体"]
+  ANA_HTTP["HTTP 面<br/>gin · 中间件 · handlers 25+ 族"]:::anasvc
+  ANA_PROXY["纯反代<br/>/api/sync → :8081 · AI 四族 → :8086"]:::anasvc
+  ANA_KERN["模块化内核（pkg/kernel）<br/>BootOrder 11 模块冻结序<br/>eventstore → clock → … → msgbus"]:::kern
+  ANA_BT["回测族（pkg/backtest）<br/>contracts · Engine · Job/Batch/WalkForward<br/>因子预热 · 撮合 · Tracker · 绩效报表"]:::anasvc
+  ANA_SG["策略族（pkg/strategy）<br/>Registry · 插件热加载 · 表达式策略<br/>外部信号 · 检查点 · 监控"]:::anasvc
+  ANA_RX["风控 / 执行 / 合规 / 告警<br/>RiskManager · LiveTrader · OrderManager<br/>合规 4 件 · AlertManager"]:::anasvc
+end
+
+%% ─────────── data-service ───────────
+subgraph DAT["data-service :8081 · 数据摄取与因子"]
+  DAT_SYNC["同步调度<br/>Scheduler / Queue / WorkerPool"]:::datsvc
+  DAT_SRC["数据源接入<br/>TushareClient + 8 适配器 + ETL"]:::datsvc
+  DAT_FA["因子计算<br/>Computer / 定义库 D3 / 登记 D4"]:::datsvc
+  DAT_EXT["扩展数据<br/>equitydeep · 情绪 · 宏观 · 产业链"]:::datsvc
+end
+
+%% ─────────── ai-service ───────────
+subgraph AII["ai-service :8086 · AI 实验员（agent 仓）"]
+  AI_CO["Copilot + 四族路由<br/>NL → 代码 → 沙箱 → 回测"]:::aisvc
+  AI_PIPE["实验管线<br/>intent → YAML → 回测 → 实验日志"]:::aisvc
+  AI_SEA["搜索与进化<br/>TPE / 遗传 / gene_pool"]:::aisvc
+  AI_TL["工具与 LLM<br/>builtin 20 工具 · LLM client · Hermes"]:::aisvc
+end
+
+%% ─────────── core 共享库 ───────────
+subgraph COR["core 共享库（pkg · 三服务进程内共用）"]
+  COR_MD["marketdata.Router D1<br/>行情规范层唯一入口"]:::corelib
+  COR_EXPR["expression L1 + indicator L2<br/>DSL · 算子"]:::corelib
+  COR_SB["三重沙箱<br/>staticcheck / runner / wasm"]:::corelib
+  COR_DM["domain 领域模型<br/>OHLCV · PIT · 订单 · 信号"]:::corelib
+  COR_ST["storage<br/>PostgresStore 52 表 · RedisCache"]:::corelib
+  COR_MIN["mining 挖掘管线 D8<br/>沙箱 → 治理 → 登记"]:::corelib
+  COR_COST["成本与结算<br/>fees · CostModel · T+1"]:::corelib
+end
+
+%% ─────────── NT 侧车 ───────────
+subgraph NTS["NT 侧车 · Python"]
+  NT_ENG["sidecar /v1/backtest<br/>NautilusTrader 引擎"]:::ntside
+  NT_DR["cmd/dualrun K15<br/>Go / NT 双跑对齐"]:::ntside
+end
+
+%% ─────────── 基础设施 ───────────
+subgraph INFR["基础设施（宿主机）"]
+  PG[("PostgreSQL :5432<br/>6 schema · 全量数据真相")]:::infra
+  RD[("Redis :6379<br/>缓存 · session")]:::infra
+end
+
+%% ═══════════ 主数据流 ═══════════
+FE_APP -->|"HTTPS /api/* + JWT"| ANA_HTTP
+FE_E2E -.-> FE_APP
+ANA_HTTP --> ANA_PROXY
+ANA_PROXY -->|"/api/sync"| DAT_SYNC
+ANA_PROXY -->|"copilot / pipeline / explore / tools"| AI_CO
+
+ANA_HTTP --> ANA_BT
+ANA_HTTP --> ANA_SG
+ANA_HTTP --> ANA_RX
+ANA_KERN -.->|"承载"| ANA_BT
+ANA_KERN -.->|"承载"| ANA_RX
+ANA_BT -->|"订单意图 → 风控 → 撮合"| ANA_RX
+
+ANA_BT -->|"L1 DSL / L2 算子"| COR_EXPR
+ANA_SG --> COR_EXPR
+ANA_HTTP -.->|"读写 quant.* / public"| COR_ST
+ANA_BT -.->|"kernel=nautilus"| NT_ENG
+
+DAT_SYNC --> DAT_SRC
+DAT_SRC -->|"public 规范表"| COR_ST
+DAT_SRC --> EXT_DS
+DAT_FA --> COR_EXPR
+DAT_EXT --> COR_ST
+
+AI_CO --> AI_PIPE
+AI_PIPE -->|"Proposer 循环"| AI_SEA
+AI_PIPE -.->|"RunSpec 进程内调内核"| ANA_BT
+AI_CO --> COR_SB
+AI_TL --> EXT_LLM
+
+NT_DR -.->|"双跑对齐 gate"| ANA_BT
+EXT_XTP -.->|"实盘预留"| ANA_RX
+
+COR_MD -->|"物理表白名单"| COR_ST
+COR_EXPR --> COR_DM
+COR_MIN -.-> COR_SB
+COR_MIN --> COR_ST
+COR_ST --> PG
+COR_ST --> RD
+DOCS -.->|"ADR / 架构决策"| COR_DM
+
+%% ═══════════ 布局约束（组内纵向分列） ═══════════
+FE_APP ~~~ FE_E2E
+EXT_DS ~~~ EXT_LLM ~~~ EXT_XTP
+ANA_BT ~~~ ANA_SG ~~~ ANA_RX
+DAT_SYNC ~~~ DAT_FA ~~~ DAT_EXT
+AI_CO ~~~ AI_TL
+COR_MD ~~~ COR_EXPR ~~~ COR_SB ~~~ COR_DM
+COR_ST ~~~ COR_MIN ~~~ COR_COST
+NT_ENG ~~~ NT_DR
+
+%% ═══════════ 样式 ═══════════
+classDef ext fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+classDef fe fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+classDef anasvc fill:#dcfce7,stroke:#16a34a,color:#14532d
+classDef kern fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+classDef datsvc fill:#fef9c3,stroke:#ca8a04,color:#713f12
+classDef aisvc fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+classDef corelib fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+classDef ntside fill:#f3e8ff,stroke:#9333ea,color:#581c87
+classDef infra fill:#e5e7eb,stroke:#374151,color:#111827
+classDef docn fill:#f1f5f9,stroke:#64748b,color:#334155
+
+style EXT fill:#fef2f2,stroke:#dc2626
+style FE fill:#eff6ff,stroke:#2563eb
+style ANA fill:#f0fdf4,stroke:#16a34a
+style DAT fill:#fefce8,stroke:#ca8a04
+style AII fill:#f5f3ff,stroke:#7c3aed
+style COR fill:#fff7ed,stroke:#ea580c
+style NTS fill:#faf5ff,stroke:#9333ea
+style INFR fill:#f9fafb,stroke:#374151

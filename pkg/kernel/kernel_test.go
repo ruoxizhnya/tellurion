@@ -1,0 +1,630 @@
+// K1 切片 2：pkg/kernel 内核生命周期行为测试（纯内存，不碰 DB）。
+//
+// 覆盖（对应任务书 3.3）：
+//   - Boot 严格按 BootOrder 逐个 Init→Start；
+//   - 某模块 Start 失败 → 已启动的**逆序** Stop 回滚，失败模块自己不被 Stop；
+//   - Shutdown 按 BootOrder **逆序** Stop，且**幂等**（重复调用不重复 Stop）；
+//   - Module(name) 未注册返回 error；
+//   - NoopModule 可注册、可检索；
+//   - 关停时序：kernel.shutdown 在「停 msgbus 模块」之前发出（D4 落库前提）。
+package kernel_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+
+	"tellurion/pkg/clock"
+	"tellurion/pkg/kernel"
+	"tellurion/pkg/msgbus"
+)
+
+// ─── 测试脚手架 ────────────────────────────────────────────────────
+
+// recorder 顺序记录「发生了什么」。fakeModule 与 fakeBus 共享同一个
+// recorder，于是「模块生命周期调用」与「总线发布」落在同一条时间线上——
+// 这是断言「先发消息再停 msgbus」这类**跨部件时序**的关键。
+type recorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *recorder) add(e string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, e)
+}
+
+func (r *recorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+// fakeModule 实现 kernel.Module，把每次生命周期调用记进 rec。
+// failInit/failStart/failStop 用于注入失败。
+type fakeModule struct {
+	name      string
+	rec       *recorder
+	failInit  bool
+	failStart bool
+	failStop  bool
+}
+
+func (m *fakeModule) Name() string { return m.name }
+
+func (m *fakeModule) Init(context.Context) error {
+	m.rec.add("init:" + m.name)
+	if m.failInit {
+		return errors.New("boom-init:" + m.name)
+	}
+	return nil
+}
+
+func (m *fakeModule) Start(context.Context) error {
+	m.rec.add("start:" + m.name)
+	if m.failStart {
+		return errors.New("boom-start:" + m.name)
+	}
+	return nil
+}
+
+func (m *fakeModule) Stop(context.Context) error {
+	m.rec.add("stop:" + m.name)
+	if m.failStop {
+		return errors.New("boom-stop:" + m.name)
+	}
+	return nil
+}
+
+// fakeBus 实现 msgbus.MsgBus，把 Publish 记进同一个 rec。
+type fakeBus struct {
+	rec    *recorder
+	topics []string
+}
+
+func (b *fakeBus) Publish(_ context.Context, topic string, _ any) error {
+	b.rec.add("publish:" + topic)
+	b.topics = append(b.topics, topic)
+	return nil
+}
+
+func (b *fakeBus) Subscribe(string, msgbus.Handler) error { return nil }
+
+// newKernelWithFakes 装配一个含全部 10 个 fake 模块的内核。
+// configure 为可选回调，用于给指定模块注入失败。
+func newKernelWithFakes(rec *recorder, bus msgbus.MsgBus, configure func(name string, m *fakeModule)) *kernel.StandardKernel {
+	k := kernel.NewKernel(clock.NewLiveClock(), bus, nil)
+	for _, name := range kernel.BootOrder {
+		m := &fakeModule{name: name, rec: rec}
+		if configure != nil {
+			configure(name, m)
+		}
+		if err := k.Register(m); err != nil {
+			panic("Register(" + name + ") 失败: " + err.Error())
+		}
+	}
+	return k
+}
+
+// stopsOf 从事件流里抽出 Stop 的模块名（按发生顺序）。
+func stopsOf(events []string) []string {
+	var out []string
+	for _, e := range events {
+		if rest, ok := strings.CutPrefix(e, "stop:"); ok {
+			out = append(out, rest)
+		}
+	}
+	return out
+}
+
+// indexOf 返回事件在流中的下标，找不到返回 -1。
+func indexOf(events []string, want string) int {
+	for i, e := range events {
+		if e == want {
+			return i
+		}
+	}
+	return -1
+}
+
+func eqStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// ─── 1. Boot 按 BootOrder 逐个 Init→Start ──────────────────────────
+
+func TestBootFollowsBootOrder(t *testing.T) {
+	rec := &recorder{}
+	bus := &fakeBus{rec: rec}
+	k := newKernelWithFakes(rec, bus, nil)
+
+	if err := k.Boot(context.Background()); err != nil {
+		t.Fatalf("Boot 失败: %v", err)
+	}
+
+	want := make([]string, 0, len(kernel.BootOrder)*2+1)
+	for _, name := range kernel.BootOrder {
+		want = append(want, "init:"+name, "start:"+name)
+	}
+	want = append(want, "publish:"+msgbus.TopicKernelBoot)
+
+	if got := rec.snapshot(); !eqStrings(got, want) {
+		t.Errorf("Boot 调用序列不符 BootOrder 契约\n got: %v\nwant: %v", got, want)
+	}
+	// kernel.boot 必须发布（D4 起点）。
+	if len(bus.topics) != 1 || bus.topics[0] != msgbus.TopicKernelBoot {
+		t.Errorf("Boot 后发布的 topic = %v, want [%s]", bus.topics, msgbus.TopicKernelBoot)
+	}
+}
+
+// ─── 2. Start 失败 → 已启动的逆序回滚 ─────────────────────────────
+
+func TestBootRollsBackInReverseOnStartFailure(t *testing.T) {
+	const failIdx = 5 // risk-engine
+	failName := kernel.BootOrder[failIdx]
+
+	rec := &recorder{}
+	bus := &fakeBus{rec: rec}
+	k := newKernelWithFakes(rec, bus, func(name string, m *fakeModule) {
+		if name == failName {
+			m.failStart = true
+		}
+	})
+
+	err := k.Boot(context.Background())
+	if err == nil {
+		t.Fatal("Boot 应当失败（risk-engine Start 注入失败），但返回 nil")
+	}
+	if !errors.Is(err, kernel.ErrBootFailed) {
+		t.Errorf("Boot error 未包装 ErrBootFailed: %v", err)
+	}
+	if !strings.Contains(err.Error(), failName) {
+		t.Errorf("Boot error 未含失败模块名 %q: %v", failName, err)
+	}
+
+	events := rec.snapshot()
+
+	// 回滚断言：已成功 Start 的 0..failIdx-1 必须按**逆序** Stop。
+	wantStops := make([]string, 0, failIdx)
+	for i := failIdx - 1; i >= 0; i-- {
+		wantStops = append(wantStops, kernel.BootOrder[i])
+	}
+	if got := stopsOf(events); !eqStrings(got, wantStops) {
+		t.Errorf("回滚 Stop 顺序不符逆序契约\n got: %v\nwant: %v", got, wantStops)
+	}
+	// 失败模块自己没有起来，不该被 Stop。
+	if indexOf(events, "stop:"+failName) != -1 {
+		t.Errorf("失败模块 %q 不应被 Stop（它从未 Start 成功）", failName)
+	}
+	// 回滚后不得发布 kernel.boot。
+	if indexOf(events, "publish:"+msgbus.TopicKernelBoot) != -1 {
+		t.Error("Boot 失败后不应发布 kernel.boot")
+	}
+}
+
+// ─── 2c. 回滚期 Stop 失败不得静默（K12 / K1-P2-2）──────────────────
+
+// TestBootErrorCarriesRollbackStopFailures 钉住修订后的裁决：Boot 失败的
+// 返回 error 必须**同时**可见根因与回滚期的 Stop 失败（资源泄漏不能无人
+// 知晓）。对照腿（回滚全成功 → error 不带回滚后缀）证明断言不是永真。
+func TestBootErrorCarriesRollbackStopFailures(t *testing.T) {
+	const failIdx = 5 // exec-engine Start 注入失败
+	failName := kernel.BootOrder[failIdx]
+	// 让已启动模块里排位靠前的 clock（第 2 位）在回滚 Stop 时也失败。
+	const leakyName = "clock"
+
+	rec := &recorder{}
+	k := newKernelWithFakes(rec, &fakeBus{rec: rec}, func(name string, m *fakeModule) {
+		switch name {
+		case failName:
+			m.failStart = true
+		case leakyName:
+			m.failStop = true
+		}
+	})
+
+	err := k.Boot(context.Background())
+	if err == nil {
+		t.Fatal("Boot 应当失败（exec-engine Start 注入失败），但返回 nil")
+	}
+	// 根因仍为主体（errors.Is 锚点不被回滚错误破坏）。
+	if !errors.Is(err, kernel.ErrBootFailed) {
+		t.Errorf("Boot error 未包装 ErrBootFailed: %v", err)
+	}
+	// 根因 message 可见。
+	if !strings.Contains(err.Error(), "boom-start:"+failName) {
+		t.Errorf("Boot error 未含根因 %q: %v", "boom-start:"+failName, err)
+	}
+	// K12/K1-P2-2 核心：回滚期 Stop 失败（= 资源泄漏）必须并进 message。
+	if !strings.Contains(err.Error(), "boom-stop:"+leakyName) {
+		t.Errorf("回滚期 Stop 失败被静默丢弃 —— error message 未含 %q（K12/K1-P2-2）: %v",
+			"boom-stop:"+leakyName, err)
+	}
+
+	// 对照腿：回滚全部成功时，error 不得带「回滚期 Stop 失败」后缀。
+	rec2 := &recorder{}
+	k2 := newKernelWithFakes(rec2, &fakeBus{rec: rec2}, func(name string, m *fakeModule) {
+		if name == failName {
+			m.failStart = true
+		}
+	})
+	err2 := k2.Boot(context.Background())
+	if err2 == nil {
+		t.Fatal("对照腿 Boot 应当失败")
+	}
+	if strings.Contains(err2.Error(), "回滚期") {
+		t.Errorf("回滚全部成功却带了回滚失败后缀 —— 断言永真即无信息量: %v", err2)
+	}
+}
+
+// TestBootRollsBackOnInitFailure 同样验证 Init 阶段失败的回滚路径。
+func TestBootRollsBackOnInitFailure(t *testing.T) {
+	const failIdx = 3 // portfolio
+	failName := kernel.BootOrder[failIdx]
+
+	rec := &recorder{}
+	k := newKernelWithFakes(rec, &fakeBus{rec: rec}, func(name string, m *fakeModule) {
+		if name == failName {
+			m.failInit = true
+		}
+	})
+
+	err := k.Boot(context.Background())
+	if err == nil || !errors.Is(err, kernel.ErrBootFailed) {
+		t.Fatalf("Init 失败应使 Boot 失败并包装 ErrBootFailed，got %v", err)
+	}
+
+	wantStops := make([]string, 0, failIdx)
+	for i := failIdx - 1; i >= 0; i-- {
+		wantStops = append(wantStops, kernel.BootOrder[i])
+	}
+	if got := stopsOf(rec.snapshot()); !eqStrings(got, wantStops) {
+		t.Errorf("Init 失败回滚顺序不符逆序契约\n got: %v\nwant: %v", got, wantStops)
+	}
+}
+
+// ─── 2b. Boot 防重复闸门（与 Shutdown 幂等对称）───────────────────
+
+func TestBootRejectsSecondCall(t *testing.T) {
+	rec := &recorder{}
+	bus := &fakeBus{rec: rec}
+	k := newKernelWithFakes(rec, bus, nil)
+
+	if err := k.Boot(context.Background()); err != nil {
+		t.Fatalf("首次 Boot 应成功: %v", err)
+	}
+	before := rec.snapshot()
+
+	err := k.Boot(context.Background())
+	if !errors.Is(err, kernel.ErrAlreadyBooted) {
+		t.Fatalf("第二次 Boot 应返回 ErrAlreadyBooted，实际: %v", err)
+	}
+
+	after := rec.snapshot()
+	if len(after) != len(before) {
+		t.Fatalf("第二次 Boot 不得触发任何模块调用/发布：前 %d 条事件，后 %d 条\n前: %v\n后: %v",
+			len(before), len(after), before, after)
+	}
+}
+
+// ─── 3. Shutdown 逆序 ─────────────────────────────────────────────
+
+func TestShutdownStopsInReverseBootOrder(t *testing.T) {
+	rec := &recorder{}
+	k := newKernelWithFakes(rec, &fakeBus{rec: rec}, nil)
+
+	if err := k.Boot(context.Background()); err != nil {
+		t.Fatalf("Boot 失败: %v", err)
+	}
+	beforeShutdown := len(rec.snapshot())
+
+	if err := k.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown 失败: %v", err)
+	}
+
+	// 只看 Shutdown 阶段产生的 Stop。
+	after := rec.snapshot()[beforeShutdown:]
+	wantStops := make([]string, 0, len(kernel.BootOrder))
+	for i := len(kernel.BootOrder) - 1; i >= 0; i-- {
+		wantStops = append(wantStops, kernel.BootOrder[i])
+	}
+	if got := stopsOf(after); !eqStrings(got, wantStops) {
+		t.Errorf("Shutdown Stop 顺序不符逆序契约\n got: %v\nwant: %v", got, wantStops)
+	}
+}
+
+// ─── 4. Shutdown 幂等 ─────────────────────────────────────────────
+
+func TestShutdownIsIdempotent(t *testing.T) {
+	rec := &recorder{}
+	k := newKernelWithFakes(rec, &fakeBus{rec: rec}, nil)
+
+	if err := k.Boot(context.Background()); err != nil {
+		t.Fatalf("Boot 失败: %v", err)
+	}
+	if err := k.Shutdown(context.Background()); err != nil {
+		t.Fatalf("首次 Shutdown 失败: %v", err)
+	}
+	firstStops := len(stopsOf(rec.snapshot()))
+
+	// 第二次（以及第三次）Shutdown 必须不报错、不重复 Stop。
+	for i := 0; i < 2; i++ {
+		if err := k.Shutdown(context.Background()); err != nil {
+			t.Fatalf("第 %d 次重复 Shutdown 返回 error（应幂等返回 nil）: %v", i+2, err)
+		}
+	}
+	if got := len(stopsOf(rec.snapshot())); got != firstStops {
+		t.Errorf("重复 Shutdown 触发了额外 Stop：Stop 次数从 %d 变成 %d", firstStops, got)
+	}
+}
+
+// ─── 5. 关停消息时序：先发 kernel.shutdown，再停 msgbus ─────────────
+
+func TestShutdownPublishesBeforeStoppingMsgBus(t *testing.T) {
+	rec := &recorder{}
+	bus := &fakeBus{rec: rec}
+	k := newKernelWithFakes(rec, bus, nil)
+
+	if err := k.Boot(context.Background()); err != nil {
+		t.Fatalf("Boot 失败: %v", err)
+	}
+	if err := k.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown 失败: %v", err)
+	}
+
+	events := rec.snapshot()
+	pub := indexOf(events, "publish:"+msgbus.TopicKernelShutdown)
+	stopBus := indexOf(events, "stop:msgbus")
+
+	if pub == -1 {
+		t.Fatalf("Shutdown 未发布 %s（events=%v）", msgbus.TopicKernelShutdown, events)
+	}
+	if stopBus == -1 {
+		t.Fatalf("Shutdown 未 Stop msgbus（events=%v）", events)
+	}
+	// 核心断言：发关停消息必须早于停 msgbus —— 否则消息落不了库
+	// （BusTap 的「先记录」走 msgbus → eventstore），kernel.shutdown 在库里查不到。
+	if pub > stopBus {
+		t.Errorf("时序错误：%s 出现在 stop:msgbus 之后（pub=%d, stopBus=%d）；"+
+			"关停消息必须在分发链关闭前发出并落库", msgbus.TopicKernelShutdown, pub, stopBus)
+	}
+	// 关停消息也必须是逆序停之前的第一个动作。
+	if first := stopsOf(events); len(first) > 0 {
+		if pub > indexOf(events, "stop:"+first[0]) {
+			t.Errorf("关停消息应早于任何模块 Stop；pub=%d", pub)
+		}
+	}
+}
+
+// ─── 6. Module 检索 ───────────────────────────────────────────────
+
+func TestModuleNotFoundReturnsError(t *testing.T) {
+	k := kernel.NewKernel(clock.NewLiveClock(), &fakeBus{rec: &recorder{}}, nil)
+	if _, err := k.Module("does-not-exist"); err == nil {
+		t.Fatal("Module(未注册) 应返回 error，实际 nil")
+	} else if !errors.Is(err, kernel.ErrModuleNotFound) {
+		t.Errorf("Module(未注册) error 未包装 ErrModuleNotFound: %v", err)
+	}
+}
+
+// ─── 7. NoopModule 可注册、可检索 ─────────────────────────────────
+
+func TestNoopModuleRegistrableAndRetrievable(t *testing.T) {
+	k := kernel.NewKernel(clock.NewLiveClock(), &fakeBus{rec: &recorder{}}, nil)
+
+	nm := kernel.NewNoopModule("data-engine")
+	if err := k.Register(nm); err != nil {
+		t.Fatalf("Register(NoopModule) 失败: %v", err)
+	}
+	got, err := k.Module("data-engine")
+	if err != nil {
+		t.Fatalf("Module(NoopModule name) 失败: %v", err)
+	}
+	if got != nm {
+		t.Errorf("Module 返回的不是注册的那个 NoopModule: got=%v want=%v", got, nm)
+	}
+	// NoopModule 的生命周期全 no-op。
+	ctx := context.Background()
+	if err := nm.Init(ctx); err != nil {
+		t.Errorf("NoopModule.Init = %v, want nil", err)
+	}
+	if err := nm.Start(ctx); err != nil {
+		t.Errorf("NoopModule.Start = %v, want nil", err)
+	}
+	if err := nm.Stop(ctx); err != nil {
+		t.Errorf("NoopModule.Stop = %v, want nil", err)
+	}
+	if nm.Name() != "data-engine" {
+		t.Errorf("NoopModule.Name() = %q, want %q", nm.Name(), "data-engine")
+	}
+}
+
+// ─── 8. Register 重名 / nil / 空名 ────────────────────────────────
+
+func TestRegisterRejectsDuplicatesAndInvalids(t *testing.T) {
+	rec := &recorder{}
+	k := kernel.NewKernel(clock.NewLiveClock(), &fakeBus{rec: rec}, nil)
+
+	if err := k.Register(&fakeModule{name: "dup", rec: rec}); err != nil {
+		t.Fatalf("首次 Register 失败: %v", err)
+	}
+	if err := k.Register(&fakeModule{name: "dup", rec: rec}); !errors.Is(err, kernel.ErrModuleAlreadyRegistered) {
+		t.Errorf("重名 Register error = %v, want ErrModuleAlreadyRegistered", err)
+	}
+	if err := k.Register(nil); !errors.Is(err, kernel.ErrNilModule) {
+		t.Errorf("Register(nil) error = %v, want ErrNilModule", err)
+	}
+	if err := k.Register(kernel.NewNoopModule("")); !errors.Is(err, kernel.ErrModuleNameEmpty) {
+		t.Errorf("Register(空名) error = %v, want ErrModuleNameEmpty", err)
+	}
+}
+
+// ─── 9. 装配不完整（BootOrder 缺项）→ Boot 失败 ────────────────────
+
+func TestBootFailsWhenBootOrderIncomplete(t *testing.T) {
+	rec := &recorder{}
+	k := kernel.NewKernel(clock.NewLiveClock(), &fakeBus{rec: rec}, nil)
+	// 只注册前 9 个，故意漏掉 msgbus。
+	for _, name := range kernel.BootOrder[:len(kernel.BootOrder)-1] {
+		if err := k.Register(&fakeModule{name: name, rec: rec}); err != nil {
+			t.Fatalf("Register(%s) 失败: %v", name, err)
+		}
+	}
+	err := k.Boot(context.Background())
+	if !errors.Is(err, kernel.ErrMissingModule) {
+		t.Fatalf("BootOrder 缺项时 Boot error = %v, want ErrMissingModule", err)
+	}
+	// 回滚：已启动的 9 个都要被逆序 Stop。
+	if got := len(stopsOf(rec.snapshot())); got != len(kernel.BootOrder)-1 {
+		t.Errorf("缺项回滚 Stop 次数 = %d, want %d", got, len(kernel.BootOrder)-1)
+	}
+}
+
+// ─── 10. 适配器 Name() 与 BootOrder 一致 ───────────────────────────
+
+func TestAdapterNamesMatchBootOrder(t *testing.T) {
+	clkMod := kernel.NewClockModule(clock.NewLiveClock())
+	busMod := kernel.NewMsgBusModule(&fakeBus{rec: &recorder{}})
+	if clkMod.Name() != "clock" {
+		t.Errorf("ClockModule.Name() = %q, want \"clock\"（须与 BootOrder 一致）", clkMod.Name())
+	}
+	if busMod.Name() != "msgbus" {
+		t.Errorf("MsgBusModule.Name() = %q, want \"msgbus\"（须与 BootOrder 一致）", busMod.Name())
+	}
+	// EventStoreModule 需要真 PGEventStore（EnsureSchema 是 Init 的动作），
+	// 其 Name 一致性由真库集成测试覆盖。
+}
+
+// ─── 11. ctx 生命周期语义钉住（K12 / K1-P2-1）──────────────────────
+
+// ctxCaptureModule 把 Init/Start/Stop 收到的 ctx 留下来供断言（只为测试）。
+type ctxCaptureModule struct {
+	name string
+	rec  *recorder
+	got  map[string]context.Context
+}
+
+func (m *ctxCaptureModule) Name() string { return m.name }
+
+func (m *ctxCaptureModule) Init(ctx context.Context) error {
+	m.rec.add("init:" + m.name)
+	m.got["init"] = ctx
+	return nil
+}
+
+func (m *ctxCaptureModule) Start(ctx context.Context) error {
+	m.rec.add("start:" + m.name)
+	m.got["start"] = ctx
+	return nil
+}
+
+func (m *ctxCaptureModule) Stop(ctx context.Context) error {
+	m.rec.add("stop:" + m.name)
+	m.got["stop"] = ctx
+	return nil
+}
+
+// TestLifecycleCtxIsCallScoped 钉住 K12/K1-P2-1 的契约裁决（interfaces.go
+// 的 Module 注释）：内核把调用方的 ctx **原样**传给 Init/Start/Stop，不做
+// 寿命延长——ctx 仅限本次调用，装配层 cancel 时它必须随之失效。
+//
+// 断言强度与契约对齐（K12 审查修复）：
+//   - identity 断言（收到的 == 调用方原 ctx）钉「原样转发」——派生包装
+//     （context.WithValue / WithTimeout 之类）也会红，不给悄悄换语义留缝；
+//   - Stop 腿走 Shutdown 路径，补齐契约三方法的覆盖面——此前只钉 Init/Start，
+//     interfaces.go「语义由本测试钉住」的声明在 Stop 上是空的。
+//
+// 为什么钉这个方向而不是反方向：契约告诉模块「别留存 ctx」，配套的可观测
+// 事实就是「你拿到的确实是短命 ctx」。若日后有人把内核改成传长寿 ctx
+// （context.WithoutCancel 之类），本测试红 = 契约被改动，须走变更评审后
+// 连同契约注释一起改，而不是悄悄换语义。
+//
+// 前半段（cancel 前必须活着）是反证腿：证明本测试不是永真。
+func TestLifecycleCtxIsCallScoped(t *testing.T) {
+	rec := &recorder{}
+	k := kernel.NewKernel(clock.NewLiveClock(), &fakeBus{rec: rec}, nil)
+
+	capture := &ctxCaptureModule{
+		name: kernel.BootOrder[0],
+		rec:  rec,
+		got:  map[string]context.Context{},
+	}
+	if err := k.Register(capture); err != nil {
+		t.Fatalf("Register(ctxCaptureModule) 失败: %v", err)
+	}
+	for _, name := range kernel.BootOrder[1:] {
+		if err := k.Register(&fakeModule{name: name, rec: rec}); err != nil {
+			t.Fatalf("Register(%s) 失败: %v", name, err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := k.Boot(ctx); err != nil {
+		t.Fatalf("Boot 失败: %v", err)
+	}
+
+	// 反证腿：cancel 之前 ctx 必须还活着（若断言恒成立，测试没有信息量）。
+	// identity 断言：收到的必须是调用方原 ctx——派生包装不算「原样转发」。
+	for _, phase := range []string{"init", "start"} {
+		got := capture.got[phase]
+		if got == nil {
+			t.Fatalf("%s 未收到 ctx —— 捕获器没被调用，下面的断言什么也没证明", phase)
+		}
+		if got != ctx {
+			t.Errorf("%s 收到的不是调用方原 ctx（是派生包装）—— 契约主张「原样转发」"+
+				"（Module 注释，K12/K1-P2-1）", phase)
+		}
+		select {
+		case <-got.Done():
+			t.Fatalf("%s 收到的 ctx 在 cancel 之前就已失效", phase)
+		default:
+		}
+	}
+
+	// 装配层 cancel（Boot 返回后的现实时序）⇒ 模块看到的 ctx 必须随之失效。
+	cancel()
+	for _, phase := range []string{"init", "start"} {
+		select {
+		case <-capture.got[phase].Done():
+		default:
+			t.Errorf("%s 收到的 ctx 在装配层 cancel 后仍存活 —— 契约是「ctx 仅限调用期间」"+
+				"（Module 注释，K12/K1-P2-1）：内核必须转发调用方原 ctx，模块留存它会被抢先 Cancel", phase)
+		}
+	}
+
+	// Stop 腿（Shutdown 路径）：契约覆盖 Init/Start/Stop 三者，Stop 的 ctx
+	// 同样必须是调用方原 ctx、随 Shutdown 的 cancel 失效。
+	ctxS, cancelS := context.WithCancel(context.Background())
+	if err := k.Shutdown(ctxS); err != nil {
+		t.Fatalf("Shutdown 失败: %v", err)
+	}
+	gotStop := capture.got["stop"]
+	if gotStop == nil {
+		t.Fatal("stop 未收到 ctx —— 捕获器 Stop 没被调用，下面的断言什么也没证明")
+	}
+	if gotStop != ctxS {
+		t.Errorf("Stop 收到的不是调用方原 ctx（是派生包装）—— 契约主张「原样转发」（Module 注释，K12/K1-P2-1）")
+	}
+	select {
+	case <-gotStop.Done():
+		t.Errorf("Stop 收到的 ctx 在 cancel 之前就已失效")
+	default:
+	}
+	cancelS()
+	select {
+	case <-gotStop.Done():
+	default:
+		t.Errorf("Stop 收到的 ctx 在装配层 cancel 后仍存活 —— 契约是「ctx 仅限调用期间」（Module 注释，K12/K1-P2-1）")
+	}
+}

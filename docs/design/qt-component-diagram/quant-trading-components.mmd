@@ -1,0 +1,442 @@
+%% ============================================================
+%% Quant Lab · quant-trading 全系统构件图（紧凑版 v2）
+%% 优化：组内用不可见连线 ~~~ 做纵向分列，压制横向铺开
+%% 依据：docs/ARCHITECTURE.md（last-verified 2026-10-17）+ 全仓源码盘点（2026-10-19）
+%% 注：REV-16 已删除 strategy-service :8082；pkg/strategy 保留为库层
+%% ============================================================
+
+flowchart TB
+
+%% ─────────── 外部依赖 ───────────
+subgraph EXT["外部依赖"]
+  EXT_TS["tushare.pro<br/>唯一外部行情数据入口"]:::ext
+  EXT_ALT["东方财富 / 巨潮 / Mootdx<br/>雪球 / AlphaVantage / Yahoo"]:::ext
+  EXT_LLM["LLM API"]:::ext
+  EXT_XTP["XTP 券商柜台<br/>实盘线预留"]:::ext
+end
+
+%% ─────────── 文档仓 ───────────
+subgraph DOCS["quant-trading-docs · 跨领域文档仓"]
+  DOCSR["ADR / ODR 决策档案 · PRODUCT · VISION<br/>ROADMAP · TEST · 运维 guides"]:::docn
+end
+
+%% ─────────── 前端仓 ───────────
+subgraph FE["前端仓 quant-trading-ui · Vue 3 + Vite + Naive UI"]
+  NGINX["nginx SPA 托管 :8080<br/>/api 反代 analysis"]:::fe
+  ROUTER["router 路由表"]:::fe
+  PAGES["页面 13 个（Dashboard · 回测引擎/对比 · 选股器<br/>策略实验室/构建器 · Copilot · Explore<br/>数据同步 · Alerts · Evidence · 因子引用 · Login）"]:::fe
+  COMP["业务组件 8 族<br/>backtest · dashboard · evidence · factor<br/>layout · paper · sync · validation"]:::fe
+  STORES["Pinia stores<br/>auth · backtest · sync"]:::fe
+  APIC["api/* 客户端 14 个<br/>JWT 注入 · 统一错误处理"]:::fe
+  E2E["Playwright E2E 用例"]:::fe
+end
+
+%% ─────────── analysis-service :8085 ───────────
+subgraph ANA["analysis-service :8085 · API 网关 + 业务主体（cmd/analysis）"]
+
+  subgraph HTTPA["HTTP 面"]
+    A_HTTP["gin :8085<br/>路由策略 / OpenAPI 直出"]:::anasvc
+    A_MW["中间件<br/>JWT 鉴权 · RBAC · 限流 · CORS · observability"]:::anasvc
+    A_PROXY["纯反代<br/>/api/sync → :8081<br/>copilot / pipeline / explore / tools → :8086"]:::anasvc
+    A_HDL["handlers 25+ 族<br/>backtest · factor · strategy · plugins · signals<br/>risk · execution · compliance · alert · evidence<br/>industry · macro · datasource · openapi 等"]:::anasvc
+  end
+
+  subgraph KGRP["模块化内核 · BootOrder 冻结序（pkg/kernel）"]
+    KER["kernel 装配器<br/>Boot / Shutdown 生命周期"]:::kern
+    K_ES["eventstore<br/>先记录后分发"]:::kern
+    K_CLK["clock<br/>Virtual / Live"]:::kern
+    K_DE["data-engine<br/>行情快照 / 订阅"]:::kern
+    K_PF["portfolio<br/>Noop 占位"]:::kern
+    K_RK["risk-engine<br/>订单前置风控"]:::kern
+    K_EX["exec-engine<br/>MockTrader"]:::kern
+    K_SR["strategy-runtime<br/>策略加载 / 驱动"]:::kern
+    K_IND["indicators<br/>L2 算子 per-run"]:::kern
+    K_EA["exec-algo<br/>算法挂点 per-run"]:::kern
+    K_MB["msgbus<br/>同步总线 最后开"]:::kern
+  end
+
+  subgraph BTGRP["回测族（pkg/backtest）"]
+    BT_CTR["contracts 冻结契约<br/>RunSpec / ResultSpec / MarketRouter"]:::anasvc
+    BT_REG["EngineRegistry 内核路由<br/>go / nautilus · fail-closed"]:::anasvc
+    BT_E["回测引擎 Engine<br/>eligibleUniverse · 日循环"]:::anasvc
+    BT_JOB["JobService 异步任务"]:::anasvc
+    BT_BAT["BatchEngine 批量 + Scorer"]:::anasvc
+    BT_WF["WalkForwardEngine 前向验证"]:::anasvc
+    BT_CCH["CacheManager 因子预热"]:::anasvc
+    BT_ID["日内分钟特征快照注入 D6"]:::anasvc
+    BT_AUC["集合竞价撮合"]:::anasvc
+    BT_EXE["ExecutionService<br/>滑点 / 限价撮合"]:::anasvc
+    BT_TRK["Tracker 撮合簿记 T+1"]:::anasvc
+    BT_ST["BacktestState 状态 / 断点"]:::anasvc
+    BT_MET["performance 绩效指标"]:::anasvc
+    BT_REP["reporting<br/>compare / correlation / export"]:::anasvc
+    BT_NT["nautilus Runner<br/>fail-closed 适配"]:::ntside
+  end
+
+  subgraph SGGRP["策略族（pkg/strategy）"]
+    SG_REG["Registry + StrategyDB CRUD"]:::anasvc
+    SG_PLG["PluginLoader .so 热加载"]:::anasvc
+    SG_RT["StreamRunner / BatchAdapter<br/>双模式同构桥"]:::anasvc
+    SG_SP["LocalSignalProvider K8<br/>未来信号 fail-loud"]:::anasvc
+    SG_EXP["ExpressionStrategy<br/>信号 / 仓位 / 风控"]:::anasvc
+    SG_PLUGINS["内置插件 9 类<br/>动量 · 均值回归 · 多因子 · 风险平价<br/>质量 · 情绪 · 转债 · 事件驱动"]:::anasvc
+    SG_OPT["期权定价 BS / 二叉树 / Greeks"]:::anasvc
+    SG_EXT["SignalStrategy 外部信号 L3b"]:::anasvc
+    SG_SS["StateStore L2/L3 检查点"]:::anasvc
+    SG_SIGST["PGSignalStore 信号表"]:::anasvc
+    SG_MON["StrategyMonitor<br/>滚动绩效 + 漂移"]:::anasvc
+  end
+
+  subgraph RXGRP["风控 / 执行 / 合规 / 告警 / 因子读面"]
+    RK_M["RiskManager<br/>止损止盈 · regime · VaR · 波动率 · 手数"]:::anasvc
+    EX_TR["LiveTrader<br/>MockTrader / XTP 预留"]:::anasvc
+    EX_OM["OrderManager 订单生命周期"]:::anasvc
+    EX_OS["OrderStore PG / Redis"]:::anasvc
+    EX_PP["PaperSession paper 撮合"]:::anasvc
+    EX_CG["PriceCage 价格笼子"]:::anasvc
+    EX_RC["Reconciliation 四接口对账"]:::anasvc
+    EA_A["execalgo TWAP / VWAP / Dispatcher"]:::anasvc
+    EX_CM["CostModel 共用成本核"]:::anasvc
+    CP_AB["异常交易检测 6 类"]:::anasvc
+    CP_AP["适当性管理"]:::anasvc
+    CP_DV["减持合规"]:::anasvc
+    CP_RP["大额交易日报"]:::anasvc
+    AL_M["AlertManager 6 检测器"]:::anasvc
+    AL_CH["通道 log / webhook"]:::anasvc
+    AL_SY["systemalert 规则告警"]:::anasvc
+    FA_ATTR["FactorAttributor<br/>IC / 收益分层 / 衰减"]:::anasvc
+  end
+end
+
+%% ─────────── data-service :8081 ───────────
+subgraph DAT["data-service :8081 · 数据摄取 / 同步 / 因子计算（cmd/data）"]
+  D_HTTP["gin :8081 + SSE<br/>sync 任务推送"]:::datsvc
+  SY_SC["Scheduler 定时调度"]:::datsvc
+  SY_Q["Queue 任务队列"]:::datsvc
+  SY_W["WorkerPool 执行器<br/>pending / running / completed / failed"]:::datsvc
+  IN_TS["TushareClient 摄取<br/>raw 逐字节归档"]:::datsvc
+  IN_RG["source Registry D2<br/>时间语义 + 频率声明 fail-closed"]:::datsvc
+  IN_AD["多源适配器 8+<br/>eastmoney · juchao · mootdx · xueqiu<br/>yahoo · alpha_vantage · hkex 北向"]:::datsvc
+  IN_ETL["ETLPipeline 清洗 / 规范化"]:::datsvc
+  IN_DP["equitydeep 基本面快照<br/>→ fundamentals_detail"]:::datsvc
+  IN_SE["SentimentAggregator 情绪聚合"]:::datsvc
+  FA_C["FactorComputer<br/>动量 / 价值 / 质量 / 公式"]:::datsvc
+  FA_R["FactorRegistry 定义库 D3<br/>版本哈希 fail-closed"]:::datsvc
+  FA_B["RegistrationBook D4 登记"]:::datsvc
+  SC_CH["产业链导入<br/>申万树 · 供应链边 · 活力 · ETF"]:::datsvc
+  MA_MC["宏观 CPI / PPI / PMI / M2"]:::datsvc
+  SE_SEC["板块 / 行业同步"]:::datsvc
+  DA_MIN["挖掘编排入口"]:::datsvc
+end
+
+%% ─────────── ai-service :8086（agent 仓）───────────
+subgraph AII["ai-service :8086 · AI 实验员（quant-trading-agent 仓）"]
+  AI_H["gin 四族路由 :8086<br/>copilot · pipeline · explore · tools<br/>经 bootstrap 复用 core 装配 同参"]:::aisvc
+  CO["CopilotService<br/>NL → 代码 → 沙箱编译 → 回测"]:::aisvc
+  PI["pipeline<br/>意图 → YAML → 回测 → 实验日志"]:::aisvc
+  IN_["intent 意图解析"]:::aisvc
+  YM["yaml 生成器 / 加载器"]:::aisvc
+  LP["loop 循环控制器"]:::aisvc
+  PR["Proposer 接口"]:::aisvc
+  SE["search TPE / 遗传 / WF"]:::aisvc
+  GE["gene_pool<br/>因子池 · 策略池 · 变异"]:::aisvc
+  EV["evolution 交叉 / 变异 / 选择"]:::aisvc
+  AG["agents 生成 / 研究 / 验证 / 进化"]:::aisvc
+  VA["validation 聚合 / 偏差 / 因果"]:::aisvc
+  DR["drift 漂移检测"]:::aisvc
+  AF["factor 资金流 / 板块轮动 / 情绪"]:::aisvc
+  TL["tools Registry + builtin 20 工具"]:::aisvc
+  CL["LLM client 重试 / 限流 / 成本"]:::aisvc
+  HM["Hermes Agent<br/>MCP 工具契约"]:::aisvc
+end
+
+%% ─────────── core 共享库 ───────────
+subgraph COR["core 共享库层 pkg · 39 包（三服务进程内各自装配）"]
+  MD_R["marketdata.Router D1<br/>规范层唯一入口 1d/1m/15m 聚合"]:::corelib
+  MD_P["Provider 实现<br/>PG / HTTP / cached / inmemory"]:::corelib
+  MD_A["DataAdapter 多源回退"]:::corelib
+  MD_B["BackpressureBus · Quote · eventbus"]:::corelib
+  EX_EN["expression 引擎 L1 DSL<br/>AST · Parser · Evaluator · Registry"]:::corelib
+  IN_O["indicator L2 算子<br/>EWMA · Kalman · RMA · State"]:::corelib
+  SB_ST["staticcheck 正则静态门"]:::corelib
+  SB_RN["runner 进程资源沙箱"]:::corelib
+  SB_WA["wasm wazero L3a<br/>host API 白名单"]:::corelib
+  DM["domain + market 领域模型<br/>OHLCV · PIT 可见点 · 订单 · 信号 · 因子留痕"]:::corelib
+  ST_PG["PostgresStore · migrate() 52 表<br/>唯一 DDL 真相"]:::corelib
+  ST_RD["RedisCache"]:::corelib
+  MN_P["mining Pipeline D8<br/>沙箱 → 治理 → 登记"]:::corelib
+  MN_G["治理 DetectOverfit / OOS"]:::corelib
+  MN_S["Snapshot 只读快照"]:::corelib
+  FEE["fees A 股费率"]:::corelib
+  COST["execution CostModel 滑点"]:::corelib
+  SETT["settlement T+1 原语"]:::corelib
+  PORTP["portfolio 共享原语"]:::corelib
+  MI["marketimpact 冲击模型"]:::corelib
+  STATS["statistics 统计"]:::corelib
+  OBS["observability Prometheus"]:::corelib
+  RG["repoguard 架构护栏 CI<br/>ai 单向依赖 · 棘轮守卫"]:::docn
+end
+
+%% ─────────── NT 侧车 ───────────
+subgraph NTS["NT 侧车 nt-sidecar · Python · NautilusTrader"]
+  NT_SRV["sidecar HTTP /v1/backtest"]:::ntside
+  NT_ENG["NautilusTrader 引擎"]:::ntside
+  NT_MAP["mapping.py<br/>频率 / 字段翻译 FREQ_*"]:::ntside
+  NT_WR["weight_replay 权重回放"]:::ntside
+  NT_SIG["signals / strategies 适配"]:::ntside
+  DR2["cmd/dualrun K15<br/>双跑对齐 + gate"]:::ntside
+end
+
+%% ─────────── 基础设施 ───────────
+subgraph INFR["基础设施（宿主机，compose 不编排）"]
+  PG[("PostgreSQL :5432<br/>public 行情/回测/策略 · ingest.raw 归档<br/>quant.* 派生 · research.* · audit")]:::infra
+  RD[("Redis :6379<br/>factor_cache 双层 · session<br/>sync 热数据 · DataCache")]:::infra
+end
+
+%% ═══════════ 连线：前端 ⇄ 服务 ═══════════
+NGINX --> PAGES
+ROUTER --> PAGES
+PAGES --> COMP
+PAGES --> STORES
+PAGES --> APIC
+STORES --> APIC
+E2E -.-> PAGES
+APIC -->|"HTTPS /api/* + JWT"| A_HTTP
+NGINX -->|"/api 反代"| A_HTTP
+
+%% ═══════════ 连线：analysis HTTP ═══════════
+A_HTTP --> A_MW
+A_MW --> A_HDL
+A_HTTP --> A_PROXY
+A_PROXY -->|"/api/sync/*"| D_HTTP
+A_PROXY -->|"copilot / pipeline / explore / tools"| AI_H
+A_HDL -.->|"读 quant.* / public"| ST_PG
+
+%% ═══════════ 连线：内核装配与消息 ═══════════
+KER -->|"BootOrder 1"| K_ES
+KER -->|"2"| K_CLK
+KER -->|"3"| K_DE
+KER -->|"4"| K_PF
+KER -->|"5"| K_RK
+KER -->|"6"| K_EX
+KER -->|"7"| K_SR
+KER -->|"8"| K_IND
+KER -->|"9"| K_EA
+KER -->|"10"| K_MB
+K_ES -->|"audit.message_log"| ST_PG
+K_SR -.->|"exec.order_intent"| K_MB
+K_MB -.-> K_RK
+K_MB -.-> K_EX
+K_EX -.->|"exec.fill"| K_MB
+K_MB -.-> K_PF
+K_CLK -.->|"驱动"| SG_RT
+K_SR -.->|"承载"| BT_E
+K_RK -.->|"承载"| RK_M
+K_EX -.->|"承载"| EX_TR
+K_DE -.->|"装配承载"| MD_A
+K_IND -.->|"per-run"| IN_O
+K_EA -.->|"per-run"| EA_A
+
+%% ═══════════ 连线：回测族 ═══════════
+A_HDL --> BT_JOB
+A_HDL --> BT_BAT
+A_HDL --> BT_WF
+A_HDL --> BT_REP
+BT_JOB -->|"执行 RunSpec"| BT_E
+BT_E --> BT_CTR
+BT_CTR --> BT_REG
+BT_REG -.->|"注册 go runner"| BT_E
+BT_REG -->|"kernel=nautilus"| BT_NT
+BT_E -->|"预热"| BT_CCH
+BT_CCH --> ST_PG
+BT_CCH -.-> ST_RD
+BT_E --> BT_ID
+BT_E -->|"getSignals"| SG_SP
+SG_SP -.->|"FactorAware 等注入"| BT_CCH
+BT_E --> BT_AUC
+BT_E -->|"订单意图"| RK_M
+RK_M -->|"verdict"| BT_EXE
+BT_EXE --> BT_TRK
+BT_TRK --> BT_ST
+BT_E --> BT_MET
+BT_MET --> BT_REP
+BT_NT -->|"POST /v1/backtest"| NT_SRV
+
+%% ═══════════ 连线：策略族 ═══════════
+SG_SP --> SG_RT
+SG_RT --> SG_REG
+SG_PLG -->|"热加载"| SG_REG
+A_HDL -->|"strategies CRUD"| SG_REG
+SG_REG --> SG_EXP
+SG_REG --> SG_PLUGINS
+SG_REG --> SG_EXT
+SG_EXP -->|"L1 DSL"| EX_EN
+SG_RT --> SG_SS
+SG_SS -->|"quant.strategy_state"| ST_PG
+SG_EXT --> SG_SIGST
+SG_SIGST -->|"quant.external_signals"| ST_PG
+A_HDL --> SG_MON
+SG_MON --> SG_REG
+SG_RT -.->|"L3a 执行"| SB_WA
+
+%% ═══════════ 连线：风控 / 执行 / 合规 / 告警 ═══════════
+A_HDL -->|"/api/execution/*"| EX_TR
+EX_TR --> EX_OM
+EX_OM --> EX_OS
+EX_OS --> ST_PG
+EX_OS -.-> ST_RD
+EX_TR --> EX_PP
+EX_TR --> EX_CG
+EX_TR --> EX_RC
+EX_RC -->|"差异告警"| AL_M
+BT_E -->|"ExecAlgo 指定"| EA_A
+EA_A -->|"子订单逐片过风控"| RK_M
+EA_A --> MI
+BT_EXE --> COST
+EX_PP --> COST
+BT_TRK --> FEE
+BT_TRK --> SETT
+BT_TRK --> PORTP
+EX_PP --> FEE
+EX_TR -.->|"实盘预留"| EXT_XTP
+A_HDL --> CP_AB
+A_HDL --> CP_AP
+A_HDL --> CP_DV
+A_HDL --> CP_RP
+A_HDL --> AL_M
+AL_M --> AL_CH
+AL_M --> AL_SY
+A_HDL --> FA_ATTR
+FA_ATTR -->|"ic_analysis · factor_returns"| ST_PG
+RK_M -.-> STATS
+BT_MET -.-> STATS
+
+%% ═══════════ 连线：data-service ═══════════
+D_HTTP --> SY_Q
+SY_SC -->|"到点入队"| SY_Q
+SY_Q --> SY_W
+SY_W --> IN_TS
+SY_W --> IN_AD
+IN_AD -->|"注册声明"| IN_RG
+IN_TS -->|"ingest.raw 归档"| ST_PG
+IN_TS --> IN_ETL
+IN_AD --> IN_ETL
+IN_ETL -->|"public 规范表"| ST_PG
+IN_DP -->|"fundamentals_detail"| ST_PG
+IN_SE -.->|"日度聚合"| ST_PG
+IN_RG -->|"字段 / 频率词表"| DM
+FA_C -->|"清单投影"| FA_R
+FA_R -->|"leaf / formula"| EX_EN
+FA_R -->|"code 内核闭包"| FA_C
+FA_C -->|"factor_cache"| ST_PG
+FA_C -.-> ST_RD
+DA_MIN --> MN_P
+MN_P --> MN_S
+MN_P --> MN_G
+MN_G -->|"admit 凭证"| FA_B
+FA_B -->|"factor_registrations"| ST_PG
+SC_CH --> ST_PG
+MA_MC --> ST_PG
+SE_SEC --> ST_PG
+MN_S -.->|"历史读取"| ST_PG
+IN_TS --> EXT_TS
+IN_AD --> EXT_ALT
+
+%% ═══════════ 连线：ai-service ═══════════
+AI_H --> CO
+AI_H --> PI
+AI_H --> LP
+AI_H --> TL
+HM -->|"MCP 工具调用"| TL
+CO --> CL
+CO --> SB_ST
+CO --> SB_RN
+CO -.->|"编译产物插件回载"| SG_PLG
+PI --> IN_
+IN_ --> YM
+YM -.->|"RunSpec"| BT_CTR
+LP -->|"TryRunner"| PI
+LP --> PR
+SE -->|"Proposer 实现"| PR
+EV --> GE
+GE -->|"候选回注"| LP
+AF --> GE
+AG --> VA
+VA --> DR
+AG --> CL
+TL -.->|"进程内调内核能力"| BT_E
+CL --> EXT_LLM
+
+%% ═══════════ 连线：core 内部 ═══════════
+MD_R -->|"物理表唯一白名单"| ST_PG
+MD_A --> MD_P
+MD_P --> ST_PG
+MD_P -.-> ST_RD
+EX_EN --> DM
+IN_O --> DM
+MN_P -->|"公式验证"| EX_EN
+DOCSR -.->|"ADR / 架构决策"| RG
+
+%% ═══════════ 连线：NT 侧车 ═══════════
+NT_MAP --> NT_SRV
+NT_WR --> NT_SRV
+NT_SIG --> NT_SRV
+NT_SRV --> NT_ENG
+DR2 -->|"NT 侧 weight_replay"| NT_SRV
+DR2 -->|"Go 侧 wrReplay"| BT_TRK
+DR2 -->|"对齐 gate"| BT_REP
+
+%% ═══════════ 连线：基础设施与观测 ═══════════
+ST_PG --> PG
+ST_RD --> RD
+A_HTTP -.-> OBS
+D_HTTP -.-> OBS
+AI_H -.-> OBS
+
+%% ═══════════ 布局约束：组内不可见连线，纵向分列压横向宽度 ═══════════
+EXT_TS ~~~ EXT_ALT
+EXT_LLM ~~~ EXT_XTP
+NGINX ~~~ E2E
+BT_JOB ~~~ BT_BAT ~~~ BT_WF ~~~ BT_REP
+BT_CCH ~~~ BT_ID ~~~ BT_AUC
+SG_RT ~~~ SG_PLG
+SG_SS ~~~ SG_SIGST
+SG_OPT ~~~ SG_MON
+EX_PP ~~~ EX_CG ~~~ EX_RC
+CP_AB ~~~ CP_AP ~~~ CP_DV ~~~ CP_RP
+IN_DP ~~~ IN_SE
+SC_CH ~~~ MA_MC ~~~ SE_SEC ~~~ DA_MIN
+SE ~~~ EV ~~~ AF ~~~ AG ~~~ HM
+NT_MAP ~~~ NT_WR ~~~ NT_SIG
+MD_R ~~~ MD_P ~~~ MD_A ~~~ MD_B
+EX_EN ~~~ IN_O ~~~ SB_ST ~~~ SB_RN ~~~ SB_WA
+DM ~~~ ST_PG ~~~ ST_RD ~~~ MN_P ~~~ MN_G ~~~ MN_S
+FEE ~~~ COST ~~~ SETT ~~~ PORTP
+MI ~~~ STATS ~~~ OBS ~~~ RG
+
+%% ═══════════ 样式 ═══════════
+classDef ext fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+classDef fe fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+classDef anasvc fill:#dcfce7,stroke:#16a34a,color:#14532d
+classDef kern fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+classDef datsvc fill:#fef9c3,stroke:#ca8a04,color:#713f12
+classDef aisvc fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+classDef corelib fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+classDef ntside fill:#f3e8ff,stroke:#9333ea,color:#581c87
+classDef infra fill:#e5e7eb,stroke:#374151,color:#111827
+classDef docn fill:#f1f5f9,stroke:#64748b,color:#334155
+
+style EXT fill:#fef2f2,stroke:#dc2626
+style DOCS fill:#f8fafc,stroke:#64748b
+style FE fill:#eff6ff,stroke:#2563eb
+style ANA fill:#f0fdf4,stroke:#16a34a
+style HTTPA fill:#ffffff,stroke:#86efac
+style KGRP fill:#f0fdfa,stroke:#0d9488
+style BTGRP fill:#ffffff,stroke:#86efac
+style SGGRP fill:#ffffff,stroke:#86efac
+style RXGRP fill:#ffffff,stroke:#86efac
+style DAT fill:#fefce8,stroke:#ca8a04
+style AII fill:#f5f3ff,stroke:#7c3aed
+style COR fill:#fff7ed,stroke:#ea580c
+style NTS fill:#faf5ff,stroke:#9333ea
+style INFR fill:#f9fafb,stroke:#374151

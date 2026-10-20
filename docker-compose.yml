@@ -1,0 +1,267 @@
+# 本地部署形态（2026-09-25 定案）──────────────────────────────────────
+#
+# **数据库与缓存用宿主机原生安装，应用服务用容器。**
+#
+#   宿主机原生（由 tools/local-infra.sh 启停）
+#     PostgreSQL 17.5   127.0.0.1:5432   —— 无 TimescaleDB（只是 Warn，已实测可建表）
+#     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass
+#
+#   Docker 容器（本文件）
+#     data-service     :8081   多源数据接入
+#     analysis-service :8085   回测 + 风控 + 执行 + 鉴权（ODR-021 合并后）
+#     ai-service       :8086   AI 服务（独立仓 tellurion-agent）
+#   strategy-service :8082 于 REV-16 删除（ADR-012 关闭，standby 无占位价值）
+#   （web :8080 前端已拆仓 → tellurion-ui，2026-10-09）
+#
+# **为什么把数据库挪出容器**：Docker Desktop 在本机受沙箱限制（启动时会拉起
+# wsl.exe 而在程序黑名单里，且起来之后还会自发退出），把最该稳的一层挂在最不稳
+# 的一层上不划算。原生 PG/Redis 出问题只看两个进程的日志。
+#
+# ⚠️ **容器内访问宿主机必须用 host.docker.internal，不是 localhost** ——
+# 容器里的 localhost 指容器自己。实测（2026-09-25）Docker Desktop 默认就把
+# 这个名字解析成 IPv4 192.168.65.254 并且能连到宿主机回环上的服务。
+#
+# ⚠️ **不要加 `extra_hosts: ["host.docker.internal:host-gateway"]`** ——
+# 实测在 Docker Desktop 上加了之后它从 IPv4 变成 IPv6（fdc4:f303:9324::254），
+# 是地址族层面的行为改变，而 Desktop 本来就不需要这行。Linux 上才需要它；
+# 换到 Linux 跑时再按需加，不要预先写死（本文件以本机能验证的形态为准）。
+#
+# ⚠️ **服务之间仍用 compose 服务名**（http://data-service:8081）—— 服务全在
+# 容器里，这一层没有变，不要改成 localhost。
+#
+# 端口绑定约定（AUD-13 的推广，2026-09-25）：**本栈里没有任何东西绑 0.0.0.0
+# 在宿主机上**。数据库/缓存那半由原生进程的配置承担（postgresql.conf 的
+# listen_addresses、redis.conf 的 bind，真身由 tools/local-infra.sh 的 netstat
+# 断言守着）；应用服务这半由本文件的 ports 映射承担 —— 四条映射**全部**带
+# 127.0.0.1: 前缀。
+#
+# 为什么应用端口也必须回环：analysis-service 以 **open-access** 运行
+# （无鉴权，见下面 AUTH_INSECURE 那段），而容器**必须**绑 0.0.0.0 才能被发布
+# 端口转发 —— 于是「对外可达性」这件事从绑定地址转移到了发布层。若映射写成
+# "8085:8085"，等于把下单接口开给整个局域网。
+#
+# 这条配对关系（AUTH_INSECURE 为真 ⟺ 所有映射都回环）由两处机器校验守住，
+# 不靠记得：
+#   静态 —— tools/check_deploy_consistency.py 的检查 3c（双向：非回环映射
+#           必须配 JWT_SECRET；AUTH_INSECURE 为真则每条映射都必须回环）
+#   运行时 —— tools/local-stack.sh 读宿主机 netstat，断言 8081/8085/8086
+#           只监听回环
+#
+# tools/check_deploy_consistency.py 的检查 3 已随之改写为「宿主机监听地址」的
+# 等价断言 + 破坏验证。
+#
+# 启动顺序：应用连不上 PG/Redis 会直接 Fatal 退出、**没有重试**
+# （cmd/data/setup.go:137 / :146）。此前靠 `depends_on + service_healthy` 保证；
+# 那两个服务不再是 compose 成员后，保证改由镜像内的 deploy/wait-for-deps.sh
+# 承担 —— **是替换不是删除**，而且现在等的是宿主机上的真实端口。
+#
+# (ai-service 已删除：2026-09-18，TASKS P2-5。它零调用方且建在待废弃的
+# pkg/ai/agents 上；AI 能力现在走 cmd/analysis 的 MCP 工具层。)
+
+services:
+  data-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+    # 等宿主机 PG / Redis 可达再起 —— 替换掉被移除的 depends_on 保证。
+    # 等什么由脚本从 DATABASE_HOST / REDIS_URL 推导，这里**不重复列一遍**
+    # （曾经写成传参 "postgres:5432 redis:6379"，那是已不存在的旧服务名，
+    #  实测导致容器空转 + unhealthy）。
+    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
+    command: ["/app/data-service"]
+    ports:
+      # 只发布到宿主机回环（见文件头「端口绑定约定」）—— 本机开发/测试够用，
+      # 且是 analysis 能以 open-access 运行的前提。要给局域网设备访问时，
+      # 必须同时给 analysis 配 JWT_SECRET（检查 3c 会拦住只改这一半的做法）。
+      - "127.0.0.1:8081:8081"
+    environment:
+      # AUD-39：DATABASE_HOST/PORT/USER/DATABASE 四项此前**没给** data-service
+      # （只给了密码），它靠 config/data-service.yaml 里的 host/port/user/
+      # database 兜底 —— 值恰好与这里相同，所以「碰巧能用」（P1-8 同型）。
+      #
+      # 现在那份 yaml 的口径是**宿主机视角**（localhost），容器必须显式注入
+      # 自己的视角，否则会去连容器自己的 5432 且必然失败 —— 也就是说
+      # 这四项从「碰巧能用」变成了**必需**。
+      #
+      # DB_PASSWORD 是死键：viper 的键是 database.password，推导出的 env 名
+      # 是 DATABASE_PASSWORD；DB_PASSWORD 零读取者（与 k8s 侧
+      # POSTGRES_PASSWORD 是同一类死键，AUD-39）。
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_DATABASE: quant_trading
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN}
+      REDIS_URL: redis://host.docker.internal:6379
+      # AUD-35：名字必须是 LOGGING_LEVEL。viper 的 AutomaticEnv +
+      # SetEnvKeyReplacer(".", "_") 把 logging.level 映射成 LOGGING_LEVEL；
+      # 此前这里写的 LOG_LEVEL 全仓无人读（死配置）。
+      LOGGING_LEVEL: info
+      # AUD-58：网关限流（每 ClientIP / 每分钟）。这里的缺省 100 与
+      # config/data-service.yaml 的 rate_limit.per_minute 一致 —— **本地开发的
+      # 默认保留真实限额**，别在这里调高。
+      # 整套 playwright 需要更高额度（它从 127.0.0.1 **一个 IP** 出量，API 密集
+      # 的几段必然越过 100/min，于是拿到一批与被测代码无关的 429），走显式覆盖层
+      # `docker-compose.e2e.yml`：(ODR-013 的「e2e/压测调高」就是这个旋钮)
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
+  analysis-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
+    command: ["/app/analysis-service"]
+    ports:
+      - "127.0.0.1:8085:8085"
+    environment:
+      # DB_PASSWORD 已删除（零读取者，viper 读的是 database.password →
+      # DATABASE_PASSWORD，见 data-service 的说明）。
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # ── P0-4 鉴权：两种模式**二选一**，默认是本地 open-access ──────────
+      #
+      # 本地默认走 open-access。**理由已经变了**（2026-09-25，ADR-026）：
+      # 原先的理由是「前端没有登录页、没有 auth store、api client 是裸 fetch
+      # 不带 token（web/src/api/client.ts），且没有首个管理员的引导
+      # （CreateUser 只在 RequireRole(admin) 后面 —— 鸡生蛋）」，所以鉴权一开
+      # 整个 SPA 全站 401，服务"起得来但用不了"。
+      #
+      # **那个缺口已经补上了**：公开的 GET /api/auth/status 让 SPA 在无凭据时
+      # 问出姿势、一次性 POST /api/auth/bootstrap 在浏览器里建首个管理员、
+      # 前端有登录页 + 守卫 + 401 刷新。默认仍是 open-access —— 但这次是**选择**
+      # （本地开发图省事），不再是"没得选"。要走鉴权见 guides/local-dev.md 的
+      # 「① 带鉴权」。
+      #
+      # ⚠️ **整套 playwright 仍然必须跑 open-access**：其余用例都假定「打开就是
+      # 控制台」，鉴权形态下会被守卫全数拦到登录页（只有
+      # e2e/tests/auth-login-flow.spec.ts 两种形态都成立）。
+      #
+      # 基础不变量仍然保留（这是 P0-4 的要点，没有被削弱）：**open-access
+      # 绝不能从其他主机到达**。改动只是把判据从「绑定地址」换成「发布层」——
+      # 容器必须绑 0.0.0.0 才能被转发，所以对外可达性由上面的 ports 映射决定，
+      # 而四条映射全都带 127.0.0.1: 前缀。
+      #
+      #   AUTH_INSECURE=true 且 AUTH_INSECURE_EXPOSURE=loopback-published
+      #     → cmd/analysis/setup.go 的 decideAuthStartup 才放行（取值必须逐字
+      #       匹配，拼错等于没声明 → 拒绝启动，fail closed）
+      #
+      # 要给局域网设备访问时，把两件事**一起**做：ports 映射去掉 127.0.0.1:
+      # 前缀 + 设 JWT_SECRET（openssl rand -hex 32）。只改一半会被检查 3c 拦下。
+      AUTH_INSECURE: ${AUTH_INSECURE:-true}
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+      # 留空 = 不开鉴权。设了它则**密钥优先于 AUTH_INSECURE**（setup.go 的
+      # decideAuthStartup 先看密钥）—— 所以 .env 里别同时留着一个值。
+      JWT_SECRET: ${JWT_SECRET:-}
+      # 跨源白名单，逗号分隔。留空 = 不回显任何 ACAO（默认，最安全）。
+      SERVER_CORS_ALLOWED_ORIGINS: ${SERVER_CORS_ALLOWED_ORIGINS:-}
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_DATABASE: quant_trading
+      REDIS_URL: redis://host.docker.internal:6379
+      DATA_SERVICE_URL: http://data-service:8081
+      # STRATEGY_SERVICE_URL 已随 OBS-11（2026-10-09）删除：策略服务 standby
+      # （ADR-012），per-day HTTP 信号 fallback 不复存在。
+      #
+      # AI_SERVICE_URL —— 反代目标（cmd/analysis/handlers_ai_proxy.go 的
+      # ai_service.url）。**这里必须是 compose 服务名而不是 localhost**：
+      # 缺省值 http://localhost:8086 在宿主机直跑（go run）时恰好命中，
+      # 所以在容器形态下一直静默失效 —— copilot / pipeline / explore / tools
+      # 四族全部 503「ai-service unreachable」，而 ai-service 自己健康得很。
+      # 2026-10-14 拉起本地栈时实测到这条，补上。
+      AI_SERVICE_URL: http://ai-service:8086
+      # P1-15 (Sprint 6, ODR-021): risk + execution merged into
+      # analysis. RISK_SERVICE_URL kept as a legacy fallback only
+      # — the engine prefers the in-process risk manager
+      # attached via WithRiskManager.
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/chat/completions}
+      # 模型名。留空 = 回落 pkg/ai.DefaultModel（gpt-4o-mini）。
+      # 换供应商（MiniMax / DeepSeek / 通义 / OpenRouter / 本地 vLLM）必须
+      # **同时**改 URL 和这里：只改 URL 会把 "gpt-4o-mini" 发给对方，对方
+      # 回 model-not-found —— 协议兼容不等于模型名兼容。
+      # 注意 AI_API_URL 要填完整的 chat-completions 端点，不是 base URL。
+      AI_MODEL: ${AI_MODEL:-}
+      LOGGING_LEVEL: info
+      # AUD-58：见 data-service 里同一行的注释。缺省 100 与
+      # config/analysis-service.yaml 的 rate_limit.per_minute 一致。
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      data-service:
+        condition: service_healthy
+
+  # ── ai-service :8086（AI 拆仓阶段 1，ADR-027 §5 第 8 步前置切片）────────
+  # Copilot / pipeline / explore / tools 四族 handler 的宿主进程。
+  # 源码在 tellurion-agent 仓（阶段 2 迁入）；构建经 additional_contexts
+  # 把 core 仓作为命名上下文 `core` 传入（go.mod 的 replace ../tellurion
+  # 在镜像内解析到它），见 agent 仓的 Dockerfile。
+  # analysis-service 对同名路径族做纯反代（handlers_ai_proxy.go），前端与
+  # openapi 契约零改动。鉴权不变量与 analysis 完全同构：open-access 只许
+  # 发布到 127.0.0.1（检查 3c + local-stack netstat 双闸）。
+  ai-service:
+    build:
+      context: ../tellurion-agent
+      additional_contexts:
+        - core=.
+      dockerfile: Dockerfile
+    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
+    command: ["/app/ai-service"]
+    ports:
+      - "127.0.0.1:8086:8086"
+    environment:
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      AUTH_INSECURE: ${AUTH_INSECURE:-true}
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+      # 密钥优先于 AUTH_INSECURE（bootstrap.DecideAuthStartup 先看密钥）。
+      JWT_SECRET: ${JWT_SECRET:-}
+      SERVER_CORS_ALLOWED_ORIGINS: ${SERVER_CORS_ALLOWED_ORIGINS:-}
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_DATABASE: quant_trading
+      REDIS_URL: redis://host.docker.internal:6379
+      DATA_SERVICE_URL: http://data-service:8081
+      # factor.compute / factor.evaluate / compute_factor_ic 三个工具经
+      # HTTP 打 analysis 的 /api/factor/*（只在那里注册）。
+      AI_SERVICE_FACTOR_API_URL: http://analysis-service:8085
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/chat/completions}
+      AI_MODEL: ${AI_MODEL:-}
+      LOGGING_LEVEL: info
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      data-service:
+        condition: service_healthy
+      analysis-service:
+        condition: service_healthy
+
+# 注意：web 服务已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
+# 前端现在由 tellurion-ui 仓独立构建/托管（该仓的 Dockerfile 与
+# deploy/nginx-spa.conf），后端仍是本仓的 analysis-service:8085。
+
+# 注意：原先这里声明了 postgres_data / redis_data 两个卷。
+# 数据库与缓存移出容器后它们不再被任何服务挂载。**本文件不再声明**，但
+# 磁盘上的 Docker 卷 quant-trading_postgres_data（1.26GB）/
+# quant-trading_redis_data 仍然存在（compose 删声明不删卷）。
+# 里面是旧的容器版数据 —— 已知为**空库**（表结构就绪、业务表 0 行，
+# 见 docs/TEST.md）。确认不再需要时用显式删除回收：
+#   docker volume rm quant-trading_postgres_data quant-trading_redis_data
+# ⛔ 不要用 `docker volume prune` 代替 —— 它会连带删掉四个 Go 构建缓存卷。

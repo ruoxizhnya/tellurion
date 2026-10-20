@@ -1,0 +1,726 @@
+package source
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// EastmoneySectorsAdapter implements DataSourceAdapter for the Eastmoney
+// slist endpoint: industry/concept sector lists, sector membership
+// (stock → sector mapping), and the daily sector snapshot.
+//
+// API reference (per cn_market_data.yaml):
+//
+//	GET https://push2.eastmoney.com/api/qt/clist/get
+//	  ?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3
+//	  &fs=m:90+t:2        # industry sectors
+//	  &fs=m:90+t:3        # concept sectors
+//	  &fields=f1,f2,f3,f4,f5,f6,f12,f14,f20
+type EastmoneySectorsAdapter struct {
+	AdapterBase
+	client *EastmoneyClient
+}
+
+// NewEastmoneySectorsAdapter constructs the adapter.
+func NewEastmoneySectorsAdapter(client *EastmoneyClient) *EastmoneySectorsAdapter {
+	return &EastmoneySectorsAdapter{
+		AdapterBase: NewAdapterBase("eastmoney_sectors", client != nil),
+		client:      client,
+	}
+}
+
+// Type implements DataSourceAdapter.Type.
+func (a *EastmoneySectorsAdapter) Type() AdapterType { return AdapterTypeHTTP }
+
+// SupportedTypes implements DataSourceAdapter.SupportedTypes.
+func (a *EastmoneySectorsAdapter) SupportedTypes() []string {
+	return []string{
+		DataTypeSectors,
+		DataTypeStockSector,
+	}
+}
+
+// Schema implements DataSourceAdapter.Schema.
+func (a *EastmoneySectorsAdapter) Schema(dataType string) (DataSchema, error) {
+	switch dataType {
+	case DataTypeSectors:
+		return DataSchema{
+			DataType: DataTypeSectors,
+			Fields: []SchemaField{
+				{Name: "sector_name", Type: "string", Required: true},
+				{Name: "change_pct", Type: "float", Required: false, Unit: "percent"},
+				{Name: "leading_symbol", Type: "string", Required: false},
+			},
+		}, nil
+	case DataTypeStockSector:
+		return DataSchema{
+			DataType: DataTypeStockSector,
+			Fields: []SchemaField{
+				{Name: "sector_name", Type: "string", Required: true},
+				// CR-38 (ODR-012): add category so consumers can distinguish
+				// industry (f100/f102) from concept (f101/f103) sectors
+				// emitted by the same per-stock endpoint.
+				{Name: "category", Type: "string", Required: false},
+			},
+		}, nil
+	default:
+		return DataSchema{}, fmt.Errorf("%w: eastmoney-sectors does not serve %s", ErrUnsupported, dataType)
+	}
+}
+
+// Fetch implements DataSourceAdapter.Fetch.
+func (a *EastmoneySectorsAdapter) Fetch(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	if err := Validate(req); err != nil {
+		return nil, err
+	}
+	if a.client == nil {
+		return nil, fmt.Errorf("eastmoney-sectors adapter: nil client")
+	}
+	switch req.DataType {
+	case DataTypeSectors:
+		return a.fetchSectorList(ctx, req)
+	case DataTypeStockSector:
+		return a.fetchStockSectors(ctx, req)
+	default:
+		return nil, fmt.Errorf("%w: eastmoney-sectors: %s", ErrUnsupported, req.DataType)
+	}
+}
+
+// sectorListResponse mirrors the push2 clist response shape.
+type sectorListResponse struct {
+	Data struct {
+		Total int                      `json:"total"`
+		Diff  []map[string]interface{} `json:"diff"`
+	} `json:"data"`
+	RC int `json:"rc"`
+}
+
+// fetchSectorList fetches the industry/concept sector list snapshot.
+// Extra["category"] = "industry" | "concept" | "style" (default: industry).
+func (a *EastmoneySectorsAdapter) fetchSectorList(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	category := "industry"
+	if req.Extra != nil {
+		if c, ok := req.Extra["category"].(string); ok && c != "" {
+			category = c
+		}
+	}
+	fs := "m:90+t:2" // industry default
+	switch category {
+	case "concept":
+		fs = "m:90+t:3"
+	case "style":
+		fs = "m:90+t:1"
+	}
+	q := url.Values{}
+	q.Set("pn", "1")
+	q.Set("pz", "200")
+	q.Set("po", "1")
+	q.Set("np", "1")
+	q.Set("fltt", "2")
+	q.Set("invt", "2")
+	q.Set("fid", "f3")
+	q.Set("fs", fs)
+	q.Set("fields", "f1,f2,f3,f4,f5,f6,f12,f14,f20")
+
+	var resp sectorListResponse
+	if err := a.client.GetJSON(ctx, a.client.BaseURL, "/api/qt/clist/get", q, &resp); err != nil {
+		return nil, err
+	}
+	tradeDate := time.Now().UTC()
+	if !req.StartDate.IsZero() {
+		tradeDate = req.StartDate
+	}
+	items := make([]DataItem, 0, len(resp.Data.Diff))
+	for _, row := range resp.Data.Diff {
+		// f12: sector code, f14: sector name, f3: change_pct,
+		// f20: leading symbol, f4: leading change.
+		code, _ := row["f12"].(string)
+		name, _ := row["f14"].(string)
+		if code == "" || name == "" {
+			continue
+		}
+		changePct := toFloat64Safe(row["f3"])
+		leading, _ := row["f20"].(string)
+		items = append(items, DataItem{
+			Symbol:    code, // sector code in Symbol slot
+			TradeTime: tradeDate,
+			Data: map[string]interface{}{
+				"sector_code":    code,
+				"sector_name":    name,
+				"category":       category,
+				"change_pct":     changePct,
+				"leading_symbol": leading,
+				"leading_change": toFloat64Safe(row["f4"]),
+			},
+		})
+	}
+	return &FetchResponse{
+		Source:    a.Name(),
+		Items:     items,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+// fetchStockSectors fetches sector membership for a list of symbols.
+// Eastmoney returns sector codes per stock via
+//
+//	GET /api/qt/stock/get?secid=1.600519&fields=f100,f101,f102,f103
+//	- f100: 行业名称 (industry name, e.g. "银行")
+//	- f101: 概念名称 (concept name, e.g. "区块链")
+//	- f102: 行业代码 (industry code)
+//	- f103: 概念代码 (concept code)
+//
+// CR-38 (ODR-012): previously only f100/f102 were requested, so concept
+// membership was silently dropped. We now request all four fields and
+// emit a separate DataItem per (industry, concept) pair, tagged with a
+// `category` field so downstream consumers can distinguish them.
+func (a *EastmoneySectorsAdapter) fetchStockSectors(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	if len(req.Symbols) == 0 {
+		return nil, fmt.Errorf("eastmoney-sectors stock_sector: symbols required")
+	}
+	items := make([]DataItem, 0)
+	for _, sym := range req.Symbols {
+		rows, err := a.fetchStockSectorsForSymbol(ctx, sym)
+		if err != nil {
+			return nil, fmt.Errorf("eastmoney-sectors %s: %w", sym, err)
+		}
+		items = append(items, rows...)
+	}
+	return &FetchResponse{
+		Source:    a.Name(),
+		Items:     items,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+// stockSectorResponse is the per-symbol sector membership response.
+// CR-38: the Industry map carries f100 (industry name), f101 (concept
+// name), f102 (industry code) and f103 (concept code) — all four must
+// be present in the requested `fields` query parameter to be populated.
+type stockSectorResponse struct {
+	Data struct {
+		Code     string                 `json:"code"`
+		Name     string                 `json:"name"`
+		Industry map[string]interface{} `json:"industry"`
+	} `json:"data"`
+}
+
+// stockSectorCategory is the per-emission sector category tag. CR-38
+// (ODR-012): downstream code can filter on `category` to keep industry
+// and concept membership separate.
+type stockSectorCategory string
+
+const (
+	stockSectorCategoryIndustry stockSectorCategory = "industry"
+	stockSectorCategoryConcept  stockSectorCategory = "concept"
+)
+
+func (a *EastmoneySectorsAdapter) fetchStockSectorsForSymbol(ctx context.Context, sym string) ([]DataItem, error) {
+	secid, err := symbolToEastmoneySecid(sym)
+	if err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	q.Set("secid", secid)
+	// CR-38: include f101/f103 so concept sectors are returned. The
+	// endpoint's `industry` JSON object carries all four fields flat.
+	q.Set("fields", "f100,f101,f102,f103")
+	q.Set("invt", "2")
+	q.Set("fltt", "2")
+
+	var resp stockSectorResponse
+	if err := a.client.GetJSON(ctx, a.client.BaseURL, "/api/qt/stock/get", q, &resp); err != nil {
+		return nil, err
+	}
+	items := buildStockSectorItems(sym, resp.Data.Industry)
+	return items, nil
+}
+
+// buildStockSectorItems turns the Eastmoney `data.industry` map into
+// per-category DataItems. Each (category, sector) pair produces one
+// item; rows with both name and code empty are dropped.
+//
+// CR-38 (ODR-012): extracted from fetchStockSectorsForSymbol so the
+// field → category mapping is unit-testable without a live HTTP
+// round-trip. See TestBuildStockSectorItems in source_test.go.
+func buildStockSectorItems(sym string, industry map[string]interface{}) []DataItem {
+	type mapping struct {
+		category stockSectorCategory
+		nameKey  string
+		codeKey  string
+	}
+	// Field map per CR-38: f100/f102 = industry, f101/f103 = concept.
+	mappings := []mapping{
+		{stockSectorCategoryIndustry, "f100", "f102"},
+		{stockSectorCategoryConcept, "f101", "f103"},
+	}
+	items := make([]DataItem, 0, len(mappings))
+	now := time.Now().UTC()
+	for _, m := range mappings {
+		name := stringField(industry, m.nameKey)
+		code := stringField(industry, m.codeKey)
+		if name == "" && code == "" {
+			continue
+		}
+		// If only a name is present (Eastmoney occasionally returns
+		// the name without a code for newer/hot sectors), fall back to
+		// the name as a stable code so the row is still ingestable.
+		if code == "" {
+			code = name
+		}
+		items = append(items, DataItem{
+			Symbol:    sym,
+			TradeTime: now,
+			Data: map[string]interface{}{
+				"sector_code": code,
+				"sector_name": name,
+				"category":    string(m.category),
+			},
+		})
+	}
+	return items
+}
+
+// stringField returns the string value of key in m, or "" if absent
+// or non-string. Eastmoney's per-stock endpoint encodes f100–f103 as
+// raw strings (e.g. "银行", "BK0001"), but defensive parsing keeps us
+// resilient if the upstream ever switches to numeric codes.
+func stringField(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
+// HealthCheck implements DataSourceAdapter.HealthCheck.
+func (a *EastmoneySectorsAdapter) HealthCheck(ctx context.Context) error {
+	if a.client == nil {
+		return fmt.Errorf("eastmoney-sectors adapter: nil client")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := url.Values{}
+	q.Set("pn", "1")
+	q.Set("pz", "1")
+	q.Set("po", "1")
+	q.Set("np", "1")
+	q.Set("fltt", "2")
+	q.Set("invt", "2")
+	q.Set("fid", "f3")
+	q.Set("fs", "m:90+t:2")
+	q.Set("fields", "f1")
+	var resp sectorListResponse
+	if err := a.client.GetJSON(probeCtx, a.client.BaseURL, "/api/qt/clist/get", q, &resp); err != nil {
+		return fmt.Errorf("%w: eastmoney-sectors: %v", ErrUpstreamUnavailable, err)
+	}
+	return nil
+}
+
+// RateLimit implements DataSourceAdapter.RateLimit.
+func (a *EastmoneySectorsAdapter) RateLimit() RateLimitConfig {
+	return RateLimitConfig{
+		RequestsPerMinute: 120,
+		Burst:             10,
+	}
+}
+
+// String renders a debug-friendly summary.
+func (a *EastmoneySectorsAdapter) String() string {
+	return "EastmoneySectorsAdapter{name=" + a.Name() + "}"
+}
+
+// ----------------------------------------------------------------------------
+// Eastmoney TopList adapter (龙虎榜)
+// ----------------------------------------------------------------------------
+
+// EastmoneyTopListAdapter implements DataSourceAdapter for the Eastmoney
+// 龙虎榜 (top_list) and 涨停池 (limit_up_pool) endpoints.
+type EastmoneyTopListAdapter struct {
+	AdapterBase
+	client *EastmoneyClient
+}
+
+// NewEastmoneyTopListAdapter constructs the adapter.
+func NewEastmoneyTopListAdapter(client *EastmoneyClient) *EastmoneyTopListAdapter {
+	return &EastmoneyTopListAdapter{
+		AdapterBase: NewAdapterBase("eastmoney_toplist", client != nil),
+		client:      client,
+	}
+}
+
+// Type implements DataSourceAdapter.Type.
+func (a *EastmoneyTopListAdapter) Type() AdapterType { return AdapterTypeHTTP }
+
+// SupportedTypes implements DataSourceAdapter.SupportedTypes.
+func (a *EastmoneyTopListAdapter) SupportedTypes() []string {
+	return []string{
+		DataTypeTopList,
+		DataTypeLimitUpPool,
+	}
+}
+
+// Schema implements DataSourceAdapter.Schema.
+func (a *EastmoneyTopListAdapter) Schema(dataType string) (DataSchema, error) {
+	switch dataType {
+	case DataTypeTopList:
+		return DataSchema{
+			DataType: DataTypeTopList,
+			Fields: []SchemaField{
+				{Name: "name", Type: "string", Required: true},
+				{Name: "net_buy", Type: "float", Required: true, Unit: "yuan"},
+				{Name: "buy_amount", Type: "float", Required: false, Unit: "yuan"},
+				{Name: "sell_amount", Type: "float", Required: false, Unit: "yuan"},
+				{Name: "turnover", Type: "float", Required: false, Unit: "yuan"},
+				{Name: "reason", Type: "string", Required: false},
+			},
+		}, nil
+	case DataTypeLimitUpPool:
+		return DataSchema{
+			DataType: DataTypeLimitUpPool,
+			Fields: []SchemaField{
+				{Name: "name", Type: "string", Required: true},
+				{Name: "limit_price", Type: "float", Required: true, Unit: "yuan"},
+				{Name: "first_time", Type: "datetime", Required: false},
+				{Name: "last_time", Type: "datetime", Required: false},
+				{Name: "limit_times", Type: "int", Required: false},
+				{Name: "continuous", Type: "int", Required: false},
+				{Name: "industry", Type: "string", Required: false},
+			},
+		}, nil
+	default:
+		return DataSchema{}, fmt.Errorf("%w: eastmoney-toplist does not serve %s", ErrUnsupported, dataType)
+	}
+}
+
+// Fetch implements DataSourceAdapter.Fetch.
+func (a *EastmoneyTopListAdapter) Fetch(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	if err := Validate(req); err != nil {
+		return nil, err
+	}
+	if a.client == nil {
+		return nil, fmt.Errorf("eastmoney-toplist adapter: nil client")
+	}
+	switch req.DataType {
+	case DataTypeTopList:
+		return a.fetchTopList(ctx, req)
+	case DataTypeLimitUpPool:
+		return a.fetchLimitUpPool(ctx, req)
+	default:
+		return nil, fmt.Errorf("%w: eastmoney-toplist: %s", ErrUnsupported, req.DataType)
+	}
+}
+
+// topListResponse is the response for the 龙虎榜 endpoint.
+type topListResponse struct {
+	Result struct {
+		Data []map[string]interface{} `json:"data"`
+	} `json:"result"`
+	RC int `json:"rc"`
+}
+
+// fetchTopList fetches the dragon-tiger list.
+// API: https://datacenter-web.eastmoney.com/api/data/v1/get
+//
+//	?reportName=RPT_DAILYBILLBOARD_DETAILS
+//	&columns=ALL&filter=&pageNumber=1&pageSize=50
+//	&sortColumns=TRADE_DATE&sortTypes=-1
+func (a *EastmoneyTopListAdapter) fetchTopList(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	// CR-19 (ODR-012): the four hardcoded pagination/filter knobs below
+	// (`pageNumber`, `pageSize`, the lower-bound `TRADE_DATE>='...'`, and
+	// the missing upper bound) are now driven by `req.Extra` with documented
+	// defaults. The previous implementation always fetched page 1 of size
+	// 100 with no upper bound — fine for a smoke test, useless for a backfill
+	// of "all dragon-tiger rows in 2024".
+	pageNumber := "1"
+	pageSize := "100"
+	if req.Extra != nil {
+		if v, ok := req.Extra["page_number"].(int); ok && v > 0 {
+			pageNumber = strconv.Itoa(v)
+		} else if v, ok := req.Extra["page_number"].(string); ok && v != "" {
+			pageNumber = v
+		}
+		if v, ok := req.Extra["page_size"].(int); ok && v > 0 {
+			pageSize = strconv.Itoa(v)
+		} else if v, ok := req.Extra["page_size"].(string); ok && v != "" {
+			pageSize = v
+		}
+	}
+
+	q := url.Values{}
+	q.Set("reportName", "RPT_DAILYBILLBOARD_DETAILS")
+	q.Set("columns", "ALL")
+	var filterParts []string
+	if !req.StartDate.IsZero() {
+		filterParts = append(filterParts,
+			fmt.Sprintf("(TRADE_DATE>='%s')", req.StartDate.Format("2006-01-02")))
+	}
+	if !req.EndDate.IsZero() {
+		filterParts = append(filterParts,
+			fmt.Sprintf("(TRADE_DATE<='%s')", req.EndDate.Format("2006-01-02")))
+	}
+	if len(filterParts) > 0 {
+		// 东财 datacenter 的多条件语法是**括号直接串联**（`(A)(B)`），不是 SQL 的
+		// `and`。用 " and " 拼时源侧不报错、直接把整条 filter 当没看见，回的是按
+		// TRADE_DATE 倒序的第 1 页 —— 于是窗口外三周的数据照样落库、作业照样
+		// completed。2026-10-19 用真源对照实测（见下方 checkTopListWindow 的注释），
+		// 这条形状无法靠 httptest 发现：替身会照你给的条件返回，只有真源装看不见。
+		q.Set("filter", strings.Join(filterParts, ""))
+	}
+	q.Set("pageNumber", pageNumber)
+	q.Set("pageSize", pageSize)
+	q.Set("sortColumns", "TRADE_DATE")
+	q.Set("sortTypes", "-1")
+
+	var resp topListResponse
+	if err := a.client.GetJSON(ctx, a.client.DataCenterURL, "/api/data/v1/get", q, &resp); err != nil {
+		return nil, err
+	}
+	items := make([]DataItem, 0, len(resp.Result.Data))
+	for _, row := range resp.Result.Data {
+		sym, _ := row["SECURITY_CODE"].(string)
+		if sym == "" {
+			continue
+		}
+		// Ensure the symbol has an exchange suffix.
+		if len(sym) == 6 {
+			switch sym[0] {
+			case '6', '9':
+				sym += ".SH"
+			default:
+				sym += ".SZ"
+			}
+		}
+		if rawDate, okDate := row["TRADE_DATE"]; !okDate || strings.TrimSpace(fmt.Sprintf("%v", rawDate)) == "" {
+			// 缺日期必须当场失败。`parseEastmoneyDate` 认不出的形状会回落
+			// `time.Now()`（见该函数末尾的注释）—— 那是把"我读不懂"接管理成
+			// "日期就是今天"。这里先把能判定的那一形状（缺失 / 空串）拦下；
+			// 那个回落本身与其余调用方已按实测登记为独立工单。
+			return nil, fmt.Errorf("eastmoney_toplist: %s has no TRADE_DATE — refusing to store a row whose date we cannot read", sym)
+		}
+		tradeDate := parseEastmoneyDate(row["TRADE_DATE"])
+		// 兜底守卫，与 filter 语法无关：源返回的行必须真在请求窗口内。
+		// filter 写错时东财不报错、静默回全量最新页，所以「窗口由请求决定」
+		// 这件事不能只靠请求参数长对了来保证 —— 见上面 q.Set("filter", …) 那段。
+		if err := checkTopListWindow(tradeDate, sym, req); err != nil {
+			return nil, err
+		}
+		items = append(items, DataItem{
+			Symbol:    sym,
+			TradeTime: tradeDate,
+			Data: map[string]interface{}{
+				"name":        stringFromMap(row, "SECURITY_NAME_ABBR"),
+				"net_buy":     toFloat64Safe(row["BILLBOARD_NET_AMT"]),
+				"buy_amount":  toFloat64Safe(row["BILLBOARD_BUY_AMT"]),
+				"sell_amount": toFloat64Safe(row["BILLBOARD_SELL_AMT"]),
+				"turnover":    toFloat64Safe(row["TURNOVER"]),
+				"reason":      stringFromMap(row, "EXPLAIN"),
+				"close_price": toFloat64Safe(row["CLOSE_PRICE"]),
+				"change_pct":  toFloat64Safe(row["CHANGE_RATE"]),
+			},
+		})
+	}
+	return &FetchResponse{
+		Source:    a.Name(),
+		Items:     items,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+// checkTopListWindow 拒绝把窗口外（或日期不可解析）的榜单行交出去。
+//
+// 判据按「日」而不是按时刻：源侧 TRADE_DATE 是纯日期，而 req.StartDate/EndDate
+// 由执行器按 YYYYMMDD 解析、可能带任何时分的值 —— 只比 Y/M/D 才与时区无关。
+// 两端任一为零值即不参与比较（不给窗口就不主张窗口）。
+func checkTopListWindow(tradeDate time.Time, sym string, req FetchRequest) error {
+	if tradeDate.IsZero() {
+		return fmt.Errorf("eastmoney_toplist: %s has unparseable TRADE_DATE — refusing to store a row with unknown date", sym)
+	}
+	y, m, d := tradeDate.UTC().Date()
+	day := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	if !req.StartDate.IsZero() {
+		sy, sm, sd := req.StartDate.UTC().Date()
+		if day.Before(time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)) {
+			return fmt.Errorf("eastmoney_toplist: %s returned outside the requested window (row %s < start %s) — the source ignored the filter, refusing to store out-of-window rows",
+				sym, day.Format("2006-01-02"), req.StartDate.UTC().Format("2006-01-02"))
+		}
+	}
+	if !req.EndDate.IsZero() {
+		ey, em, ed := req.EndDate.UTC().Date()
+		if day.After(time.Date(ey, em, ed, 0, 0, 0, 0, time.UTC)) {
+			return fmt.Errorf("eastmoney_toplist: %s returned outside the requested window (row %s > end %s) — the source ignored the filter, refusing to store out-of-window rows",
+				sym, day.Format("2006-01-02"), req.EndDate.UTC().Format("2006-01-02"))
+		}
+	}
+	return nil
+}
+
+// fetchLimitUpPool fetches the daily limit-up pool.
+// API: https://push2.eastmoney.com/api/qt/stock/get
+//
+//	?secid=1.000001&fields=...&mktnum=...
+//
+// For the full pool we use:
+//
+//	https://push2.eastmoney.com/api/qt/clist/get
+//	  ?fs=m:1+t:2,m:0+t:6  (sh+sz main boards, limit-up)
+//	  &fields=f1,f2,f3,f4,f5,f6,f12,f14,f20
+func (a *EastmoneyTopListAdapter) fetchLimitUpPool(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	q := url.Values{}
+	q.Set("pn", "1")
+	q.Set("pz", "500")
+	q.Set("po", "1")
+	q.Set("np", "1")
+	q.Set("fltt", "2")
+	q.Set("invt", "2")
+	q.Set("fid", "f3")
+	q.Set("fs", "m:1+t:2,m:0+t:6+f:!2,m:0+t:13+f:!2,m:0+t:80+f:!2,m:1+t:23+f:!2")
+	q.Set("fields", "f1,f2,f3,f4,f5,f6,f12,f14,f20,f23,f25")
+	// Note: limit-up pool is a daily snapshot; we don't have a per-date filter.
+	var resp sectorListResponse
+	if err := a.client.GetJSON(ctx, a.client.BaseURL, "/api/qt/clist/get", q, &resp); err != nil {
+		return nil, err
+	}
+	tradeDate := time.Now().UTC()
+	items := make([]DataItem, 0, len(resp.Data.Diff))
+	for _, row := range resp.Data.Diff {
+		// f12: symbol, f14: name, f2: latest price, f3: change_pct
+		sym, _ := row["f12"].(string)
+		name, _ := row["f14"].(string)
+		if sym == "" || name == "" {
+			continue
+		}
+		if len(sym) == 6 {
+			switch sym[0] {
+			case '6', '9':
+				sym += ".SH"
+			default:
+				sym += ".SZ"
+			}
+		}
+		items = append(items, DataItem{
+			Symbol:    sym,
+			TradeTime: tradeDate,
+			Data: map[string]interface{}{
+				"name":        name,
+				"limit_price": toFloat64Safe(row["f2"]),
+				"first_time":  tradeDate, // approximation: not exposed
+				"last_time":   tradeDate,
+				"limit_times": 1,
+				"continuous":  1,
+				"industry":    "",
+			},
+		})
+	}
+	return &FetchResponse{
+		Source:    a.Name(),
+		Items:     items,
+		FetchedAt: time.Now().UTC(),
+	}, nil
+}
+
+// HealthCheck implements DataSourceAdapter.HealthCheck.
+func (a *EastmoneyTopListAdapter) HealthCheck(ctx context.Context) error {
+	if a.client == nil {
+		return fmt.Errorf("eastmoney-toplist adapter: nil client")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := url.Values{}
+	q.Set("pn", "1")
+	q.Set("pz", "1")
+	q.Set("po", "1")
+	q.Set("np", "1")
+	q.Set("fltt", "2")
+	q.Set("invt", "2")
+	q.Set("fid", "f3")
+	q.Set("fs", "m:1+t:2,m:0+t:6")
+	q.Set("fields", "f1")
+	var resp sectorListResponse
+	if err := a.client.GetJSON(probeCtx, a.client.BaseURL, "/api/qt/clist/get", q, &resp); err != nil {
+		return fmt.Errorf("%w: eastmoney-toplist: %v", ErrUpstreamUnavailable, err)
+	}
+	return nil
+}
+
+// RateLimit implements DataSourceAdapter.RateLimit.
+func (a *EastmoneyTopListAdapter) RateLimit() RateLimitConfig {
+	return RateLimitConfig{
+		RequestsPerMinute: 120,
+		Burst:             10,
+	}
+}
+
+// String renders a debug-friendly summary.
+func (a *EastmoneyTopListAdapter) String() string {
+	return "EastmoneyTopListAdapter{name=" + a.Name() + "}"
+}
+
+// ----------------------------------------------------------------------------
+// shared helpers
+// ----------------------------------------------------------------------------
+
+// toFloat64Safe handles both float64 and json.Number (decoded without UseNumber).
+func toFloat64Safe(v interface{}) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case json.Number:
+		f, _ := x.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(x, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func stringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func parseEastmoneyDate(v interface{}) time.Time {
+	switch x := v.(type) {
+	case string:
+		// Eastmoney typically returns dates as "2026-05-14" or "20260514".
+		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02", "20060102", "2006-01-02", "2006-01-02 15:04:05"} {
+			if t, err := time.Parse(layout, x); err == nil {
+				return t
+			}
+		}
+	case float64:
+		// Some endpoints return YYYYMMDD as a number.
+		s := strconv.FormatInt(int64(x), 10)
+		if len(s) == 8 {
+			if t, err := time.Parse("20060102", s); err == nil {
+				return t
+			}
+		}
+	}
+	return time.Now().UTC()
+}

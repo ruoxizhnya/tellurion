@@ -1,0 +1,261 @@
+name: CI
+
+# 项目此前没有任何自动化门禁（见 TASKS P0-2），文档承诺与代码严重脱节。
+# 本 workflow 是最小可用门禁：构建 + 静态检查 + 测试 + 文档链接校验。
+#
+# AUD-12 补齐两处「规范说了但 CI 不查」的缺口：
+#   1. Test 步骤加 -race。AGENTS.md §8 规范 1 早已把
+#      `go test ./... -count=1 -race` 写成硬性验证标准，CI 却只跑 -count=1，
+#      于是数据竞争从未被门禁捕获。
+#   2. 新增 frontend job。AGENTS.md §6 的代码规范（shallowRef / any 禁令等）
+#      与 §8 的 `npm test` 要求此前全靠自觉。
+# 这两项都不是新增要求，只是让执法者与规范对齐。
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quant_trading
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # AUD-38：windows-only 文件在 Linux-only CI 里**从不被编译**。
+      #
+      # 全仓只有 2 个 `//go:build windows` 文件 —— internal/sandbox/runner/
+      # 的 rlimit_windows.go 与 limits_windows_test.go。它们是 Windows 上
+      # 唯一能强制资源限额的路径（Job Object，AUD-24），却连一个语法错误都
+      # 拦不住：本机的 Windows 是它们**唯一**的编译验证，也就是说这类文件的
+      # 首次编译发生在别人的机器上。
+      #
+      # 用 vet 而不是 build：`go build` **不编译 _test.go**，而 AUD-26 恰恰
+      # 就是在这两个测试文件里引入过编译错误、直到在 Windows 上跑才暴露。
+      # vet 会连测试文件一起做类型检查，所以它同时覆盖了两者。
+      #
+      # 交叉编译不需要链接或运行，成本接近零（实测约 20s，与 Linux vet 同量级）。
+      - name: Vet (windows)
+        run: GOOS=windows go vet ./...
+
+      # AUD-27：补上 gofmt 门禁。AGENTS.md §8 的提交前清单早就写了
+      # 「`gofmt -l .` 无输出」，但这条检查在**本机恒失败** —— 本机
+      # core.autocrlf=true（PortableGit 的 etc/gitconfig，系统级）会把 checkout
+      # 写成 CRLF，于是 `gofmt -l .` 列出全部 412 个 CRLF 的 .go 文件。
+      # 一个恒失败的检查项等于没有检查项：真正的 32 个未格式化文件被 CRLF
+      # 噪声盖住，没人看见。
+      #
+      # 修法是加 `.gitattributes`（`* text=auto eol=lf`）。注意仓库 blob
+      # **本来就是 LF**（实测 558/558 个 .go 文件零个含 CR），所以那次修正是
+      # **零 blob 变化** —— 它只约束 checkout 怎么写。
+      #
+      # Linux runner 上 checkout 本来就是 LF，所以这一步在 CI 里一直有效；
+      # 真正挡住它的是「本机跑不出可信结果，于是没人信它」。
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt 发现未格式化文件（本地用 gofmt -w <file> 修）"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # 存储层测试需要 Postgres；连不上会 t.Skip，因此这里显式提供服务容器，
+      # 让 PIT 等回归测试真正被执行而不是被跳过。
+      #
+      # AUD-12：加 -race（需 cgo + gcc，ubuntu-latest 自带）。
+      # 开门前先实测过存量：`go test -race ./...` 报 17~18 处数据竞争、16 个
+      # 用例失败，全部集中在 cmd/analysis —— 测试助手在 t.Parallel() 下各自
+      # 调 gin.SetMode()，而它写的是 gin 的包级全局（ginMode / modeName），
+      # 与另一个并行测试注册路由时的 IsDebugging() 读相互竞争。生产代码无涉。
+      # 已按 pkg/auth 的既有先例（S7-P0-14 / ODR-043）集中到 TestMain 修掉，
+      # 修完 -race 全量绿。
+      - name: Test
+        # REV-21：加 -coverprofile + 覆盖率门禁。此前 CI 只跑 -race，
+        # 「覆盖率往下滑」从来没有红过（TEST.md 自陈「目标不是门禁」）。
+        #
+        # 门禁执法者是 tools/coveragegate（语句加权，与 go tool cover
+        # 的 total 同口径）。阈值 = 2026-10-17 实测基线 - 5pct 余量：
+        #   total 57.7% → 52；pkg/backtest 70.4% → 65；pkg/domain 80.4% → 75。
+        # 基线口径 = 不设 TEST_DATABASE_DSN 跑全套件——与本 CI 口径一致
+        # （上面的 postgres service 是空库且无迁移步，DB 测试在此模式下
+        # 显式跳过并汇总，见 pkg/testenv/dbenv.go）。要动阈值就同笔改
+        # 这里与 docs/TASKS.md 的 REV-21 完成记录，并重跑基线。
+        #
+        # 注意：本地工作树若残留 gitignored 的 web/node_modules（前端拆仓
+        # 前的旧产物），go 工具链会把它当模块内包walk 到，本地 total 会
+        # 略低于 CI 的干净检出——方向保守，不影响门禁有效性。
+        run: |
+          go test ./... -count=1 -race -coverprofile=coverage.out
+          go run ./tools/coveragegate -profile=coverage.out \
+            -total-min=52 \
+            -pkg-min=tellurion/pkg/backtest=65 \
+            -pkg-min=tellurion/pkg/domain=75
+        env:
+          TUSHARE_TOKEN: ""
+
+  # frontend job 已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
+  # 前端 lint / typecheck / test 的 CI 现在由 tellurion-ui 仓自己的
+  # workflow 承担（见该仓 .github/workflows/ci.yml）。
+
+  # ── K16 ① Python 侧车测试 + 双跑对齐门禁 ──────────────────────────
+  # 台账 K16 ③-1「对齐回归测试进 CI 门禁（Go + Python，双跑 diff 超阈即红）」。
+  # 两条腿分开跑：py 侧（63 测试）不依赖任何外部服务；align-gate 才拉起
+  # PG + 侧车跑真双跑。阈值表的执法者是 cmd/dualrun/gate.go（K15 实测容差
+  # 的唯一 Go 实现），CI 只负责把环境搭起来喂给它。
+  python:
+    name: NT sidecar tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: nt-sidecar/requirements.txt
+
+      - name: Install sidecar deps
+        run: pip install -r nt-sidecar/requirements.txt
+
+      # 与本机跑法同参：-B + PYTHONDONTWRITEBYTECODE=1（不落 __pycache__，
+      # 避免 .pyc 时间戳漂移引起假绿/假红），从 nt-sidecar/ 根跑 discover。
+      - name: Run sidecar tests
+        working-directory: nt-sidecar
+        run: python -B -m unittest discover -s tests -t .
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+  align-gate:
+    name: Dual-run alignment gate
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quant_trading
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: nt-sidecar/requirements.txt
+
+      - name: Install sidecar deps
+        run: pip install -r nt-sidecar/requirements.txt
+
+      # CI 没有 390 万行真库（也不该有）——合成 fixture 保留 4 位小数价，
+      # 让 K15 归因①的「PG 浮点 vs catalog tick」精度差真实复现。
+      - name: Seed synthetic alignment fixture
+        run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d quant_trading -v ON_ERROR_STOP=1 -f tools/ci/seed_alignment_fixture.sql
+
+      - name: Export fixture catalog
+        run: python nt-sidecar/tools/export_bars.py --symbols 000001.SZ,600000.SH --start 2024-01-02 --end 2024-12-31 --out nt-sidecar/catalog
+        env:
+          NT_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/quant_trading?sslmode=disable
+
+      - name: Start sidecar
+        run: python -m sidecar --host 127.0.0.1 --port 9100 --catalog nt-sidecar/catalog &
+        working-directory: nt-sidecar
+
+      - name: Wait for sidecar healthz
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9100/healthz >/dev/null 2>&1; then
+              echo "sidecar ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::sidecar /healthz never became ready"
+          exit 1
+
+      # 双跑 ×2 计划（bh / quarterly）+ 确定性腿（两侧各跑两遍）+
+      # 阈值判定全在 -gate 里：超阈 / 破坏确定性 / 成交 mismatch → exit 2 红。
+      # 报告落盘上传，失败时看证据不是看退出码。
+      - name: Dual-run gate (bh)
+        run: go run ./cmd/dualrun -strategy bh -gate -out /tmp/dualrun-bh.md
+
+      - name: Dual-run gate (quarterly)
+        run: go run ./cmd/dualrun -strategy quarterly -gate -out /tmp/dualrun-quarterly.md
+
+      - name: Upload dual-run reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualrun-reports
+          path: /tmp/dualrun-*.md
+          if-no-files-found: ignore
+
+  docs:
+    name: Doc link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 文档治理规则 R5：文档必须可被自动验证。
+      # 常青层 + 活跃层：坏链即失败。
+      - name: Check internal doc links
+        run: python tools/check_doc_links.py
+
+      # AUD-14：归档层也要查。ODR 与审计报告几乎全在 docs/archive/，而那里
+      # 恰恰是**相对层级最深、改名最频繁**的地方 —— 只查活跃层等于把元检查的
+      # 盲区放在最需要它的区域（ODR-065 报告归档时层级没同步，2 条死链就是这么
+      # 躺进去的）。代码块/行内代码里的链接是**引文**不是导航，检查器会跳过。
+      - name: Check internal doc links (incl. archive)
+        run: python tools/check_doc_links.py --include-archive
+
+      # P1-8：本地 compose 与生产 k8s 两套配置独立维护，改一边忘另一边
+      # 会静默漂移（服务起得来，只在跨服务调用时才炸）。这里守住关键项。
+      - name: Check deploy consistency (compose ↔ k8s)
+        run: python tools/check_deploy_consistency.py

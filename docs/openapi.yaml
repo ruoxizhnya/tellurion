@@ -1,0 +1,4516 @@
+openapi: 3.0.3
+info:
+  title: Quant Lab Analysis Service API
+  version: 1.0.0
+  description: |
+    A-share quantitative trading platform REST API.
+
+    The Analysis Service acts as the API gateway, coordinating backtest,
+    strategy, data, risk, execution, compliance, and AI research endpoints.
+
+    ## Authentication
+    Most endpoints are open in dev mode. When `auth.jwt_secret` is configured,
+    protected endpoints require a `Bearer` JWT token obtained via `POST /api/auth/login`.
+
+    ## Conventions
+    - All dates use `YYYY-MM-DD` unless noted otherwise.
+    - Monetary values are in CNY (Chinese Yuan).
+    - Symbols follow the `XXXXXX.SH` / `XXXXXX.SZ` convention.
+  contact:
+    name: Quant Lab
+    url: https://tellurion
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8085
+    description: Local development server
+  - url: http://analysis-service:8085
+    description: Docker compose internal URL
+
+tags:
+  - name: Health
+    description: Service health and metrics endpoints
+  - name: Backtest
+    description: Backtest execution, reports, and comparison
+  - name: WalkForward
+    description: Walk-forward validation
+  - name: Batch
+    description: Batch backtest execution
+  - name: Strategies
+    description: Strategy configuration CRUD
+  - name: Datasource
+    description: Market data source management
+  - name: Plugins
+    description: Strategy plugin hot-loading
+  - name: Factor
+    description: Factor analysis and IC computation
+  - name: Copilot
+    description: AI-driven strategy generation
+  - name: AI Pipeline
+    description: AI strategy generation pipeline
+  - name: Auth
+    description: Authentication and user management
+  - name: Risk
+    description: Position sizing, regime detection, stop-loss
+  - name: Execution
+    description: Order submission, positions, account, kill-switch
+  - name: Compliance
+    description: Investor suitability, abnormal-trade, large-trade reports
+  - name: Alerts
+    description: Risk alert history and stats
+  - name: Data Proxy
+    description: Proxied data-service endpoints (OHLCV, screen, calendar, sync gateway) and ai-service 反代族（copilot / pipeline / explore / tools）
+  - name: Reconciliation
+    description: 资金对账（K16 ⑤）— 最新/历史报告、强制对账、当前配置
+  - name: Evidence
+    description: L0 evidence service — resolves a citation's content_hash to its archived source response
+  - name: Industry
+    description: Industry-chain static data layer (P2-2) — SW industry tree, supply-chain edges, industry vitality, ETF constituents
+  - name: Macro
+    description: Domestic macro indicator layer (P2-1) — CPI/PPI/PMI/M2/社融/LPR/汇率 observations from Tushare (0 new keys)
+
+paths:
+  # ============================================================
+  # Health
+  # ============================================================
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      description: Returns the current health status of the analysis service.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      description: Exposes the four ADR-017 core metrics plus Go runtime collectors.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus-format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1:
+    get:
+      tags: [Health]
+      summary: API version info
+      description: Returns service name, version, and a list of available endpoints.
+      operationId: getApiVersion
+      responses:
+        '200':
+          description: API version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiVersionInfo'
+
+  # ============================================================
+  # Backtest
+  # ============================================================
+  /api/backtest:
+    get:
+      tags: [Backtest]
+      summary: List backtest jobs
+      description: Returns the most recent backtest jobs.
+      operationId: listBacktests
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of jobs to return (1-100, default 20).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of backtest jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BacktestJob'
+                  total:
+                    type: integer
+    post:
+      tags: [Backtest]
+      summary: Run a backtest or create a backtest job
+      description: |
+        Accepts two request formats:
+
+        1. **Sync (legacy)**: `strategy` + `stock_pool` + `start_date` + `end_date` —
+           runs the backtest synchronously and returns the result.
+        2. **Async (job)**: `strategy_id` + `universe` + `start_date` + `end_date` —
+           creates an async job and returns the job ID immediately.
+      operationId: runBacktest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/BacktestRequest'
+                - $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '200':
+          description: Synchronous backtest result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestResponse'
+        '202':
+          description: Async job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/ConflictPrecondition'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/backtest/{id}:
+    get:
+      tags: [Backtest]
+      summary: Get a backtest job by ID
+      operationId: getBacktest
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+      responses:
+        '200':
+          description: Backtest job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/backtest/{id}/report:
+    get:
+      tags: [Backtest]
+      summary: Get backtest report
+      description: Returns the full backtest report including metrics, trades, and equity curve.
+      operationId: getBacktestReport
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+      responses:
+        '200':
+          description: Backtest report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/backtest/{id}/trades:
+    get:
+      tags: [Backtest]
+      summary: Get backtest trades
+      operationId: getBacktestTrades
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+      responses:
+        '200':
+          description: List of trades
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backtest_id:
+                    type: string
+                  total:
+                    type: integer
+                  trades:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Trade'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/backtest/{id}/equity:
+    get:
+      tags: [Backtest]
+      summary: Get backtest equity curve
+      operationId: getBacktestEquity
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+      responses:
+        '200':
+          description: Equity curve data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backtest_id:
+                    type: string
+                  total_points:
+                    type: integer
+                  equity_curve:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PortfolioValue'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/backtest/{id}/export/{format}:
+    get:
+      tags: [Backtest]
+      summary: Export backtest report
+      description: Exports the backtest report in the specified format (currently only `html`).
+      operationId: exportBacktest
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+        - name: format
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [html]
+        - name: theme
+          in: query
+          schema:
+            type: string
+            enum: [light, dark]
+            default: light
+        - name: equity
+          in: query
+          schema:
+            type: string
+            default: "1"
+        - name: trades
+          in: query
+          schema:
+            type: string
+            default: "1"
+      responses:
+        '200':
+          description: HTML report file
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/backtest/compare:
+    get:
+      tags: [Backtest]
+      summary: Compare multiple backtest results
+      description: Compares 2-8 backtest results side by side.
+      operationId: compareBacktests
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: Comma-separated list of 2-8 backtest IDs.
+          schema:
+            type: string
+          example: bt-001,bt-002,bt-003
+      responses:
+        '200':
+          description: Comparison report
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ============================================================
+  # WalkForward
+  # ============================================================
+  /api/walkforward:
+    post:
+      tags: [WalkForward]
+      summary: Run walk-forward validation
+      description: |
+        REV-20（名实相符）：当前实现是 **rolling-origin 分段回测**——每个窗口内
+        train/test 两段用**同一策略、同一参数**各跑一段独立回测，没有参数
+        优化/校准步骤。响应里的 `oos_vs_train` 是两段独立回测的 Sharpe 之比
+        （反映 B 段相对 A 段的衰减程度），`overfit_score` / `prob_no_overfit`
+        是该衰减的分档启发式分数，**均不是过拟合的统计度量**。真正的
+        train-上优化→test-上验证流水线另立设计单。
+      operationId: runWalkForward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalkForwardRequest'
+      responses:
+        '200':
+          description: Walk-forward report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalkForwardReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [WalkForward]
+      summary: List walk-forward reports
+      operationId: listWalkForwardReports
+      responses:
+        '200':
+          description: List of walk-forward reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WalkForwardReport'
+                  count:
+                    type: integer
+
+  /api/walkforward/{strategy_id}:
+    get:
+      tags: [WalkForward]
+      summary: Get latest walk-forward report for a strategy
+      operationId: getWalkForwardReport
+      parameters:
+        - name: strategy_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Walk-forward report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalkForwardReport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Batch
+  # ============================================================
+  /api/batch:
+    post:
+      tags: [Batch]
+      summary: Run batch backtests
+      description: Runs multiple backtest tasks concurrently with optional walk-forward validation.
+      operationId: runBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchRunRequest'
+      responses:
+        '200':
+          description: Batch report
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/batch/{batch_id}:
+    get:
+      tags: [Batch]
+      summary: Get batch report
+      operationId: getBatchReport
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch report
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/batch/{batch_id}/export/{format}:
+    get:
+      tags: [Batch]
+      summary: Export batch report
+      operationId: exportBatchReport
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [json, csv]
+      responses:
+        '200':
+          description: Exported file
+          content:
+            application/json:
+              schema:
+                type: object
+            text/csv:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Strategies
+  # ============================================================
+  /api/strategies:
+    get:
+      tags: [Strategies]
+      summary: List strategies
+      description: Returns all strategies, optionally filtered by type or active status.
+      operationId: listStrategies
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        '200':
+          description: List of strategies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  strategies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StrategyConfig'
+    post:
+      tags: [Strategies]
+      summary: Create a strategy
+      operationId: createStrategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStrategyRequest'
+      responses:
+        '200':
+          description: Strategy created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  strategy_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/strategies/{id}:
+    get:
+      tags: [Strategies]
+      summary: Get a strategy by ID
+      operationId: getStrategy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Strategy configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StrategyConfig'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Strategies]
+      summary: Update a strategy
+      operationId: updateStrategy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStrategyRequest'
+      responses:
+        '200':
+          description: Strategy updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  strategy_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Strategies]
+      summary: Delete a strategy
+      operationId: deleteStrategy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Strategy deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  strategy_id:
+                    type: string
+
+  # ============================================================
+  # Datasource
+  # ============================================================
+  /api/datasource/status:
+    get:
+      tags: [Datasource]
+      summary: Get data source status
+      operationId: getDatasourceStatus
+      responses:
+        '200':
+          description: Data source status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  primary:
+                    type: string
+                  stopped:
+                    type: array
+                    items:
+                      type: string
+
+  /api/datasource/health:
+    get:
+      tags: [Datasource]
+      summary: Check data source connectivity
+      operationId: checkDatasourceHealth
+      responses:
+        '200':
+          description: Data source is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  primary:
+                    type: string
+        '503':
+          description: Data source unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Plugins
+  # ============================================================
+  /api/plugins:
+    get:
+      tags: [Plugins]
+      summary: List all plugins
+      operationId: listPlugins
+      responses:
+        '200':
+          description: List of plugins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /api/plugins/active:
+    get:
+      tags: [Plugins]
+      summary: List active plugins
+      operationId: listActivePlugins
+      responses:
+        '200':
+          description: List of active plugins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /api/plugins/{name}:
+    get:
+      tags: [Plugins]
+      summary: Get plugin info
+      operationId: getPlugin
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Plugin info
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/plugins/load:
+    post:
+      tags: [Plugins]
+      summary: Load a plugin from file
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: loadPlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Plugin loaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  plugin:
+                    type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/plugins/{name}/unload:
+    post:
+      tags: [Plugins]
+      summary: Unload a plugin
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: unloadPlugin
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '400':
+          description: 路径逃逸（不在 plugins.directory 内）或请求体非法
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Plugin unloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  name:
+                    type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/plugins/{name}/reload:
+    post:
+      tags: [Plugins]
+      summary: Reload a plugin by name
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: reloadPluginByName
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '400':
+          description: 路径逃逸（不在 plugins.directory 内）或请求体非法
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Plugin reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  plugin:
+                    type: object
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/plugins/reload:
+    post:
+      tags: [Plugins]
+      summary: Reload a plugin from file path
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: reloadPluginByPath
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Plugin reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  plugin:
+                    type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/plugins/load-all:
+    post:
+      tags: [Plugins]
+      summary: Load all plugins from watch directory
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: loadAllPlugins
+      security:
+        - BearerAuth: []
+      responses:
+        '400':
+          description: 路径逃逸（不在 plugins.directory 内）或请求体非法
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Load-all completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  loaded:
+                    type: array
+                    items:
+                      type: string
+                  errors:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+                  errCount:
+                    type: integer
+
+  /api/plugins/watch-dir:
+    get:
+      tags: [Plugins]
+      summary: Get current watch directory
+      description: |
+        返回 `load-all` 扫描的插件目录。读端点，全局认证即可（变更端点才要求 admin）。
+      operationId: getPluginWatchDir
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current watch directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dir:
+                    type: string
+    post:
+      tags: [Plugins]
+      summary: Set watch directory
+      description: |
+        REV-08（安全）：要求角色 `admin`。插件加载会在 analysis 进程内执行 .so 的
+        原生代码，路径还必须落在配置的 `plugins.directory` 之内（逃逸 → 400）。
+        非 admin token（viewer/trader）→ 403。
+      operationId: setWatchDir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dir]
+              properties:
+                dir:
+                  type: string
+      security:
+        - BearerAuth: []
+      responses:
+        '403':
+          description: 非 admin 角色
+        '200':
+          description: Watch directory set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  dir:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ============================================================
+  # Factor
+  # ============================================================
+  /api/factor/list:
+    get:
+      tags: [Factor]
+      summary: List available factors
+      operationId: listFactors
+      responses:
+        '200':
+          description: List of factors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  factors:
+                    type: array
+                    items:
+                      type: string
+
+  /api/factor/returns/{factor}:
+    get:
+      tags: [Factor]
+      summary: Get factor returns time series
+      operationId: getFactorReturns
+      parameters:
+        - name: factor
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [momentum, value, quality, volatility, size, growth]
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Factor returns time series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factor:
+                    type: string
+                  start_date:
+                    type: string
+                  end_date:
+                    type: string
+                  total:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/factor/ic/{factor}:
+    get:
+      tags: [Factor]
+      summary: Get factor IC time series
+      operationId: getFactorIC
+      parameters:
+        - name: factor
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [momentum, value, quality, volatility, size, growth]
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: IC time series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factor:
+                    type: string
+                  start_date:
+                    type: string
+                  end_date:
+                    type: string
+                  total:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/factor/compute-returns:
+    post:
+      tags: [Factor]
+      summary: Compute factor returns for a date
+      operationId: computeFactorReturns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [factor, trade_date]
+              properties:
+                factor:
+                  type: string
+                trade_date:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: Factor returns computed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  factor:
+                    type: string
+                  trade_date:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/factor/compute-ic:
+    post:
+      tags: [Factor]
+      summary: Compute factor IC for a date
+      operationId: computeFactorIC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [factor, trade_date]
+              properties:
+                factor:
+                  type: string
+                trade_date:
+                  type: string
+                  format: date
+                forward_days:
+                  type: integer
+                  default: 20
+      responses:
+        '200':
+          description: IC computed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  factor:
+                    type: string
+                  trade_date:
+                    type: string
+                  forward_days:
+                    type: integer
+                  ic:
+                    type: number
+                  p_value:
+                    type: number
+                  top_ic:
+                    type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ============================================================
+  # Copilot (AI strategy generation)
+  # ============================================================
+  /api/copilot/generate:
+    post:
+      tags: [Copilot]
+      summary: Generate strategy via AI
+      description: Submits a natural-language description and starts AI strategy generation.
+      operationId: generateStrategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotGenerateRequest'
+      responses:
+        '202':
+          description: Generation job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+        '503':
+          description: AI not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/copilot/generate/{job_id}:
+    get:
+      tags: [Copilot]
+      summary: Get generation job status
+      operationId: getGenerationJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status and result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                  generated_code:
+                    type: string
+                  build_error:
+                    type: string
+                  strategy_name:
+                    type: string
+                  backtest_error:
+                    type: string
+                  backtest_result:
+                    type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/copilot/stats:
+    get:
+      tags: [Copilot]
+      summary: Get copilot statistics
+      operationId: getCopilotStats
+      responses:
+        '200':
+          description: Copilot statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated:
+                    type: integer
+                  buildable:
+                    type: integer
+                  backtest_valid:
+                    type: integer
+                  acceptance_rate:
+                    type: number
+
+  # /api/copilot/save 已于 AUD-01 (ODR-065 C3) 删除，不是加固。
+  # 原因：零生产调用方（前端 S7-P2-7 已删 saveStrategy stub），且其用途
+  # （把 LLM 生成的 Go 源码写进插件目录）与 ADR-024「生成的 Go 只是可审阅
+  # artifact，不加载不执行」冲突。原实现存在路径遍历（StrategyName 无校验
+  # → 可写任意 .go 文件，构成构建投毒）。删除后攻击面归零。
+  # 回归护栏：cmd/analysis/handlers_copilot_test.go 断言该路由返回 404。
+
+  # ============================================================
+  # AI Pipeline
+  # ============================================================
+  /api/pipeline/run:
+    post:
+      tags: [AI Pipeline]
+      summary: Run AI strategy generation pipeline
+      description: |
+        Executes the full pipeline: intent parsing → YAML generation →
+        code generation → compilation → backtest.
+      operationId: runPipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PipelineRunRequest'
+      responses:
+        '200':
+          description: Pipeline execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineJobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/pipeline/jobs:
+    get:
+      tags: [AI Pipeline]
+      summary: List pipeline jobs
+      operationId: listPipelineJobs
+      responses:
+        '200':
+          description: List of pipeline jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PipelineJobResponse'
+
+  /api/pipeline/jobs/{id}:
+    get:
+      tags: [AI Pipeline]
+      summary: Get pipeline job by ID
+      operationId: getPipelineJob
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pipeline job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineJobResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Auth
+  # ============================================================
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and obtain JWT tokens
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Token pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user info
+      operationId: getMe
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  username:
+                    type: string
+                  role:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/status:
+    get:
+      tags: [Auth]
+      summary: Auth posture of this instance (public)
+      operationId: authStatus
+      description: |
+        **Deliberately unauthenticated** (ADR-026). The SPA must choose between
+        rendering a login form and a "create the first administrator" form
+        *before* it holds any credential, so this endpoint has to answer without
+        one. It discloses only what is externally observable anyway: whether the
+        instance is open-access, and whether the first-admin window is still open.
+
+        Returns 500 when auth is enabled but the database is unreachable — the
+        SPA fails closed (renders an "unreachable" state, never a credential form)
+        rather than being told a made-up answer. When auth is **disabled** it
+        answers without touching the database.
+
+        **Exempt from the gateway rate limiter** (ADR-026 §5, AUD-57), alongside
+        `/health`. Rationale: throttling it makes a well-behaved client unable to
+        tell `429` apart from `401`, and the SPA's fail-closed probe then reads a
+        rate-limited answer as "not authenticated" and bounces the whole app to
+        the login page (measured: 130 rapid calls → 93x `200` / 37x `429`). This
+        is the only `/api/auth/*` path that is exempt — `/api/auth/login` and
+        `/api/auth/refresh` stay rate-limited, since that limiter is the first
+        line of defence against credential stuffing.
+      responses:
+        '200':
+          description: Current auth posture
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auth_enabled, bootstrap_required]
+                properties:
+                  auth_enabled:
+                    type: boolean
+                    description: JWT issuance is configured (`auth.jwt_secret` set)
+                  bootstrap_required:
+                    type: boolean
+                    description: Auth is on AND the `users` table is empty
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/bootstrap:
+    post:
+      tags: [Auth]
+      summary: Create the FIRST administrator, once (public)
+      operationId: bootstrapFirstAdmin
+      description: |
+        **The only unauthenticated write path in the system** (ADR-026). The
+        authorisation is not a credential but a state: the `users` table being
+        empty. It is checked inside a transaction under
+        `pg_advisory_xact_lock(7215001)`, so concurrent callers cannot both win.
+
+        The window closes permanently after the first successful call — every
+        later call returns 403, for every caller. Whoever reaches the instance
+        first can claim admin; that is inherent to self-service bootstrap (the
+        local stack publishes on loopback only, ADR-025).
+
+        On success the caller is logged in immediately (the response is a full
+        token pair), and the attempt leaves a row in `audit_logs`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '201':
+          description: First administrator created and logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: >
+            Bootstrap window is closed — either a user already exists, or auth is
+            disabled. One message for both: neither is actionable by an anonymous
+            caller, and distinguishing them would disclose whether any account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/admin/users:
+    get:
+      tags: [Auth]
+      summary: List users (admin only)
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+    post:
+      tags: [Auth]
+      summary: Create a user (admin only)
+      operationId: createUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  username:
+                    type: string
+                  role:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Username already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/admin/audit:
+    get:
+      tags: [Auth]
+      summary: List audit log (admin only)
+      operationId: listAudit
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audit:
+                    type: array
+                    items:
+                      type: object
+
+  # ============================================================
+  # Risk
+  # ============================================================
+  /api/risk/calculate_position:
+    post:
+      tags: [Risk]
+      summary: Calculate position size
+      description: Computes position size, stop-loss, and take-profit for a single signal.
+      operationId: calculatePosition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculatePositionRequest'
+      responses:
+        '200':
+          description: Position sizing result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculatePositionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/risk/detect_regime:
+    post:
+      tags: [Risk]
+      summary: Detect market regime
+      description: Analyzes OHLCV data to determine the current market regime (bull/bear/sideways).
+      operationId: detectRegime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OHLCV'
+      responses:
+        '200':
+          description: Market regime
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketRegime'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/risk/check_stoploss:
+    post:
+      tags: [Risk]
+      summary: Check stop-loss conditions
+      description: Evaluates current positions against prices and returns stop-loss/take-profit events.
+      operationId: checkStopLoss
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [positions, prices]
+              properties:
+                positions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Position'
+                prices:
+                  type: object
+                  additionalProperties:
+                    type: number
+      responses:
+        '200':
+          description: Stop-loss events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StopLossEvent'
+                  count:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/risk/metrics:
+    get:
+      tags: [Risk]
+      summary: Get risk manager configuration metrics
+      operationId: getRiskMetrics
+      responses:
+        '200':
+          description: Risk metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskMetricsResponse'
+
+  # ============================================================
+  # Execution
+  # ============================================================
+  /api/execution/orders:
+    post:
+      tags: [Execution]
+      summary: Submit an order
+      description: |
+        Submits a simulated order to the in-process MockTrader.
+
+        (Wording note: this is NOT the removed `/api/paper/*` family —
+        those endpoints were never mounted and were deleted in AUD-19.)
+
+        AUD-02 (ODR-065 H5): requires role `trader` or `admin`. A `viewer`
+        token gets 403. The legacy root path `POST /orders` carries the
+        same requirement — the two are the same handler on two paths.
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Missing or invalid access token
+        '403':
+          description: Authenticated but role is not trader/admin
+    get:
+      tags: [Execution]
+      summary: List orders
+      operationId: listOrders
+      responses:
+        '200':
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderResult'
+                  count:
+                    type: integer
+
+  /api/execution/orders/{id}:
+    get:
+      tags: [Execution]
+      summary: Get an order by ID
+      operationId: getOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/execution/orders/{id}/cancel:
+    post:
+      tags: [Execution]
+      summary: Cancel an order
+      description: |
+        AUD-02 (ODR-065 H5): requires role `trader` or `admin`. The legacy
+        root path `POST /orders/{id}/cancel` carries the same requirement.
+      operationId: cancelOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id:
+                    type: string
+                  status:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Missing or invalid access token
+        '403':
+          description: Authenticated but role is not trader/admin
+
+  /api/execution/positions:
+    get:
+      tags: [Execution]
+      summary: Get current positions
+      operationId: getPositions
+      responses:
+        '200':
+          description: Current positions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  positions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Position'
+                  count:
+                    type: integer
+
+  /api/execution/account:
+    get:
+      tags: [Execution]
+      summary: Get account summary
+      operationId: getAccount
+      responses:
+        '200':
+          description: Account summary
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/execution/emergency-flatten:
+    post:
+      tags: [Execution]
+      summary: Emergency flatten (kill-switch)
+      description: |
+        Liquidates all positions immediately. Requires:
+        1. Server-side `trading.emergency_token` configured.
+        2. Bearer token in Authorization header matching the server token.
+        3. JSON body with `reason` and `confirmation_token`.
+      operationId: emergencyFlatten
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, confirmation_token]
+              properties:
+                reason:
+                  type: string
+                confirmation_token:
+                  type: string
+      responses:
+        '200':
+          description: Flatten result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyFlattenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invalid token or confirmation mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Kill-switch disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Compliance
+  # ============================================================
+  /api/compliance/check:
+    post:
+      tags: [Compliance]
+      summary: Check investor suitability for a symbol
+      description: Returns the structured eligibility verdict for the given symbol.
+      operationId: checkCompliance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplianceCheckRequest'
+      responses:
+        '200':
+          description: Suitability check passed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceCheckResponse'
+        '422':
+          description: Suitability check rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceCheckResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/compliance/requirements:
+    get:
+      tags: [Compliance]
+      summary: List all per-board suitability requirements
+      operationId: listComplianceRequirements
+      responses:
+        '200':
+          description: Board requirements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requirements:
+                    type: array
+                    items:
+                      type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+
+  /api/compliance/boards:
+    get:
+      tags: [Compliance]
+      summary: List boards requiring suitability
+      operationId: listComplianceBoards
+      responses:
+        '200':
+          description: Boards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  boards:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+
+  /api/compliance/abnormal/run:
+    post:
+      tags: [Compliance]
+      summary: Run abnormal-trade detection
+      description: Runs the 6-category detector over the supplied orders and trades.
+      operationId: runAbnormalDetection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                orders:
+                  type: array
+                  items:
+                    type: object
+                trades:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Detection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+                  run_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/compliance/report/daily:
+    post:
+      tags: [Compliance]
+      summary: Generate large-transaction daily report
+      operationId: generateDailyReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trading_date:
+                  type: string
+                  format: date
+                trades:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Report generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  report:
+                    type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/compliance/divestment/check:
+    post:
+      tags: [Compliance]
+      summary: Check shareholder reduction (divestment) rules
+      operationId: checkDivestment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile:
+                  type: object
+                plan:
+                  type: object
+                recent:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Divestment allowed
+          content:
+            application/json:
+              schema:
+                type: object
+        '422':
+          description: Divestment rejected
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/compliance/divestment/holder-types:
+    get:
+      tags: [Compliance]
+      summary: List shareholder types
+      operationId: listHolderTypes
+      responses:
+        '200':
+          description: Holder types
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  holder_types:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /api/compliance/divestment/methods:
+    get:
+      tags: [Compliance]
+      summary: List reduction methods
+      operationId: listReductionMethods
+      responses:
+        '200':
+          description: Reduction methods
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  methods:
+                    type: array
+                    items:
+                      type: object
+                  count:
+                    type: integer
+
+  /api/compliance/divestment/rules:
+    get:
+      tags: [Compliance]
+      summary: Get current divestment rules
+      operationId: getDivestmentRules
+      responses:
+        '200':
+          description: Divestment rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+
+  # ============================================================
+  # Alerts
+  # ============================================================
+  /api/alerts/history:
+    get:
+      tags: [Alerts]
+      summary: Get recent alerts
+      description: Returns the most recent alerts from the in-memory ring buffer.
+      operationId: getAlertHistory
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [info, warning, critical]
+      responses:
+        '200':
+          description: Alert history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertHistoryResponse'
+
+  /api/alerts/force-check:
+    post:
+      tags: [Alerts]
+      summary: Force an immediate alert evaluation cycle
+      operationId: forceAlertCheck
+      responses:
+        '200':
+          description: Evaluation completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dispatched:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/alerts/stats:
+    get:
+      tags: [Alerts]
+      summary: Get alert statistics
+      operationId: getAlertStats
+      responses:
+        '200':
+          description: Alert statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertStatsResponse'
+
+  # ============================================================
+  # Data Proxy (proxied to data-service)
+  # ============================================================
+  /api/ohlcv/{symbol}:
+    get:
+      tags: [Data Proxy]
+      summary: Get OHLCV data (proxied)
+      description: >-
+        Proxied to the data-service. Returns daily candlestick data.
+        `start_date` / `end_date` are `YYYYMMDD` (DATA-13); a malformed date is
+        a 400 from the data-service, surfaced as-is (never a silent empty body).
+      operationId: getOHLCV
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "000001.SZ"
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "20240101"
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "20240601"
+      responses:
+        '200':
+          description: OHLCV data
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          description: Data service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/screen:
+    post:
+      tags: [Data Proxy]
+      summary: Screen stocks (proxied)
+      operationId: screenStocks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Screen results
+          content:
+            application/json:
+              schema:
+                type: object
+        '502':
+          description: Data service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/stocks/count:
+    get:
+      tags: [Data Proxy]
+      summary: Stock records + status split (proxied)
+      description: >
+        网关是字段透传（proxyRequest 解码成 map 再编码），形状由数据服务定义，
+        见 docs/SPEC.md §1「GET /stocks/count 的响应形状」。
+      operationId: getStockCount
+      responses:
+        '200':
+          description: >
+            count 含已退市记录，且等于 by_status 各档之和 —— 它不是"在市股票数"；
+            要在市数取 by_status.active。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count, by_status, latest_date]
+                properties:
+                  count:
+                    type: integer
+                    format: int64
+                    description: 全表行数（含已退市），由 by_status 各档求和导出，非第二次 COUNT(*)
+                  by_status:
+                    type: object
+                    description: >
+                      逐值等于 SELECT status, COUNT(*) FROM stocks GROUP BY status。
+                      status 为 NULL 或空串的行折成 "unknown" 一档（该列可空）；
+                      票池为空时序列化为 {}，不是 null。
+                    additionalProperties:
+                      type: integer
+                      format: int64
+                  latest_date:
+                    type: string
+                    format: date
+                    nullable: true
+                    description: >
+                      行情最新日 = SELECT MAX(trade_date) FROM ohlcv_daily_qfq（DATA-03）。
+                      键**恒在**：有行情时是 YYYY-MM-DD，库里还没有行情时是显式 null。
+                      读失败不再折成 null —— handler 让这一趟失败回 5xx，
+                      所以 null 只表示「没有读数」这一个意思，不背「读挂了」这层含义。
+                      形状问题由 DATA-03 关闭（原形状把 date 扫进 **string 且丢弃
+                      error，该字段在任何库里都不曾出现）。
+        '500':
+          description: >
+            这一趟没读成（票池拆分或行情日期任一失败）。DATA-03 之后读失败不再折成
+            「200 + 字段缺席/为 null」；文案点名失败的那一步，底层原因只进服务端日志。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/market/index:
+    get:
+      tags: [Data Proxy]
+      summary: Get market index (proxied)
+      description: >
+        数据服务从 **market.index_daily**（指数日线表，DATA-12，2026-10-16）取指数
+        代码的一期读数与上一期收盘（一趟窗口函数）。两个选择器都生效（DATA-11 (a1)），
+        网关这一层原样转发 symbol/date：
+        `symbol` 只认服务集 000300.SH / 000001.SH / 399006.SZ 之内的那一个（不传 = 三个都给），
+        服务集外（含个股代码）一律 400 而**不透传** —— market.index_daily 只收指数代码，
+        透传等于把一只股票当指数卖。`date` 走 as-of：`trade_date <= date` 里最近的一根。
+        ⚠️ 这不是 PIT 快照（可见锚点就是 trade_date，无公告日/摄取时刻过滤）。
+        prev_close 跟着所选那一期走，不是全表次新那期。
+        DATA-12 已补上数据面：新表 market.index_daily + tushare index_daily 新源 +
+        POST /sync/index-daily/:index_code 灌数入口（**数据服务面**，非网关；
+        网关的 /api/sync/*path 代理不重写路径，指到 /api/sync/index-daily 会 404），
+        本端点读路径改从新表取数；
+        **未灌数的库仍如实回 `{"indices":[]}`** —— 空数组是「今天没有行情」，不是缺陷。
+        读失败回 500（见本路径的 '500'），不是把失败折成空数组。
+      operationId: getMarketIndex
+      parameters:
+        - name: symbol
+          in: query
+          required: false
+          description: 服务集内的指数代码；省略 = 三个代码的最新一期都给。
+          schema:
+            type: string
+            enum: [000300.SH, 000001.SH, 399006.SZ]
+        - name: date
+          in: query
+          required: false
+          description: >
+            as-of 日（该日或之前最近一根 bar），格式固定 YYYY-MM-DD。
+            其他格式（如 20240101）一律 400，不静默当成省略。省略 = 不按日期收窄。
+          schema:
+            type: string
+            format: date
+          example: '2026-01-05'
+      responses:
+        '200':
+          description: >
+            indices 恒为数组（没数据是 []，不是 null，也不是编一条零值条目）。
+            点了 symbol 的条目数 ≤ 1。
+            volume 单位股、amount 单位 CNY（规范层口径，DATA-04/05），服务端不做换算，
+            亿/万的展示由前端负责。pct 是**百分数刻度**（1.23 == +1.23%）。
+            change/pct 在没有上一期收盘时为 null（「无从算起」不显示成 +0.00%）；
+            amount 在 turnover 为 NULL 时同理。
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [indices]
+                properties:
+                  indices:
+                    type: array
+                    items:
+                      type: object
+                      required: [code, name, close, volume]
+                      properties:
+                        code:
+                          type: string
+                          description: 指数代码，如 000300.SH
+                        name:
+                          type: string
+                          description: 中文名由服务端给（沪深300 等），前端不再各自维护映射
+                        close:
+                          type: number
+                          format: double
+                        change:
+                          type: number
+                          format: double
+                          nullable: true
+                          description: 与上一期收盘的差；没有上一期时为 null
+                        pct:
+                          type: number
+                          format: double
+                          nullable: true
+                          description: 涨跌幅，百分数刻度（1.23 == +1.23%）
+                        volume:
+                          type: number
+                          format: double
+                          description: 成交量，单位**股**（原样透出，不换算成手/万/亿）
+                        amount:
+                          type: number
+                          format: double
+                          nullable: true
+                          description: 成交额，单位**CNY**；turnover 列为 NULL 时是 null，不是 0
+        '400':
+          description: >
+            选择器不合法（DATA-11）：symbol 不在服务集内，或 date 不是 YYYY-MM-DD。
+            坏参数一律 400 而不是 200 + 空数组 —— 「这里不供给」与「这个指数没有日线」
+            是两件事，压成同一个形状就是界面在替后端编一个诚实读数。
+            网关原状态码原文透出，不 launder。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: >
+            指数 bar 这一趟没读成（DATA-07）。旧形状把读失败折成「200 + 这条不出现」，
+            与「这个指数没有日线」长得一样；现在失败回 500，没数据才回 []。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/sync/calendar:
+    post:
+      tags: [Data Proxy]
+      summary: Sync trading calendar (proxied)
+      operationId: syncCalendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Calendar sync result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/ingest/raw:
+    post:
+      x-served-by: data-service   # REV-13：只在 :8081 注册（本文件 servers 是 :8085）
+      tags: [Evidence]
+      summary: Archive a raw external-source response into ingest.raw
+      description: |
+        L0 ingest write door (ADR-022 §2/§3 / TASKS.md L0-1). The platform's
+        single write door into `ingest.raw` (class A). The data service writes
+        here in-process at the tushare request choke point; external producers
+        — in practice the akshare side of work face 1 — post here so their data
+        becomes citable via GET /api/evidence/{content_hash} instead of being
+        copied into a second store.
+
+        The door is deliberately narrow: it archives a verbatim payload and
+        returns the content_hash that citations must carry. It does not
+        normalise, interpret, or validate domain content — normalisation is a
+        separate, reproducible step that reads these rows back.
+
+        Idempotent: content_hash is the primary key and the insert is
+        ON CONFLICT DO NOTHING, so re-posting the same response is a no-op and
+        never rewrites the original attribution.
+      operationId: ingestRaw
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RawIngestWrite'
+      responses:
+        '201':
+          description: Archived, or already present. Returns the stored record carrying the authoritative content_hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawIngest'
+        '400':
+          description: |
+            Rejected before any write: missing source/dataset/key/payload,
+            malformed body, a content_hash that does not match the payload, or
+            an as_of that is neither `YYYY-MM-DD` nor RFC3339.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The archive write failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/ingest/equitydeep:
+    post:
+      x-served-by: data-service   # REV-13：只在 :8081 注册（本文件 servers 是 :8085）
+      tags: [Evidence]
+      summary: Normalize archived EquityDeep snapshots into fundamentals_detail
+      description: |
+        Class-B ingest door (ADR-022 §2 / TASKS.md EQD-P1-2, C-3). Consumes an
+        ndjson stream — one `contracts/snapshot.schema.json` record per line —
+        and writes `fundamentals_detail` rows.
+
+        Provenance gate: the caller must first archive the exact snapshot file
+        through `POST /api/ingest/raw` and pass the content_hash it received. A
+        hash ingest.raw does not know is rejected, and every written row is
+        stamped with that hash as its `snapshot_uri` — no number enters
+        fundamentals_detail without a resolvable raw response behind it.
+
+        Normalization rules (pure package `pkg/data/equitydeep`, contract C1-a):
+        raw_names is an explicit whitelist; unit conversion uses `unit_scale` and
+        an absent unit falls back to the dictionary base_unit; a string value
+        carrying a self-described magnitude suffix (亿/亿元 → CNY_100m, 万/万元 →
+        CNY_10k) is converted by that suffix, with thousands separators stripped.
+        Fields outside the whitelist, and values that are not parseable numbers,
+        are dropped and reported in `dropped` rather than guessed.
+      operationId: ingestEquityDeep
+      parameters:
+        - name: content_hash
+          in: query
+          required: true
+          description: 64-char lowercase hex hash returned by POST /api/ingest/raw for the archived snapshot file
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      requestBody:
+        required: true
+        description: ndjson — one snapshot record per line
+        content:
+          application/x-ndjson:
+            schema:
+              type: string
+      responses:
+        '201':
+          description: Snapshots normalized and written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EquityDeepIngestResponse'
+        '400':
+          description: |
+            Rejected before any write: a malformed content_hash, a hash that was
+            never ingested, a line that is not a contract snapshot, a contract
+            violation (bad ticker, missing report_period / ann_date, unknown
+            unit, unknown snapshot key), an empty body, or a body over 32 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: The fundamentals_detail write failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The field dictionary was not loadable at startup, so there is no whitelist or conversion table to normalize with
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/evidence/{content_hash}:
+    get:
+      tags: [Evidence]
+      summary: Resolve a citation's content_hash to its archived source response
+      description: |
+        L0 evidence service (ADR-022 §5 / TASKS.md L0-3). Returns the single
+        archived record in `ingest.raw` for the given hash. `404` means the
+        hash was never ingested — that is a first-class answer, not an error.
+        Work faces read data through this endpoint instead of keeping copies.
+      operationId: getEvidence
+      parameters:
+        - name: content_hash
+          in: path
+          required: true
+          description: SHA-256 hex digest of the canonicalized source payload (64 lowercase chars)
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        '200':
+          description: The archived source response for that content_hash
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawIngest'
+        '404':
+          description: Evidence not ingested — no `ingest.raw` row for this hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: evidence not ingested
+                  content_hash:
+                    type: string
+        '500':
+          description: Evidence lookup failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/signals:
+    post:
+      tags: [Signals]
+      summary: Batch-write external model signals (K8 write door)
+      description: |
+        K8 (TASKS.md K8 ③.4): the HTTP write door through which out-of-process
+        ML models inject signals into the kernel. Consumption side is
+        `strategy.SignalStrategy`, which pulls by `as_of` (future signals are
+        physically invisible) and drives orders.
+
+        Fail-loud validation, all-or-nothing per request:
+        every item must pass `ValidateExternalSignal` (model_id / symbol /
+        direction ∈ {long, short, close} / finite strength / non-zero as_of),
+        and `as_of` must not be in the future (UTC-day granularity). Any bad
+        item rejects the whole batch with 400 and an indexed error message.
+
+        Idempotency: `content_hash` dedupe lives in the store
+        (`ON CONFLICT (content_hash) DO NOTHING`) — retrying the same batch is
+        safe and does not duplicate rows.
+
+        K8: requires role `trader` or `admin` (RBAC, same gate as order
+        mutation). A `viewer` token gets 403.
+      operationId: createSignals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signals]
+              properties:
+                signals:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/ExternalSignal'
+            example:
+              signals:
+                - model_id: ml-model
+                  symbol: 600000.SH
+                  direction: long
+                  strength: 0.8
+                  as_of: '2026-10-12T00:00:00Z'
+                  factors:
+                    momentum_z: 1.7
+      responses:
+        '201':
+          description: Batch accepted (idempotent retries may not add new rows)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: integer
+                    example: 1
+        '400':
+          description: Invalid body, empty batch, bad signal (indexed), or future as_of (indexed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid access token
+        '403':
+          description: Authenticated but role is not trader/admin
+        '503':
+          description: Signal store unavailable (not wired / no database)
+
+  # ============================================================
+  # Industry (P2-2 产业链静态数据层)
+  # ============================================================
+  /api/industry/tree:
+    get:
+      tags: [Industry]
+      summary: List the SW (申万) industry tree
+      description: |
+        Read-only door over `quant.sw_industry_tree` (P2-2). Every row carries
+        `source` + `as_of` provenance columns — this layer replaces hand-kept
+        snapshots. `is_leaf` is derived from parent-child relations at import
+        time (no upstream API field).
+
+        Filters are optional and composable: `level` restricts the hierarchy
+        tier (1/2/3), `parent_code` selects children of one node (empty string
+        = first-tier industries). Empty results return `200` with an empty
+        array — "no rows" is an answer, not an error.
+      operationId: listIndustryTree
+      parameters:
+        - name: level
+          in: query
+          required: false
+          description: Hierarchy tier (1/2/3). Must be an integer >= 1.
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+        - name: parent_code
+          in: query
+          required: false
+          description: Parent industry code; empty string selects first-tier industries.
+          schema:
+            type: string
+            example: 801010
+      responses:
+        '200':
+          description: Matching industry tree nodes, ordered by code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 3
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SWIndustryNode'
+        '400':
+          description: Invalid `level` (not an integer >= 1)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Industry data layer unavailable (store not wired / no database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/industry/edges:
+    get:
+      tags: [Industry]
+      summary: List supply-chain / industry-membership edges
+      description: |
+        Read-only door over `quant.supply_chain_edge` (P2-2). An edge maps two
+        endpoints — each either a symbol (`600519.SH`) or an industry code
+        (`801080.SI`) — with `relation` giving the semantics
+        (`industry_member` = SW industry membership from tushare `index_member`;
+        component→product relations use their own values).
+
+        At least one filter is required: the edge table is a graph whose size
+        grows with the mapping, so unfiltered full scans are rejected with 400
+        (the store enforces the same rule for non-HTTP callers).
+      operationId: listSupplyChainEdges
+      parameters:
+        - name: upstream
+          in: query
+          required: false
+          description: Upstream endpoint (symbol or industry code)
+          schema:
+            type: string
+            example: 600519.SH
+        - name: downstream
+          in: query
+          required: false
+          description: Downstream endpoint (symbol or industry code)
+          schema:
+            type: string
+            example: 801080.SI
+        - name: relation
+          in: query
+          required: false
+          description: Relation type
+          schema:
+            type: string
+            example: industry_member
+      responses:
+        '200':
+          description: Matching edges, ordered by (upstream, downstream)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SupplyChainEdge'
+        '400':
+          description: No filter supplied (unfiltered scans are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Industry data layer unavailable (store not wired / no database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/industry/vitality:
+    get:
+      tags: [Industry]
+      summary: List industry vitality (景气) indicator observations
+      description: |
+        Read-only door over `quant.industry_vitality` (P2-2). Point-in-time
+        observations: `obs_date` is part of the unique key together with
+        `source`, so different sources keep separate rows and corrections do
+        not overwrite history. First version is seeded by CSV (no tushare API);
+        `source` identifies the maintainer.
+
+        `industry_code` is required. `start_date` / `end_date` are inclusive
+        `YYYY-MM-DD` bounds; `start_date` after `end_date` is a 400.
+      operationId: listIndustryVitality
+      parameters:
+        - name: industry_code
+          in: query
+          required: true
+          description: Industry code (e.g. SW industry code)
+          schema:
+            type: string
+            example: 801080.SI
+        - name: metric
+          in: query
+          required: false
+          description: Metric name (e.g. gross_margin, revenue_yoy)
+          schema:
+            type: string
+            example: gross_margin
+        - name: start_date
+          in: query
+          required: false
+          description: Inclusive lower bound (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: '2200-01-01'
+        - name: end_date
+          in: query
+          required: false
+          description: Inclusive upper bound (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: '2200-01-31'
+      responses:
+        '200':
+          description: Matching observations, ordered by (obs_date, metric)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 3
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IndustryVitality'
+        '400':
+          description: Missing `industry_code`, malformed date, or `start_date` after `end_date`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Industry data layer unavailable (store not wired / no database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/industry/etf/{etf_code}/constituents:
+    get:
+      tags: [Industry]
+      summary: List ETF constituents (holdings)
+      description: |
+        Read-only door over `quant.etf_constituent` (P2-2), populated from
+        tushare `fund_portfolio`. Point-in-time: `obs_date` (report period) is
+        part of the unique key, so a rebalanced ETF keeps its old report
+        periods. Without `obs_date` the latest report period is returned
+        (weight DESC); pass an explicit `obs_date` to read a historical
+        snapshot.
+      operationId: listETFConstituents
+      parameters:
+        - name: etf_code
+          in: path
+          required: true
+          description: ETF fund code
+          schema:
+            type: string
+            example: 510300.SH
+        - name: obs_date
+          in: query
+          required: false
+          description: Report period (YYYY-MM-DD). Omit for the latest period.
+          schema:
+            type: string
+            format: date
+            example: '2200-01-01'
+      responses:
+        '200':
+          description: Matching constituent holdings, ordered by weight DESC
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ETFConstituent'
+        '400':
+          description: Malformed `obs_date`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Industry data layer unavailable (store not wired / no database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Macro (P2-1 国内宏观指标层)
+  # ============================================================
+  /api/macro/series:
+    get:
+      tags: [Macro]
+      summary: List domestic macro indicator observations
+      description: |
+        Read-only door over `quant.macro_series` (P2-1). Domestic macro
+        indicators imported from Tushare (reusing `TUSHARE_TOKEN`, 0 new
+        keys): `cn_cpi` → CPI_YOY, `cn_ppi` → PPI_YOY, `cn_pmi` → PMI,
+        `cn_m` → M2 / M2_YOY, `sf_month` → TSF_INC, `shibor_lpr` → LPR_1Y /
+        LPR_5Y, `fx_daily` → USDCNY_CLOSE. This layer is national-level;
+        the industry-level vitality series (P2-2) lives under
+        `/api/industry/vitality`.
+
+        Every row carries `source` + `as_of` provenance columns. The unique
+        key (indicator, freq, obs_date, source) makes re-imports idempotent
+        and keeps different sources side by side. `obs_date` is the
+        **observation date** (monthly indicators use the first day of the
+        month); `fx_daily`'s `trade_date` is stored as returned (GMT, per
+        Tushare docs — no timezone shift). The **visibility (point-in-time)
+        anchor is `as_of` (import time), not `obs_date`**: macro values are
+        released *after* their observation date (September CPI lands mid
+        October), so backtest filtering must bound by `as_of`, never by
+        `obs_date`.
+
+        `indicator` is required. `freq` (M/D), the inclusive `start_date` /
+        `end_date` bounds, and `limit` (row cap: default 1000, max 5000) are
+        optional. Results are ordered by `obs_date` **descending** (newest
+        first) and capped at `limit` — truncation drops the oldest rows,
+        never the newest. When the returned row count reaches `limit` the
+        response carries `truncated: true` plus a `hint` describing how to
+        drill into older windows via `start_date` / `end_date`. Empty results
+        return `200` with an empty array — "no rows" is an answer, not an
+        error.
+      operationId: listMacroSeries
+      parameters:
+        - name: indicator
+          in: query
+          required: true
+          description: |
+            Indicator code. Catalog (see `pkg/data/macro.go`
+            `macroIndicatorSpecs`): `CPI_YOY`, `PPI_YOY`, `PMI`, `M2`,
+            `M2_YOY`, `TSF_INC`, `LPR_1Y`, `LPR_5Y`, `USDCNY_CLOSE`.
+          schema:
+            type: string
+            example: CPI_YOY
+        - name: freq
+          in: query
+          required: false
+          description: Frequency filter (M = monthly, D = daily). Omit to accept both.
+          schema:
+            type: string
+            enum: [M, D]
+            example: M
+        - name: start_date
+          in: query
+          required: false
+          description: Inclusive lower bound (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: '2020-01-01'
+        - name: end_date
+          in: query
+          required: false
+          description: Inclusive upper bound (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+            example: '2026-08-31'
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum rows to return (1..5000, default 1000). Values outside
+            1..5000 — including 0 — are rejected with `400`. Truncation
+            keeps the newest rows; narrow `start_date` / `end_date` to
+            reach older ones.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 1000
+            example: 1000
+      responses:
+        '200':
+          description: |
+            Matching observations, newest first (`obs_date` descending),
+            capped at `limit`. `truncated: true` means the cap was hit and
+            older rows may exist.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Number of rows returned (capped at limit)
+                    example: 80
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MacroSeries'
+                  limit:
+                    type: integer
+                    description: Effective row cap applied to this response
+                    example: 1000
+                  truncated:
+                    type: boolean
+                    description: |
+                      Present and `true` when `total == limit` — older rows
+                      may exist. Use `start_date` / `end_date` to drill into
+                      older windows.
+                    example: true
+                  hint:
+                    type: string
+                    description: Human-readable next step shown when `truncated` is true.
+                    example: 结果达到 limit=1000，可能被截断；用 start_date/end_date 缩小范围获取更旧的数据
+        '400':
+          description: Missing `indicator`, malformed date, `start_date` after `end_date`, or `limit` outside 1..5000
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Macro data layer unavailable (store not wired / no database)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # REV-13 补登记：以下八条此前在代码里在跑、却从未进契约。
+  # ============================================================
+
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health probe (API-namespaced alias of /health)
+      description: |
+        Dockerfile 的 HEALTHCHECK 与前端 dev 代理打的就是这个路径（dev 下
+        vite 只代理 `/api`）。与 `GET /health` 同一 handler、同一响应体；
+        它缺失时容器从启动起就被判 unhealthy。
+      operationId: getAPIHealth
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+                  timestamp:
+                    type: string
+
+  /api/factors/{factor_name}:
+    get:
+      tags: [Factor]
+      summary: Read a factor_cache row by factor name
+      description: |
+        前端引用因子数值时用它取「值 + 口径」五元组（值 / 日期 / 复权口径 /
+        universe / 计算版本），供 citation 展示。缓存未命中返回 404 与空态
+        ——这是正常回答，不是错误。
+      operationId: getFactorCacheRow
+      parameters:
+        - name: factor_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Factor cache row
+        '404':
+          description: No cached row for this factor
+
+  # ---- Reconciliation（K16 ⑤：对账 worker 未启用时统一 503，与 alerts 同姿态）----
+
+  /api/reconciliation/latest:
+    get:
+      tags: [Reconciliation]
+      summary: Latest reconciliation report
+      operationId: getReconciliationLatest
+      responses:
+        '200':
+          description: Most recent reconciliation report
+        '404':
+          description: No cycle has run yet
+        '503':
+          description: Reconciliation worker is not enabled
+
+  /api/reconciliation/history:
+    get:
+      tags: [Reconciliation]
+      summary: Recent reconciliation reports
+      operationId: getReconciliationHistory
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Report history (newest first)
+        '400':
+          description: limit is not a positive integer
+        '503':
+          description: Reconciliation worker is not enabled
+
+  /api/reconciliation/run:
+    post:
+      tags: [Reconciliation]
+      summary: Force one reconciliation cycle (manual / emergency)
+      operationId: postReconciliationRun
+      responses:
+        '200':
+          description: Reconciliation report for the forced cycle
+        '503':
+          description: Reconciliation worker is not enabled
+
+  /api/reconciliation/config:
+    get:
+      tags: [Reconciliation]
+      summary: Current reconciliation configuration (interval / tolerances)
+      operationId: getReconciliationConfig
+      responses:
+        '200':
+          description: Effective configuration
+        '503':
+          description: Reconciliation worker is not enabled
+
+  # ---- 反代族（REV-13：代码注册的是通配 Any，此处按族登记；子路径直通上游）----
+
+  /api/explore:
+    get:
+      tags: [Data Proxy]
+      summary: Explore family (proxied to ai-service) — root
+      description: |
+        探索观察台（research explorer）的反代入口。`/api/explore/*` 全部直通
+        ai-service，路径语义由上游决定：网关只做转发、SSE 直通与 503 点名。
+        此前这一族完全没有契约记录（「探索观察台无文档」的缺口）。
+      operationId: proxyExploreRoot
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/explore/{path}:
+    get:
+      tags: [Data Proxy]
+      summary: Explore family (proxied to ai-service) — any sub-path
+      operationId: proxyExplorePath
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/tools:
+    get:
+      tags: [Data Proxy]
+      summary: Tools family (proxied to ai-service) — root
+      description: |
+        AI 工具注册表族（S7-P3-3）的反代入口。`/api/tools/*` 全部直通
+        ai-service；工具清单与调用语义由上游决定。
+      operationId: proxyToolsRoot
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/tools/{path}:
+    get:
+      tags: [Data Proxy]
+      summary: Tools family (proxied to ai-service) — any sub-path
+      operationId: proxyToolsPath
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/sync/{path}:
+    get:
+      tags: [Data Proxy]
+      summary: Data-service sync gateway (SSE-capable pass-through)
+      description: |
+        **按 job 订阅进度**的 SSE 与全部 `/sync/*` 运维端点都经这条网关转发到
+        data-service（:8081）：`GET /api/sync/jobs/:id/progress`、
+        `/api/sync/stocks`、`/api/sync/ohlcv/all`、`/api/sync/fundamentals`、
+        `/api/sync/calendar`、`/api/sync/dividends`、`/api/sync/splits`、
+        `/api/sync/ingest/*`、`/api/sync/schedules*` 等。子路径语义见
+        data-service 的契约；网关侧只负责转发、**SSE 逐写直通**（不缓冲）与
+        SSE 请求的写截止清理（REV-10）。
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: data-service unreachable
+    post:
+      tags: [Data Proxy]
+      summary: Data-service sync gateway (pass-through, POST)
+      description: |
+        同 `GET /api/sync/{path}`：写操作（创建 job、改 schedule、触发 ingest）
+        直通 data-service，鉴权在网关与 data-service 两侧都有闸门（REV-17）。
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: data-service unreachable
+
+components:
+  # ============================================================
+  # Security
+  # ============================================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token obtained via POST /api/auth/login.
+
+  # ============================================================
+  # Parameters
+  # ============================================================
+  parameters:
+    BacktestId:
+      name: id
+      in: path
+      required: true
+      description: Backtest job ID.
+      schema:
+        type: string
+
+  # ============================================================
+  # Responses
+  # ============================================================
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required or failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ConflictPrecondition:
+      description: |
+        The request is well-formed, but a **data precondition** is not met right now
+        (e.g. the trading calendar has not been synced for the requested range).
+
+        Distinct from `400`: nothing about the request itself is wrong, so the caller
+        should not "fix the request" — it should make the data available first
+        (`POST /api/sync/jobs` with `type: "calendar"`).
+
+        This used to be reported as `500 internal` (AUD-60) because every engine error
+        was flattened to 500, which told the client "server broke" and logged a
+        self-solvable precondition as a server-side error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Schemas
+  # ============================================================
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable message. Stable enough to display, not to parse.
+        code:
+          type: string
+          description: |
+            Machine-readable category, so clients branch on this instead of matching the
+            prose. Emitted by the single error sink (`internal/httpserver`), derived from
+            the HTTP status: `bad_request` / `unauthorized` / `forbidden` / `not_found` /
+            `conflict` / `rate_limited` / `unavailable` / `internal`.
+        details:
+          type: string
+          description: Legacy field; not emitted by the current error sink.
+        status:
+          type: string
+          description: Legacy field; not emitted by the current error sink.
+
+    RawIngestWrite:
+      type: object
+      description: |
+        Wire format of POST /api/ingest/raw. The payload is archived verbatim;
+        content_hash is computed by the server from the payload, never trusted
+        from the caller.
+      required: [source, dataset, key, payload]
+      properties:
+        source:
+          type: string
+          description: Data source that produced the response
+          example: akshare
+        dataset:
+          type: string
+          description: Logical dataset name within the source
+          example: akshare.stock_financial_abstract
+        key:
+          type: string
+          description: Source-native key of the record
+          example: 600519.SH/2024Q1
+        payload:
+          type: object
+          description: The raw source response, archived verbatim
+        as_of:
+          type: string
+          nullable: true
+          description: |
+            Observation date the payload describes (`YYYY-MM-DD` or RFC3339) —
+            not the fetch time. Omit when the payload has no single date.
+          example: '2024-09-30'
+        content_hash:
+          type: string
+          description: |
+            Optional. When supplied it is verified against the payload, letting
+            a caller confirm it is re-sending the response it cited; a mismatch
+            is rejected instead of poisoning the evidence index.
+
+    ExternalSignal:
+      type: object
+      description: |
+        One external model signal injected into the kernel (K7/K8 contract,
+        `strategy.ExternalSignal`). The kernel only accepts the signal contract —
+        model freedom stays out of process. `content_hash` covers the executable
+        fields (model_id, symbol, direction, strength, as_of); `factors` is a
+        diagnostic snapshot that is stored but not hashed.
+      required: [model_id, symbol, direction, strength, as_of]
+      properties:
+        model_id:
+          type: string
+          description: Out-of-process model identifier (citation `source` position)
+          example: ml-model
+        symbol:
+          type: string
+          description: Instrument symbol (citation `key` position)
+          example: 600000.SH
+        direction:
+          type: string
+          enum: [long, short, close]
+          description: Signal direction. `hold` is not a signal — send nothing instead.
+        strength:
+          type: number
+          format: double
+          description: Signal strength. No range constraint (scale is model-defined); NaN/±Inf rejected.
+          example: 0.8
+        as_of:
+          type: string
+          format: date-time
+          description: |
+            Trading day / moment the signal applies to (RFC3339). Compared at
+            UTC-day granularity; future values are rejected at the write door.
+          example: '2026-10-12T00:00:00Z'
+        factors:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Optional diagnostic factor snapshot (excluded from content_hash)
+          example:
+            momentum_z: 1.7
+
+    SWIndustryNode:
+      type: object
+      description: |
+        One node of the SW (申万) industry tree (`quant.sw_industry_tree`, P2-2).
+        `source` + `as_of` are the provenance columns that replace hand-kept
+        snapshots; `code` is the unique (idempotency) key.
+      required: [code, level, name, source, as_of]
+      properties:
+        code:
+          type: string
+          description: SW industry code (unique key)
+          example: 801080.SI
+        parent_code:
+          type: string
+          description: Parent industry code; empty string for first-tier industries
+          example: 801010
+        level:
+          type: integer
+          description: Hierarchy tier (1/2/3)
+          example: 2
+        name:
+          type: string
+          description: Industry name
+          example: 食品饮料
+        is_leaf:
+          type: boolean
+          description: True when no node has this code as parent (derived at import)
+          example: false
+        source:
+          type: string
+          description: Provenance — source identifier (e.g. tushare)
+          example: tushare
+        as_of:
+          type: string
+          format: date-time
+          description: Provenance — observation moment of this row (RFC3339)
+          example: '2026-10-12T00:00:00Z'
+
+    SupplyChainEdge:
+      type: object
+      description: |
+        One upstream/downstream or industry-membership mapping
+        (`quant.supply_chain_edge`, P2-2). Endpoints are either a symbol or an
+        industry code; `relation` carries the semantics. Unique key
+        (upstream, downstream, relation) — re-importing refreshes the row.
+      required: [upstream, downstream, relation, source, as_of]
+      properties:
+        upstream:
+          type: string
+          description: Upstream endpoint (symbol or industry code)
+          example: 600519.SH
+        downstream:
+          type: string
+          description: Downstream endpoint (symbol or industry code)
+          example: 801080.SI
+        relation:
+          type: string
+          description: Relation type (industry_member = SW industry membership)
+          example: industry_member
+        weight:
+          type: number
+          format: double
+          description: Relation-defined weight (membership edges carry 0 — index_member has no weight)
+          example: 0
+        source:
+          type: string
+          description: Provenance — source identifier
+          example: tushare
+        as_of:
+          type: string
+          format: date-time
+          description: Provenance — observation moment of this row (RFC3339)
+          example: '2026-10-12T00:00:00Z'
+
+    IndustryVitality:
+      type: object
+      description: |
+        One industry vitality (景气) indicator observation
+        (`quant.industry_vitality`, P2-2). Point-in-time: the unique key
+        (industry_code, metric, obs_date, source) includes `source`, so
+        different sources keep separate rows.
+      required: [industry_code, metric, obs_date, value, source, as_of]
+      properties:
+        industry_code:
+          type: string
+          description: Industry code
+          example: 801080.SI
+        metric:
+          type: string
+          description: Metric name
+          example: gross_margin
+        obs_date:
+          type: string
+          format: date
+          description: Observation date of the metric (PIT key component)
+          example: '2200-01-01'
+        value:
+          type: number
+          format: double
+          description: Metric value
+          example: 13.42
+        unit:
+          type: string
+          description: Unit of measurement (may be empty)
+          example: '%'
+        source:
+          type: string
+          description: Provenance — source / maintainer identifier
+          example: seed-csv
+        as_of:
+          type: string
+          format: date-time
+          description: Provenance — observation moment of this row (RFC3339)
+          example: '2026-10-12T00:00:00Z'
+
+    ETFConstituent:
+      type: object
+      description: |
+        One ETF constituent holding (`quant.etf_constituent`, P2-2), from
+        tushare `fund_portfolio`. Point-in-time: the unique key
+        (etf_code, symbol, obs_date) includes the report period, so a
+        rebalanced ETF keeps its old periods.
+      required: [etf_code, symbol, obs_date, source, as_of]
+      properties:
+        etf_code:
+          type: string
+          description: ETF fund code
+          example: 510300.SH
+        symbol:
+          type: string
+          description: Constituent symbol
+          example: 600519.SH
+        weight:
+          type: number
+          format: double
+          description: Share of net value in percent (tushare stk_mkv_ratio scale)
+          example: 5.23
+        obs_date:
+          type: string
+          format: date
+          description: Report period (PIT key component)
+          example: '2200-01-01'
+        source:
+          type: string
+          description: Provenance — source identifier
+          example: tushare
+        as_of:
+          type: string
+          format: date-time
+          description: Provenance — observation moment of this row (RFC3339)
+          example: '2026-10-12T00:00:00Z'
+
+    MacroSeries:
+      type: object
+      description: |
+        One domestic macro indicator observation (`quant.macro_series`, P2-1).
+        Imported from Tushare (0 new keys). The unique key
+        (indicator, freq, obs_date, source) includes `source`, so different
+        sources keep separate rows and re-imports refresh in place.
+        National-level — see `IndustryVitality` for the industry-level series.
+      required: [indicator, freq, obs_date, value, source, as_of]
+      properties:
+        indicator:
+          type: string
+          description: |
+            Indicator code (catalog: pkg/data/macro.go macroIndicatorSpecs):
+            CPI_YOY, PPI_YOY, PMI, M2, M2_YOY, TSF_INC, LPR_1Y, LPR_5Y,
+            USDCNY_CLOSE.
+          example: CPI_YOY
+        freq:
+          type: string
+          description: Frequency (M = monthly, D = daily)
+          enum: [M, D]
+          example: M
+        obs_date:
+          type: string
+          format: date
+          description: |
+            Observation date (PIT key component). Monthly indicators use the
+            first day of the month; `fx_daily` rows carry the Tushare
+            `trade_date` as returned (GMT — no timezone shift).
+          example: '2026-08-01'
+        value:
+          type: number
+          format: double
+          description: Observation value (unit column carries the scale)
+          example: 0.8
+        unit:
+          type: string
+          description: Unit of measurement (%, 亿元, 点, 汇率; may be empty)
+          example: '%'
+        source:
+          type: string
+          description: Provenance — source identifier
+          example: tushare
+        as_of:
+          type: string
+          format: date-time
+          description: Provenance — observation moment of this row (RFC3339)
+          example: '2026-10-12T00:00:00Z'
+
+    RawIngest:
+      type: object
+      description: One archived external-source response (ADR-022 §2 class A, `ingest.raw`)
+      required: [content_hash, source, dataset, key, payload, fetched_at]
+      properties:
+        content_hash:
+          type: string
+          description: Canonical sha256 (lowercase hex, 64 chars) of the payload; primary key
+        source:
+          type: string
+          description: Data source that produced the response (e.g. akshare, tushare)
+        dataset:
+          type: string
+          description: Logical dataset name within the source
+        key:
+          type: string
+          description: Source-native key of the record (e.g. instrument + period)
+        as_of:
+          type: string
+          format: date-time
+          nullable: true
+          description: Point-in-time the data describes (PIT alignment)
+        payload:
+          type: object
+          description: The raw source response, archived verbatim
+        fetched_at:
+          type: string
+          format: date-time
+          description: When the response was fetched
+
+    EquityDeepIngestResponse:
+      type: object
+      description: Outcome of POST /api/ingest/equitydeep
+      required: [content_hash, snapshots, rows, dropped]
+      properties:
+        content_hash:
+          type: string
+          description: The archived raw response every written row points back to (stored as each row's snapshot_uri)
+        snapshots:
+          type: integer
+          description: Number of ndjson records accepted
+        rows:
+          type: integer
+          description: Number of fundamentals_detail rows written
+        dropped:
+          type: array
+          description: |
+            Snapshot fields the normalizer refused to map. Returned rather than
+            silently swallowed: a field the contract does not know is a producer
+            bug that has to be visible.
+          items:
+            $ref: '#/components/schemas/EquityDeepDroppedField'
+
+    EquityDeepDroppedField:
+      type: object
+      description: One snapshot field dropped during normalization
+      required: [line, raw_name, reason]
+      properties:
+        line:
+          type: integer
+          description: 1-based line number of the snapshot inside the uploaded ndjson
+        raw_name:
+          type: string
+          description: Source field name as it appeared in the snapshot
+        reason:
+          type: string
+          description: Why it was dropped — outside the raw_names whitelist, or not a parseable number
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: analysis-service
+        timestamp:
+          type: string
+          format: date-time
+
+    ApiVersionInfo:
+      type: object
+      properties:
+        service:
+          type: string
+        version:
+          type: string
+        endpoints:
+          type: array
+          items:
+            type: string
+
+    OHLCV:
+      type: object
+      properties:
+        symbol:
+          type: string
+        date:
+          type: string
+          format: date-time
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+        turnover:
+          type: number
+        trade_days:
+          type: integer
+        limit_up:
+          type: boolean
+        limit_down:
+          type: boolean
+
+    Signal:
+      type: object
+      properties:
+        symbol:
+          type: string
+        date:
+          type: string
+          format: date-time
+        direction:
+          type: string
+          enum: [long, short, close, hold]
+        strength:
+          type: number
+        composite_score:
+          type: number
+        factors:
+          type: object
+          additionalProperties:
+            type: number
+        limit_price:
+          type: number
+        order_type:
+          type: string
+          enum: [market, limit, stop, trailing]
+
+    Position:
+      type: object
+      properties:
+        symbol:
+          type: string
+        quantity:
+          type: number
+        avg_cost:
+          type: number
+        current_price:
+          type: number
+        market_value:
+          type: number
+        unrealized_pnl:
+          type: number
+        realized_pnl:
+          type: number
+        weight:
+          type: number
+        entry_date:
+          type: string
+          format: date-time
+        buy_date:
+          type: string
+          format: date-time
+        quantity_today:
+          type: number
+        quantity_yesterday:
+          type: number
+
+    Portfolio:
+      type: object
+      properties:
+        cash:
+          type: number
+        positions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Position'
+        total_value:
+          type: number
+        daily_return:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+
+    MarketRegime:
+      type: object
+      properties:
+        trend:
+          type: string
+          enum: [bull, bear, sideways]
+        volatility:
+          type: string
+          enum: [low, medium, high]
+        sentiment:
+          type: number
+          minimum: -1
+          maximum: 1
+        timestamp:
+          type: string
+          format: date-time
+
+    StopLossEvent:
+      type: object
+      properties:
+        symbol:
+          type: string
+        type:
+          type: string
+          enum: [stop_loss, take_profit]
+        price:
+          type: number
+        quantity:
+          type: number
+        reason:
+          type: string
+
+    BacktestRequest:
+      type: object
+      required: [strategy, start_date, end_date]
+      properties:
+        strategy:
+          type: string
+          example: momentum
+        stock_pool:
+          type: array
+          items:
+            type: string
+          example: ["000001.SZ", "600000.SH"]
+        index_code:
+          type: string
+          example: "000300.SH"
+        start_date:
+          type: string
+          example: "2024-01-01"
+        end_date:
+          type: string
+          example: "2024-06-01"
+        initial_capital:
+          type: number
+          default: 1000000
+        risk_free_rate:
+          type: number
+          default: 0.03
+        kernel:
+          type: string
+          description: >-
+            Kernel routing key (K9/K10). Omitted = default "go" kernel.
+            Unknown / unregistered kernels are rejected with 400 (fail-closed,
+            no silent fallback — FR-1.3).
+          example: go
+        market:
+          type: string
+          description: >-
+            Market routing key (D7, hot kernel switching). Declaring a market
+            resolves it to a kernel through the configured
+            `kernel_routing.markets` table (e.g. CN -> go, US -> nautilus) and
+            writes the result into `kernel` before routing — the four frozen
+            contracts are untouched by this field. An unregistered market is
+            rejected with 400 naming the market and the registered set, never
+            silently fallen back to the go kernel (FR-1.3). Omitted = existing
+            behaviour (the `kernel` field / the default kernel).
+          example: US
+        engine_params:
+          type: object
+          additionalProperties: true
+          description: >-
+            Engine-specific parameters (K9). Unknown keys are rejected with 400,
+            not ignored ("rejected, not ignored"). The go kernel accepts none.
+
+    CreateJobRequest:
+      type: object
+      required: [strategy_id, universe, start_date, end_date]
+      properties:
+        strategy_id:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+        universe:
+          type: string
+          example: "000300.SH"
+        start_date:
+          type: string
+        end_date:
+          type: string
+        initial_capital:
+          type: number
+        commission_rate:
+          type: number
+        slippage_rate:
+          type: number
+        kernel:
+          type: string
+          description: >-
+            Kernel routing key (K10). Omitted = default "go" kernel. The value is
+            resolved against the engine registry at execution time: an unregistered
+            kernel is accepted here (202) but the job settles as failed with an
+            error naming the kernel — no fallback to go.
+          example: go
+        engine_params:
+          type: object
+          additionalProperties: true
+          description: >-
+            Engine-specific parameters (K10). Unknown keys for the target kernel
+            are rejected with 400, not ignored.
+
+    BacktestResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        strategy:
+          type: string
+        start_date:
+          type: string
+        end_date:
+          type: string
+        total_return:
+          type: number
+        annual_return:
+          type: number
+        sharpe_ratio:
+          type: number
+        sortino_ratio:
+          type: number
+        max_drawdown:
+          type: number
+        max_drawdown_date:
+          type: string
+        win_rate:
+          type: number
+        total_trades:
+          type: integer
+        win_trades:
+          type: integer
+        lose_trades:
+          type: integer
+        avg_holding_days:
+          type: number
+        calmar_ratio:
+          type: number
+        stock_pool:
+          type: array
+          items:
+            type: string
+        initial_capital:
+          type: number
+        portfolio_values:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortfolioValue'
+        trades:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trade'
+
+    BacktestJob:
+      type: object
+      properties:
+        id:
+          type: string
+        strategy_id:
+          type: string
+        universe:
+          type: string
+        start_date:
+          type: string
+        end_date:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        result:
+          type: object
+
+    PortfolioValue:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        total_value:
+          type: number
+        cash:
+          type: number
+        positions:
+          type: number
+
+    Trade:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        direction:
+          type: string
+          enum: [long, short, close, hold]
+        quantity:
+          type: number
+        price:
+          type: number
+        commission:
+          type: number
+        transfer_fee:
+          type: number
+        stamp_tax:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+        pending_qty:
+          type: number
+        filled_qty:
+          type: number
+
+    WalkForwardRequest:
+      type: object
+      properties:
+        strategy:
+          type: string
+        stock_pool:
+          type: array
+          items:
+            type: string
+        start_date:
+          type: string
+        end_date:
+          type: string
+        walk_forward_params:
+          type: object
+          properties:
+            train_days:
+              type: integer
+              default: 250
+            test_days:
+              type: integer
+              default: 60
+            step_days:
+              type: integer
+              default: 60
+            min_train_days:
+              type: integer
+
+    WalkForwardReport:
+      type: object
+      properties:
+        strategy_id:
+          type: string
+        universe:
+          type: string
+        windows:
+          type: array
+          items:
+            type: object
+        avg_test_sharpe:
+          type: number
+        avg_test_return:
+          type: number
+        avg_test_max_drawdown:
+          type: number
+        avg_degradation:
+          type: number
+        pass_rate:
+          type: number
+        overall_pass:
+          type: boolean
+
+    BatchRunRequest:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              strategy:
+                type: string
+              stock_pool:
+                type: array
+                items:
+                  type: string
+              start_date:
+                type: string
+              end_date:
+                type: string
+              capital:
+                type: number
+              risk_free_rate:
+                type: number
+        config:
+          type: object
+          properties:
+            concurrency:
+              type: integer
+            run_walk_forward:
+              type: boolean
+            wf_train_days:
+              type: integer
+            wf_test_days:
+              type: integer
+            wf_step_days:
+              type: integer
+
+    StrategyConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+        strategy_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        strategy_type:
+          type: string
+          enum: [momentum, value, quality, composite]
+        params:
+          type: string
+          description: JSON string of parameters schema.
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateStrategyRequest:
+      type: object
+      required: [strategy_id, name, strategy_type]
+      properties:
+        strategy_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        strategy_type:
+          type: string
+        params:
+          type: object
+
+    UpdateStrategyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        strategy_type:
+          type: string
+        params:
+          type: object
+        is_active:
+          type: boolean
+
+    CopilotGenerateRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          example: "20日动量策略，在沪深300中选出最强10只股票"
+        language:
+          type: string
+          default: go
+
+    PipelineRunRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          example: "20日动量策略，在沪深300中选出最强10只股票"
+
+    PipelineJobResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        intent:
+          type: object
+        yaml_config:
+          type: string
+        generated_code:
+          type: string
+        build_error:
+          type: string
+        backtest_result:
+          type: object
+        backtest_error:
+          type: string
+        started_at:
+          type: string
+        completed_at:
+          type: string
+        duration_ms:
+          type: integer
+        logs:
+          type: array
+          items:
+            type: string
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Access token TTL in seconds.
+        username:
+          type: string
+        role:
+          type: string
+          enum: [viewer, trader, admin]
+
+    CreateUserRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+          minLength: 8
+        role:
+          type: string
+          enum: [viewer, trader, admin]
+
+    CalculatePositionRequest:
+      type: object
+      properties:
+        signal:
+          $ref: '#/components/schemas/Signal'
+        portfolio:
+          $ref: '#/components/schemas/Portfolio'
+        regime:
+          $ref: '#/components/schemas/MarketRegime'
+        current_price:
+          type: number
+        ohlcv:
+          type: array
+          items:
+            $ref: '#/components/schemas/OHLCV'
+
+    CalculatePositionResponse:
+      type: object
+      properties:
+        size:
+          type: number
+        weight:
+          type: number
+        stop_loss:
+          type: number
+        take_profit:
+          type: number
+        risk_score:
+          type: number
+
+    RiskMetricsResponse:
+      type: object
+      properties:
+        portfolio_volatility:
+          type: number
+        target_volatility:
+          type: number
+        max_position_weight:
+          type: number
+        min_position_weight:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+
+    CreateOrderRequest:
+      type: object
+      required: [symbol, side, quantity]
+      properties:
+        symbol:
+          type: string
+          example: "000001.SZ"
+        side:
+          type: string
+          enum: [long, short, close]
+        type:
+          type: string
+          enum: [market, limit, stop, trailing]
+          default: market
+        quantity:
+          type: number
+          minimum: 0
+        price:
+          type: number
+
+    OrderResult:
+      type: object
+      properties:
+        order_id:
+          type: string
+        symbol:
+          type: string
+        status:
+          type: string
+        filled_qty:
+          type: number
+        avg_price:
+          type: number
+        commission:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+
+    EmergencyFlattenResponse:
+      type: object
+      properties:
+        sold:
+          type: array
+          items:
+            type: object
+        skipped:
+          type: array
+          items:
+            type: object
+        sold_total:
+          type: number
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        latency_ms:
+          type: integer
+
+    ComplianceCheckRequest:
+      type: object
+      required: [symbol]
+      properties:
+        symbol:
+          type: string
+          example: "688981.SH"
+        user_id:
+          type: string
+        asset_daily_avg_cny:
+          type: number
+        first_trade_at:
+          type: string
+          format: date-time
+        risk_level:
+          type: integer
+        boards_enabled:
+          type: array
+          items:
+            type: string
+        risk_test_expired_at:
+          type: string
+          format: date-time
+
+    ComplianceCheckResponse:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        board:
+          type: string
+        board_name:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: string
+        user_id:
+          type: string
+        profile_age_months:
+          type: integer
+        asset_daily_avg_cny:
+          type: number
+        risk_level:
+          type: string
+        required:
+          type: object
+        checked_at:
+          type: string
+          format: date-time
+
+    AlertHistoryResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            type: object
+        count:
+          type: integer
+        limit:
+          type: integer
+
+    AlertStatsResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        channel_count:
+          type: integer
+        recorder_len:
+          type: integer
+        recorder_evicted:
+          type: integer
+        history_len:
+          type: integer
+        history_limit:
+          type: integer
+        by_rule:
+          type: object
+          additionalProperties:
+            type: integer
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer

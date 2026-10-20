@@ -1,0 +1,522 @@
+package metrics
+
+import (
+	"math"
+	"sort"
+	"time"
+
+	"tellurion/pkg/domain"
+	"tellurion/pkg/statistics"
+)
+
+// CalculateMetrics computes all risk and performance metrics from portfolio values and trades.
+func CalculateMetrics(portfolioValues []domain.PortfolioValue, trades []domain.Trade, riskFreeRate float64) domain.RiskMetrics {
+	if len(portfolioValues) < 2 {
+		return domain.RiskMetrics{}
+	}
+
+	// Calculate daily returns
+	returns := CalculateReturns(portfolioValues)
+	if len(returns) == 0 {
+		return domain.RiskMetrics{}
+	}
+
+	// Calculate metrics
+	sharpe := CalculateSharpeRatio(returns, riskFreeRate)
+	sortino := CalculateSortinoRatio(returns, riskFreeRate)
+	maxDD, maxDDDate := CalculateMaxDrawdown(portfolioValues)
+
+	// Calculate volatility
+	volatility := calculateVolatility(returns)
+
+	return domain.RiskMetrics{
+		Volatility:      volatility,
+		SharpeRatio:     sharpe,
+		SortinoRatio:    sortino,
+		MaxDrawdown:     maxDD,
+		MaxDrawdownDate: maxDDDate,
+		VaR95:           calculateVaR(returns, 0.95),
+		CVaR95:          calculateCVaR(returns, 0.95),
+	}
+}
+
+// TradeMetrics contains trade-specific performance metrics.
+type TradeMetrics struct {
+	WinRate        float64
+	TotalTrades    int
+	WinTrades      int
+	LoseTrades     int
+	AvgHoldingDays float64
+	CalmarRatio    float64
+}
+
+// CalculateTradeMetrics calculates trade-specific metrics.
+func CalculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.PortfolioValue) TradeMetrics {
+	if len(trades) == 0 {
+		return TradeMetrics{}
+	}
+
+	winRate, totalTrades, winTrades, loseTrades, avgHoldingDays := calculateTradeMetrics(trades, portfolioValues)
+
+	// Calculate Calmar ratio
+	annualReturn := calculateAnnualizedReturn(portfolioValues)
+	maxDD, _ := CalculateMaxDrawdown(portfolioValues)
+	calmar := CalculateCalmarRatio(annualReturn, math.Abs(maxDD))
+
+	return TradeMetrics{
+		WinRate:        winRate,
+		TotalTrades:    totalTrades,
+		WinTrades:      winTrades,
+		LoseTrades:     loseTrades,
+		AvgHoldingDays: avgHoldingDays,
+		CalmarRatio:    calmar,
+	}
+}
+
+// CalculateReturns calculates daily returns from portfolio values.
+//
+// Daily return = (today_value - yesterday_value) / yesterday_value
+//
+// 回测是**封闭系统**：现金的变化 100% 来自买卖，不存在申购赎回这类外部资金流。
+//
+// 此前这里把 Cash 的变化当作外部资金流做 TWR 修正（netValue = curr - cashFlow），
+// 代数上等价于「持仓市值变动 / 总资产」。无交易日恰好正确，但每个交易日都会
+// 凭空注入 ±成交额/总资产 的脉冲 —— 满仓买入且价格未动时实测得到 +100%，
+// 卖出注入反向脉冲。Sharpe / Sortino / 波动率由此失真，并沿 walk-forward
+// 门禁 → 基因池 fitness 全链路传播。
+//
+// 若未来真要支持申赎，应引入按交易日核算的、带外部流的时间加权收益率，
+// 而不是把本式的 cashFlow 加回来。
+func CalculateReturns(portfolioValues []domain.PortfolioValue) []float64 {
+	if len(portfolioValues) < 2 {
+		return nil
+	}
+
+	returns := make([]float64, 0, len(portfolioValues)-1)
+	for i := 1; i < len(portfolioValues); i++ {
+		prevValue := portfolioValues[i-1].TotalValue
+		currValue := portfolioValues[i].TotalValue
+
+		if prevValue > 0 {
+			dailyReturn := (currValue - prevValue) / prevValue
+			returns = append(returns, dailyReturn)
+		}
+	}
+
+	return returns
+}
+
+// CalculateMaxDrawdown calculates the maximum drawdown and its date.
+func CalculateMaxDrawdown(portfolioValues []domain.PortfolioValue) (float64, time.Time) {
+	if len(portfolioValues) == 0 {
+		return 0, time.Time{}
+	}
+
+	maxDrawdown := 0.0
+	maxDrawdownDate := portfolioValues[0].Date
+	peak := portfolioValues[0].TotalValue
+
+	for _, pv := range portfolioValues {
+		if pv.TotalValue > peak {
+			peak = pv.TotalValue
+		}
+
+		drawdown := (peak - pv.TotalValue) / peak
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+			maxDrawdownDate = pv.Date
+		}
+	}
+
+	return -maxDrawdown, maxDrawdownDate // Return as negative percentage
+}
+
+// CalculateSharpeRatio calculates the Sharpe ratio.
+// Sharpe = (mean_daily_return - risk_free_rate) / std(daily_returns) * sqrt(252)
+func CalculateSharpeRatio(returns []float64, riskFreeRate float64) float64 {
+	if len(returns) < 2 {
+		return 0
+	}
+
+	// Daily risk-free rate
+	dailyRF := riskFreeRate / 252
+
+	// Mean return
+	meanReturn := statistics.Mean(returns)
+
+	// Standard deviation
+	stdDev := statistics.SampleStdDev(returns)
+
+	if stdDev == 0 {
+		return 0
+	}
+
+	// Annualized Sharpe ratio
+	sharpe := (meanReturn - dailyRF) / stdDev * math.Sqrt(252)
+
+	return sharpe
+}
+
+// netTradePnl 计算扣完全部交易费用后的净盈亏。
+//
+// REV-22-(7)：胜负判定此前只扣 Commission——不扣过户费（双收）与印花税
+// （卖侧 0.05%/0.1% 分段），「毛亏净盈」的单会被记成赢，胜率/盈亏比虚高。
+// 费用来源是 trade 上已收取的三项费用字段——REV-07 已让 ApplyTrade /
+// ExecuteTrade 两条路径的费用都出自 portfolio.ComputeFees，这里直接用
+// 实收值，不重算（重算反而可能和账面不一致）。
+func netTradePnl(grossPnl float64, trade domain.Trade) float64 {
+	return grossPnl - trade.Commission - trade.TransferFee - trade.StampTax
+}
+
+// CalculateSortinoRatio calculates the Sortino ratio.
+// Sortino = (mean_daily_return - risk_free_rate) / std(downside_returns) * sqrt(252)
+func CalculateSortinoRatio(returns []float64, riskFreeRate float64) float64 {
+	if len(returns) < 2 {
+		return 0
+	}
+
+	// Daily risk-free rate
+	dailyRF := riskFreeRate / 252
+
+	// Mean return
+	meanReturn := statistics.Mean(returns)
+
+	// Downside deviation (only negative returns)
+	downsideReturns := filterNegative(returns)
+	if len(downsideReturns) == 0 {
+		// REV-22-(6)：无下行收益（每期都 ≥ 无风险收益）时旧代码返回
+		// math.MaxFloat64——1.79e+308 会以原样灌进 JSON / 报表（OBS-01 的
+		// garbage_metric 裁定也会把它判 invalid）。返回 0：语义是「无下行
+		// 风险 ⇒ 无风险调整收益可谈」，比 MaxFloat64 诚实，比 NaN 对
+		// JSON 友好。
+		return 0
+	}
+
+	downsideDev := statistics.SampleStdDev(downsideReturns)
+	if downsideDev == 0 {
+		return 0
+	}
+
+	// Annualized Sortino ratio
+	sortino := (meanReturn - dailyRF) / downsideDev * math.Sqrt(252)
+
+	return sortino
+}
+
+// CalculateCalmarRatio calculates the Calmar ratio.
+// Calmar = annual_return / max_drawdown
+func CalculateCalmarRatio(annualReturn float64, maxDrawdown float64) float64 {
+	if maxDrawdown == 0 {
+		return 0
+	}
+	return annualReturn / maxDrawdown
+}
+
+// calculateAnnualizedReturn calculates the annualized return from portfolio values.
+func calculateAnnualizedReturn(portfolioValues []domain.PortfolioValue) float64 {
+	if len(portfolioValues) < 2 {
+		return 0
+	}
+
+	startValue := portfolioValues[0].TotalValue
+	endValue := portfolioValues[len(portfolioValues)-1].TotalValue
+
+	if startValue <= 0 {
+		return 0
+	}
+
+	// Calculate number of years
+	startDate := portfolioValues[0].Date
+	endDate := portfolioValues[len(portfolioValues)-1].Date
+	years := endDate.Sub(startDate).Hours() / (24 * 365.25)
+
+	if years < 0.01 {
+		return 0
+	}
+
+	// Annualized return
+	totalReturn := endValue / startValue
+	annualizedReturn := math.Pow(totalReturn, 1/years) - 1
+
+	return annualizedReturn
+}
+
+// calculateVolatility calculates the annualized volatility.
+func calculateVolatility(returns []float64) float64 {
+	if len(returns) < 2 {
+		return 0
+	}
+	return statistics.SampleStdDev(returns) * math.Sqrt(252)
+}
+
+// calculateVaR calculates Value at Risk at the given confidence level.
+func calculateVaR(returns []float64, confidence float64) float64 {
+	if len(returns) == 0 {
+		return 0
+	}
+
+	sorted := make([]float64, len(returns))
+	copy(sorted, returns)
+	sort.Float64s(sorted)
+
+	// VaR is the loss at the (1-confidence) percentile
+	idx := int(float64(len(sorted)) * (1 - confidence))
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+
+	return sorted[idx]
+}
+
+// calculateCVaR calculates Conditional Value at Risk (Expected Shortfall).
+func calculateCVaR(returns []float64, confidence float64) float64 {
+	if len(returns) == 0 {
+		return 0
+	}
+
+	sorted := make([]float64, len(returns))
+	copy(sorted, returns)
+	sort.Float64s(sorted)
+
+	// CVaR is the mean of losses beyond VaR
+	idx := int(float64(len(sorted)) * (1 - confidence))
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+
+	if idx == 0 {
+		return sorted[0]
+	}
+
+	// Mean of the worst (1-confidence)% returns
+	sum := 0.0
+	for i := 0; i <= idx; i++ {
+		sum += sorted[i]
+	}
+
+	return sum / float64(idx+1)
+}
+
+// calculateTradeMetrics calculates trade statistics.
+func calculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.PortfolioValue) (winRate float64, totalTrades, winTrades, loseTrades int, avgHoldingDays float64) {
+	if len(trades) == 0 {
+		return 0, 0, 0, 0, 0
+	}
+
+	// Group trades by symbol
+	symbolTrades := make(map[string][]domain.Trade)
+	for _, trade := range trades {
+		symbolTrades[trade.Symbol] = append(symbolTrades[trade.Symbol], trade)
+	}
+
+	var winningTrades, losingTrades int
+	var totalHoldingDays float64
+	var holdingDaysCount int
+
+	for _, symTrades := range symbolTrades {
+		// Track open position state
+		var entryPrice float64
+		var entryTime time.Time
+		var positionQty float64
+		var entryDir domain.Direction // "long" or "short"
+
+		for _, trade := range symTrades {
+			switch trade.Direction {
+			case domain.DirectionLong:
+				if positionQty == 0 {
+					// Fresh long entry
+					entryPrice = trade.Price
+					entryTime = trade.Timestamp
+					entryDir = domain.DirectionLong
+					positionQty = trade.Quantity
+				} else if entryDir == domain.DirectionLong {
+					// Adding to existing long
+					newQty := positionQty + trade.Quantity
+					entryPrice = (entryPrice*positionQty + trade.Price*trade.Quantity) / newQty
+					positionQty = newQty
+				} else {
+					// Was short, now going long — this is a reversal (close short + open long)
+					// Close short position first
+					if positionQty < 0 {
+						pnl := (entryPrice - trade.Price) * abs(positionQty)
+						holdingDays := trade.Timestamp.Sub(entryTime).Hours() / 24
+						totalHoldingDays += holdingDays
+						holdingDaysCount++
+						if netTradePnl(pnl, trade) > 0 {
+							winningTrades++
+						} else {
+							losingTrades++
+						}
+					}
+					// Open new long
+					entryPrice = trade.Price
+					entryTime = trade.Timestamp
+					entryDir = domain.DirectionLong
+					positionQty = trade.Quantity
+				}
+
+			case domain.DirectionShort:
+				if positionQty == 0 {
+					// Fresh short entry
+					entryPrice = trade.Price
+					entryTime = trade.Timestamp
+					entryDir = domain.DirectionShort
+					positionQty = -trade.Quantity
+				} else if entryDir == domain.DirectionShort {
+					// Adding to existing short
+					newQty := positionQty - trade.Quantity
+					entryPrice = (entryPrice*abs(positionQty) + trade.Price*trade.Quantity) / abs(newQty)
+					positionQty = newQty
+				} else {
+					// Was long, now going short — reversal (close long + open short)
+					if positionQty > 0 {
+						pnl := (trade.Price - entryPrice) * positionQty
+						holdingDays := trade.Timestamp.Sub(entryTime).Hours() / 24
+						totalHoldingDays += holdingDays
+						holdingDaysCount++
+						if netTradePnl(pnl, trade) > 0 {
+							winningTrades++
+						} else {
+							losingTrades++
+						}
+					}
+					// Open new short
+					entryPrice = trade.Price
+					entryTime = trade.Timestamp
+					entryDir = domain.DirectionShort
+					positionQty = -trade.Quantity
+				}
+
+			case domain.DirectionClose:
+				// Explicit close
+				if positionQty > 0 {
+					// Closing long
+					pnl := (trade.Price - entryPrice) * min(trade.Quantity, positionQty)
+					holdingDays := trade.Timestamp.Sub(entryTime).Hours() / 24
+					totalHoldingDays += holdingDays
+					holdingDaysCount++
+					if netTradePnl(pnl, trade) > 0 {
+						winningTrades++
+					} else {
+						losingTrades++
+					}
+					positionQty -= min(trade.Quantity, positionQty)
+				} else if positionQty < 0 {
+					// Closing short
+					pnl := (entryPrice - trade.Price) * min(trade.Quantity, abs(positionQty))
+					holdingDays := trade.Timestamp.Sub(entryTime).Hours() / 24
+					totalHoldingDays += holdingDays
+					holdingDaysCount++
+					if netTradePnl(pnl, trade) > 0 {
+						winningTrades++
+					} else {
+						losingTrades++
+					}
+					positionQty += min(trade.Quantity, abs(positionQty))
+				}
+				// Reset if fully closed
+				if abs(positionQty) < 1e-8 {
+					positionQty = 0
+					entryPrice = 0
+					entryDir = ""
+				}
+			}
+		}
+	}
+
+	totalTrades = winningTrades + losingTrades
+	if totalTrades > 0 {
+		winRate = float64(winningTrades*100) / float64(totalTrades)
+	}
+	if holdingDaysCount > 0 {
+		avgHoldingDays = totalHoldingDays / float64(holdingDaysCount)
+	}
+
+	return float64(winRate) / 100.0, totalTrades, winningTrades, losingTrades, avgHoldingDays
+}
+
+// Helper functions
+func filterNegative(values []float64) []float64 {
+	var negative []float64
+	for _, v := range values {
+		if v < 0 {
+			negative = append(negative, v)
+		}
+	}
+	return negative
+}
+
+// GenerateBacktestResult creates a BacktestResult from tracker data and metrics.
+func GenerateBacktestResult(
+	portfolioValues []domain.PortfolioValue,
+	trades []domain.Trade,
+	riskFreeRate float64,
+	startDate, endDate time.Time,
+	initialCapital float64,
+) domain.BacktestResult {
+	if len(portfolioValues) == 0 {
+		return domain.BacktestResult{
+			StartDate: startDate,
+			EndDate:   endDate,
+		}
+	}
+
+	endValue := portfolioValues[len(portfolioValues)-1].TotalValue
+	startValue := portfolioValues[0].TotalValue
+
+	// Total return
+	totalReturn := 0.0
+	if startValue > 0 {
+		totalReturn = (endValue - startValue) / startValue
+	}
+
+	// Annualized return - use actual dates from portfolio values, not backtest date range
+	// This ensures correct annualization even when backtest dates don't align with trading days
+	actualStartDate := portfolioValues[0].Date
+	actualEndDate := portfolioValues[len(portfolioValues)-1].Date
+	years := actualEndDate.Sub(actualStartDate).Hours() / (24 * 365.25)
+	annualReturn := totalReturn
+	if years > 0 && startValue > 0 {
+		annualReturn = math.Pow(1+totalReturn, 1/years) - 1
+	}
+
+	// Calculate returns and metrics
+	returns := CalculateReturns(portfolioValues)
+	sharpe := CalculateSharpeRatio(returns, riskFreeRate)
+	sortino := CalculateSortinoRatio(returns, riskFreeRate)
+	maxDD, maxDDDate := CalculateMaxDrawdown(portfolioValues)
+	calmar := CalculateCalmarRatio(annualReturn, math.Abs(maxDD))
+
+	// Trade metrics
+	winRate, totalTrades, winTrades, loseTrades, avgHoldingDays := calculateTradeMetrics(trades, portfolioValues)
+
+	return domain.BacktestResult{
+		StartDate:       startDate,
+		EndDate:         endDate,
+		TotalReturn:     totalReturn,
+		AnnualReturn:    annualReturn,
+		SharpeRatio:     sharpe,
+		SortinoRatio:    sortino,
+		MaxDrawdown:     maxDD,
+		MaxDrawdownDate: maxDDDate,
+		WinRate:         winRate,
+		TotalTrades:     totalTrades,
+		WinTrades:       winTrades,
+		LoseTrades:      loseTrades,
+		AvgHoldingDays:  avgHoldingDays,
+		CalmarRatio:     calmar,
+		PortfolioValues: portfolioValues,
+		Trades:          trades,
+	}
+}
+
+// abs returns the absolute value of x. S7-P2-1: this was previously
+// shared from pkg/backtest/tracker.go; it is duplicated here because
+// the metrics sub-package cannot access unexported helpers from the
+// parent package.
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}

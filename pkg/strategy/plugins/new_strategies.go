@@ -1,0 +1,715 @@
+package plugins
+
+import (
+	"context"
+	"math"
+	"sort"
+
+	"tellurion/pkg/domain"
+	"tellurion/pkg/statistics"
+	"tellurion/pkg/strategy"
+)
+
+type TDSequentialConfig struct {
+	SetupCount    int
+	CancelDays    int
+	CountdownFrom int
+}
+
+type tdSequentialStrategy struct {
+	*strategy.BaseStrategy
+	params TDSequentialConfig
+}
+
+func (s *tdSequentialStrategy) Name() string { return "td_sequential" }
+
+func (s *tdSequentialStrategy) Description() string {
+	return "TD Sequential: Tom DeMark's sequential indicator, buy on bearish setup completion (9 consecutive closes below close 4 bars ago), sell on bullish setup"
+}
+
+func (s *tdSequentialStrategy) Parameters() []strategy.Parameter {
+	return []strategy.Parameter{
+		{Name: "setup_count", Type: "int", Default: 9, Description: "Number of consecutive closes to complete a setup", Min: 5, Max: 13},
+		{Name: "cancel_days", Type: "int", Default: 4, Description: "Setup cancellation lookback days", Min: 2, Max: 8},
+		{Name: "countdown_from", Type: "int", Default: 13, Description: "Countdown start threshold (TDST)", Min: 8, Max: 20},
+	}
+}
+
+func (s *tdSequentialStrategy) GenerateSignals(ctx context.Context, bars map[string][]domain.OHLCV, portfolio *domain.Portfolio) ([]strategy.Signal, error) {
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	setupN := s.params.SetupCount
+	if setupN <= 0 {
+		setupN = 9
+	}
+	cancelN := s.params.CancelDays
+	if cancelN <= 0 {
+		cancelN = 4
+	}
+	var signals []strategy.Signal
+	for symbol, data := range bars {
+		if len(data) < cancelN+setupN+2 {
+			continue
+		}
+		// Sort by date ascending using shared utility
+		sorted := sortOHLCV(data)
+
+		// TD Sequential: count closes below/above the close cancelN bars ago
+		// Proper implementation: from the most recent bar backwards,
+		// count bars that satisfy the condition, skipping bars that don't.
+		// This allows finding setups that exist in earlier bars even if
+		// recent bars break the sequence.
+		bearishSetup := 0
+		bullishSetup := 0
+
+		// Count from the end backwards
+		for i := len(sorted) - 1; i >= cancelN; i-- {
+			refIdx := i - cancelN
+			if refIdx < 0 {
+				continue
+			}
+			closeCurr := sorted[i].Close
+			closeRef := sorted[refIdx].Close
+
+			if closeCurr < closeRef {
+				// Bearish count: current close < close cancelN bars ago
+				bearishSetup++
+			} else if closeCurr > closeRef {
+				// Bullish count: current close > close cancelN bars ago
+				bullishSetup++
+			}
+			// If equal, skip this bar and continue checking earlier bars
+		}
+
+		latestPrice := sorted[len(sorted)-1].Close
+		if latestPrice <= 0 {
+			continue
+		}
+
+		// Buy signal: bearish setup completion (price down-trend exhaustion)
+		// When we have setupN consecutive closes below close cancelN bars ago
+		// Relaxed signal: also generate partial signal when setup reaches threshold
+		setupThreshold := int(math.Ceil(float64(setupN) * 0.7))
+		if setupThreshold < 5 {
+			setupThreshold = 5
+		}
+		if bearishSetup >= setupThreshold {
+			strength := math.Min(float64(bearishSetup)/float64(setupN), 1.0)
+			if bearishSetup < setupN {
+				strength = strength * 0.6 // partial strength for incomplete setup
+			}
+			signals = append(signals, strategy.Signal{
+				Symbol:   symbol,
+				Action:   "buy",
+				Strength: strength,
+				Price:    latestPrice,
+				Factors:  map[string]float64{"bearish_setup": float64(bearishSetup), "setup_threshold": float64(setupThreshold)},
+			})
+		}
+		// Sell signal: bullish setup completion (price up-trend exhaustion)
+		if bullishSetup >= setupThreshold {
+			strength := math.Min(float64(bullishSetup)/float64(setupN), 1.0)
+			if bullishSetup < setupN {
+				strength = strength * 0.6 // partial strength for incomplete setup
+			}
+			if portfolio != nil {
+				if pos, ok := portfolio.Positions[symbol]; ok && pos.Quantity > 0 {
+					signals = append(signals, strategy.Signal{
+						Symbol:   symbol,
+						Action:   "sell",
+						Strength: strength,
+						Price:    latestPrice,
+						Factors:  map[string]float64{"bullish_setup": float64(bullishSetup), "setup_threshold": float64(setupThreshold)},
+					})
+				}
+			}
+		}
+	}
+	return signals, nil
+}
+
+func (s *tdSequentialStrategy) Configure(params map[string]any) error {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := params["setup_count"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.SetupCount = val
+		}
+	}
+	if v, ok := params["cancel_days"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.CancelDays = val
+		}
+	}
+	if v, ok := params["countdown_from"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.CountdownFrom = val
+		}
+	}
+	return nil
+}
+
+func (s *tdSequentialStrategy) Weight(signal strategy.Signal, _ float64) float64 {
+	w := signal.Strength * 0.12
+	if w > 0.08 {
+		w = 0.08
+	}
+	if w < 0.01 {
+		w = 0.01
+	}
+	return w
+}
+
+func (s *tdSequentialStrategy) Cleanup() {}
+
+func init() {
+	s := &tdSequentialStrategy{
+		BaseStrategy: strategy.NewBaseStrategy("td_sequential", "TD Sequential: Tom DeMark's sequential indicator for trend exhaustion detection"),
+		params:       TDSequentialConfig{SetupCount: 9, CancelDays: 4, CountdownFrom: 13},
+	}
+	strategy.GlobalRegister(s)
+}
+
+type BollingerMRConfig struct {
+	Period     int
+	StdDev     float64
+	BuyZScore  float64
+	SellZScore float64
+}
+
+type bollingerMRStrategy struct {
+	*strategy.BaseStrategy
+	params BollingerMRConfig
+}
+
+func (s *bollingerMRStrategy) Name() string { return "bollinger_mr" }
+
+func (s *bollingerMRStrategy) Description() string {
+	return "Bollinger Mean Reversion: buy when price touches lower band (oversold), sell when price touches upper band (overbought)"
+}
+
+func (s *bollingerMRStrategy) Parameters() []strategy.Parameter {
+	return []strategy.Parameter{
+		{Name: "period", Type: "int", Default: 20, Description: "Bollinger Band period", Min: 5, Max: 50},
+		{Name: "std_dev", Type: "float", Default: 2.0, Description: "Standard deviation multiplier", Min: 1.0, Max: 3.0},
+		{Name: "buy_zscore", Type: "float", Default: -2.0, Description: "Buy threshold (z-score below mean)", Min: -3.0, Max: -0.5},
+		{Name: "sell_zscore", Type: "float", Default: 2.0, Description: "Sell threshold (z-score above mean)", Min: 0.5, Max: 3.0},
+	}
+}
+
+func (s *bollingerMRStrategy) GenerateSignals(ctx context.Context, bars map[string][]domain.OHLCV, portfolio *domain.Portfolio) ([]strategy.Signal, error) {
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	period := s.params.Period
+	if period <= 0 {
+		period = 20
+	}
+	stdDev := s.params.StdDev
+	if stdDev <= 0 {
+		stdDev = 2.0
+	}
+
+	// For single/few stocks, use more relaxed thresholds to ensure signals
+	isSingleStock := len(bars) <= 3
+	buyZScore := s.params.BuyZScore
+	sellZScore := s.params.SellZScore
+	if isSingleStock {
+		// Relax thresholds: -1.0 instead of -1.5, 1.0 instead of 1.5
+		if buyZScore < -1.0 {
+			buyZScore = -1.0
+		}
+		if sellZScore > 1.0 {
+			sellZScore = 1.0
+		}
+	}
+
+	var signals []strategy.Signal
+	for symbol, data := range bars {
+		if len(data) < period {
+			continue
+		}
+		// Sort by date ascending using shared utility
+		sorted := sortOHLCV(data)
+
+		window := sorted[len(sorted)-period:]
+		latestPrice := window[len(window)-1].Close
+
+		prices := extractClosePrices(window)
+		mean := statistics.Mean(prices)
+		sd := statistics.PopulationStdDev(prices)
+
+		if sd <= 0 || latestPrice <= 0 {
+			continue
+		}
+
+		zScore := (latestPrice - mean) / sd
+
+		if zScore <= buyZScore {
+			strength := math.Min(math.Abs(zScore-buyZScore)/(math.Abs(buyZScore)+1), 1.0)
+			lowerBand := mean - stdDev*sd
+			signals = append(signals, strategy.Signal{
+				Symbol:     symbol,
+				Action:     "buy",
+				Strength:   strength,
+				Price:      latestPrice,
+				OrderType:  domain.OrderTypeLimit,
+				LimitPrice: lowerBand,
+				Factors:    map[string]float64{"z_score": zScore, "lower_band": lowerBand, "upper_band": mean + stdDev*sd},
+			})
+		} else if zScore >= sellZScore {
+			strength := math.Min((zScore-sellZScore)/(sellZScore+1), 1.0)
+			if portfolio != nil {
+				if pos, ok := portfolio.Positions[symbol]; ok && pos.Quantity > 0 {
+					upperBand := mean + stdDev*sd
+					signals = append(signals, strategy.Signal{
+						Symbol:     symbol,
+						Action:     "sell",
+						Strength:   strength,
+						Price:      latestPrice,
+						OrderType:  domain.OrderTypeLimit,
+						LimitPrice: upperBand,
+						Factors:    map[string]float64{"z_score": zScore, "lower_band": mean - stdDev*sd, "upper_band": upperBand},
+					})
+				}
+			}
+		}
+	}
+	return signals, nil
+}
+
+func (s *bollingerMRStrategy) Configure(params map[string]any) error {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := params["period"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.Period = val
+		}
+	}
+	if v, ok := params["std_dev"]; ok {
+		if val, ok := parseFloatParam(v); ok {
+			s.params.StdDev = val
+		}
+	}
+	if v, ok := params["buy_zscore"]; ok {
+		if val, ok := parseFloatParam(v); ok {
+			s.params.BuyZScore = val
+		}
+	}
+	if v, ok := params["sell_zscore"]; ok {
+		if val, ok := parseFloatParam(v); ok {
+			s.params.SellZScore = val
+		}
+	}
+	return nil
+}
+
+func (s *bollingerMRStrategy) Weight(signal strategy.Signal, _ float64) float64 {
+	w := signal.Strength * 0.10
+	if w > 0.06 {
+		w = 0.06
+	}
+	if w < 0.01 {
+		w = 0.01
+	}
+	return w
+}
+
+func (s *bollingerMRStrategy) Cleanup() {}
+
+func init() {
+	s := &bollingerMRStrategy{
+		BaseStrategy: strategy.NewBaseStrategy("bollinger_mr", "Bollinger Mean Reversion: trade band bounces with z-score thresholds"),
+		params:       BollingerMRConfig{Period: 20, StdDev: 2.0, BuyZScore: -1.5, SellZScore: 1.5},
+	}
+	strategy.GlobalRegister(s)
+}
+
+type VPTConfig struct {
+	SMALookback int
+	TopN        int
+}
+
+type vptStrategy struct {
+	*strategy.BaseStrategy
+	params VPTConfig
+}
+
+func (s *vptStrategy) Name() string { return "volume_price_trend" }
+
+func (s *vptStrategy) Description() string {
+	return "Volume-Price Trend: buy stocks with rising VPT (price×volume momentum), sell falling VPT"
+}
+
+func (s *vptStrategy) Parameters() []strategy.Parameter {
+	return []strategy.Parameter{
+		{Name: "sma_lookback", Type: "int", Default: 20, Description: "SMA period for VPT smoothing", Min: 5, Max: 60},
+		{Name: "top_n", Type: "int", Default: 5, Description: "Number of top VPT stocks to buy", Min: 1, Max: 20},
+	}
+}
+
+func (s *vptStrategy) GenerateSignals(ctx context.Context, bars map[string][]domain.OHLCV, portfolio *domain.Portfolio) ([]strategy.Signal, error) {
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	lookback := s.params.SMALookback
+	if lookback <= 0 {
+		lookback = 20
+	}
+	topN := s.params.TopN
+	if topN <= 0 {
+		topN = 5
+	}
+
+	type vptResult struct {
+		symbol   string
+		vpt      float64
+		vptSlope float64
+		price    float64
+	}
+	var results []vptResult
+
+	for symbol, data := range bars {
+		if len(data) < lookback+1 {
+			continue
+		}
+		// Sort by date ascending using shared utility
+		sorted := sortOHLCV(data)
+
+		vpt := 0.0
+		prevClose := sorted[0].Close
+		for i := 1; i < len(sorted); i++ {
+			changePct := 0.0
+			if prevClose != 0 {
+				changePct = (sorted[i].Close - prevClose) / prevClose
+			}
+			vpt += changePct * sorted[i].Volume
+			prevClose = sorted[i].Close
+		}
+
+		if len(sorted) >= lookback+1 {
+			recentWindow := sorted[len(sorted)-lookback:]
+			vptRecent := 0.0
+			pC := recentWindow[0].Close
+			for i := 1; i < len(recentWindow); i++ {
+				cp := 0.0
+				if pC != 0 {
+					cp = (recentWindow[i].Close - pC) / pC
+				}
+				vptRecent += cp * recentWindow[i].Volume
+				pC = recentWindow[i].Close
+			}
+			oldVPT := 0.0
+			oldWindow := sorted[len(sorted)-lookback-1 : len(sorted)-lookback]
+			oC := oldWindow[0].Close
+			for i := 1; i < len(oldWindow); i++ {
+				cp := 0.0
+				if oC != 0 {
+					cp = (oldWindow[i].Close - oC) / oC
+				}
+				oldVPT += cp * oldWindow[i].Volume
+				oC = oldWindow[i].Close
+			}
+			results = append(results, vptResult{symbol: symbol, vpt: vpt, vptSlope: vptRecent - oldVPT, price: sorted[len(sorted)-1].Close})
+		} else {
+			results = append(results, vptResult{symbol: symbol, vpt: vpt, vptSlope: vpt, price: sorted[len(sorted)-1].Close})
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool { return results[i].vptSlope > results[j].vptSlope })
+
+	var signals []strategy.Signal
+	for i, r := range results {
+		if i >= topN {
+			break
+		}
+		if r.price <= 0 {
+			continue
+		}
+		maxSlope := results[0].vptSlope
+		minSlope := results[len(results)-1].vptSlope
+		strength := 0.5
+		if maxSlope != minSlope {
+			strength = (r.vptSlope - minSlope) / (maxSlope - minSlope)
+		}
+		signals = append(signals, strategy.Signal{
+			Symbol:   r.symbol,
+			Action:   "buy",
+			Strength: strength,
+			Price:    r.price,
+			Factors:  map[string]float64{"vpt": r.vpt, "vpt_slope": r.vptSlope},
+		})
+	}
+
+	if portfolio != nil && portfolio.Positions != nil && len(results) > 0 {
+		startIdx := 0
+		if len(results) > topN {
+			startIdx = len(results) - topN
+		}
+		for _, r := range results[startIdx:] {
+			if r.vptSlope < 0 {
+				if pos, ok := portfolio.Positions[r.symbol]; ok && pos.Quantity > 0 {
+					strength := math.Abs(r.vptSlope)
+					maxAbs := 0.0
+					for _, x := range results {
+						if math.Abs(x.vptSlope) > maxAbs {
+							maxAbs = math.Abs(x.vptSlope)
+						}
+					}
+					if maxAbs > 0 {
+						strength /= maxAbs
+					}
+					signals = append(signals, strategy.Signal{
+						Symbol:   r.symbol,
+						Action:   "sell",
+						Strength: strength,
+						Price:    r.price,
+						Factors:  map[string]float64{"vpt": r.vpt, "vpt_slope": r.vptSlope},
+					})
+				}
+			}
+		}
+	}
+	return signals, nil
+}
+
+func (s *vptStrategy) Configure(params map[string]any) error {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := params["sma_lookback"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.SMALookback = val
+		}
+	}
+	if v, ok := params["top_n"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.TopN = val
+		}
+	}
+	return nil
+}
+
+func (s *vptStrategy) Weight(signal strategy.Signal, _ float64) float64 {
+	w := signal.Strength * 0.10
+	if w > 0.06 {
+		w = 0.06
+	}
+	if w < 0.01 {
+		w = 0.01
+	}
+	return w
+}
+
+func (s *vptStrategy) Cleanup() {}
+
+func init() {
+	s := &vptStrategy{
+		BaseStrategy: strategy.NewBaseStrategy("volume_price_trend", "Volume-Price Trend: volume-weighted price momentum indicator"),
+		params:       VPTConfig{SMALookback: 20, TopN: 5},
+	}
+	strategy.GlobalRegister(s)
+}
+
+type VolBreakoutConfig struct {
+	ATRPeriod     int
+	ATRMultiplier float64
+	Lookback      int
+	TopN          int
+}
+
+type volBreakoutStrategy struct {
+	*strategy.BaseStrategy
+	params VolBreakoutConfig
+}
+
+func (s *volBreakoutStrategy) Name() string { return "volatility_breakout" }
+
+func (s *volBreakoutStrategy) Description() string {
+	return "Volatility Breakout: buy when price breaks above ATR upper channel, sell when breaks below ATR lower channel"
+}
+
+func (s *volBreakoutStrategy) Parameters() []strategy.Parameter {
+	return []strategy.Parameter{
+		{Name: "atr_period", Type: "int", Default: 14, Description: "ATR calculation period", Min: 5, Max: 30},
+		{Name: "atr_multiplier", Type: "float", Default: 2.0, Description: "ATR multiplier for channel width", Min: 1.0, Max: 4.0},
+		{Name: "lookback", Type: "int", Default: 20, Description: "Donchian channel lookback period", Min: 5, Max: 60},
+		{Name: "top_n", Type: "int", Default: 5, Description: "Max number of positions", Min: 1, Max: 20},
+	}
+}
+
+func (s *volBreakoutStrategy) GenerateSignals(ctx context.Context, bars map[string][]domain.OHLCV, portfolio *domain.Portfolio) ([]strategy.Signal, error) {
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	atrPeriod := s.params.ATRPeriod
+	if atrPeriod <= 0 {
+		atrPeriod = 14
+	}
+	atrMult := s.params.ATRMultiplier
+	if atrMult <= 0 {
+		atrMult = 2.0
+	}
+	lookback := s.params.Lookback
+	if lookback <= 0 {
+		lookback = 20
+	}
+	topN := s.params.TopN
+	if topN <= 0 {
+		topN = 5
+	}
+
+	type breakoutResult struct {
+		symbol    string
+		breakType string
+		strength  float64
+		price     float64
+		atr       float64
+	}
+	var results []breakoutResult
+
+	for symbol, data := range bars {
+		n := atrPeriod + lookback + 1
+		if len(data) < n {
+			continue
+		}
+		// Sort by date ascending using shared utility
+		sorted := sortOHLCV(data)
+
+		atrSum := 0.0
+		for i := len(sorted) - atrPeriod; i < len(sorted); i++ {
+			hl := sorted[i].High - sorted[i].Low
+			hc := math.Abs(sorted[i].High - sorted[i-1].Close)
+			lc := math.Abs(sorted[i].Low - sorted[i-1].Close)
+			tr := math.Max(hl, math.Max(hc, lc))
+			atrSum += tr
+		}
+		atr := atrSum / float64(atrPeriod)
+
+		highMax := sorted[len(sorted)-1].High
+		lowMin := sorted[len(sorted)-1].Low
+		for i := len(sorted) - lookback; i < len(sorted); i++ {
+			if sorted[i].High > highMax {
+				highMax = sorted[i].High
+			}
+			if sorted[i].Low < lowMin {
+				lowMin = sorted[i].Low
+			}
+		}
+
+		latestClose := sorted[len(sorted)-1].Close
+		prevClose := sorted[len(sorted)-2].Close
+		upperBand := highMax + atr*atrMult
+		lowerBand := lowMin - atr*atrMult
+
+		if latestClose <= 0 || atr <= 0 || prevClose <= 0 {
+			continue
+		}
+
+		// Breakout detection: price crossing above/below Donchian channels
+		// Buy: price breaks above recent high channel (momentum breakout)
+		// Sell: price breaks below recent low channel (breakdown)
+		// Also trigger if close is near the channel boundary (within 0.5 ATR)
+		buyThreshold := highMax - atr*0.5
+		sellThreshold := lowMin + atr*0.5
+
+		if latestClose > buyThreshold && latestClose > prevClose {
+			// Price near or above upper channel and rising
+			strength := 0.5
+			if upperBand > lowerBand {
+				strength = math.Min((latestClose-lowerBand)/(upperBand-lowerBand), 1.0)
+			}
+			if strength < 0.3 {
+				strength = 0.3
+			}
+			results = append(results, breakoutResult{symbol: symbol, breakType: "buy", strength: strength, price: latestClose, atr: atr})
+		} else if latestClose < sellThreshold && latestClose < prevClose {
+			// Price near or below lower channel and falling
+			strength := 0.5
+			if upperBand > lowerBand {
+				strength = math.Min((upperBand-latestClose)/(upperBand-lowerBand), 1.0)
+			}
+			if strength < 0.3 {
+				strength = 0.3
+			}
+			results = append(results, breakoutResult{symbol: symbol, breakType: "sell", strength: strength, price: latestClose, atr: atr})
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool { return results[i].strength > results[j].strength })
+
+	var signals []strategy.Signal
+	buyCount := 0
+	for _, r := range results {
+		if r.breakType == "buy" && buyCount < topN {
+			signals = append(signals, strategy.Signal{
+				Symbol:   r.symbol,
+				Action:   "buy",
+				Strength: r.strength,
+				Price:    r.price,
+				Factors:  map[string]float64{"atr": r.atr},
+			})
+			buyCount++
+		} else if r.breakType == "sell" {
+			if portfolio != nil {
+				if pos, ok := portfolio.Positions[r.symbol]; ok && pos.Quantity > 0 {
+					signals = append(signals, strategy.Signal{
+						Symbol:   r.symbol,
+						Action:   "sell",
+						Strength: r.strength,
+						Price:    r.price,
+						Factors:  map[string]float64{"atr": r.atr},
+					})
+				}
+			}
+		}
+	}
+	return signals, nil
+}
+
+func (s *volBreakoutStrategy) Configure(params map[string]any) error {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := params["atr_period"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.ATRPeriod = val
+		}
+	}
+	if v, ok := params["atr_multiplier"]; ok {
+		if val, ok := parseFloatParam(v); ok {
+			s.params.ATRMultiplier = val
+		}
+	}
+	if v, ok := params["lookback"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.Lookback = val
+		}
+	}
+	if v, ok := params["top_n"]; ok {
+		if val, ok := parseIntParam(v); ok {
+			s.params.TopN = val
+		}
+	}
+	return nil
+}
+
+func (s *volBreakoutStrategy) Weight(signal strategy.Signal, _ float64) float64 {
+	w := signal.Strength * 0.10
+	if w > 0.08 {
+		w = 0.08
+	}
+	if w < 0.01 {
+		w = 0.01
+	}
+	return w
+}
+
+func (s *volBreakoutStrategy) Cleanup() {}
+
+func init() {
+	s := &volBreakoutStrategy{
+		BaseStrategy: strategy.NewBaseStrategy("volatility_breakout", "Volatility Breakout: ATR Donchian channel breakout system"),
+		params:       VolBreakoutConfig{ATRPeriod: 14, ATRMultiplier: 2.0, Lookback: 20, TopN: 5},
+	}
+	strategy.GlobalRegister(s)
+}

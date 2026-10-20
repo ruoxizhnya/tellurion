@@ -1,0 +1,368 @@
+// Package contracts is the LEAF package for pkg/backtest subpackages.
+//
+// S7-P2-1 (ODR-043): extracting shared DTOs + a narrow EngineRunner
+// interface here lets the sibling subpackages (tracker/, state/,
+// walkforward/, batch/, job/) depend on contracts (not on the parent
+// pkg/backtest), which breaks the import cycle that would otherwise
+// prevent leaf extraction.
+//
+// This is a LEAF package: it imports only pkg/domain (for
+// PortfolioValue / Trade return types), pkg/fees (canonical fee-rate
+// source), and the standard library. It does NOT import pkg/backtest
+// or any sibling subpackage, so importing contracts never creates a
+// reverse dependency.
+//
+// Aliasing convention: the parent package pkg/backtest re-exports
+// every type and constant defined here via Go type/const aliases
+// (`type X = contracts.X`), so all existing callers that use
+// `backtest.BacktestRequest` / `backtest.TradingConfig` / etc. keep
+// working unchanged.
+package contracts
+
+import (
+	"context"
+
+	"tellurion/pkg/domain"
+	"tellurion/pkg/fees"
+)
+
+// --- DTOs (moved from engine.go) ---
+
+// TradingConfig holds A-share trading rules.
+//
+// AUD-37 (ODR-065): loaded from the **top-level** `trading` key of the
+// service config — the same block cmd/analysis reads for the live
+// execution path, so the engine and live trading cannot drift on fee
+// assumptions. This comment used to say "under `backtest.trading`";
+// nothing ever wrote that key (config/analysis-service.yaml puts the
+// block at the top level), so the engine's TradingConfig was always the
+// zero value and the old all-or-nothing guard in NewEngine replaced it
+// wholesale with defaults. Every key in the yaml block happened to equal
+// its default, which is why editing the yaml had no observable effect and
+// the gap went unnoticed.
+//
+// Zero-valued fields are filled **per field** by WithDefaults(); do not
+// reintroduce an all-or-nothing replacement.
+type TradingConfig struct {
+	StampTaxRate float64 `mapstructure:"stamp_tax_rate"`
+	// StampTaxRateBefore is the sell-side stamp tax rate in force
+	// BEFORE 2023-08-28 (0.1%). Zero falls back to the historical
+	// constant.
+	//
+	// AUD-20 (ODR-065): kept separate from StampTaxRate for exactly the
+	// reason PriceLimit.STBefore is kept separate from PriceLimit.ST —
+	// a backtest spanning the rule change must charge each sell the rate
+	// in force on that day, instead of applying one rate to the whole
+	// window. Resolution lives in fees.StampTaxRateFor; the tracker
+	// calls it per trade.
+	StampTaxRateBefore float64          `mapstructure:"stamp_tax_rate_before"`
+	MinCommission      float64          `mapstructure:"min_commission"`
+	TransferFeeRate    float64          `mapstructure:"transfer_fee_rate"`
+	PriceLimit         PriceLimitConfig `mapstructure:"price_limit"`
+	NewStockDays       int              `mapstructure:"new_stock_days"`
+}
+
+// WithDefaults returns a copy of c with every zero-valued field replaced by
+// its Default* constant.
+//
+// AUD-37: this replaces the previous all-or-nothing guard
+//
+//	if cfg.Trading.StampTaxRate == 0 {
+//		cfg.Trading = defaultTradingConfig()
+//	}
+//
+// which had two defects:
+//
+//  1. It keyed the whole struct off one field. Setting
+//     `trading.stamp_tax_rate` while forgetting `trading.min_commission`
+//     silently produced MinCommission = 0 — and zero is NOT "unset" on the
+//     fee path: portfolio.ComputeFees does not call
+//     fees.AShareFees.ApplyDefaults, so a zero minimum commission means
+//     "no floor" and a zero transfer fee means "no transfer fee". Both
+//     make fills silently cheaper, which inflates backtest returns.
+//  2. Because one field triggered it, removing that key from the yaml
+//     would reset every *other* key back to its default — the "I only
+//     changed one line" trap.
+//
+// Filling field by field makes a partial config mean "use the default for
+// what I did not specify", which is what an operator expects.
+//
+// Guarded by TestTradingConfig_WithDefaultsFillsOnlyZeroFields and
+// TestNewEngine_PartialTradingBlockDoesNotZeroTheRest.
+func (c TradingConfig) WithDefaults() TradingConfig {
+	if c.StampTaxRate == 0 {
+		c.StampTaxRate = DefaultStampTaxRate
+	}
+	if c.StampTaxRateBefore == 0 {
+		c.StampTaxRateBefore = DefaultStampTaxRateBefore
+	}
+	if c.MinCommission == 0 {
+		c.MinCommission = DefaultMinCommission
+	}
+	if c.TransferFeeRate == 0 {
+		c.TransferFeeRate = DefaultTransferFeeRate
+	}
+	if c.PriceLimit.Normal == 0 {
+		c.PriceLimit.Normal = DefaultPriceLimitNormal
+	}
+	if c.PriceLimit.ST == 0 {
+		c.PriceLimit.ST = DefaultPriceLimitST
+	}
+	if c.PriceLimit.STBefore == 0 {
+		c.PriceLimit.STBefore = DefaultPriceLimitSTBefore
+	}
+	if c.PriceLimit.New == 0 {
+		c.PriceLimit.New = DefaultPriceLimitNew
+	}
+	if c.NewStockDays == 0 {
+		c.NewStockDays = DefaultNewStockDays
+	}
+	return c
+}
+
+// PriceLimitConfig holds daily price-limit fractions by stock category.
+//
+// AUD-07 (ODR-065 H2): the board dimension (ChiNext/STAR 20%, BSE 30%)
+// is NOT configured here — it is derived from the symbol via
+// pkg/marketdata.ClassifySymbol, because it is market structure rather
+// than a tunable. The fields below are only the categories that vary
+// by stock status or by date.
+type PriceLimitConfig struct {
+	Normal float64 `mapstructure:"normal"`
+	// ST is the MAIN-BOARD risk-warning limit (ST / *ST).
+	//
+	// 2026-07-06 起沪深主板 ST/*ST 由 ±5% 调整为 ±10%，与主板其他
+	// 股票一致（沪深北三所 2026-04 修订交易规则）。所以「当前值」
+	// 是 0.10，而 0.05 只适用于 2026-07-06 之前的交易日 —— 见
+	// STBefore。
+	//
+	// 注意：创业板/科创板的风险警示股不受此调整影响，仍适用其板块
+	// 档位（±20%）。该分支在 resolvePriceLimit 里，不看这个字段。
+	ST float64 `mapstructure:"st"`
+	// STBefore is the main-board risk-warning limit for trading days
+	// before 2026-07-06 (±5%). Zero falls back to the historical
+	// constant. Kept separate from ST so that a backtest spanning the
+	// rule change prices each day correctly instead of applying one
+	// rate to the whole window.
+	STBefore float64 `mapstructure:"st_before"`
+	// New is the limit applied to recently listed stocks. Known to be
+	// inaccurate — see PriceLimitInput.TradeDays.
+	New float64 `mapstructure:"new"`
+}
+
+// SignalWeight is one target-weight signal row on the wire (K15).
+//
+// It mirrors the sidecar's validated row shape ({"symbol","weight","as_of"})
+// and the “quant.external_signals“ consumption semantics: a weight effective
+// from the first bar whose date is >= as_of. Weight is a portfolio-level
+// fraction in [0,1]; the Go dual-run tool and the NT sidecar consume the same
+// rows, which is what makes the two runs comparable at all.
+type SignalWeight struct {
+	Symbol string  `json:"symbol"`
+	Weight float64 `json:"weight"`
+	AsOf   string  `json:"as_of"` // ISO date YYYY-MM-DD
+}
+
+// BacktestRequest represents the API request to start a backtest.
+//
+// K9（RunSpec 冻结）：新增 Kernel / EngineParams 两个内核路由字段。
+// 两者都带 omitempty —— 不带新字段的存量请求序列化结果逐字节不变
+// （钉在 TestRunSpec_LegacyRequestSerializationUnchanged）。
+type BacktestRequest struct {
+	Strategy       string   `json:"strategy" binding:"required"`
+	StockPool      []string `json:"stock_pool"`
+	IndexCode      string   `json:"index_code"`
+	StartDate      string   `json:"start_date" binding:"required"`
+	EndDate        string   `json:"end_date" binding:"required"`
+	InitialCapital float64  `json:"initial_capital"`
+	RiskFreeRate   float64  `json:"risk_free_rate"`
+
+	// Kernel 是内核路由键（如 "go" / "nautilus"，FR-1.1）。空值 = 默认
+	// DefaultKernel（"go"），语义由 EffectiveKernel() 给出 —— 默认值**不**回填
+	// 进字段本身，否则存量请求的序列化会多出 `"kernel":"go"`、破坏不变。
+	//
+	// K9 只冻结字段与默认语义并**透传**（验收「kernel 透传」）；按 kernel
+	// 查注册表路由执行器、未知内核 fail-closed 报错是 K10（EngineRunner 路由）。
+	Kernel string `json:"kernel,omitempty"`
+
+	// EngineParams 是引擎特有参数块（FR-4.2）。**未知名拒绝而非忽略**：
+	// 任何目标内核不识别的键都必须让请求 400，静默吞掉会让调用方以为参数
+	// 生效了（"以为在测 NT 其实在测 Go" 的参数版）。校验入口
+	// ValidateRunSpec()，已知名按内核登记在 engineParamsByKernel。
+	EngineParams map[string]any `json:"engine_params,omitempty"`
+
+	// Signals 是可选的目标权重信号流（K15 双跑对齐）。空 = 未提供：Go 内核
+	// 走既有策略注册表路径，nautilus 侧车走 K14 内置样本流 —— 两侧行为与
+	// K15 之前逐字节一致。校验（weight∈[0,1] finite、as_of ISO 日期、symbol
+	// 非空）在 ValidateRunSpec，违例 400。
+	Signals []SignalWeight `json:"signals,omitempty"`
+}
+
+// BacktestResponse represents the API response for a backtest run.
+type BacktestResponse struct {
+	ID              string                  `json:"id"`
+	Status          string                  `json:"status"`
+	Strategy        string                  `json:"strategy,omitempty"`
+	StrategyGitHash string                  `json:"strategy_git_hash,omitempty"`
+	StartDate       string                  `json:"start_date,omitempty"`
+	EndDate         string                  `json:"end_date,omitempty"`
+	TotalReturn     float64                 `json:"total_return,omitempty"`
+	AnnualReturn    float64                 `json:"annual_return,omitempty"`
+	SharpeRatio     float64                 `json:"sharpe_ratio,omitempty"`
+	SortinoRatio    float64                 `json:"sortino_ratio,omitempty"`
+	MaxDrawdown     float64                 `json:"max_drawdown,omitempty"`
+	MaxDrawdownDate string                  `json:"max_drawdown_date,omitempty"`
+	WinRate         float64                 `json:"win_rate,omitempty"`
+	TotalTrades     int                     `json:"total_trades,omitempty"`
+	WinTrades       int                     `json:"win_trades,omitempty"`
+	LoseTrades      int                     `json:"lose_trades,omitempty"`
+	AvgHoldingDays  float64                 `json:"avg_holding_days,omitempty"`
+	CalmarRatio     float64                 `json:"calmar_ratio,omitempty"`
+	StartedAt       string                  `json:"started_at,omitempty"`
+	CompletedAt     string                  `json:"completed_at,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+	PortfolioValues []domain.PortfolioValue `json:"portfolio_values,omitempty"`
+	Trades          []domain.Trade          `json:"trades,omitempty"`
+	StockPool       []string                `json:"stock_pool,omitempty"`
+	InitialCapital  float64                 `json:"initial_capital,omitempty"`
+
+	// InvalidReasons 是「无效运行」裁定的 Code 列表（OBS-01）。
+	//
+	// 形状裁决：无效**不进** Error —— Error 只承载真实错误（取不到日历、
+	// 参数非法等），拿它装「无效」会让调用方分不清「这次跑失败了」和
+	// 「这次跑完了但结果是无效的」。无效是一个**结果属性**，所以走独立字段；
+	// 同步地，无效时 Status = "invalid"（见 OBS-01：Status 是调用方的判据）。
+	InvalidReasons []string `json:"invalid_reasons,omitempty"`
+
+	// UniverseMaxSize 是整轮回测里票池规模的最大值（OBS-01）。
+	// 挂在响应上是为了让下游（验证器 / 报告层）能读到引擎算出的票池统计，
+	// 而不必自己重算。
+	//
+	// **指针语义**（审查修复 2026-10-09）：nil = 未评估（生产者没填），
+	// 0 = 明确为空。把未知编码成 0 会让其它 BacktestResult 生产路径被误判
+	// 为「空票池」—— 见 domain.BacktestResult.UniverseMaxSize 的注记。
+	UniverseMaxSize *int `json:"universe_max_size,omitempty"`
+}
+
+// ResultSpec 冻结（K9）：BacktestResponse.Status 的三值语义集。
+//
+//   - StatusCompleted —— 跑完且有效（CheckValidity 无 reasons）。
+//   - StatusInvalid   —— 跑完但结果无效（OBS-01）。InvalidReasons 必填
+//     （稳定 Code），Error 必空 —— 无效是结果属性不是错误。
+//   - StatusFailed    —— 没跑完。Error 必填，InvalidReasons 必空。
+//
+// `status` 字段本身是调用方的**唯一判据** —— 不得用 id 是否存在、
+// HTTP 200 之类间接信号推断成功。
+//
+// 字段集 + 三值 + 指标口径的完整冻结文本在 docs/SPEC.md「ResultSpec 冻结」，
+// 护栏在 resultspec_test.go。新增第四种取值 = 契约变更：先破坏护栏，
+// 再走变更评审（ADR-031）。
+const (
+	StatusCompleted = "completed"
+	StatusInvalid   = "invalid"
+	StatusFailed    = "failed"
+)
+
+// --- Constants (moved from constants.go) ---
+//
+// A-Share trading-rule defaults. The first three are const-aliased to
+// pkg/fees (the single source of truth) so a rate change in pkg/fees
+// propagates here automatically — see contracts_test.go for the drift
+// guard. The remaining literals (price-limit fractions, new-stock
+// window, short-selling rate, trading-days convention) are A-share
+// market rules with no upstream source.
+const (
+	// DefaultStampTaxRate is the stamp tax rate for selling A-shares
+	// (0.05% since 2023-08-28; it was 0.1% before).
+	DefaultStampTaxRate = fees.DefaultStampTaxRate
+
+	// DefaultStampTaxRateBefore is the stamp tax rate for selling
+	// A-shares BEFORE 2023-08-28 (0.1%). AUD-20: paired with
+	// DefaultStampTaxRate so a window spanning the cut prices each day
+	// correctly — see fees.StampTaxRateFor.
+	DefaultStampTaxRateBefore = fees.DefaultStampTaxRateBefore
+
+	// DefaultMinCommission is the minimum commission per transaction (¥5).
+	DefaultMinCommission = fees.DefaultMinCommission
+
+	// DefaultTransferFeeRate is the transfer fee rate (0.001%).
+	DefaultTransferFeeRate = fees.DefaultTransferFeeRate
+
+	// DefaultPriceLimitNormal is the daily price limit for main-board
+	// stocks (±10%). ChiNext / STAR use ±20% and BSE ±30%, derived
+	// from the symbol at decision time — not from this constant.
+	DefaultPriceLimitNormal = 0.10
+
+	// DefaultPriceLimitST is the MAIN-BOARD risk-warning limit (ST /
+	// *ST) for trading days on or after 2026-07-06 (±10%).
+	//
+	// AUD-07 (ODR-065 H2): this was 0.05. 沪深北交易所 2026-04 修订
+	// 交易规则，2026-07-06 起主板 ST/*ST 由 ±5% 上调至 ±10%，与主板
+	// 其他股票一致。审计报告（2026-09-21）仍写作 ±5%，同样滞后于
+	// 该变化。创业板/科创板的风险警示股不受影响，仍按板块 ±20%。
+	DefaultPriceLimitST = 0.10
+
+	// DefaultPriceLimitSTBefore is the main-board risk-warning limit
+	// for trading days BEFORE 2026-07-06 (±5%). Kept as a separate
+	// constant so a backtest spanning the rule change prices each day
+	// under the rule in force on that day.
+	DefaultPriceLimitSTBefore = 0.05
+
+	// DefaultPriceLimitNew is the daily price limit for new stocks on listing day (±20% for ChiNext/STAR).
+	DefaultPriceLimitNew = 0.20
+
+	// DefaultNewStockDays is the number of days a stock is considered "new" after IPO.
+	DefaultNewStockDays = 60
+
+	// DefaultShortSellingRate is the annual securities lending rate
+	// for short selling (10.6%, per VISION.md). Accrued daily on the
+	// market value of open short positions in Tracker.AdvanceDay using
+	// a 252-trading-day convention.
+	DefaultShortSellingRate = 0.106
+
+	// TradingDaysPerYear is the convention used to convert annual rates
+	// (e.g. short-selling interest) to daily accruals in the backtest
+	// tracker. The live margin module uses 365 (natural days); the
+	// backtest engine advances one trading day at a time, so 252 is the
+	// correct divisor here.
+	TradingDaysPerYear = 252
+)
+
+// DefaultTradingConfig returns the default A-share trading rules.
+//
+// Renamed from the unexported `defaultTradingConfig` in engine.go so
+// that cross-package callers (notably pkg/backtest/tracker) can reach
+// it without going through the parent package. The parent package
+// keeps a thin unexported wrapper of the same name so its two internal
+// call sites (engine.go NewEngine / NewEngineWithOptions) stay
+// unchanged.
+func DefaultTradingConfig() TradingConfig {
+	return TradingConfig{
+		StampTaxRate:       DefaultStampTaxRate,
+		StampTaxRateBefore: DefaultStampTaxRateBefore,
+		MinCommission:      DefaultMinCommission,
+		TransferFeeRate:    DefaultTransferFeeRate,
+		PriceLimit: PriceLimitConfig{
+			Normal:   DefaultPriceLimitNormal,
+			ST:       DefaultPriceLimitST,
+			STBefore: DefaultPriceLimitSTBefore,
+			New:      DefaultPriceLimitNew,
+		},
+		NewStockDays: DefaultNewStockDays,
+	}
+}
+
+// --- Narrow interface (decouples job/walkforward/batch from *Engine) ---
+
+// EngineRunner is the narrow contract for running a single backtest.
+//
+// *backtest.Engine implements this; the sibling subpackages
+// (walkforward/, batch/, job/) accept this interface instead of the
+// concrete *Engine to break the import cycle that would otherwise
+// force them to import the parent pkg/backtest.
+//
+// The method signature matches (*Engine).RunBacktest exactly, so the
+// concrete engine satisfies the interface with no adapter.
+type EngineRunner interface {
+	RunBacktest(ctx context.Context, req BacktestRequest) (*BacktestResponse, error)
+}

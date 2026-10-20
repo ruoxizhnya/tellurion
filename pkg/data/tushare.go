@@ -1,0 +1,1268 @@
+package data
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/httpclient"
+	"tellurion/pkg/logging"
+	"tellurion/pkg/storage"
+)
+
+const (
+	tushareRateLimit    = 200 // requests per minute on free tier
+	tushareRateLimitDur = time.Minute
+)
+
+// ErrIndexConstituentPersistFailed 标识「Tushare 取到了但落库失败」这一段
+// （DATA-06）。调用方用 errors.Is 区分失败环节，原始错误经 %w 保留在链里进日志，
+// 不外泄给客户端（本仓 5xx 口径）。
+var ErrIndexConstituentPersistFailed = errors.New("persist index constituents")
+
+// ErrIndexDailyPersistFailed 标识「指数日线取到了但落库失败」这一段（DATA-12）。
+// 同 ErrIndexConstituentPersistFailed：调用方用 errors.Is 区分失败环节，原始错误
+// 经 %w 保留在链里进日志，不外泄给客户端（本仓 5xx 口径）。
+var ErrIndexDailyPersistFailed = errors.New("persist index daily")
+
+// TushareStore defines the interface for tushare data operations.
+type TushareStore interface {
+	SaveStockBatch(ctx context.Context, stocks []domain.Stock) error
+	SaveOHLCVBatch(ctx context.Context, records []*domain.OHLCV) error
+	SaveFundamentalBatch(ctx context.Context, records []*domain.Fundamental) error
+	SaveFundamentalDataBatch(ctx context.Context, records []*domain.FundamentalData) error
+	SaveIndexConstituentBatch(ctx context.Context, records []*domain.IndexConstituent) error
+	GetIndexConstituents(ctx context.Context, indexCode string) ([]domain.IndexConstituent, error)
+	// SaveIndexDailyBatch（DATA-12）：指数日线写入面（market.index_daily 表）。
+	SaveIndexDailyBatch(ctx context.Context, records []*domain.IndexDaily) error
+	SaveDividendBatch(ctx context.Context, records []*domain.Dividend) error
+	SaveSplitBatch(ctx context.Context, records []*domain.Split) error
+	// SupplyChainStore（P2-2）：产业链静态数据层四表写入面。内嵌而非平铺，
+	// 是因为它有独立命名的接口契约（pkg/data/supply_chain.go），CSV 导入器
+	// 也按同一接口编程。
+	SupplyChainStore
+	// MacroStore（P2-1）：宏观指标序列写入面（pkg/data/macro.go）。
+	// 同 SupplyChainStore，内嵌以独立命名契约钉住 Save 签名。
+	MacroStore
+	// MarketActivityStore（D5）：市场活跃度观测写入面
+	// （pkg/data/tushare_daily_basic.go，market_activity 表）。
+	MarketActivityStore
+	// SaveRawIngest archives a class-A raw source response (ADR-022 §2,
+	// ingest.raw). Declared here so the archive contract is enforced at
+	// compile time rather than discovered at runtime.
+	SaveRawIngest(ctx context.Context, record *storage.RawIngest) error
+}
+
+// TushareClient wraps the tushare.pro HTTP API.
+type TushareClient struct {
+	httpClient *httpclient.Client
+	token      string
+	logger     zerolog.Logger
+	store      TushareStore
+	cache      storage.Cache
+
+	mu           sync.Mutex
+	lastRequest  time.Time
+	requestCount int
+}
+
+// NewTushareClient creates a new Tushare API client.
+func NewTushareClient(token, baseURL string, maxRetries int, store TushareStore, cache storage.Cache) *TushareClient {
+	logger := logging.WithContext(map[string]any{"component": "tushare_client"})
+	// Ensure logger is valid (fallback to Nop if global logger not initialized)
+	if logger.GetLevel() == zerolog.Disabled {
+		logger = zerolog.Nop()
+	}
+	return &TushareClient{
+		httpClient: httpclient.New(baseURL, 30*time.Second, maxRetries),
+		token:      token,
+		logger:     logger,
+		store:      store,
+		cache:      cache,
+	}
+}
+
+// TushareRequest represents a tushare API request payload.
+type TushareRequest struct {
+	APIName string                 `json:"api_name"`
+	Token   string                 `json:"token"`
+	Params  map[string]interface{} `json:"params,omitempty"`
+	Fields  string                 `json:"fields,omitempty"`
+}
+
+// TushareResponse represents a tushare API response.
+type TushareResponse struct {
+	Code    int                `json:"code"`
+	Msg     string             `json:"msg"`
+	Request TushareRequestMeta `json:"request"`
+	Data    TushareData        `json:"data"`
+}
+
+// TushareRequestMeta contains metadata about the request.
+type TushareRequestMeta struct {
+	API    string `json:"api"`
+	Token  string `json:"token"`
+	Params any    `json:"params"`
+	Fields string `json:"fields"`
+	TS     int64  `json:"ts"`
+}
+
+// TushareData contains the response data.
+type TushareData struct {
+	Fields []string `json:"fields"`
+	Items  [][]any  `json:"items"`
+}
+
+// fieldToStr safely converts an interface{} to string.
+func fieldToStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// tushareFloatOK 是「可判定失败」的数值解析器：显式报告一个值能否解析为
+// **有限** float64。normalize 层用它区分「数值未发布（nil）」与「非 nil 但
+// 形状变故（"N/A"/"13,42"/"--"/bool/数组）」，后者静默折 0 等于编数据
+// （P2-10 教训、P2-1-R3 R1）。
+//
+// P2-1-R3-R1：曾与「静默折 0」的 fieldToFloat / tushareCellFloat 并存，后两者
+// 已随 P2-2-R3 一并删除（其唯一调用链就是同一反模式，留住只会被后人误拾）。
+// 需要数值时**一律**走本函数，别再造一个返回零值的简版。
+func tushareFloatOK(v any) (float64, bool) {
+	var f float64
+	switch val := v.(type) {
+	case float64:
+		f = val
+	case int:
+		f = float64(val)
+	case int64:
+		f = float64(val)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+		if err != nil {
+			return 0, false
+		}
+		f = parsed
+	default:
+		// bool / []any / map / nil 等非标量：不可解析。
+		return 0, false
+	}
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	return f, true
+}
+
+// waitForRateLimit ensures we don't exceed 200 req/min.
+func (c *TushareClient) waitForRateLimit() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	if c.requestCount >= tushareRateLimit {
+		elapsed := now.Sub(c.lastRequest)
+		if elapsed < tushareRateLimitDur {
+			sleepDur := tushareRateLimitDur - elapsed
+			c.logger.Info().Dur("sleep", sleepDur).Msg("Rate limit reached, waiting")
+			time.Sleep(sleepDur)
+		}
+		c.requestCount = 0
+	}
+
+	if c.requestCount == 0 {
+		c.lastRequest = time.Now()
+	}
+	c.requestCount++
+}
+
+// call invokes the tushare API with rate limiting and retry.
+func (c *TushareClient) call(ctx context.Context, apiName string, params map[string]interface{}, fields string) (*TushareResponse, error) {
+	c.waitForRateLimit()
+
+	req := TushareRequest{
+		APIName: apiName,
+		Token:   c.token,
+		Params:  params,
+		Fields:  fields,
+	}
+
+	resp, err := c.httpClient.Post(ctx, "", req)
+	if err != nil {
+		return nil, fmt.Errorf("tushare API call failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("tushare API returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	var tushareResp TushareResponse
+	if err := httpclient.DecodeJSON(resp.Body, &tushareResp); err != nil {
+		return nil, fmt.Errorf("failed to decode tushare response: %w, body: %s", err, string(resp.Body))
+	}
+
+	if tushareResp.Code != 0 {
+		return nil, fmt.Errorf("tushare API error %d: %s", tushareResp.Code, tushareResp.Msg)
+	}
+
+	// Archive the raw source response before any caller normalises it, so
+	// ingest.raw stays the single evidence coordinate for this request
+	// (ADR-022 §2 class A). Only successful responses are archived — an error
+	// envelope is not data anyone can cite.
+	c.archiveRaw(ctx, apiName, params, resp.Body)
+
+	c.logger.Debug().Interface("data_fields", tushareResp.Data.Fields).Int("items_count", len(tushareResp.Data.Items)).Msg("tushare response received")
+
+	return &tushareResp, nil
+}
+
+// FetchStocks retrieves stock list from tushare and saves to database.
+func (c *TushareClient) FetchStocks(ctx context.Context, exchange string, listStatus string) ([]domain.Stock, error) {
+	params := map[string]interface{}{
+		"exchange":    exchange,
+		"list_status": listStatus,
+	}
+
+	resp, err := c.call(ctx, "stock_basic", params, "ts_code,symbol,name,area,industry,market,list_date,delist_date,is_hs")
+	if err != nil {
+		return nil, err
+	}
+
+	stocks := c.normalizeStocks(resp)
+	if len(stocks) == 0 {
+		return nil, nil
+	}
+
+	if err := c.store.SaveStockBatch(ctx, stocks); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to batch save stocks")
+	}
+
+	// Invalidate cache
+	if exchange != "" {
+		c.cache.InvalidateStocks(ctx, exchange)
+	} else {
+		c.cache.InvalidateStocks(ctx, "all")
+	}
+
+	c.logger.Info().Int("count", len(stocks)).Msg("Stocks fetched and saved")
+	return stocks, nil
+}
+
+// normalizeStocks converts tushare stock_basic response to domain.Stock.
+func (c *TushareClient) normalizeStocks(resp *TushareResponse) []domain.Stock {
+	var stocks []domain.Stock
+	for _, item := range resp.Data.Items {
+		if len(item) < 9 {
+			continue
+		}
+
+		tsCode := c.fieldStr(item, 0)
+		symbol := c.fieldStr(item, 1)
+		if tsCode == "" && symbol == "" {
+			continue
+		}
+
+		// Use full ts_code (e.g. 000001.SZ) as Symbol for API compatibility
+		useSymbol := tsCode
+		if useSymbol == "" {
+			useSymbol = symbol
+		}
+
+		stock := domain.Stock{
+			Symbol:   useSymbol,
+			Name:     c.fieldStr(item, 2),
+			Exchange: c.extractExchange(useSymbol),
+			Industry: c.fieldStr(item, 4),
+			Status:   "active",
+		}
+
+		if listDate := c.fieldStr(item, 6); listDate != "" {
+			if t, err := time.Parse("20060102", listDate); err == nil {
+				stock.ListDate = t
+			}
+		}
+
+		// delist_date（P2-4）：摘牌日。**此前这一列被整个丢弃**，退市票
+		// 同步进来也被标成 active —— 于是「某日仍在市的池子」根本构造
+		// 不出来，幸存者偏差只能诊断、治不了。
+		//
+		// Status 由摘牌日推导，不再无条件写 "active"：摘牌日已过就是
+		// delisted。写死 active 会让退市票在下游被当成正常可交易标的。
+		if delistDate := c.fieldStr(item, 7); delistDate != "" {
+			if t, err := time.Parse("20060102", delistDate); err == nil {
+				d := t
+				stock.DelistDate = &d
+				if !d.After(time.Now()) {
+					stock.Status = "delisted"
+				}
+			}
+		}
+
+		stocks = append(stocks, stock)
+	}
+	return stocks
+}
+
+// formatDate converts YYYY-MM-DD to YYYYMMDD for tushare API.
+func formatDate(s string) string {
+	if len(s) == 10 && s[4] == '-' && s[7] == '-' {
+		return s[:4] + s[5:7] + s[8:10]
+	}
+	return s
+}
+
+// FetchDailyOHLCV retrieves daily OHLCV data, 前复权 (qfq) adjusted.
+//
+// 复权怎么来的：**不再用 stk_factor_pro**，改为 `daily`（不复权行情）+ `adj_factor`
+// （复权因子）自己算。原因：stk_factor_pro 是专业版接口，权限不足时返回 40203
+// 「您没有接口(stk_factor_pro)访问权限」—— 那不是 token 无效（40101 才是），而是
+// 该接口没开通；本仓默认走的那条路因此从一开始就拿不到行情（同步 job 会 100% 失败，
+// 5568 只股票一只都进不来）。而 `daily` 与 `adj_factor` 都在同一个 token 的权限内。
+//
+// 换算口径取自 Tushare 官方 `adj_factor` 接口文档的示例 4（**别凭记忆改**）：
+//
+//	前复权价 = 当日价格 × 当日复权因子 / 最新复权因子
+//	后复权价 = 当日价格 × 当日复权因子          （基准 = 上市日，基准因子为 1）
+//
+// 官方文档同时点明两件事，实现里都照做了：
+//  1. adj_factor 是「**累计后复权因子**」，每日 8:30-9:30 更新；
+//  2. **停牌日 adj_factor 会补齐，而 daily 没有行情** —— 两个序列按日期并不对齐，
+//     所以以 daily 为准逐日取因子，取不到的那天**跳过**而不是补 1。
+func (c *TushareClient) FetchDailyOHLCV(ctx context.Context, symbol string, startDate, endDate string) ([]domain.OHLCV, error) {
+	params := map[string]interface{}{
+		"ts_code":    symbol,
+		"start_date": formatDate(startDate),
+		"end_date":   formatDate(endDate),
+	}
+
+	resp, err := c.call(ctx, "daily", params, "ts_code,trade_date,open,high,low,close,vol,amount")
+	if err != nil {
+		return nil, err
+	}
+
+	factors, err := c.fetchAdjFactors(ctx, symbol, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+
+	records := c.normalizeDailyOHLCV(resp, symbol, factors)
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	// Save to database
+	ptrRecords := make([]*domain.OHLCV, len(records))
+	for i := range records {
+		ptrRecords[i] = &records[i]
+	}
+	if err := c.store.SaveOHLCVBatch(ctx, ptrRecords); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to batch save OHLCV")
+	}
+
+	c.logger.Info().Str("symbol", symbol).Int("count", len(records)).Msg("OHLCV (qfq) fetched and saved")
+	return records, nil
+}
+
+// fetchAdjFactors returns a trade_date (YYYYMMDD) → adj_factor map for the range.
+//
+// adj_factor 是「累计后复权因子」，配合不复权行情算出前/后复权价（口径见
+// FetchDailyOHLCV）。因子 <= 0 视为脏数据、不进 map —— 它既不是「没除权」
+// （那在 1.0 附近），也不是「没有数据」（那是 key 不存在），混进来会污染基准。
+func (c *TushareClient) fetchAdjFactors(ctx context.Context, symbol string, startDate, endDate string) (map[string]float64, error) {
+	params := map[string]interface{}{
+		"ts_code":    symbol,
+		"start_date": formatDate(startDate),
+		"end_date":   formatDate(endDate),
+	}
+
+	resp, err := c.call(ctx, "adj_factor", params, "ts_code,trade_date,adj_factor")
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]float64, len(resp.Data.Items))
+	for _, item := range resp.Data.Items {
+		if len(item) < 3 {
+			continue
+		}
+		d := c.fieldStr(item, 1)
+		if d == "" {
+			continue
+		}
+		f := c.fieldFloat(item, 2)
+		if f <= 0 {
+			continue
+		}
+		out[d] = f
+	}
+	return out, nil
+}
+
+// sharesPerLot 是 A 股「一手」的股数。tushare daily 的 `vol` 字段单位是
+// **手**，而规范层 schema 声明的 volume 单位是**股**（docs/SPEC.md
+// 「规范层 Schema」节的 OHLCV 字段表）。两者相差恰好这个倍数。
+const sharesPerLot = 100
+
+// cnyPerAmountUnit 把 tushare daily 的 `amount`（单位**千元**）折成规范层 turnover
+// 的单位 **CNY**（同一份 SPEC 字段表）。2026-10-15 真库 392.6 万行实测：
+// turnover / (volume_股 × close) 中位数 0.0010127（p01 0.000967 / p99 0.001955）
+// —— 比「元」小三个数量级，坐实了千元原样入库。
+//
+// 与 volume 不同，这里**不取整**。实测依据（392.6 万行全量，对换算前的备份列做
+// |x − round(x)| 分布统计）：**199,240 行**的小数偏离超过 1e-3 —— 那是源侧 amount
+// 带 4 位小数（= 元以下）的**真实精度**，其中 5,015 行正好 0.5 元；只有 61,699 行
+// 的偏差是 <1e-6 的浮点噪声。取整会把 5 万个真实半元抹掉，而下游没有整数纪律要求
+// 它（NT 导出的 SELECT 不带 turnover）。volume 必须 round 是因为 as_quantity 精确
+// 判整数，turnover 没有这个约束 —— 无约束时不发明精度损失。
+const cnyPerAmountUnit = 1000
+
+// normalizeDailyOHLCV converts a `daily` response into 前复权 (qfq) OHLCV rows.
+//
+// daily fields: ts_code, trade_date, open, high, low, close, vol, amount
+// 四个价格按 qfq 口径换算：raw × 当日因子 / 最新因子。成交量与成交额**不做复权** ——
+// tushare 的 vol/amount 本来就是不复权的原始量值（vol 是成交量、amount 是成交额），
+// 前复权不改它（stk_factor_pro 亦同）。
+//
+// 但成交量**要做单位换算**：tushare 的 vol 是「手」，规范层要的是「股」，
+// 故 ×sharesPerLot。且必须 round —— vol 是两位小数的「手」，浮点乘 100
+// 会留下 ~1e-7 的表示误差（真库 392 万行实测：×100 后真正非整数的 0 行，
+// 全部是浮点噪声），不 round 的话 NT 侧 as_quantity 的整数校验会把整批
+// 数据判成损坏、导出路径整条断掉。
+//
+// 成交额同理是**单位**问题而非复权问题：tushare 的 amount 是「千元」，规范层
+// 要 CNY，故 ×cnyPerAmountUnit，且不乘复权 scale（见该常量的实测依据）。
+//
+// 刻意严格的两处（同 P2-10 的教训：缺失值折成某个默认值 = 编数据）：
+//   - 某天取不到因子 → **跳过这一行**，不补 1.0。补 1.0 等于宣称「这天没除权」，
+//     在除权日附近会造出假跳空，而回测会把它当成真信号；
+//   - 因子 <= 0 → 同样跳过（它不可能是合法的复权因子）。
+func (c *TushareClient) normalizeDailyOHLCV(resp *TushareResponse, symbol string, factors map[string]float64) []domain.OHLCV {
+	if len(factors) == 0 {
+		c.logger.Warn().Str("symbol", symbol).
+			Msg("no adj_factor for the range — refusing to store unadjusted prices as qfq")
+		return nil
+	}
+
+	// 前复权基准 = **区间内**最新交易日的因子（不是「今天」，也不是首日）。
+	// 由此带来一个必须知道的性质：qfq 是相对基准的，将来同步到更晚的日期时，
+	// 历史数据的 qfq 会整体变动 —— 这是复权口径的固有性质（Tushare 官方对
+	// stk_factor 也明确写了「前复权是历史快照、数据不更新」），不是本实现引入的。
+	// YYYYMMDD 的字典序 == 时间序，可以直接比字符串。
+	latest := ""
+	for d := range factors {
+		if d > latest {
+			latest = d
+		}
+	}
+	base := factors[latest]
+	if base <= 0 {
+		c.logger.Warn().Str("symbol", symbol).Str("latest_date", latest).
+			Msg("latest adj_factor is not positive — skipping")
+		return nil
+	}
+
+	var records []domain.OHLCV
+	skipped := 0
+	c.logger.Debug().Int("items_count", len(resp.Data.Items)).Msg("normalizeDailyOHLCV start")
+	for _, item := range resp.Data.Items {
+		if len(item) < 8 {
+			c.logger.Debug().Int("item_len", len(item)).Msg("item skipped: too short")
+			continue
+		}
+
+		tradeDate := c.fieldStr(item, 1)
+		if tradeDate == "" {
+			continue
+		}
+
+		t, err := time.Parse("20060102", tradeDate)
+		if err != nil {
+			continue
+		}
+
+		f, ok := factors[tradeDate]
+		if !ok || f <= 0 {
+			skipped++
+			continue
+		}
+
+		scale := f / base
+		ohlcv := domain.OHLCV{
+			Symbol:    symbol,
+			Date:      t,
+			Open:      c.fieldFloat(item, 2) * scale,                    // open
+			High:      c.fieldFloat(item, 3) * scale,                    // high
+			Low:       c.fieldFloat(item, 4) * scale,                    // low
+			Close:     c.fieldFloat(item, 5) * scale,                    // close
+			Volume:    math.Round(c.fieldFloat(item, 6) * sharesPerLot), // vol：手 → 股（不复权）
+			Turnover:  c.fieldFloat(item, 7) * cnyPerAmountUnit,         // amount：千元 → CNY（不复权）
+			TradeDays: 0,                                                // not available from daily
+		}
+		records = append(records, ohlcv)
+	}
+	if skipped > 0 {
+		c.logger.Warn().Str("symbol", symbol).Int("skipped", skipped).
+			Msg("rows skipped: no usable adj_factor on that trade_date " +
+				"(storing them unadjusted would fake a gap)")
+	}
+	return records
+}
+
+// FetchFundamentals retrieves financial data from tushare.
+func (c *TushareClient) FetchFundamentals(ctx context.Context, symbol string, date string) ([]domain.Fundamental, error) {
+	params := map[string]interface{}{
+		"ts_code":  symbol,
+		"ann_date": date,
+	}
+
+	resp, err := c.call(ctx, "fina_indicator", params, "ts_code,ann_date,end_date,pe,pb,ps,roe,roa,debt_to_equity,gross_margin,net_margin,revenue,net_profit,total_assets,total_liab")
+	if err != nil {
+		return nil, err
+	}
+
+	records := c.normalizeFundamentals(resp)
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	ptrRecords := make([]*domain.Fundamental, len(records))
+	for i := range records {
+		ptrRecords[i] = &records[i]
+	}
+	if err := c.store.SaveFundamentalBatch(ctx, ptrRecords); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to batch save fundamentals")
+	}
+
+	c.logger.Info().Str("symbol", symbol).Int("count", len(records)).Msg("Fundamentals fetched and saved")
+	return records, nil
+}
+
+// normalizeFundamentals converts tushare financial_data response to domain.Fundamental.
+func (c *TushareClient) normalizeFundamentals(resp *TushareResponse) []domain.Fundamental {
+	var records []domain.Fundamental
+	for _, item := range resp.Data.Items {
+		if len(item) < 3 {
+			continue
+		}
+
+		symbol := c.fieldStr(item, 0)
+		if symbol == "" {
+			continue
+		}
+
+		endDateStr := c.fieldStr(item, 2)
+		t, _ := time.Parse("20060102", endDateStr)
+
+		// ann_date 在响应第 2 列，**此前被整个丢弃**（P1-4）。
+		//
+		// 丢掉它的后果不是"少存一个字段"这么轻：只存 end_date 的话，读取侧
+		// COALESCE(ann_date, trade_date) 会退化成 end_date，三季报（9/30
+		// 截止、10/25 披露）在 9/30 就能被回测看见。P0-1 的 COALESCE 只是
+		// 把这个洞盖住了，没补上 —— 补在这里。
+		var annDate *time.Time
+		if annDateStr := c.fieldStr(item, 1); annDateStr != "" {
+			if a, err := time.Parse("20060102", annDateStr); err == nil {
+				annDate = &a
+			}
+		}
+
+		// 用 fieldFloatPtr 而不是 fieldFloat：源端缺字段时留下 nil（未知），
+		// 而不是 0（会被下游读成"PE = 0，白送的股票"）。见 TASKS P2-10。
+		fund := domain.Fundamental{
+			Symbol:       symbol,
+			Date:         t,
+			AnnDate:      annDate,
+			PE:           c.fieldFloatPtr(item, 3),
+			PB:           c.fieldFloatPtr(item, 4),
+			PS:           c.fieldFloatPtr(item, 5),
+			ROE:          c.fieldFloatPtr(item, 6),
+			ROA:          c.fieldFloatPtr(item, 7),
+			DebtToEquity: c.fieldFloatPtr(item, 8),
+			GrossMargin:  c.fieldFloatPtr(item, 9),
+			NetMargin:    c.fieldFloatPtr(item, 10),
+			Revenue:      c.fieldFloatPtr(item, 11),
+			NetProfit:    c.fieldFloatPtr(item, 12),
+			TotalAssets:  c.fieldFloatPtr(item, 13),
+			TotalLiab:    c.fieldFloatPtr(item, 14),
+		}
+		records = append(records, fund)
+	}
+	return records
+}
+
+// FetchFundamentalsData retrieves financial data from tushare financial_data API
+// and stores it in the stock_fundamentals table.
+func (c *TushareClient) FetchFundamentalsData(ctx context.Context, symbol, startDate, endDate string) ([]domain.FundamentalData, error) {
+	params := map[string]interface{}{
+		"ts_code": symbol,
+	}
+	if startDate != "" {
+		params["start_date"] = formatDate(startDate)
+	}
+	if endDate != "" {
+		params["end_date"] = formatDate(endDate)
+	}
+
+	resp, err := c.call(ctx, "fina_indicator", params, "ts_code,ann_date,end_date,pe,pb,ps,roe,roa,debt_to_equity,gross_margin,net_margin,revenue,net_profit,total_assets,total_liab")
+	if err != nil {
+		return nil, err
+	}
+
+	records := c.normalizeFundamentalsData(resp)
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	// Save to stock_fundamentals table via store
+	if c.store != nil {
+		ptrs := make([]*domain.FundamentalData, len(records))
+		for i := range records {
+			ptrs[i] = &records[i]
+		}
+		if err := c.store.SaveFundamentalDataBatch(ctx, ptrs); err != nil {
+			c.logger.Warn().Err(err).Msg("Failed to batch save fundamentals data")
+		}
+	}
+
+	c.logger.Info().Str("symbol", symbol).Int("count", len(records)).Msg("FundamentalsData fetched and saved")
+	return records, nil
+}
+
+// normalizeFundamentalsData converts tushare financial_data response to domain.FundamentalData.
+// fina_indicator fields: ts_code,ann_date,end_date,pe,pb,ps,roe,roa,debt_to_equity,gross_margin,net_margin,revenue,net_profit,total_assets,total_liab
+//
+// DBT-07 实测缺陷（2026-10-17）：Tushare 的 `fields` 入参是**提示**不是
+// 保证——实际响应的 `data.fields` 会剔除该期为空的列（600000.SH 2024Q3
+// 实测只回 6 列：ts_code/ann_date/end_date/roe/roa/gross_margin，pe/pb/ps
+// 整列消失）。旧实现按**请求时的固定索引**解包（pe=3、roe=6...），列一
+// 剔除就整体左移错位——roe 的值被写进了 pe 列（真库实证：pe=4.8669 恰是
+// curl 直查的 roe）。修复 = 按**响应自带的 fields 名单**建名字→索引映射
+// 再解包；未返回的字段一律 nil（缺失≠0，缺列≠错位）。
+func (c *TushareClient) normalizeFundamentalsData(resp *TushareResponse) []domain.FundamentalData {
+	// 名字→索引映射（以响应自带的 fields 为准，不是请求里的 fields）。
+	idx := make(map[string]int, len(resp.Data.Fields))
+	for i, name := range resp.Data.Fields {
+		idx[name] = i
+	}
+	at := func(name string) int {
+		if i, ok := idx[name]; ok {
+			return i
+		}
+		return -1 // 响应未携带该列 → 恒 nil
+	}
+	iPE, iPb, iPS := at("pe"), at("pb"), at("ps")
+	iRoe, iRoa, iDe := at("roe"), at("roa"), at("debt_to_equity")
+	iGM, iNM := at("gross_margin"), at("net_margin")
+	iRev, iNP := at("revenue"), at("net_profit")
+	iTA, iTL := at("total_assets"), at("total_liab")
+
+	var records []domain.FundamentalData
+	for _, item := range resp.Data.Items {
+		if len(item) < 3 {
+			continue
+		}
+
+		tsCode := c.fieldStr(item, idx["ts_code"])
+		if tsCode == "" {
+			continue
+		}
+
+		annDateStr := c.fieldStr(item, idx["ann_date"])
+		endDateStr := c.fieldStr(item, idx["end_date"])
+
+		annDate, _ := time.Parse("20060102", annDateStr)
+		endDate, _ := time.Parse("20060102", endDateStr)
+
+		// Use end_date as trade_date for factor analysis
+		fund := domain.FundamentalData{
+			TsCode:       tsCode,
+			TradeDate:    endDate,
+			AnnDate:      annDate,
+			EndDate:      endDate,
+			PE:           c.fieldFloatPtrAt(item, iPE),
+			PB:           c.fieldFloatPtrAt(item, iPb),
+			PS:           c.fieldFloatPtrAt(item, iPS),
+			ROE:          c.fieldFloatPtrAt(item, iRoe),
+			ROA:          c.fieldFloatPtrAt(item, iRoa),
+			DebtToEquity: c.fieldFloatPtrAt(item, iDe),
+			GrossMargin:  c.fieldFloatPtrAt(item, iGM),
+			NetMargin:    c.fieldFloatPtrAt(item, iNM),
+			Revenue:      c.fieldFloatPtrAt(item, iRev),
+			NetProfit:    c.fieldFloatPtrAt(item, iNP),
+			TotalAssets:  c.fieldFloatPtrAt(item, iTA),
+			TotalLiab:    c.fieldFloatPtrAt(item, iTL),
+		}
+		records = append(records, fund)
+	}
+	return records
+}
+
+// fieldFloatPtr returns a pointer to float64, handling nil values.
+func (c *TushareClient) fieldFloatPtr(item []any, idx int) *float64 {
+	if idx >= len(item) || item[idx] == nil {
+		return nil
+	}
+	v := c.fieldFloat(item, idx)
+	return &v
+}
+
+// fieldFloatPtrAt 是 fieldFloatPtr 的「列名映射」版：idx 为 -1（响应未
+// 携带该列）时返回 nil 而不是越界/取错列（DBT-07 索引错位修复的配套）。
+func (c *TushareClient) fieldFloatPtrAt(item []any, idx int) *float64 {
+	if idx < 0 {
+		return nil
+	}
+	return c.fieldFloatPtr(item, idx)
+}
+
+// FetchIndexConstituents retrieves index constituents from tushare and saves
+// them to DB. 落库失败返回 error（DATA-06）——返回的切片只在真正落库成功后非空。
+//
+// DATA-01：此处原请求 fields 为 "index_code,con_code,in_date,out_date"，但
+// index_weight 并无 in_date/out_date 两列 —— Tushare 对不存在的字段静默忽略，
+// 只回 index_code,con_code 两列，于是 normalize 里的 len(item) < 4 把每一行
+// 全部跳过，index_constituents 永远 0 行（2026-10-14 实测）。
+// index_weight 的真实字段是 index_code,con_code,trade_date,weight：
+// 「in/out 日期」不是它给的，只能由多期快照推导，见 normalizeIndexConstituents。
+func (c *TushareClient) FetchIndexConstituents(ctx context.Context, indexCode string, date string) ([]domain.IndexConstituent, error) {
+	params := map[string]interface{}{
+		"index_code": indexCode,
+	}
+	if date != "" {
+		params["trade_date"] = date
+	}
+
+	resp, err := c.call(ctx, "index_weight", params, "index_code,con_code,trade_date,weight")
+	if err != nil {
+		return nil, err
+	}
+
+	constituents := c.normalizeIndexConstituents(resp, indexCode)
+	if len(constituents) == 0 {
+		return nil, nil
+	}
+
+	// Save to database
+	ptrs := make([]*domain.IndexConstituent, len(constituents))
+	for i := range constituents {
+		ptrs[i] = &constituents[i]
+	}
+	// DATA-06：落库失败必须上抛。此处原样只 logger.Warn 后返回 (constituents, nil)，
+	// 「取到了、一行没写进去」与「写成功了」在 HTTP 面上不可区分，而调用方
+	// （POST /sync/index-constituents）报的正是成功。错误上抛后由 handler 回 5xx。
+	if err := c.store.SaveIndexConstituentBatch(ctx, ptrs); err != nil {
+		return nil, fmt.Errorf("%w for %s: index_weight fetched %d but saved 0: %w",
+			ErrIndexConstituentPersistFailed, indexCode, len(constituents), err)
+	}
+
+	c.logger.Info().Str("index", indexCode).Int("count", len(constituents)).Msg("Index constituents fetched and saved")
+	return constituents, nil
+}
+
+// normalizeIndexConstituents converts a tushare index_weight response to
+// domain.IndexConstituent.
+//
+// index_weight fields: index_code, con_code, trade_date, weight。
+// 它给的是**定期快照**（沪深300 实测 24 期，20241031~20260930），不是进出日期，
+// 而 index_constituents 以 (symbol, index_code) 为唯一键、用 in_date/out_date
+// 表达区间（GetIndexConstituentsByDate 正是按 `in_date <= d AND (out_date IS NULL
+// OR out_date > d)` 查询）。所以这里按快照推导区间：
+//
+//   - in_date  = 该股票在我们拥有的快照里**最早出现**的那一期
+//     （可证的「至少从这期起在指数内」，不编造更早的纳入日）
+//
+//   - out_date = 不在最新一期 ⇒ 最后出现那一期的**次日**（排他上界）；
+//     仍在最新一期 ⇒ 零值（存 NULL）
+//
+//     out_date 取次日的理由：GetIndexConstituentsByDate 用
+//     `in_date <= d AND (out_date IS NULL OR out_date > d)` 这个**半开区间**判定。
+//     若直接写最后出现期当天，则 d = 最后出现期时 `out_date > d` 不成立，
+//     该股票在自己最后出现的那一期反而不在票池里 —— 只在单期出现过的成分股
+//     会永远进不了票池。
+//
+//   - weight   = 最新一期的权重（历史期权重不进表，避免同一只多行）
+//
+// 这样 endDate 落在快照覆盖区间内的回测能拿到当时的真实成分；区间外的（如回测
+// 2023 年）会展开为空并按既有语义 fail-loud（DATA-01 ③3：真展开仍为空维持 invalid）。
+func (c *TushareClient) normalizeIndexConstituents(resp *TushareResponse, indexCode string) []domain.IndexConstituent {
+	if resp == nil || resp.Data.Items == nil {
+		return nil
+	}
+
+	type snapshot struct {
+		date   time.Time
+		weight float64
+	}
+	history := make(map[string][]snapshot)
+
+	for _, item := range resp.Data.Items {
+		if len(item) < 4 {
+			continue
+		}
+		conCode := c.fieldStr(item, 1)
+		if conCode == "" {
+			continue
+		}
+		dateStr := c.fieldStr(item, 2)
+		if dateStr == "" {
+			continue
+		}
+		date, err := time.Parse("20060102", dateStr)
+		if err != nil {
+			continue
+		}
+		history[conCode] = append(history[conCode], snapshot{date: date, weight: c.fieldFloat(item, 3)})
+	}
+	if len(history) == 0 {
+		return nil
+	}
+
+	// 最新一期决定「谁还在指数里」。
+	var latest time.Time
+	for _, snaps := range history {
+		for _, s := range snaps {
+			if s.date.After(latest) {
+				latest = s.date
+			}
+		}
+	}
+
+	constituents := make([]domain.IndexConstituent, 0, len(history))
+	for conCode, snaps := range history {
+		first, last := snaps[0].date, snaps[0].date
+		var weight float64
+		for _, s := range snaps {
+			if s.date.Before(first) {
+				first = s.date
+			}
+			if s.date.After(last) {
+				last = s.date
+			}
+			if s.date.Equal(latest) {
+				weight = s.weight
+			}
+		}
+		cst := domain.IndexConstituent{
+			IndexCode: indexCode,
+			Symbol:    conCode,
+			InDate:    first,
+			Weight:    weight,
+		}
+		if !last.Equal(latest) {
+			// 排他上界：让该股票在自己最后出现的那一期仍计入票池。
+			cst.OutDate = last.AddDate(0, 0, 1)
+		}
+		constituents = append(constituents, cst)
+	}
+
+	sort.Slice(constituents, func(i, j int) bool { return constituents[i].Symbol < constituents[j].Symbol })
+	return constituents
+}
+
+// FetchIndexDaily 拉取一个指数的日线（tushare `index_daily`）落库
+// `market.index_daily`（DATA-12）。startDate / endDate 为 YYYYMMDD（空串 = 不限，
+// 由 formatDate 归一；`YYYY-MM-DD` 也能被 formatDate 折成 YYYYMMDD）。
+//
+// 单位在同步边界换算（与个股 `daily` 同常量、同口径）：
+//   - `vol` 单位**手** → 规范层**股**：×sharesPerLot（round 成整数股）；
+//   - `amount` 单位**千元** → 规范层 **CNY**：×cnyPerAmountUnit（不取整，同上口径）。
+//
+// 依据是 2026-10-16 真库实测：沪深300 成分股当日量/额求和 vs index_daily 原值，
+// vol×100 与 amount×1000 后比值 ≈0.949 / 0.951（成分股口径 vs 整指数口径的差异），
+// 坐实了「手 / 千元」与个股 daily 一致；不换算 = 差 100 / 1000 倍的脏数据入库。
+// 工单③点名：单位必须实测校准，不准 fail-loud 地猜倍数。
+//
+// 落库失败经 ErrIndexDailyPersistFailed 哨兵上抛（旧形态只 Warn 后报成功，
+// 「取到了、一行没写进去」与「写成功」在 HTTP 面上不可区分 —— DATA-06 同款教训）。
+func (c *TushareClient) FetchIndexDaily(ctx context.Context, indexCode, startDate, endDate string) ([]domain.IndexDaily, error) {
+	if strings.TrimSpace(indexCode) == "" {
+		return nil, fmt.Errorf("index_daily: indexCode 不可为空")
+	}
+	params := map[string]interface{}{
+		"ts_code":    indexCode,
+		"start_date": formatDate(startDate),
+		"end_date":   formatDate(endDate),
+	}
+	if startDate == "" {
+		delete(params, "start_date")
+	}
+	if endDate == "" {
+		delete(params, "end_date")
+	}
+
+	resp, err := c.call(ctx, "index_daily", params,
+		"ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount")
+	if err != nil {
+		return nil, err
+	}
+
+	rows, skipped, err := c.normalizeIndexDaily(resp, SupplyChainSourceTushare, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("index_daily 响应形状不符合契约: %w", err)
+	}
+	if skipped > 0 {
+		c.logger.Warn().Str("index", indexCode).Int("skipped", skipped).
+			Msg("index_daily rows skipped (missing close/vol or unparsable trade_date)")
+	}
+	// 同 P2-2-R3 闸门口径：响应**有行**却一行都没入库 ⇒ 拒绝以「导入 0 行」伪装成功。
+	if len(resp.Data.Items) > 0 && len(rows) == 0 {
+		return nil, fmt.Errorf(
+			"index_daily %s: 响应返回 %d 行但全部被跳过（缺 close/vol 或 trade_date 不可解析）——拒绝以「导入 0 行」伪装成功",
+			indexCode, len(resp.Data.Items))
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	ptrs := make([]*domain.IndexDaily, len(rows))
+	for i := range rows {
+		ptrs[i] = &rows[i]
+	}
+	if err := c.store.SaveIndexDailyBatch(ctx, ptrs); err != nil {
+		return nil, fmt.Errorf("%w for %s: index_daily fetched %d but saved 0: %w",
+			ErrIndexDailyPersistFailed, indexCode, len(rows), err)
+	}
+
+	c.logger.Info().Str("index", indexCode).Int("count", len(rows)).Msg("Index daily fetched and saved")
+	return rows, nil
+}
+
+// normalizeIndexDaily 把 tushare `index_daily` 响应转为 domain.IndexDaily。
+//
+// fields: ts_code, trade_date, open, high, low, close, pre_close, change, pct_chg,
+// vol, amount。按**列名**定位（tushareColumnIndex）而不是固定下标：字段顺序不保证
+// 稳定，按名定位让 normalize 对重排保持宽容；缺必需列（ts_code/trade_date/close/vol）
+// 则整批报错（fail-loud，不静默全 0）。
+//
+// 单位换算在**这里**（同步边界）完成：vol 手 → 股（×sharesPerLot，round），
+// amount 千元 → CNY（×cnyPerAmountUnit，不 round）。close/vol 必填；其余数值列可空
+// （nil = 上游未发布），缺失≠0。close 或 vol 缺失的行**跳过并计数**（照原样存一个
+// 缺价的 bar 会把「上游缺陷」假装成「有效观测」）。
+func (c *TushareClient) normalizeIndexDaily(resp *TushareResponse, source string, asOf time.Time) ([]domain.IndexDaily, int, error) {
+	if resp == nil || resp.Data.Items == nil {
+		return nil, 0, nil
+	}
+	iCode := tushareColumnIndex(resp, "ts_code", "index_code")
+	iDate := tushareColumnIndex(resp, "trade_date")
+	iOpen := tushareColumnIndex(resp, "open")
+	iHigh := tushareColumnIndex(resp, "high")
+	iLow := tushareColumnIndex(resp, "low")
+	iClose := tushareColumnIndex(resp, "close")
+	iPre := tushareColumnIndex(resp, "pre_close")
+	iChg := tushareColumnIndex(resp, "change")
+	iPct := tushareColumnIndex(resp, "pct_chg")
+	iVol := tushareColumnIndex(resp, "vol", "volume")
+	iAmt := tushareColumnIndex(resp, "amount")
+	if iCode < 0 || iDate < 0 || iClose < 0 || iVol < 0 {
+		return nil, 0, fmt.Errorf(
+			"index_daily 响应缺必需列 ts_code/trade_date/close/vol（实际 fields=%v）", resp.Data.Fields)
+	}
+
+	// idx<0（可选列不在响应里）⇒ nil；否则走 fieldFloatPtr 判 nil。
+	cellPtr := func(item []any, idx int) *float64 {
+		if idx < 0 {
+			return nil
+		}
+		return c.fieldFloatPtr(item, idx)
+	}
+
+	var rows []domain.IndexDaily
+	skipped := 0
+	for _, item := range resp.Data.Items {
+		code := strings.TrimSpace(tushareCell(item, iCode))
+		dateStr := strings.TrimSpace(tushareCell(item, iDate))
+		closeV := cellPtr(item, iClose)
+		volV := cellPtr(item, iVol)
+		if code == "" || dateStr == "" || closeV == nil || volV == nil {
+			skipped++
+			continue
+		}
+		t, err := time.Parse("20060102", dateStr)
+		if err != nil {
+			skipped++
+			continue
+		}
+		var turnover *float64
+		if amt := cellPtr(item, iAmt); amt != nil {
+			v := *amt * cnyPerAmountUnit
+			turnover = &v
+		}
+		rows = append(rows, domain.IndexDaily{
+			Code:      code,
+			TradeDate: t,
+			Open:      cellPtr(item, iOpen),
+			High:      cellPtr(item, iHigh),
+			Low:       cellPtr(item, iLow),
+			Close:     *closeV,
+			PreClose:  cellPtr(item, iPre),
+			Change:    cellPtr(item, iChg),
+			PctChg:    cellPtr(item, iPct),
+			Volume:    math.Round(*volV * sharesPerLot), // vol：手 → 股
+			Turnover:  turnover,                         // amount：千元 → CNY
+			Source:    source,
+			AsOf:      asOf,
+		})
+	}
+	return rows, skipped, nil
+}
+
+// GetIndexConstituents returns the current constituents of an index from DB.
+// If not found in DB, fetches from Tushare and saves.
+func (c *TushareClient) GetIndexConstituents(ctx context.Context, indexCode string, date string) ([]domain.IndexConstituent, error) {
+	// Try DB first
+	constituents, err := c.store.GetIndexConstituents(ctx, indexCode)
+	if err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to get index constituents from DB, falling back to Tushare")
+	}
+	if len(constituents) > 0 {
+		return constituents, nil
+	}
+
+	// Fetch from Tushare
+	return c.FetchIndexConstituents(ctx, indexCode, date)
+}
+
+// Helper methods
+
+func (c *TushareClient) fieldStr(item []any, idx int) string {
+	if idx >= len(item) || item[idx] == nil {
+		return ""
+	}
+	switch v := item[idx].(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func (c *TushareClient) fieldFloat(item []any, idx int) float64 {
+	if idx >= len(item) || item[idx] == nil {
+		return 0
+	}
+	switch v := item[idx].(type) {
+	case float64:
+		return v
+	case string:
+		f, _ := strconv.ParseFloat(v, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func (c *TushareClient) extractExchange(tsCode string) string {
+	if len(tsCode) >= 4 {
+		suffix := tsCode[len(tsCode)-3:]
+		switch suffix {
+		case ".SH":
+			return "SSE"
+		case ".SZ":
+			return "SZSE"
+		}
+	}
+	return strings.Split(tsCode, ".")[0]
+}
+
+// FetchTradingCalendar retrieves the trading calendar from Tushare trade_cal API.
+// exchange: "SSE" (Shanghai Stock Exchange) or "SZSE" (Shenzhen Stock Exchange)
+// startDate, endDate: format "YYYY-MM-DD"
+func (c *TushareClient) FetchTradingCalendar(ctx context.Context, exchange, startDate, endDate string) ([]storage.TradingCalendarEntry, error) {
+	params := map[string]interface{}{
+		"exchange":   exchange,
+		"start_date": formatDate(startDate),
+		"end_date":   formatDate(endDate),
+	}
+
+	resp, err := c.call(ctx, "trade_cal", params, "exchange,cal_date,is_open")
+	if err != nil {
+		return nil, err
+	}
+
+	return c.normalizeTradingCalendar(resp, exchange)
+}
+
+// normalizeTradingCalendar converts tushare trade_cal response to storage.TradingCalendarEntry.
+// trade_cal fields: exchange, cal_date, is_open
+// is_open: 1 = trading day, 0 = holiday
+func (c *TushareClient) normalizeTradingCalendar(resp *TushareResponse, exchange string) ([]storage.TradingCalendarEntry, error) {
+	var entries []storage.TradingCalendarEntry
+	for _, item := range resp.Data.Items {
+		if len(item) < 3 {
+			continue
+		}
+
+		calDate := c.fieldStr(item, 1)
+		if calDate == "" {
+			continue
+		}
+
+		// Parse date: YYYYMMDD
+		t, err := time.Parse("20060102", calDate)
+		if err != nil {
+			c.logger.Warn().Str("cal_date", calDate).Msg("failed to parse calendar date")
+			continue
+		}
+
+		// is_open: "1" = trading day, "0" = holiday/closed
+		isOpenStr := c.fieldStr(item, 2)
+		isTradingDay := isOpenStr == "1"
+
+		entries = append(entries, storage.TradingCalendarEntry{
+			TradeDate:    t,
+			Exchange:     exchange,
+			IsTradingDay: isTradingDay,
+		})
+	}
+
+	c.logger.Info().Int("count", len(entries)).Str("exchange", exchange).Msg("Trading calendar normalized")
+	return entries, nil
+}
+
+// FetchDividends retrieves dividend data from tushare dividend API.
+// startDate, endDate: format "YYYYMMDD" (optional — pass "" to fetch all available).
+func (c *TushareClient) FetchDividends(ctx context.Context, symbol string, startDate, endDate string) ([]domain.Dividend, error) {
+	params := map[string]interface{}{
+		"ts_code": symbol,
+	}
+	if startDate != "" {
+		params["ann_date"] = formatDate(startDate)
+	}
+	if endDate != "" {
+		params["end_date"] = formatDate(endDate)
+	}
+
+	resp, err := c.call(ctx, "dividend", params, "ts_code,ann_date,rec_date,pay_date,div_amnt,stk_div,stk_ratio,cash_ratio")
+	if err != nil {
+		return nil, err
+	}
+
+	records := c.normalizeDividends(resp)
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	// Save to database
+	ptrs := make([]*domain.Dividend, len(records))
+	for i := range records {
+		ptrs[i] = &records[i]
+	}
+	if err := c.store.SaveDividendBatch(ctx, ptrs); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to batch save dividends")
+	}
+
+	c.logger.Info().Str("symbol", symbol).Int("count", len(records)).Msg("Dividends fetched and saved")
+	return records, nil
+}
+
+// normalizeDividends converts tushare dividend API response to domain.Dividend.
+// dividend API fields: ts_code, ann_date, rec_date, pay_date, div_amnt, stk_div, stk_ratio, cash_ratio
+func (c *TushareClient) normalizeDividends(resp *TushareResponse) []domain.Dividend {
+	var records []domain.Dividend
+	for _, item := range resp.Data.Items {
+		if len(item) < 8 {
+			continue
+		}
+
+		tsCode := c.fieldStr(item, 0)
+		if tsCode == "" {
+			continue
+		}
+
+		annDateStr := c.fieldStr(item, 1)
+		recDateStr := c.fieldStr(item, 2)
+		payDateStr := c.fieldStr(item, 3)
+
+		annDate, _ := time.Parse("20060102", annDateStr)
+		recDate, _ := time.Parse("20060102", recDateStr)
+		payDate, _ := time.Parse("20060102", payDateStr)
+
+		record := domain.Dividend{
+			Symbol:    tsCode,
+			AnnDate:   annDate,
+			RecDate:   recDate,
+			PayDate:   payDate,
+			DivAmt:    c.fieldFloat(item, 4), // div_amnt — cash dividend per share
+			StkDiv:    c.fieldFloat(item, 5), // stk_div — stock dividend per share
+			StkRatio:  c.fieldFloat(item, 6), // stk_ratio — stock split ratio
+			CashRatio: c.fieldFloat(item, 7), // cash_ratio — cash dividend ratio
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+// FetchSplits retrieves stock split/rights-issue data from tushare split API.
+// startDate, endDate: format "YYYYMMDD" (optional — pass "" to fetch all available).
+// Tushare split API fields: ts_code, trade_date, stk_div_ratio, cash_div_ratio, currency
+func (c *TushareClient) FetchSplits(ctx context.Context, symbol string, startDate, endDate string) ([]domain.Split, error) {
+	params := map[string]interface{}{
+		"ts_code": symbol,
+	}
+	if startDate != "" {
+		params["start_date"] = formatDate(startDate)
+	}
+	if endDate != "" {
+		params["end_date"] = formatDate(endDate)
+	}
+
+	resp, err := c.call(ctx, "split", params, "ts_code,trade_date,stk_div_ratio,cash_div_ratio,currency")
+	if err != nil {
+		return nil, err
+	}
+
+	records := c.normalizeSplits(resp)
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	// Save to database
+	ptrs := make([]*domain.Split, len(records))
+	for i := range records {
+		ptrs[i] = &records[i]
+	}
+	if err := c.store.SaveSplitBatch(ctx, ptrs); err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to batch save splits")
+	}
+
+	c.logger.Info().Str("symbol", symbol).Int("count", len(records)).Msg("Splits fetched and saved")
+	return records, nil
+}
+
+// normalizeSplits converts tushare split API response to domain.Split.
+func (c *TushareClient) normalizeSplits(resp *TushareResponse) []domain.Split {
+	var records []domain.Split
+	for _, item := range resp.Data.Items {
+		if len(item) < 5 {
+			continue
+		}
+
+		tsCode := c.fieldStr(item, 0)
+		if tsCode == "" {
+			continue
+		}
+
+		tradeDateStr := c.fieldStr(item, 1)
+		tradeDate, _ := time.Parse("20060102", tradeDateStr)
+
+		record := domain.Split{
+			Symbol:       tsCode,
+			TradeDate:    tradeDate,
+			StkDivRatio:  c.fieldFloat(item, 2), // stk_div_ratio — stock dividend/split ratio
+			CashDivRatio: c.fieldFloat(item, 3), // cash_div_ratio — cash dividend ratio
+			Currency:     c.fieldStr(item, 4),   // currency
+		}
+		records = append(records, record)
+	}
+	return records
+}

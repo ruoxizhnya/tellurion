@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quant Lab · quant-trading 全系统构件图</title>
+<style>
+  :root {
+    --bg: #f8fafc; --panel: #ffffff; --ink: #0f172a; --muted: #475569;
+    --line: #e2e8f0; --accent: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  header { padding: 20px 28px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { margin: 0 0 6px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; }
+  .chip b { font-weight: 600; }
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 28px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+  .toolbar button { font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px; cursor: pointer; }
+  .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+  #zoomLabel { font-size: 13px; color: var(--muted); min-width: 52px; text-align: center; }
+  .stage { overflow: auto; padding: 24px; height: calc(100vh - 210px); min-height: 420px; }
+  .zoomwrap { transform-origin: top left; display: inline-block; }
+  #err { display: none; padding: 16px; margin: 16px 28px; border: 1px solid #fca5a5; background: #fef2f2; color: #7f1d1d; border-radius: 10px; white-space: pre-wrap; font-size: 13px; }
+  details { margin: 0 28px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  details summary { padding: 12px 16px; cursor: pointer; font-weight: 600; font-size: 14px; }
+  details pre { margin: 0; padding: 0 16px 16px; font-size: 12px; line-height: 1.55; overflow: auto; max-height: 480px; }
+  footer { padding: 0 28px 28px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Quant Lab · quant-trading 全系统构件图</h1>
+  <div class="sub">
+    依据 <b>quant-trading/docs/ARCHITECTURE.md</b>（last-verified 2026-10-17）与四仓源码盘点（2026-10-19）绘制。
+    虚线 = 消息 / 预留 / 缓存类连线；实线 = 调用 / 装配 / 数据落库连线。
+  </div>
+  <div class="chips">
+    <span class="chip"><b>4 仓</b>：core / agent / ui / docs</span>
+    <span class="chip"><b>analysis</b> :8085 网关+内核</span>
+    <span class="chip"><b>data</b> :8081 摄取+同步+因子</span>
+    <span class="chip"><b>ai</b> :8086 AI 实验员</span>
+    <span class="chip"><b>NT 侧车</b> Python /v1/backtest</span>
+    <span class="chip"><b>内核</b> BootOrder 11 模块</span>
+    <span class="chip"><b>pkg</b> 39 包</span>
+    <span class="chip"><b>PG</b> 6 schema · 52 表</span>
+    <span class="chip"><b>REV-16</b> :8082 已删除，pkg/strategy 为库层</span>
+  </div>
+</header>
+
+<div class="toolbar">
+  <button onclick="zoomBy(0.85)">缩小 −</button>
+  <span id="zoomLabel">100%</span>
+  <button onclick="zoomBy(1.18)">放大 ＋</button>
+  <button onclick="zoomReset()">重置</button>
+  <span style="flex:1"></span>
+  <button onclick="copySrc()">复制 Mermaid 源码</button>
+  <button onclick="location.href='quant-trading-components.mmd'">下载 .mmd</button>
+</div>
+
+<div id="err"></div>
+
+<div class="stage">
+  <div class="zoomwrap" id="zoomwrap">
+<pre class="mermaid-src" id="msrc">
+%% ============================================================
+%% Quant Lab · quant-trading 全系统构件图（紧凑版 v2）
+%% 优化：组内用不可见连线 ~~~ 做纵向分列，压制横向铺开
+%% 依据：docs/ARCHITECTURE.md（last-verified 2026-10-17）+ 全仓源码盘点（2026-10-19）
+%% 注：REV-16 已删除 strategy-service :8082；pkg/strategy 保留为库层
+%% ============================================================
+
+flowchart TB
+
+%% ─────────── 外部依赖 ───────────
+subgraph EXT["外部依赖"]
+  EXT_TS["tushare.pro&lt;br/&gt;唯一外部行情数据入口"]:::ext
+  EXT_ALT["东方财富 / 巨潮 / Mootdx&lt;br/&gt;雪球 / AlphaVantage / Yahoo"]:::ext
+  EXT_LLM["LLM API"]:::ext
+  EXT_XTP["XTP 券商柜台&lt;br/&gt;实盘线预留"]:::ext
+end
+
+%% ─────────── 文档仓 ───────────
+subgraph DOCS["quant-trading-docs · 跨领域文档仓"]
+  DOCSR["ADR / ODR 决策档案 · PRODUCT · VISION&lt;br/&gt;ROADMAP · TEST · 运维 guides"]:::docn
+end
+
+%% ─────────── 前端仓 ───────────
+subgraph FE["前端仓 quant-trading-ui · Vue 3 + Vite + Naive UI"]
+  NGINX["nginx SPA 托管 :8080&lt;br/&gt;/api 反代 analysis"]:::fe
+  ROUTER["router 路由表"]:::fe
+  PAGES["页面 13 个（Dashboard · 回测引擎/对比 · 选股器&lt;br/&gt;策略实验室/构建器 · Copilot · Explore&lt;br/&gt;数据同步 · Alerts · Evidence · 因子引用 · Login）"]:::fe
+  COMP["业务组件 8 族&lt;br/&gt;backtest · dashboard · evidence · factor&lt;br/&gt;layout · paper · sync · validation"]:::fe
+  STORES["Pinia stores&lt;br/&gt;auth · backtest · sync"]:::fe
+  APIC["api/* 客户端 14 个&lt;br/&gt;JWT 注入 · 统一错误处理"]:::fe
+  E2E["Playwright E2E 用例"]:::fe
+end
+
+%% ─────────── analysis-service :8085 ───────────
+subgraph ANA["analysis-service :8085 · API 网关 + 业务主体（cmd/analysis）"]
+
+  subgraph HTTPA["HTTP 面"]
+    A_HTTP["gin :8085&lt;br/&gt;路由策略 / OpenAPI 直出"]:::anasvc
+    A_MW["中间件&lt;br/&gt;JWT 鉴权 · RBAC · 限流 · CORS · observability"]:::anasvc
+    A_PROXY["纯反代&lt;br/&gt;/api/sync → :8081&lt;br/&gt;copilot / pipeline / explore / tools → :8086"]:::anasvc
+    A_HDL["handlers 25+ 族&lt;br/&gt;backtest · factor · strategy · plugins · signals&lt;br/&gt;risk · execution · compliance · alert · evidence&lt;br/&gt;industry · macro · datasource · openapi 等"]:::anasvc
+  end
+
+  subgraph KGRP["模块化内核 · BootOrder 冻结序（pkg/kernel）"]
+    KER["kernel 装配器&lt;br/&gt;Boot / Shutdown 生命周期"]:::kern
+    K_ES["eventstore&lt;br/&gt;先记录后分发"]:::kern
+    K_CLK["clock&lt;br/&gt;Virtual / Live"]:::kern
+    K_DE["data-engine&lt;br/&gt;行情快照 / 订阅"]:::kern
+    K_PF["portfolio&lt;br/&gt;Noop 占位"]:::kern
+    K_RK["risk-engine&lt;br/&gt;订单前置风控"]:::kern
+    K_EX["exec-engine&lt;br/&gt;MockTrader"]:::kern
+    K_SR["strategy-runtime&lt;br/&gt;策略加载 / 驱动"]:::kern
+    K_IND["indicators&lt;br/&gt;L2 算子 per-run"]:::kern
+    K_EA["exec-algo&lt;br/&gt;算法挂点 per-run"]:::kern
+    K_MB["msgbus&lt;br/&gt;同步总线 最后开"]:::kern
+  end
+
+  subgraph BTGRP["回测族（pkg/backtest）"]
+    BT_CTR["contracts 冻结契约&lt;br/&gt;RunSpec / ResultSpec / MarketRouter"]:::anasvc
+    BT_REG["EngineRegistry 内核路由&lt;br/&gt;go / nautilus · fail-closed"]:::anasvc
+    BT_E["回测引擎 Engine&lt;br/&gt;eligibleUniverse · 日循环"]:::anasvc
+    BT_JOB["JobService 异步任务"]:::anasvc
+    BT_BAT["BatchEngine 批量 + Scorer"]:::anasvc
+    BT_WF["WalkForwardEngine 前向验证"]:::anasvc
+    BT_CCH["CacheManager 因子预热"]:::anasvc
+    BT_ID["日内分钟特征快照注入 D6"]:::anasvc
+    BT_AUC["集合竞价撮合"]:::anasvc
+    BT_EXE["ExecutionService&lt;br/&gt;滑点 / 限价撮合"]:::anasvc
+    BT_TRK["Tracker 撮合簿记 T+1"]:::anasvc
+    BT_ST["BacktestState 状态 / 断点"]:::anasvc
+    BT_MET["performance 绩效指标"]:::anasvc
+    BT_REP["reporting&lt;br/&gt;compare / correlation / export"]:::anasvc
+    BT_NT["nautilus Runner&lt;br/&gt;fail-closed 适配"]:::ntside
+  end
+
+  subgraph SGGRP["策略族（pkg/strategy）"]
+    SG_REG["Registry + StrategyDB CRUD"]:::anasvc
+    SG_PLG["PluginLoader .so 热加载"]:::anasvc
+    SG_RT["StreamRunner / BatchAdapter&lt;br/&gt;双模式同构桥"]:::anasvc
+    SG_SP["LocalSignalProvider K8&lt;br/&gt;未来信号 fail-loud"]:::anasvc
+    SG_EXP["ExpressionStrategy&lt;br/&gt;信号 / 仓位 / 风控"]:::anasvc
+    SG_PLUGINS["内置插件 9 类&lt;br/&gt;动量 · 均值回归 · 多因子 · 风险平价&lt;br/&gt;质量 · 情绪 · 转债 · 事件驱动"]:::anasvc
+    SG_OPT["期权定价 BS / 二叉树 / Greeks"]:::anasvc
+    SG_EXT["SignalStrategy 外部信号 L3b"]:::anasvc
+    SG_SS["StateStore L2/L3 检查点"]:::anasvc
+    SG_SIGST["PGSignalStore 信号表"]:::anasvc
+    SG_MON["StrategyMonitor&lt;br/&gt;滚动绩效 + 漂移"]:::anasvc
+  end
+
+  subgraph RXGRP["风控 / 执行 / 合规 / 告警 / 因子读面"]
+    RK_M["RiskManager&lt;br/&gt;止损止盈 · regime · VaR · 波动率 · 手数"]:::anasvc
+    EX_TR["LiveTrader&lt;br/&gt;MockTrader / XTP 预留"]:::anasvc
+    EX_OM["OrderManager 订单生命周期"]:::anasvc
+    EX_OS["OrderStore PG / Redis"]:::anasvc
+    EX_PP["PaperSession paper 撮合"]:::anasvc
+    EX_CG["PriceCage 价格笼子"]:::anasvc
+    EX_RC["Reconciliation 四接口对账"]:::anasvc
+    EA_A["execalgo TWAP / VWAP / Dispatcher"]:::anasvc
+    EX_CM["CostModel 共用成本核"]:::anasvc
+    CP_AB["异常交易检测 6 类"]:::anasvc
+    CP_AP["适当性管理"]:::anasvc
+    CP_DV["减持合规"]:::anasvc
+    CP_RP["大额交易日报"]:::anasvc
+    AL_M["AlertManager 6 检测器"]:::anasvc
+    AL_CH["通道 log / webhook"]:::anasvc
+    AL_SY["systemalert 规则告警"]:::anasvc
+    FA_ATTR["FactorAttributor&lt;br/&gt;IC / 收益分层 / 衰减"]:::anasvc
+  end
+end
+
+%% ─────────── data-service :8081 ───────────
+subgraph DAT["data-service :8081 · 数据摄取 / 同步 / 因子计算（cmd/data）"]
+  D_HTTP["gin :8081 + SSE&lt;br/&gt;sync 任务推送"]:::datsvc
+  SY_SC["Scheduler 定时调度"]:::datsvc
+  SY_Q["Queue 任务队列"]:::datsvc
+  SY_W["WorkerPool 执行器&lt;br/&gt;pending / running / completed / failed"]:::datsvc
+  IN_TS["TushareClient 摄取&lt;br/&gt;raw 逐字节归档"]:::datsvc
+  IN_RG["source Registry D2&lt;br/&gt;时间语义 + 频率声明 fail-closed"]:::datsvc
+  IN_AD["多源适配器 8+&lt;br/&gt;eastmoney · juchao · mootdx · xueqiu&lt;br/&gt;yahoo · alpha_vantage · hkex 北向"]:::datsvc
+  IN_ETL["ETLPipeline 清洗 / 规范化"]:::datsvc
+  IN_DP["equitydeep 基本面快照&lt;br/&gt;→ fundamentals_detail"]:::datsvc
+  IN_SE["SentimentAggregator 情绪聚合"]:::datsvc
+  FA_C["FactorComputer&lt;br/&gt;动量 / 价值 / 质量 / 公式"]:::datsvc
+  FA_R["FactorRegistry 定义库 D3&lt;br/&gt;版本哈希 fail-closed"]:::datsvc
+  FA_B["RegistrationBook D4 登记"]:::datsvc
+  SC_CH["产业链导入&lt;br/&gt;申万树 · 供应链边 · 活力 · ETF"]:::datsvc
+  MA_MC["宏观 CPI / PPI / PMI / M2"]:::datsvc
+  SE_SEC["板块 / 行业同步"]:::datsvc
+  DA_MIN["挖掘编排入口"]:::datsvc
+end
+
+%% ─────────── ai-service :8086（agent 仓）───────────
+subgraph AII["ai-service :8086 · AI 实验员（quant-trading-agent 仓）"]
+  AI_H["gin 四族路由 :8086&lt;br/&gt;copilot · pipeline · explore · tools&lt;br/&gt;经 bootstrap 复用 core 装配 同参"]:::aisvc
+  CO["CopilotService&lt;br/&gt;NL → 代码 → 沙箱编译 → 回测"]:::aisvc
+  PI["pipeline&lt;br/&gt;意图 → YAML → 回测 → 实验日志"]:::aisvc
+  IN_["intent 意图解析"]:::aisvc
+  YM["yaml 生成器 / 加载器"]:::aisvc
+  LP["loop 循环控制器"]:::aisvc
+  PR["Proposer 接口"]:::aisvc
+  SE["search TPE / 遗传 / WF"]:::aisvc
+  GE["gene_pool&lt;br/&gt;因子池 · 策略池 · 变异"]:::aisvc
+  EV["evolution 交叉 / 变异 / 选择"]:::aisvc
+  AG["agents 生成 / 研究 / 验证 / 进化"]:::aisvc
+  VA["validation 聚合 / 偏差 / 因果"]:::aisvc
+  DR["drift 漂移检测"]:::aisvc
+  AF["factor 资金流 / 板块轮动 / 情绪"]:::aisvc
+  TL["tools Registry + builtin 20 工具"]:::aisvc
+  CL["LLM client 重试 / 限流 / 成本"]:::aisvc
+  HM["Hermes Agent&lt;br/&gt;MCP 工具契约"]:::aisvc
+end
+
+%% ─────────── core 共享库 ───────────
+subgraph COR["core 共享库层 pkg · 39 包（三服务进程内各自装配）"]
+  MD_R["marketdata.Router D1&lt;br/&gt;规范层唯一入口 1d/1m/15m 聚合"]:::corelib
+  MD_P["Provider 实现&lt;br/&gt;PG / HTTP / cached / inmemory"]:::corelib
+  MD_A["DataAdapter 多源回退"]:::corelib
+  MD_B["BackpressureBus · Quote · eventbus"]:::corelib
+  EX_EN["expression 引擎 L1 DSL&lt;br/&gt;AST · Parser · Evaluator · Registry"]:::corelib
+  IN_O["indicator L2 算子&lt;br/&gt;EWMA · Kalman · RMA · State"]:::corelib
+  SB_ST["staticcheck 正则静态门"]:::corelib
+  SB_RN["runner 进程资源沙箱"]:::corelib
+  SB_WA["wasm wazero L3a&lt;br/&gt;host API 白名单"]:::corelib
+  DM["domain + market 领域模型&lt;br/&gt;OHLCV · PIT 可见点 · 订单 · 信号 · 因子留痕"]:::corelib
+  ST_PG["PostgresStore · migrate() 52 表&lt;br/&gt;唯一 DDL 真相"]:::corelib
+  ST_RD["RedisCache"]:::corelib
+  MN_P["mining Pipeline D8&lt;br/&gt;沙箱 → 治理 → 登记"]:::corelib
+  MN_G["治理 DetectOverfit / OOS"]:::corelib
+  MN_S["Snapshot 只读快照"]:::corelib
+  FEE["fees A 股费率"]:::corelib
+  COST["execution CostModel 滑点"]:::corelib
+  SETT["settlement T+1 原语"]:::corelib
+  PORTP["portfolio 共享原语"]:::corelib
+  MI["marketimpact 冲击模型"]:::corelib
+  STATS["statistics 统计"]:::corelib
+  OBS["observability Prometheus"]:::corelib
+  RG["repoguard 架构护栏 CI&lt;br/&gt;ai 单向依赖 · 棘轮守卫"]:::docn
+end
+
+%% ─────────── NT 侧车 ───────────
+subgraph NTS["NT 侧车 nt-sidecar · Python · NautilusTrader"]
+  NT_SRV["sidecar HTTP /v1/backtest"]:::ntside
+  NT_ENG["NautilusTrader 引擎"]:::ntside
+  NT_MAP["mapping.py&lt;br/&gt;频率 / 字段翻译 FREQ_*"]:::ntside
+  NT_WR["weight_replay 权重回放"]:::ntside
+  NT_SIG["signals / strategies 适配"]:::ntside
+  DR2["cmd/dualrun K15&lt;br/&gt;双跑对齐 + gate"]:::ntside
+end
+
+%% ─────────── 基础设施 ───────────
+subgraph INFR["基础设施（宿主机，compose 不编排）"]
+  PG[("PostgreSQL :5432&lt;br/&gt;public 行情/回测/策略 · ingest.raw 归档&lt;br/&gt;quant.* 派生 · research.* · audit")]:::infra
+  RD[("Redis :6379&lt;br/&gt;factor_cache 双层 · session&lt;br/&gt;sync 热数据 · DataCache")]:::infra
+end
+
+%% ═══════════ 连线：前端 ⇄ 服务 ═══════════
+NGINX --&gt; PAGES
+ROUTER --&gt; PAGES
+PAGES --&gt; COMP
+PAGES --&gt; STORES
+PAGES --&gt; APIC
+STORES --&gt; APIC
+E2E -.-&gt; PAGES
+APIC --&gt;|"HTTPS /api/* + JWT"| A_HTTP
+NGINX --&gt;|"/api 反代"| A_HTTP
+
+%% ═══════════ 连线：analysis HTTP ═══════════
+A_HTTP --&gt; A_MW
+A_MW --&gt; A_HDL
+A_HTTP --&gt; A_PROXY
+A_PROXY --&gt;|"/api/sync/*"| D_HTTP
+A_PROXY --&gt;|"copilot / pipeline / explore / tools"| AI_H
+A_HDL -.-&gt;|"读 quant.* / public"| ST_PG
+
+%% ═══════════ 连线：内核装配与消息 ═══════════
+KER --&gt;|"BootOrder 1"| K_ES
+KER --&gt;|"2"| K_CLK
+KER --&gt;|"3"| K_DE
+KER --&gt;|"4"| K_PF
+KER --&gt;|"5"| K_RK
+KER --&gt;|"6"| K_EX
+KER --&gt;|"7"| K_SR
+KER --&gt;|"8"| K_IND
+KER --&gt;|"9"| K_EA
+KER --&gt;|"10"| K_MB
+K_ES --&gt;|"audit.message_log"| ST_PG
+K_SR -.-&gt;|"exec.order_intent"| K_MB
+K_MB -.-&gt; K_RK
+K_MB -.-&gt; K_EX
+K_EX -.-&gt;|"exec.fill"| K_MB
+K_MB -.-&gt; K_PF
+K_CLK -.-&gt;|"驱动"| SG_RT
+K_SR -.-&gt;|"承载"| BT_E
+K_RK -.-&gt;|"承载"| RK_M
+K_EX -.-&gt;|"承载"| EX_TR
+K_DE -.-&gt;|"装配承载"| MD_A
+K_IND -.-&gt;|"per-run"| IN_O
+K_EA -.-&gt;|"per-run"| EA_A
+
+%% ═══════════ 连线：回测族 ═══════════
+A_HDL --&gt; BT_JOB
+A_HDL --&gt; BT_BAT
+A_HDL --&gt; BT_WF
+A_HDL --&gt; BT_REP
+BT_JOB --&gt;|"执行 RunSpec"| BT_E
+BT_E --&gt; BT_CTR
+BT_CTR --&gt; BT_REG
+BT_REG -.-&gt;|"注册 go runner"| BT_E
+BT_REG --&gt;|"kernel=nautilus"| BT_NT
+BT_E --&gt;|"预热"| BT_CCH
+BT_CCH --&gt; ST_PG
+BT_CCH -.-&gt; ST_RD
+BT_E --&gt; BT_ID
+BT_E --&gt;|"getSignals"| SG_SP
+SG_SP -.-&gt;|"FactorAware 等注入"| BT_CCH
+BT_E --&gt; BT_AUC
+BT_E --&gt;|"订单意图"| RK_M
+RK_M --&gt;|"verdict"| BT_EXE
+BT_EXE --&gt; BT_TRK
+BT_TRK --&gt; BT_ST
+BT_E --&gt; BT_MET
+BT_MET --&gt; BT_REP
+BT_NT --&gt;|"POST /v1/backtest"| NT_SRV
+
+%% ═══════════ 连线：策略族 ═══════════
+SG_SP --&gt; SG_RT
+SG_RT --&gt; SG_REG
+SG_PLG --&gt;|"热加载"| SG_REG
+A_HDL --&gt;|"strategies CRUD"| SG_REG
+SG_REG --&gt; SG_EXP
+SG_REG --&gt; SG_PLUGINS
+SG_REG --&gt; SG_EXT
+SG_EXP --&gt;|"L1 DSL"| EX_EN
+SG_RT --&gt; SG_SS
+SG_SS --&gt;|"quant.strategy_state"| ST_PG
+SG_EXT --&gt; SG_SIGST
+SG_SIGST --&gt;|"quant.external_signals"| ST_PG
+A_HDL --&gt; SG_MON
+SG_MON --&gt; SG_REG
+SG_RT -.-&gt;|"L3a 执行"| SB_WA
+
+%% ═══════════ 连线：风控 / 执行 / 合规 / 告警 ═══════════
+A_HDL --&gt;|"/api/execution/*"| EX_TR
+EX_TR --&gt; EX_OM
+EX_OM --&gt; EX_OS
+EX_OS --&gt; ST_PG
+EX_OS -.-&gt; ST_RD
+EX_TR --&gt; EX_PP
+EX_TR --&gt; EX_CG
+EX_TR --&gt; EX_RC
+EX_RC --&gt;|"差异告警"| AL_M
+BT_E --&gt;|"ExecAlgo 指定"| EA_A
+EA_A --&gt;|"子订单逐片过风控"| RK_M
+EA_A --&gt; MI
+BT_EXE --&gt; COST
+EX_PP --&gt; COST
+BT_TRK --&gt; FEE
+BT_TRK --&gt; SETT
+BT_TRK --&gt; PORTP
+EX_PP --&gt; FEE
+EX_TR -.-&gt;|"实盘预留"| EXT_XTP
+A_HDL --&gt; CP_AB
+A_HDL --&gt; CP_AP
+A_HDL --&gt; CP_DV
+A_HDL --&gt; CP_RP
+A_HDL --&gt; AL_M
+AL_M --&gt; AL_CH
+AL_M --&gt; AL_SY
+A_HDL --&gt; FA_ATTR
+FA_ATTR --&gt;|"ic_analysis · factor_returns"| ST_PG
+RK_M -.-&gt; STATS
+BT_MET -.-&gt; STATS
+
+%% ═══════════ 连线：data-service ═══════════
+D_HTTP --&gt; SY_Q
+SY_SC --&gt;|"到点入队"| SY_Q
+SY_Q --&gt; SY_W
+SY_W --&gt; IN_TS
+SY_W --&gt; IN_AD
+IN_AD --&gt;|"注册声明"| IN_RG
+IN_TS --&gt;|"ingest.raw 归档"| ST_PG
+IN_TS --&gt; IN_ETL
+IN_AD --&gt; IN_ETL
+IN_ETL --&gt;|"public 规范表"| ST_PG
+IN_DP --&gt;|"fundamentals_detail"| ST_PG
+IN_SE -.-&gt;|"日度聚合"| ST_PG
+IN_RG --&gt;|"字段 / 频率词表"| DM
+FA_C --&gt;|"清单投影"| FA_R
+FA_R --&gt;|"leaf / formula"| EX_EN
+FA_R --&gt;|"code 内核闭包"| FA_C
+FA_C --&gt;|"factor_cache"| ST_PG
+FA_C -.-&gt; ST_RD
+DA_MIN --&gt; MN_P
+MN_P --&gt; MN_S
+MN_P --&gt; MN_G
+MN_G --&gt;|"admit 凭证"| FA_B
+FA_B --&gt;|"factor_registrations"| ST_PG
+SC_CH --&gt; ST_PG
+MA_MC --&gt; ST_PG
+SE_SEC --&gt; ST_PG
+MN_S -.-&gt;|"历史读取"| ST_PG
+IN_TS --&gt; EXT_TS
+IN_AD --&gt; EXT_ALT
+
+%% ═══════════ 连线：ai-service ═══════════
+AI_H --&gt; CO
+AI_H --&gt; PI
+AI_H --&gt; LP
+AI_H --&gt; TL
+HM --&gt;|"MCP 工具调用"| TL
+CO --&gt; CL
+CO --&gt; SB_ST
+CO --&gt; SB_RN
+CO -.-&gt;|"编译产物插件回载"| SG_PLG
+PI --&gt; IN_
+IN_ --&gt; YM
+YM -.-&gt;|"RunSpec"| BT_CTR
+LP --&gt;|"TryRunner"| PI
+LP --&gt; PR
+SE --&gt;|"Proposer 实现"| PR
+EV --&gt; GE
+GE --&gt;|"候选回注"| LP
+AF --&gt; GE
+AG --&gt; VA
+VA --&gt; DR
+AG --&gt; CL
+TL -.-&gt;|"进程内调内核能力"| BT_E
+CL --&gt; EXT_LLM
+
+%% ═══════════ 连线：core 内部 ═══════════
+MD_R --&gt;|"物理表唯一白名单"| ST_PG
+MD_A --&gt; MD_P
+MD_P --&gt; ST_PG
+MD_P -.-&gt; ST_RD
+EX_EN --&gt; DM
+IN_O --&gt; DM
+MN_P --&gt;|"公式验证"| EX_EN
+DOCSR -.-&gt;|"ADR / 架构决策"| RG
+
+%% ═══════════ 连线：NT 侧车 ═══════════
+NT_MAP --&gt; NT_SRV
+NT_WR --&gt; NT_SRV
+NT_SIG --&gt; NT_SRV
+NT_SRV --&gt; NT_ENG
+DR2 --&gt;|"NT 侧 weight_replay"| NT_SRV
+DR2 --&gt;|"Go 侧 wrReplay"| BT_TRK
+DR2 --&gt;|"对齐 gate"| BT_REP
+
+%% ═══════════ 连线：基础设施与观测 ═══════════
+ST_PG --&gt; PG
+ST_RD --&gt; RD
+A_HTTP -.-&gt; OBS
+D_HTTP -.-&gt; OBS
+AI_H -.-&gt; OBS
+
+%% ═══════════ 布局约束：组内不可见连线，纵向分列压横向宽度 ═══════════
+EXT_TS ~~~ EXT_ALT
+EXT_LLM ~~~ EXT_XTP
+NGINX ~~~ E2E
+BT_JOB ~~~ BT_BAT ~~~ BT_WF ~~~ BT_REP
+BT_CCH ~~~ BT_ID ~~~ BT_AUC
+SG_RT ~~~ SG_PLG
+SG_SS ~~~ SG_SIGST
+SG_OPT ~~~ SG_MON
+EX_PP ~~~ EX_CG ~~~ EX_RC
+CP_AB ~~~ CP_AP ~~~ CP_DV ~~~ CP_RP
+IN_DP ~~~ IN_SE
+SC_CH ~~~ MA_MC ~~~ SE_SEC ~~~ DA_MIN
+SE ~~~ EV ~~~ AF ~~~ AG ~~~ HM
+NT_MAP ~~~ NT_WR ~~~ NT_SIG
+MD_R ~~~ MD_P ~~~ MD_A ~~~ MD_B
+EX_EN ~~~ IN_O ~~~ SB_ST ~~~ SB_RN ~~~ SB_WA
+DM ~~~ ST_PG ~~~ ST_RD ~~~ MN_P ~~~ MN_G ~~~ MN_S
+FEE ~~~ COST ~~~ SETT ~~~ PORTP
+MI ~~~ STATS ~~~ OBS ~~~ RG
+
+%% ═══════════ 样式 ═══════════
+classDef ext fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+classDef fe fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+classDef anasvc fill:#dcfce7,stroke:#16a34a,color:#14532d
+classDef kern fill:#ccfbf1,stroke:#0d9488,color:#134e4a
+classDef datsvc fill:#fef9c3,stroke:#ca8a04,color:#713f12
+classDef aisvc fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+classDef corelib fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+classDef ntside fill:#f3e8ff,stroke:#9333ea,color:#581c87
+classDef infra fill:#e5e7eb,stroke:#374151,color:#111827
+classDef docn fill:#f1f5f9,stroke:#64748b,color:#334155
+
+style EXT fill:#fef2f2,stroke:#dc2626
+style DOCS fill:#f8fafc,stroke:#64748b
+style FE fill:#eff6ff,stroke:#2563eb
+style ANA fill:#f0fdf4,stroke:#16a34a
+style HTTPA fill:#ffffff,stroke:#86efac
+style KGRP fill:#f0fdfa,stroke:#0d9488
+style BTGRP fill:#ffffff,stroke:#86efac
+style SGGRP fill:#ffffff,stroke:#86efac
+style RXGRP fill:#ffffff,stroke:#86efac
+style DAT fill:#fefce8,stroke:#ca8a04
+style AII fill:#f5f3ff,stroke:#7c3aed
+style COR fill:#fff7ed,stroke:#ea580c
+style NTS fill:#faf5ff,stroke:#9333ea
+style INFR fill:#f9fafb,stroke:#374151
+
+</pre>
+  </div>
+</div>
+
+<details>
+  <summary>Mermaid 源码（可复制到 mermaid.live / Typora / Obsidian）</summary>
+  <pre id="rawsrc"></pre>
+</details>
+
+<footer>
+  注：REV-16（2026-10-17）已删除 strategy-service :8082，pkg/strategy 保留为库层；portfolio / indicators / exec-algo 三个内核槽位当前为 Noop 占位（蓝图裁决，载体待实盘线 D1）。
+  生成时间 2026-10-19。
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  var rawEl = document.getElementById('rawsrc');
+  var srcEl = document.getElementById('msrc');
+  var errEl = document.getElementById('err');
+  var srcText = srcEl.textContent;
+  rawEl.textContent = srcText;
+
+  function render() {
+    if (typeof mermaid === 'undefined') {
+      errEl.style.display = 'block';
+      errEl.textContent = '未能加载 mermaid 渲染库（需要联网访问 cdn.jsdelivr.net）。下方「Mermaid 源码」仍可复制到 mermaid.live 使用。';
+      return;
+    }
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      securityLevel: 'loose',
+      maxTextSize: 1200000,
+      maxEdges: 3000,
+      flowchart: { useMaxWidth: false, htmlLabels: true, curve: 'basis', nodeSpacing: 22, rankSpacing: 36 },
+      themeVariables: { fontSize: '13px', fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif' }
+    });
+    try {
+      mermaid.run({ nodes: [srcEl] }).catch(function (e) { showErr(e); });
+    } catch (e) { showErr(e); }
+  }
+  function showErr(e) {
+    errEl.style.display = 'block';
+    errEl.textContent = 'Mermaid 渲染失败：' + (e && e.message ? e.message : e);
+  }
+
+  var scale = 1;
+  function applyZoom() {
+    document.getElementById('zoomwrap').style.transform = 'scale(' + scale + ')';
+    document.getElementById('zoomLabel').textContent = Math.round(scale * 100) + '%';
+  }
+  function zoomBy(f) { scale = Math.min(4, Math.max(0.3, scale * f)); applyZoom(); }
+  function zoomReset() { scale = 1; applyZoom(); }
+  function copySrc() {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(srcText).then(function () {
+        alert('已复制 Mermaid 源码到剪贴板');
+      }, function () { fallbackCopy(); });
+    } else { fallbackCopy(); }
+  }
+  function fallbackCopy() {
+    var ta = document.createElement('textarea');
+    ta.value = srcText; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    alert('已复制 Mermaid 源码到剪贴板');
+  }
+
+  window.addEventListener('DOMContentLoaded', render);
+</script>
+</body>
+</html>

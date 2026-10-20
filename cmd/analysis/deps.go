@@ -1,0 +1,93 @@
+package main
+
+// ServerDeps bundles all service dependencies that registerRoutes
+// (and the HTTP handlers it wires) need. Replacing 16 positional
+// parameters with a struct makes the dependency graph explicit,
+// keeps call sites readable, and lets new dependencies be added
+// without changing every caller (S7-P2-4, ODR-043).
+//
+// Construction happens in main() via the builder functions in
+// setup.go; the struct is then passed by pointer to registerRoutes.
+
+import (
+	"github.com/rs/zerolog"
+	"tellurion/pkg/auth"
+	"tellurion/pkg/backtest"
+	"tellurion/pkg/backtest/contracts"
+	"tellurion/pkg/data"
+	"tellurion/pkg/live"
+	"tellurion/pkg/observability"
+	"tellurion/pkg/risk"
+	"tellurion/pkg/storage"
+	"tellurion/pkg/strategy"
+	"github.com/spf13/viper"
+)
+
+type ServerDeps struct {
+	// Core backtest engine — serves /backtest, /backtest/:id/report, etc.
+	Engine *backtest.Engine
+
+	// EngineRegistry — K10 内核路由注册表（装配期注册 go 内核，
+	// 同步 / 异步 job / batch 经 Resolve 按 RunSpec.kernel 取 runner）。
+	// 未注册内核 fail-closed，无静默回退（FR-1.3）。
+	EngineRegistry *contracts.EngineRegistry
+
+	// MarketRouter — D7 市场 → 内核 路由表（配置 key `kernel_routing.markets`，
+	// 如 `CN: go` / `US: nautilus`）。同步回测端点在**路由之前**把请求里的
+	// `market` 解析成内核名写进既有的 `kernel` 字段；未登记市场 fail-closed
+	// （400 点名 + 已登记集合），不静默回退 go 内核。
+	//
+	// 允许为 nil（= 未装配路由表）：此时**不带 market** 的存量请求行为不变，
+	// 带 market 的请求在 ResolveRunTarget 处被拒 —— 「删掉映射配置」的效果是
+	// 带市场的请求变红，而不是服务起不来。
+	MarketRouter *contracts.MarketRouter
+
+	// JobService — async backtest job management (POST /backtest).
+	JobService *backtest.JobService
+
+	// WFEngine — walk-forward analysis (POST /walkforward).
+	WFEngine *backtest.WalkForwardEngine
+
+	// BatchEngine — batch backtests (POST /batch/backtest).
+	BatchEngine *backtest.BatchEngine
+
+	// StrategyDB — strategy CRUD + DB-backed list (GET /strategies).
+	StrategyDB *strategy.StrategyDB
+
+	// FactorAttributor — factor attribution analysis (GET /api/factors/*).
+	FactorAttributor *data.FactorAttributor
+
+	// PluginLoader — strategy plugin hot-swap (GET /plugins, POST /plugins/reload).
+	PluginLoader *strategy.PluginLoader
+
+	// AuthSvc — JWT + RBAC (POST /api/auth/*). nil-safe: when JWT is
+	// not configured, the service runs in "disabled" mode.
+	AuthSvc *auth.Service
+
+	// RiskManager — in-process risk manager (P1-15, /api/risk/*).
+	RiskManager *risk.RiskManager
+
+	// ExecutionTrader — in-process MockTrader (P1-15, /api/execution/*).
+	ExecutionTrader live.LiveTrader
+
+	// EmergencyToken — bearer token for the kill-switch endpoint
+	// (POST /api/execution/emergency-flatten). Empty disables the endpoint.
+	EmergencyToken string
+
+	// Metrics — the four ADR-017 §1 core metrics, exposed at /metrics.
+	Metrics *observability.Metrics
+
+	// Logger — structured logger shared across all handlers.
+	Logger zerolog.Logger
+
+	// Viper — config reader, used by registerRoutes to load the
+	// default suitability profile and large-trade reporter config.
+	Viper *viper.Viper
+
+	// Store — L0-3 (ADR-022 §5): the Postgres store backs the read-only
+	// Evidence API (GET /api/evidence/:content_hash), which resolves a
+	// citation's content_hash to its unique archived source response in
+	// `ingest.raw`. Work faces read data through this door instead of
+	// keeping their own copy.
+	Store *storage.PostgresStore
+}

@@ -1,0 +1,307 @@
+package source
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"sort"
+	"sync"
+	"time"
+)
+
+// ErrAdapterNotRegistered is returned (wrapped) by Registry.Fetch when a
+// chain references an adapter name that is not currently registered.
+// CR-40 (ODR-012): callers want to distinguish this from "all upstreams
+// are down" (the latter is reported as a generic "all adapters
+// exhausted" error). The distinction drives operator response: a
+// missing-registration error is a deploy/config bug; an exhausted-chain
+// error is a real upstream outage. Both are wrapped via fmt.Errorf("%w:
+// ...") so errors.Is works through the wrapper.
+var ErrAdapterNotRegistered = errors.New("data source: adapter not registered")
+
+// Registry manages a set of DataSourceAdapter instances and per-data-type
+// fallback chains. It is the single entry point used by ETL pipelines.
+//
+// Concurrency: Registry is safe for concurrent use. Adapters are expected
+// to be concurrency-safe themselves; the Registry holds a RWMutex over the
+// adapter map and chain map.
+//
+// Fallback semantics:
+//
+//   - For a given data type, the Registry tries adapters in priority order
+//     (1, 2, 3, ...). The first adapter that returns data wins.
+//   - Adapters that return IsRetryable(err)==true are skipped, and the next
+//     adapter is tried. Adapters that return other errors (e.g. validation)
+//     propagate immediately because retrying with a different source won't
+//     help.
+//   - All retries are exhausted → the last error is wrapped and returned.
+//
+// Persistence: the Registry does not write to data_source_registry /
+// data_fallback_chain on its own. Instead, InitializeFromDB seeds it from
+// the persisted configuration. Adapters self-register at construction.
+type Registry struct {
+	mu sync.RWMutex
+
+	// adapters maps name → adapter.
+	adapters map[string]DataSourceAdapter
+
+	// chains maps data_type → ordered list of adapter names.
+	// The list is sorted by priority (ascending); index 0 is the primary.
+	chains map[string][]string
+}
+
+// NewRegistry constructs an empty Registry.
+func NewRegistry() *Registry {
+	return &Registry{
+		adapters: make(map[string]DataSourceAdapter),
+		chains:   make(map[string][]string),
+	}
+}
+
+// Register adds an adapter under its Name().
+//
+// If an adapter with the same name is already registered, the new one
+// replaces it. This is useful for hot reload of configuration.
+//
+// Registration is fail-closed on the connector contract (D2, blueprint
+// §4.2): the adapter must declare time semantics + frequency spec for every
+// supported data type. Missing / illegal / schema-contradicting declarations
+// are rejected and nothing is mutated — see validateDeclarations.
+func (r *Registry) Register(a DataSourceAdapter) error {
+	if a == nil {
+		return errors.New("registry: nil adapter")
+	}
+	name := a.Name()
+	if name == "" {
+		return errors.New("registry: adapter Name() is empty")
+	}
+	// Validate before mutating any state so a rejected adapter leaves the
+	// registry untouched (no partial registration).
+	if err := validateDeclarations(a); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.adapters[name] = a
+
+	// Add the adapter to the chain for every data type it supports,
+	// appending to the end (lower priority than existing members).
+	for _, dt := range a.SupportedTypes() {
+		r.chains[dt] = appendUnique(r.chains[dt], name)
+	}
+	return nil
+}
+
+// SetChain overrides the fallback chain for a data type entirely.
+// Useful for tests and for explicit configuration in code.
+func (r *Registry) SetChain(dataType string, names []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := make([]string, len(names))
+	copy(cp, names)
+	r.chains[dataType] = cp
+}
+
+// GetAdapter returns the adapter registered under name (or nil).
+func (r *Registry) GetAdapter(name string) DataSourceAdapter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.adapters[name]
+}
+
+// ListAdapters returns all registered adapter names in sorted order.
+// Stable for tests.
+func (r *Registry) ListAdapters() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.adapters))
+	for k := range r.adapters {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ListChains returns a snapshot of (data_type, chain) pairs.
+func (r *Registry) ListChains() map[string][]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string][]string, len(r.chains))
+	for k, v := range r.chains {
+		cp := make([]string, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+	return out
+}
+
+// Fetch retrieves data using the fallback chain for req.DataType.
+//
+// Behavior:
+//   - If the chain is empty, ErrUnsupported is returned.
+//   - Each enabled adapter in the chain is tried in order.
+//   - IsRetryable(err) → skip and try next.
+//   - Other errors → return immediately (caller can decide).
+//   - Success → return the FetchResponse (the Source field is set).
+//
+// If all adapters in the chain fail with retryable errors, Fetch returns
+// the last error wrapped with the tried adapter names for diagnostics.
+func (r *Registry) Fetch(ctx context.Context, req FetchRequest) (*FetchResponse, error) {
+	if err := Validate(req); err != nil {
+		return nil, err
+	}
+
+	r.mu.RLock()
+	chain := append([]string(nil), r.chains[req.DataType]...)
+	r.mu.RUnlock()
+
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("%w: %s (no chain configured)", ErrUnsupported, req.DataType)
+	}
+
+	var lastErr error
+	tried := make([]string, 0, len(chain))
+	for _, name := range chain {
+		r.mu.RLock()
+		a := r.adapters[name]
+		r.mu.RUnlock()
+		if a == nil {
+			// CR-39 (ODR-012): chain references an unregistered name.
+			// This is a deploy/config bug (e.g. SetChain called before
+			// Register) — log loud so it shows up in startup logs.
+			// CR-40: wrap with ErrAdapterNotRegistered so callers can
+			// distinguish from "all upstreams down" via errors.Is.
+			log.Printf("[source.Registry] Fetch[%s]: adapter %q in chain but not registered (chain=%v)", req.DataType, name, chain)
+			lastErr = fmt.Errorf("%w: %q (in chain %v)", ErrAdapterNotRegistered, name, chain)
+			tried = append(tried, name)
+			continue
+		}
+		if !a.Enabled() {
+			// CR-39: silent skip before would hide why a chain
+			// "magically" tried only the secondary. Log it at Info
+			// level so postmortem on "why didn't eastmoney serve
+			// capital_flow" is straightforward.
+			log.Printf("[source.Registry] Fetch[%s]: skip %q (disabled, env kill-switch or config)", req.DataType, name)
+			continue
+		}
+		// Verify the adapter actually claims to support this data type
+		// (defensive: chains and SupportedTypes can drift).
+		supported := false
+		for _, dt := range a.SupportedTypes() {
+			if dt == req.DataType {
+				supported = true
+				break
+			}
+		}
+		if !supported {
+			// CR-39: chain/SupportedTypes drift is a real production
+			// hazard (we hit it once in ODR-011 with eastmoney listing
+			// sectors in chain but SupportedTypes returning only
+			// capital_flow). Log loud and skip; do NOT fall through
+			// to Fetch because the adapter will return ErrUnsupported
+			// anyway and the chain will look like a successful skip.
+			log.Printf("[source.Registry] Fetch[%s]: skip %q (not in adapter.SupportedTypes — chain drift)", req.DataType, name)
+			continue
+		}
+
+		start := time.Now()
+		resp, err := a.Fetch(ctx, req)
+		if err == nil && resp != nil {
+			if resp.Source == "" {
+				resp.Source = a.Name()
+			}
+			resp.FetchedAt = start
+			return resp, nil
+		}
+		// REV-05: an adapter that returns (nil, nil) violates the Fetch
+		// contract ("err == nil ⇒ resp != nil", see DataSourceAdapter.Fetch).
+		// Left unhandled it slips past the success check above, then trips
+		// the `!IsRetryable(err)` arm below — IsRetryable(nil) is false, so
+		// that arm was entered and Fetch returned a nil response *and* a nil
+		// error to the caller, which would dereference resp. Treat it as an
+		// explicit per-adapter failure and keep walking the chain so a healthy
+		// downstream adapter can still serve. The error names the offender and
+		// survives %w wrapping intact (no "%!w(<nil>)" corruption).
+		if err == nil && resp == nil {
+			log.Printf("[source.Registry] Fetch[%s]: %q failed: adapter returned (nil, nil) — contract violation (err == nil requires non-nil response)", req.DataType, name)
+			lastErr = fmt.Errorf("adapter %q returned (nil, nil) response", name)
+			tried = append(tried, name)
+			continue
+		}
+		// CR-39: per-adapter failure logged at warn level. Without
+		// this line, an operator looking at a backtest that returned
+		// "all adapters exhausted for capital_flow" had no way to
+		// tell which adapter failed and why. The log line carries
+		// enough context (data_type, adapter name, err) to grep for
+		// the exact failure.
+		log.Printf("[source.Registry] Fetch[%s]: %q failed: %v (retryable=%t)", req.DataType, name, err, IsRetryable(err))
+		lastErr = err
+		tried = append(tried, name)
+		if !IsRetryable(err) {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("registry: all adapters exhausted for %s (tried %v): %w",
+		req.DataType, tried, lastErr)
+}
+
+// HealthCheck runs HealthCheck on every registered adapter and returns a
+// map name→error. A nil error means healthy.
+func (r *Registry) HealthCheck(ctx context.Context) map[string]error {
+	r.mu.RLock()
+	names := make([]string, 0, len(r.adapters))
+	snapshot := make(map[string]DataSourceAdapter, len(r.adapters))
+	for n, a := range r.adapters {
+		names = append(names, n)
+		snapshot[n] = a
+	}
+	r.mu.RUnlock()
+	sort.Strings(names)
+
+	// CR-20 (ODR-012): the previous loop called `a.HealthCheck(ctx)` serially
+	// in the registry's read-lock-free section. For 9 adapters each with a
+	// 500ms-cold TCP/HTTP probe, the API call to /api/datasource/registry/health
+	// took 4.5s. Run them concurrently under a single shared context, but
+	// cap parallelism at 8 so we don't open 100 TCP connections if a future
+	// config files in 50 adapters. The map write is safe — each goroutine
+	// writes a distinct key.
+	const maxParallel = 8
+	out := make(map[string]error, len(names))
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+	sem := make(chan struct{}, maxParallel)
+
+	for _, n := range names {
+		a := snapshot[n]
+		if a == nil {
+			out[n] = errors.New("nil adapter")
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(name string, adapter DataSourceAdapter) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			err := adapter.HealthCheck(ctx)
+			mu.Lock()
+			out[name] = err
+			mu.Unlock()
+		}(n, a)
+	}
+	wg.Wait()
+	return out
+}
+
+// appendUnique appends v to s if not already present (order-preserving).
+func appendUnique(s []string, v string) []string {
+	for _, x := range s {
+		if x == v {
+			return s
+		}
+	}
+	return append(s, v)
+}

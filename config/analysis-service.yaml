@@ -1,0 +1,260 @@
+server:
+  host: "0.0.0.0"
+  port: 8085
+
+  # AUD-29: gin 的运行模式。debug | release | test。
+  # 未配置、或写了不认识的值，一律按 release 处理（fail-safe：gin 自己的
+  # 默认是 debug，一个笔误不该让线上进程开始打路由表）。
+  # 它只描述「框架的调试输出」，与日志格式/级别无关 —— 此前 analysis 由
+  # logging.format 推断、data/strategy 由 logging.level 推断，同一份配置
+  # 在三个服务上会得出不同的 gin mode。
+  # env 覆盖：SERVER_GIN_MODE
+  gin_mode: "release"
+
+  # P0-4: CORS 跨源白名单。未配置（空）= 不回显任何
+  # Access-Control-Allow-Origin，浏览器侧一律拦截（fail closed）。
+  # 只有确实要让独立站点直连时才填，且不要写 "*" 除非有意对外开放。
+  # env 覆盖：SERVER_CORS_ALLOWED_ORIGINS="http://a.example,http://b.example"
+  #
+  # 注意：dev 下 Vite 已代理 /api（web/vite.config.ts），同源，不需要配这里。
+  cors:
+    allowed_origins: []
+
+# P0-4: 鉴权。**没有密钥服务拒绝启动**（此前是静默进入 open-access）。
+# 密钥只从 env 注入，不要写进这份入库的 YAML：
+#   JWT_SECRET（或 AUTH_JWT_SECRET）= openssl rand -hex 32
+#
+# 本地开发有**两条**豁免路径，都必须显式声明，且都要求
+# `AUTH_INSECURE=true`：
+#
+#   a) server.host 是 loopback（127.0.0.1 / localhost）——  原生跑法
+#   b) auth.insecure_exposure = loopback-published —— **容器跑法**
+#
+# (b) 存在的理由：容器必须绑 0.0.0.0 才能被发布端口转发，所以 isLoopbackHost
+# 档不住它 —— 于是判据从「绑定地址」换成「发布层」。**基础不变量没有放松**：
+# open-access 仍不得从其他主机到达，只是保证的位置挪到了 compose 的 ports
+# 映射（四条全带 127.0.0.1: 前缀），并由两处机器校验守：
+#   tools/check_deploy_consistency.py 检查 3c（静态，双向）
+#   tools/local-stack.sh（运行时，读宿主机 netstat）
+# 取值必须逐字等于 loopback-published；拼错/空/近义词一律按没声明处理 → 拒绝启动。
+#
+# 两条都不满足时照样拒绝 —— 0.0.0.0 上的 open-access 等于把下单接口开给整个
+# 局域网。豁免生效时会打 WARN 横幅（容器形态下还会带上 exposure 与保证方）。
+auth:
+  # jwt_secret: 只从 env 读，此处留空
+  jwt_secret: ""
+  allow_insecure: false        # env: AUTH_INSECURE（本地豁免的总开关）
+  # env: AUTH_INSECURE_EXPOSURE。只认 loopback-published（见上 (b)）。
+  insecure_exposure: ""
+  issuer: "quant-trading"
+  access_token_ttl: 15m
+  refresh_token_ttl: 168h      # 7d
+
+# 网关限流（每 ClientIP / 每分钟窗口）。env 覆盖：RATE_LIMIT_PER_MINUTE
+# （viper AutomaticEnv）；e2e/压测调高、事故响应调低（ODR-013 模式）。
+rate_limit:
+  per_minute: 100
+
+# 数据库。密码**只能**从 env 注入（DATABASE_PASSWORD）。
+#
+# AUD-39：这里此前写的是字面量 "${DATABASE_PASSWORD}"。本仓**没有**任何
+# env 展开器（全仓无 os.ExpandEnv / envsubst），YAML 里的 ${...} 不是模板，
+# 就是那 22 个字符本身 —— 它会被当成密码交给驱动，失败点在 TCP 连上之后，
+# 日志里只有 "password authentication failed"，读起来像「密码错了」而不是
+# 「没填密码」。k8s 侧因为注入的 env 名不匹配（见 deploy/k8s/configmap.yaml），
+# 应用拿到的正是这个字面量。
+#
+# 现在改成空串 + 启动期校验（pkg/storage.BuildDSN）：空密码直接 Fatal 并
+# 告诉你填 DATABASE_PASSWORD。注意这里是**空**，不是占位符 —— 占位符会被
+# BuildDSN 当成错误（ErrDSNPlaceholder）。
+#
+# url 留空 = 由下面的逐字段拼装；它同时是 DATABASE_URL 的覆盖点，方便嵌入方
+# 直接给完整 DSN。这条不变量由 tools/check_deploy_consistency.py 的检查 7 守护
+# （config/*.yaml 里不得出现 ${）。
+database:
+  url: ""
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: ""
+  database: "quant_trading"
+  sslmode: "disable"
+
+# 地址口径（2026-09-25 定，见 docker-compose.yml 文件头）：
+# **这份 yaml 是「在宿主机上直接跑」的视角 —— 数据库/缓存在 localhost。**
+# 容器内的视角由 docker-compose.yml / deploy/k8s 的 environment 覆盖
+# （容器里用 host.docker.internal，k8s 里用 postgres）。上面 database.host
+# 已经是 localhost，与 data-service.yaml 口径一致；redis 这里对齐。
+redis:
+  url: "redis://localhost:6379"
+
+# 服务间地址**保持容器视角**（compose 服务名），与上面 DB/Redis 的口径不同。
+# 理由：本轮改造只把数据库/缓存移出容器，服务仍然全部跑在容器里 ——
+# 这一跳没有变。宿主机的 localhost:8081 上没有 data-service，改成 localhost
+# 反而会打断容器间的调用。compose 与 k8s 都会用同名 env 覆盖这两项。
+data_service:
+  url: "http://data-service:8081"
+
+# strategy_service.url 已随 OBS-11（2026-10-09）删除：策略服务 standby
+# （ADR-012），信号只从引擎本地注册表产出，不存在 per-day HTTP fallback。
+
+# P1-15 (Sprint 6, ODR-021): risk + execution services merged into
+# analysis service. The `risk_service.url` and the
+# `STRATEGY_SERVICE_URL` env on docker-compose still work for backward
+# compat (in case someone deploys a separate risk service), but the
+# canonical runtime is in-process — `risk_manager` and `trading`
+# sections below are the single source of truth.
+risk_service:
+  url: "http://localhost:8085"  # legacy fallback only
+
+# In-process risk manager config (absorbed from risk-service.yaml).
+# Used by the backtest engine via WithRiskManager(rm) so all risk
+# computations (position sizing / regime detection / stop loss) run
+# without an HTTP hop.
+risk_manager:
+  target_volatility: 0.15
+  max_position_weight: 0.10
+  min_position_weight: 0.01
+  stoploss:
+    atr_period: 14
+    base_multiplier: 2.5
+    bull_multiplier: 2.0
+    bear_multiplier: 3.5
+    sideways_multiplier: 2.5
+  take_profit:
+    atr_multiplier: 3.0
+  volatility:
+    lookback_days: 20
+    annualization_factor: 16.0
+  regime:
+    fast_ma_period: 10
+    slow_ma_period: 20
+    vol_lookback: 60
+
+# ── AlertManager + PeriodicAlertLoop (P2 alert, ODR-025) ──────────
+#
+# The 6 P0 risk rules evaluate the live portfolio on every tick
+# of the periodic loop (default 5min). Alerts are dispatched to:
+#   1. LogChannel (always-on, structured zerolog)
+#   2. WebhookChannel (when webhook_url is set)
+#   3. RecorderChannel (in-process ring buffer for /api/alerts/history)
+#
+# A 0 or empty value disables the corresponding rule. The
+# defaults below mirror ODR-023's recommended production values.
+alert:
+  enabled: true
+  interval_sec: 300           # 5min between evaluations
+  history_limit: 100          # ring buffer for /api/alerts/history
+  recorder_capacity: 100      # recorder channel capacity
+  max_position_weight: 0.20   # single position > 20% of portfolio
+  max_sector_weight: 0.40     # single sector > 40% of portfolio
+  max_drawdown: 0.15          # peak-to-trough drawdown > 15%
+  daily_loss_limit: -50000    # daily P&L < -50k
+  failure_rate_limit: 0.10    # order failure rate > 10% in 1h
+  webhook_url: ""             # empty = webhook disabled
+  webhook_timeout_sec: 5
+
+# ── ReconciliationWorker (K16 ⑤) ─────────────────────────────────
+#
+# 资金对账 worker：定时比对本地账 vs 券商账，差异逐条经
+# alert.ReconciliationDispatcher 进告警通道（log + webhook，与上方
+# alert.* 共用通道集）。
+#
+# enabled: false = worker 不启动（默认；/api/reconciliation 路由返回 503）。
+# 自检形态（当前）：broker 侧视图 = 同一 MockTrader 状态，账实差异恒零；
+# 真实券商适配器（D1）落地后只替换 broker 侧实现，此配置不变。
+reconciliation:
+  enabled: false
+  account_id: "default"
+  interval_sec: 900           # 监管下限 15min（中国结算 §3.2）
+  cash_tolerance: 0.01
+  quantity_tolerance: 0.0
+  market_value_tol: 0.005
+  fee_tolerance: 0.01
+  report_path: "compliance/reconciliation"
+  history_limit: 100
+
+backtest:
+  initial_capital: 1000000.0
+  commission_rate: 0.0003
+  slippage_rate: 0.0001
+  risk_free_rate: 0.03
+
+# D7 · 市场 → 内核 路由表（热转换，蓝图 §2.1）
+#
+# 同步回测端点（POST /api/backtest）接受一个可选的 `market` 字段，在**路由
+# 之前**按本表解析成内核名并写进既有的 RunSpec.kernel 字段 —— 四契约零改动。
+#
+#   market:  带 market 的请求按本表解析；未登记市场 → 400（点名市场 + 已登记
+#            集合），**绝不**回退 go 内核（FR-1.3）。不带 market 的请求原样
+#            走 kernel 字段 / 默认内核，行为与 D7 之前逐字节一致。
+#   新市场:  加一行 + 对应的数据 connector，不改路由代码。
+#   删掉本节: 空表 → 带 market 的请求一律 400，存量请求不受影响。
+#
+# 值必须是已注册的内核名（`go` 恒可用；`nautilus` 需 NT_SIDECAR_ENABLED=1）。
+kernel_routing:
+  markets:
+    CN: go
+    US: nautilus
+
+# Sprint 6 P0-4 (ODR-013): AI Copilot sandbox Stage 1
+#
+# `working_dir` is the directory `go build` runs in when compiling
+# LLM-generated strategy code. It MUST contain a `go.mod` that
+# resolves `tellurion/pkg/domain`. Empty
+# value = service refuses to build any generated strategy (fails
+# closed with status="sandbox_rejected").
+#
+# Production: point this at the deployed repo root, e.g.
+#   working_dir: "/opt/quant-trading"
+# CI:  working_dir: "/Users/runner/work/quant-trading/quant-trading"
+# Local dev: working_dir: ""   (then the API will return sandbox_rejected
+#   and the operator will see a clear error in the response body)
+copilot:
+  working_dir: ""
+
+# A-share trading rules
+#
+# AUD-37：这一整块由**回测引擎**读取 —— pkg/backtest 的 NewEngine 现在读
+# 顶层 `trading` 键（v.UnmarshalKey("trading", ...)），同时 cmd/analysis
+# 的实盘执行路径也读其中的 stamp_tax_rate / min_commission。一个来源，
+# 引擎与实盘不会各用一套费率假设。
+#
+# 此前引擎读的是 `backtest.trading.*`，而这份文件里根本没有那个键 ——
+# 所以整块是**死的**：改了没有任何可观察效果（7 个键的值又恰好都等于
+# 代码里的默认值，所以一直没人发现）。新增或改名键时请跑 pkg/backtest 的
+# TestTradingBlockInServiceConfigHasNoDeadKeys，它会把没人读的键报出来。
+trading:
+  # 印花税（仅卖出）：0.05%。2023-08-28 起从 0.1% 减半（财政部/税务总局
+  # 2023 年第 39 号公告）。AUD-06 (ODR-065)：此前写 0.001（0.1%），
+  # 是减半前的旧税率，会让每次卖出多算一倍的印花税。
+  stamp_tax_rate: 0.0005
+  # 减半前的历史税率（仅卖出），适用于 2023-08-28 之前的交易日；跨该日期
+  # 的回测按**交易日**取档（fees.StampTaxRateFor）。与 price_limit 的
+  # st / st_before 是同一模式：当前值与历史值分开，否则整段窗口会被同一
+  # 个值定价。
+  stamp_tax_rate_before: 0.001
+  min_commission: 5.0            # 最低佣金 5元
+  transfer_fee_rate: 0.00001     # 过户费 0.001%
+  price_limit:
+    normal: 0.10                 # 主板股票涨跌幅限制 ±10%
+    # 主板 ST/*ST 涨跌幅。2026-07-06 起沪深北三所新规由 ±5% 上调至
+    # ±10%，与主板其他股票一致。此处的 st 是「当前值」，st_before 是
+    # 2026-07-06 之前交易日用的历史值 —— 回测跨该日期时按日切换。
+    # 注意：创业板/科创板的风险警示股不受影响，仍按板块 ±20%
+    # （由代码按 symbol 判定，不看这两个值）。
+    st: 0.10                     # 主板 ST 涨跌幅限制 ±10%（2026-07-06 起）
+    st_before: 0.05              # 主板 ST 涨跌幅限制 ±5%（2026-07-06 之前）
+    new: 0.20                    # 新股涨跌幅限制 ±20%
+  new_stock_days: 60             # 新股判断阈值（已知不准，见 TASKS AUD-07）
+  # P2-3 (ODR-026): emergency flatten (kill-switch) bearer token.
+  # Empty (default) disables POST /api/execution/emergency-flatten
+  # (returns 503). When set, the operator must send the same token
+  # in BOTH the `Authorization: Bearer <token>` header AND the
+  # JSON body field `confirmation_token` — defence in depth against
+  # accidental button presses.
+  emergency_token: ""
+
+logging:
+  level: "info"
+  format: "json"

@@ -1,0 +1,214 @@
+// Package plugins contains built-in strategy implementations.
+package plugins
+
+import (
+	"sort"
+	"strconv"
+	"strings"
+
+	"tellurion/pkg/domain"
+)
+
+// sortOHLCV sorts OHLCV data by date in ascending order.
+//
+// It creates a copy of the data to avoid modifying the original slice.
+//
+// Fast path: if the data is already sorted by date ascending (the common case
+// for backtest L1 cache, which is pre-sorted in warmCache / InMemoryProvider),
+// this returns the input slice unchanged. This avoids one allocation + N*log(N)
+// sort comparisons per call — and momentum/mean-reversion strategies call
+// sortOHLCV inside their per-day hot path (50 stocks × 240 days = 12,000 calls
+// per backtest run). Skipping the copy+sort shaves significant GC pressure
+// from the 5s backtest budget.
+func sortOHLCV(data []domain.OHLCV) []domain.OHLCV {
+	if isSortedByDate(data) {
+		return data
+	}
+	sorted := make([]domain.OHLCV, len(data))
+	copy(sorted, data)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Date.Before(sorted[j].Date)
+	})
+	return sorted
+}
+
+// isSortedByDate returns true if data is sorted by Date in ascending order,
+// or has 0/1 elements. O(n) verification on the data.
+func isSortedByDate(data []domain.OHLCV) bool {
+	if len(data) < 2 {
+		return true
+	}
+	prev := data[0].Date
+	for i := 1; i < len(data); i++ {
+		cur := data[i].Date
+		if cur.Before(prev) {
+			return false
+		}
+		prev = cur
+	}
+	return true
+}
+
+// getLatestPrice extracts the latest closing price from OHLCV data.
+// Returns 0 if data is empty.
+//
+// Fast path: if data is already sorted by date (the common case), just return
+// the last element. The previous implementation always allocated a copy and
+// sorted — which was a hot allocation site in the per-day strategy loop.
+func getLatestPrice(data []domain.OHLCV) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+	if isSortedByDate(data) {
+		return data[len(data)-1].Close
+	}
+	sorted := sortOHLCV(data)
+	return sorted[len(sorted)-1].Close
+}
+
+// calculateMean and calculateStdDev were moved to
+// pkg/statistics (Mean / PopulationStdDev) in ODR-013 P1-21.
+// Callers in this package now use those helpers directly.
+// The wrapper is kept removed — see git log for the migration.
+
+// calculateCV computes the coefficient of variation (stdDev / mean).
+// Returns 0 if mean is 0.
+func calculateCV(stdDev, mean float64) float64 {
+	if mean == 0 {
+		return 0
+	}
+	return stdDev / mean
+}
+
+// extractClosePrices extracts closing prices from a slice of OHLCV.
+func extractClosePrices(bars []domain.OHLCV) []float64 {
+	prices := make([]float64, len(bars))
+	for i, bar := range bars {
+		prices[i] = bar.Close
+	}
+	return prices
+}
+
+// isInTopN checks if a symbol is in the top N results.
+// results should be a slice of structs with a symbol field.
+// This is a generic helper that uses a comparator function.
+type symbolRanker interface {
+	symbol() string
+	score() float64
+}
+
+// checkInTopN checks if the given symbol exists in the results slice up to topN items.
+func checkInTopN(symbol string, results []string, topN int) bool {
+	n := len(results)
+	if n > topN {
+		n = topN
+	}
+	for i := 0; i < n; i++ {
+		if results[i] == symbol {
+			return true
+		}
+	}
+	return false
+}
+
+// safeDivide performs division with zero-check.
+// Returns 0 if denominator is 0.
+func safeDivide(numerator, denominator float64) float64 {
+	if denominator == 0 {
+		return 0
+	}
+	return numerator / denominator
+}
+
+// clampFloat restricts a float64 value to the range [min, max].
+func clampFloat(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+// clampInt restricts an int value to the range [min, max].
+func clampInt(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+// parseIntParam safely parses an integer parameter from map[string]any.
+// Supports float64 (JSON numbers) and int types.
+func parseIntParam(v any) (int, bool) {
+	switch val := v.(type) {
+	case float64:
+		return int(val), true
+	case int:
+		return val, true
+	default:
+		return 0, false
+	}
+}
+
+// parseFloatParam safely parses a float64 parameter from map[string]any.
+// Supports float64 and int types.
+func parseFloatParam(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case int:
+		return float64(val), true
+	default:
+		return 0, false
+	}
+}
+
+// parseStringParam safely parses a string parameter from map[string]any.
+func parseStringParam(v any) (string, bool) {
+	val, ok := v.(string)
+	return val, ok
+}
+
+// ValidationResult holds the result of parameter validation.
+type ValidationResult struct {
+	Valid   bool
+	Field   string
+	Message string
+}
+
+// validateIntRange checks if an int value is within [min, max].
+func validateIntRange(name string, value, min, max int) ValidationResult {
+	if value < min {
+		return ValidationResult{Valid: false, Field: name, Message: name + " must be >= " + strconv.Itoa(min)}
+	}
+	if value > max {
+		return ValidationResult{Valid: false, Field: name, Message: name + " must be <= " + strconv.Itoa(max)}
+	}
+	return ValidationResult{Valid: true}
+}
+
+// validateFloatRange checks if a float64 value is within [min, max].
+func validateFloatRange(name string, value, min, max float64) ValidationResult {
+	if value < min {
+		return ValidationResult{Valid: false, Field: name, Message: name + " must be >= " + strconv.FormatFloat(min, 'f', 2, 64)}
+	}
+	if value > max {
+		return ValidationResult{Valid: false, Field: name, Message: name + " must be <= " + strconv.FormatFloat(max, 'f', 2, 64)}
+	}
+	return ValidationResult{Valid: true}
+}
+
+// validateStringChoice checks if a string value is in the allowed set.
+func validateStringChoice(name string, value string, choices []string) ValidationResult {
+	for _, c := range choices {
+		if value == c {
+			return ValidationResult{Valid: true}
+		}
+	}
+	return ValidationResult{Valid: false, Field: name, Message: name + " must be one of: " + strings.Join(choices, ", ")}
+}

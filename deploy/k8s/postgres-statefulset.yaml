@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: quant-trading
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: quant-trading
+spec:
+  type: ClusterIP
+  clusterIP: None  # headless service for StatefulSet stable DNS
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: tcp-postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: quant-trading
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: quant-trading
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: quant-trading
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: tcp-postgres
+              containerPort: 5432
+          env:
+            # AUD-39：configmap 里只有一份词汇表（DATABASE_*），这里把它
+            # 翻译成 postgres 官方镜像认的 POSTGRES_* 名字。**name 是容器
+            # 侧的名字，key 是 configmap 侧的键** —— 两者故意不同，不要
+            # 「顺手统一」。此前 key 写的是 POSTGRES_DB / POSTGRES_USER，
+            # 而 configmap 里那两个键的值是 quantlab，与应用读的
+            # quant_trading / postgres 对不上。
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: quant-trading-config
+                  key: DATABASE_DATABASE
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: quant-trading-config
+                  key: DATABASE_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "quant_trading"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "quant_trading"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

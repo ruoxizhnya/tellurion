@@ -1,0 +1,267 @@
+package source
+
+import "tellurion/pkg/domain/market"
+
+// 本文件集中登记所有已接入 connector 的注册声明（时间语义 + 频率口径），
+// 遵循项目「声明即登记」约定：新增 connector 必须在此处为其每个
+// SupportedTypes 成员补上声明，否则 Registry.Register fail-closed 拒收
+// （未声明 = 拒绝注册，见 contract.go）。
+//
+// 声明口径的裁决依据（保守：不早于真实可见时刻）：
+//   - 日更聚合数据（日线 bar / 资金流 / 龙虎榜）→ after_close；
+//   - 披露驱动数据（财报 / 公告 / 宏观 / 新闻）→ announcement_day；
+//   - 实时快照 / 日内 bar（观察即可见 / 周期结束可见）→ custom + 判定表达；
+//   - 例外：宏观（披露驱动，announcement_day）的可见锚点取 **as_of（导入时刻）**
+//     而非 obs_date —— 观测日早于真实发布日，见 TushareMacroAdapter 声明。
+//
+// 待办边界（D1 在 SPEC 已点名，此处如实登记不越界）：
+//   - mootdx 分钟表 amount 为 NULL 时 Turnover 记 0 —— 字段级折零由 D2 收编，
+//     不改 ETL 行为，仅在契约文档登记；
+//   - mootdx 的 volume / amount **单位未实测**（TDX 惯例是「手」，项目内无证据），
+//     故其 Schema 把 Unit 如实留空、同步边界也不放换算点 —— 没有实测就不声明。
+//     DATA-05 核对（2026-10-15）：该源今天以 nil transport 注册，整条日线 fallback
+//     链不可达；接线时先实测单位再声明，守卫见 cmd/data/ohlc_units_guard_test.go；
+//   - 产业链 fetcher 不走 Registry（不建 adapter），其时间语义在契约文档中
+//     成文登记为已知边界。注意：D5（2026-10-15）落地的样板源是
+//     **daily_basic 市场活跃度**（tushare_daily_basic adapter），不是产业
+//     链 adapter——后者仍不在册，建它属后续一源一单。
+
+// Declarations implements DataSourceAdapter.Declarations.
+// Tushare 是 A 股日线（前复权，唯一进回测口径）与财报字段的来源。
+func (a *TushareAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeOHLCDaily,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+		{
+			// 财报：披露日对齐防前视。可见时间锚点是**披露日**（规范层
+			// market.Fundamental.AnnDate，SPEC「披露日即可见时间点」），
+			// 不是 DataItem.TradeTime —— 财报连接器的 TradeTime 承载的是
+			// **报告期截止日**（pkg/data/tushare.go normalizeFundamentals
+			// 取 end_date），用它当锚点等于把前视洞放回来。
+			//
+			// 锚点写法（优先级，D2-R1 定稿）：这里仍声明**保留记号**
+			// VisibleFieldAnnDate —— 语义以规范层为准，不因 wire 是否投影而变。
+			// D2-R1 起 tushare 财报 connector 已把 ann_date 投影进 wire schema
+			// （Schema(DataTypeFundamental) + fundamentalToMap），锚点从
+			// 「悬空、不可实测」变为「可实测」；投影可选，若投影则类型必须是
+			// date/datetime（validateReservedAnchorProjection 执法）。
+			DataType:      DataTypeFundamental,
+			TimeSemantics: market.VisibleOnAnnouncementDay,
+			VisibleField:  VisibleFieldAnnDate,
+			Frequency:     market.FreqSpecEvent,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+// 宏观指标为发布驱动的事件流（发布后方可见）。wire schema 有 obs_date
+// （**观测日**，月频取当月首日）与 as_of（**导入时刻**）两列，上游不携带
+// 发布日字段。
+//
+// 可见锚点取 **as_of（导入时刻）**，不取 obs_date —— 这是 P2-1「obs_date 为
+// PIT」口径的**正式收紧**（2026-10-16 用户裁决 A）。理由：obs_date 是观测日、
+// **早于**真实发布日（9 月 CPI 10 月中才发布），拿它当可见锚点 = 声明「观测日
+// 当天即可见」，任何按 obs_date 做 PIT 过滤的消费方一接线即前视；as_of 是导入
+// 时刻，数据至少在导入时才可能到手 ⇒ as_of ≥ 真实发布日，按 as_of 过滤**不早于**
+// 真实可见时刻（保守）。代价是失去发布日精度，用户 2026-10-16 裁决接受。
+//
+// 时间语义仍标 announcement_day：宏观确为披露驱动（见
+// market.VisibleOnAnnouncementDay 注释「财报 / 公告 / 宏观发布」），换的只是
+// 承载可见时刻的**字段**（保守代理）。
+//
+// ⚠️ 此声明被守卫钉死（tushare_macro_adapter_test.go 的
+// TestMacroDeclaration_AnchorIsConservativeAsOf）：锚点改回 obs_date → 测试红。
+func (a *TushareMacroAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeMacro,
+			TimeSemantics: market.VisibleOnAnnouncementDay,
+			VisibleField:  "as_of",
+			Frequency:     market.FreqSpecEvent,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *MootdxAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			// 实时行情是观察即可见的快照，不参与回测，但口径必须如实声明。
+			DataType:      DataTypeRealtime,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = fetch_time（实时快照，观察时刻即可见）",
+			VisibleField:  VisibleFieldTradeTime, // DataItem.TradeTime = 快照时刻
+			Frequency:     market.FreqSpecIntraday,
+		},
+		{
+			// 分钟 bar 的可见时间点 = bar 周期结束（蓝图 §4.3，D1 IntradayVisibleAt）。
+			DataType:      DataTypeOHLCMinute,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = bar_period_end（分钟 bar 周期结束即可见）",
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecIntraday,
+		},
+		{
+			DataType:      DataTypeOHLCDaily,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *EastmoneyAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeCapitalFlow,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+//
+// Tushare `moneyflow`（DBT-09）与东财资金流是**同一张表的另一族口径**，时间
+// 语义一致：分档成交额由**全日**逐笔归类聚合而成，收盘前不存在，故
+// VisibleAfterClose + trade_date 锚点（DataItem.TradeTime 承载 trade_date，
+// 与链上 eastmoney 一员同一个锚点记号）。
+//
+// ⚠️ 这条声明是**新链员必须自带**的：Registry.Register fail-closed 拒收任何
+// SupportedTypes 成员缺声明的 adapter（validateDeclarations）。漏写它不会
+// 「退化成未声明」，而是启动时那条门直接注册失败。
+func (a *TushareMoneyflowAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeCapitalFlow,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *EastmoneySectorsAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			// 板块行情是盘中实时快照（push2），观察时刻即可见。
+			DataType:      DataTypeSectors,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = fetch_time（盘中板块快照，观察时刻即可见）",
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecIntraday,
+		},
+		{
+			// 个股板块映射为参考数据，按观察时刻可见。
+			DataType:      DataTypeStockSector,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = fetch_time（个股板块映射，观察时刻即可见）",
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecEvent,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *EastmoneyTopListAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeTopList,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+		{
+			DataType:      DataTypeLimitUpPool,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *JuchaoAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			// 公告：公告时间（ann_time）即可见，披露驱动事件流。
+			DataType:      DataTypeAnnounce,
+			TimeSemantics: market.VisibleOnAnnouncementDay,
+			VisibleField:  "ann_time",
+			Frequency:     market.FreqSpecEvent,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *XueqiuAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeHotSearch,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = fetch_time（热搜榜快照，观察时刻即可见）",
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecIntraday,
+		},
+		{
+			// 新闻：发布时间（publish_time）即可见。
+			DataType:      DataTypeNews,
+			TimeSemantics: market.VisibleCustom,
+			VisibleExpr:   "visible_at = publish_time（新闻发布时刻即可见）",
+			VisibleField:  "publish_time",
+			Frequency:     market.FreqSpecEvent,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+// 市场活跃度（D5 样板，daily_basic 换手率族）：**收盘后可见**——换手率由
+// 当日全天成交量除以股本统计得出，收盘前不存在，这是蓝图 §4.2 点名的
+// 「高危 PIT 场景」（活跃度/拥挤度）的第一个真实考卷。可见时间锚点是
+// trade_date（wire schema 里的 date 列，日更聚合数据的标准锚点），频率
+// 口径日频。
+//
+// ⚠️ 此声明被 D5 的 PIT 破坏验证钉死（tushare_daily_basic_adapter_test.go
+// 的 TestDailyBasicDeclaration_MustBeAfterClose）：把 after_close 改宽成
+// 「盘中即可见」（custom + fetch_time 表达式）→ 测试红。闸门必须真的在拦。
+func (a *TushareDailyBasicAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeDailyBasic,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  "trade_date",
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *AlphaVantageAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeGlobalOHLCV,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}
+
+// Declarations implements DataSourceAdapter.Declarations.
+func (a *YahooFinanceAdapter) Declarations() []ConnectorDeclaration {
+	return []ConnectorDeclaration{
+		{
+			DataType:      DataTypeGlobalOHLCV,
+			TimeSemantics: market.VisibleAfterClose,
+			VisibleField:  VisibleFieldTradeTime,
+			Frequency:     market.FreqSpecDaily,
+		},
+	}
+}

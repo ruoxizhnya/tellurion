@@ -1,0 +1,101 @@
+package main
+
+import (
+	"tellurion/pkg/httpserver"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"tellurion/pkg/storage"
+)
+
+// Read-only fundamental data handlers. The matching sync handler
+// (SyncHandler.syncFundamentalsHandler) lives in sync_handlers.go
+// alongside the rest of the /sync/* surface.
+
+func getFundamentalHandler(store *storage.PostgresStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		symbol := c.Param("symbol")
+		dateStr := c.Query("date")
+
+		if dateStr == "" {
+			httpserver.Fail(c, http.StatusBadRequest, "date query parameter required")
+			return
+		}
+
+		date, err := time.Parse("20060102", dateStr)
+		if err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "invalid date format, use YYYYMMDD")
+			return
+		}
+
+		fundamental, err := store.GetFundamental(ctx, symbol, date)
+		if err != nil {
+			httpserver.Error(c, http.StatusInternalServerError, err)
+			return
+		}
+		if fundamental == nil {
+			httpserver.Fail(c, http.StatusNotFound, "fundamental data not found")
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"fundamental": fundamental})
+	}
+}
+
+// ---- Fundamental Data Handlers (stock_fundamentals) ----
+
+func getFundamentalsHandler(store *storage.PostgresStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		symbol := c.Param("symbol")
+
+		fundamental, err := store.GetFundamentalDataLatest(ctx, symbol)
+		if err != nil {
+			httpserver.Error(c, http.StatusInternalServerError, err)
+			return
+		}
+		if fundamental == nil {
+			httpserver.Fail(c, http.StatusNotFound, "fundamental data not found for symbol")
+			return
+		}
+
+		c.JSON(http.StatusOK, fundamental)
+	}
+}
+
+func getFundamentalsHistoryHandler(store *storage.PostgresStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		symbol := c.Param("symbol")
+		startStr := c.Query("start_date")
+		endStr := c.Query("end_date")
+
+		var startDate, endDate *time.Time
+		if startStr != "" {
+			t, err := time.Parse("20060102", startStr)
+			if err != nil {
+				httpserver.Fail(c, http.StatusBadRequest, "invalid start_date format, use YYYYMMDD")
+				return
+			}
+			startDate = &t
+		}
+		if endStr != "" {
+			t, err := time.Parse("20060102", endStr)
+			if err != nil {
+				httpserver.Fail(c, http.StatusBadRequest, "invalid end_date format, use YYYYMMDD")
+				return
+			}
+			endDate = &t
+		}
+
+		history, err := store.GetFundamentalDataHistory(ctx, symbol, startDate, endDate)
+		if err != nil {
+			httpserver.Error(c, http.StatusInternalServerError, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"history": history})
+	}
+}

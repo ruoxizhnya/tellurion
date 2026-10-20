@@ -1,0 +1,267 @@
+package backtest
+
+import (
+	"fmt"
+
+	"github.com/rs/zerolog"
+	"tellurion/pkg/backtest/batch"
+	"tellurion/pkg/backtest/cache"
+	"tellurion/pkg/backtest/contracts"
+	"tellurion/pkg/backtest/execution"
+	"tellurion/pkg/backtest/job"
+	"tellurion/pkg/backtest/state"
+	"tellurion/pkg/backtest/tracker"
+	"tellurion/pkg/backtest/walkforward"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/storage"
+)
+
+// S7-P2-1 (ODR-043): this file re-exports the canonical types,
+// constants, and the EngineRunner interface from the leaf package
+// pkg/backtest/contracts so that every existing caller of
+// `backtest.BacktestRequest` / `backtest.TradingConfig` / etc. keeps
+// compiling unchanged after the DTOs move into contracts/.
+//
+// Type aliases (`type X = contracts.X`) are zero-cost (the compiler
+// inlines them to the canonical type), so there is no wrapper overhead
+// and no behavior change. Constants are re-exported with `const X =
+// contracts.X`, which is likewise a compile-time operation.
+//
+// Go has no function alias, so the constructor helpers below are thin
+// wrappers that delegate to the subpackage constructors. Callers stay
+// unchanged.
+
+// Type aliases (zero-cost, backward compatible).
+type (
+	TradingConfig    = contracts.TradingConfig
+	PriceLimitConfig = contracts.PriceLimitConfig
+	BacktestRequest  = contracts.BacktestRequest
+	BacktestResponse = contracts.BacktestResponse
+	// InvalidReason (OBS-01) re-exported so parent-package callers and tests
+	// can reference the validity verdict type without importing contracts.
+	InvalidReason = contracts.InvalidReason
+)
+
+// OBS-01 「无效运行」裁定的 Code 常量，re-export 自 contracts（单一实现）。
+const (
+	InvalidEmptyUniverse = contracts.InvalidEmptyUniverse
+	InvalidZeroTrades    = contracts.InvalidZeroTrades
+	InvalidZeroStartDate = contracts.InvalidZeroStartDate
+	InvalidGarbageMetric = contracts.InvalidGarbageMetric
+)
+
+// ResultSpec status 三值语义（K9），re-export 自 contracts（单一实现）。
+// 生产者（RunBacktest / ResponseFromState）与消费者（compare / API 读路径）
+// 统一引用这三个名字，禁止再散布字面量。
+const (
+	StatusCompleted = contracts.StatusCompleted
+	StatusInvalid   = contracts.StatusInvalid
+	StatusFailed    = contracts.StatusFailed
+)
+
+// CheckValidity (OBS-01) 是 contracts.CheckValidity 的薄包装 —— Go 没有函数
+// 别名，包内调用点（engine.go）与包内测试统一走这个名字。
+func CheckValidity(res *domain.BacktestResult) []InvalidReason {
+	return contracts.CheckValidity(res)
+}
+
+// InvalidReasonCodes re-exports contracts.InvalidReasonCodes.
+func InvalidReasonCodes(reasons []InvalidReason) []string {
+	return contracts.InvalidReasonCodes(reasons)
+}
+
+// Const aliases. The fee-rate constants are double-aliased
+// (contracts -> fees), preserving the single-source-of-truth invariant
+// from S7-P1-4. DefaultStampTaxRateBefore joined them with AUD-20: the
+// stamp tax is date-segmented, so the "current" rate alone is not a
+// complete description of the fee schedule.
+const (
+	DefaultStampTaxRate       = contracts.DefaultStampTaxRate
+	DefaultStampTaxRateBefore = contracts.DefaultStampTaxRateBefore
+	DefaultMinCommission      = contracts.DefaultMinCommission
+	DefaultTransferFeeRate    = contracts.DefaultTransferFeeRate
+	DefaultPriceLimitNormal   = contracts.DefaultPriceLimitNormal
+	DefaultPriceLimitST       = contracts.DefaultPriceLimitST
+	DefaultPriceLimitSTBefore = contracts.DefaultPriceLimitSTBefore
+	DefaultPriceLimitNew      = contracts.DefaultPriceLimitNew
+	DefaultNewStockDays       = contracts.DefaultNewStockDays
+	DefaultShortSellingRate   = contracts.DefaultShortSellingRate
+	TradingDaysPerYear        = contracts.TradingDaysPerYear
+)
+
+// EngineRunner is re-exported so parent-package callers (and future
+// subpackage wrappers in this same file) can reference it as
+// `backtest.EngineRunner` without importing contracts directly.
+type EngineRunner = contracts.EngineRunner
+
+// --- cache/ subpackage re-exports (S7-P2-1 Commit 2) ---
+
+type (
+	CacheManager        = cache.CacheManager
+	FactorCacheAccessor = cache.FactorCacheAccessor
+	FactorStore         = cache.FactorStore
+)
+
+// ErrQuintileNotFound re-exported from cache/.
+var ErrQuintileNotFound = cache.ErrQuintileNotFound
+
+// --- execution/ subpackage re-exports (S7-P2-1 Commit 3) ---
+
+type (
+	ExecutionService         = execution.ExecutionService
+	Quote                    = execution.Quote
+	BacktestExecutionService = execution.BacktestExecutionService
+	ExecutionBridge          = execution.ExecutionBridge
+	LiveBridge               = execution.LiveBridge
+)
+
+// Constructor wrappers (Go has no function alias, so we delegate).
+// Callers that used backtest.NewBacktestExecutionService / NewExecutionBridge
+// / NewLiveBridge keep working unchanged.
+
+func NewBacktestExecutionService(config domain.ExecutionConfig) *BacktestExecutionService {
+	return execution.NewBacktestExecutionService(config)
+}
+
+func NewExecutionBridge(logger zerolog.Logger) *ExecutionBridge {
+	return execution.NewExecutionBridge(logger)
+}
+
+func NewLiveBridge(logger zerolog.Logger) *LiveBridge {
+	return execution.NewLiveBridge(logger)
+}
+
+// --- tracker/ subpackage re-exports (S7-P2-1 Commit 4) ---
+
+type (
+	Tracker            = tracker.Tracker
+	OrderLog           = tracker.OrderLog
+	OrderExecutionOpts = tracker.OrderExecutionOpts
+)
+
+// NewTracker wrapper — delegates to tracker.NewTracker. The trading
+// param resolves through the TradingConfig alias (= contracts.TradingConfig).
+func NewTracker(initialCapital, commissionRate, slippageRate float64, trading TradingConfig, logger zerolog.Logger) *Tracker {
+	return tracker.NewTracker(initialCapital, commissionRate, slippageRate, trading, logger)
+}
+
+// --- state/ subpackage re-exports (S7-P2-1 Commit 5) ---
+
+type (
+	BacktestState         = state.BacktestState
+	BacktestStateSnapshot = state.BacktestStateSnapshot
+	StateStore            = state.StateStore
+	LRUStateStore         = state.LRUStateStore
+	NoopStateStore        = state.NoopStateStore
+	DiskStateStore        = state.DiskStateStore
+)
+
+// DefaultStateStoreCapacity re-exported from state/.
+const DefaultStateStoreCapacity = state.DefaultStateStoreCapacity
+
+var (
+	ErrStateNotFound  = state.ErrStateNotFound
+	ErrInvalidStateID = state.ErrInvalidStateID
+)
+
+// Constructor wrappers (Go has no function alias, so we delegate).
+func NewLRUStateStore(capacity int) *LRUStateStore { return state.NewLRUStateStore(capacity) }
+func NewNoopStateStore() *NoopStateStore           { return state.NewNoopStateStore() }
+func NewDiskStateStore(dir string) (*DiskStateStore, error) {
+	return state.NewDiskStateStore(dir)
+}
+
+// --- walkforward/ subpackage re-exports (S7-P2-1 Commit 6) ---
+
+type (
+	WalkForwardEngine  = walkforward.WalkForwardEngine
+	WalkForwardRequest = walkforward.WalkForwardRequest
+)
+
+// NewWalkForwardEngine 构造 walk-forward 引擎。
+//
+// engineFactory 必须为**每个窗口**返回一个全新构造的 Engine。共享同一个 Engine
+// 实例会让引擎级缓存（OHLCV / 因子 / 基本面 / 上市日历）跨窗口污染 —— 因子缓存
+// 是「整体替换」语义，并发窗口 B 的 Warm 会覆盖窗口 A 正在读取的缓存。
+//
+// 旧签名 `(engine *Engine, store)` 注入的正是那个共享实例，已废弃。
+func NewWalkForwardEngine(
+	engineFactory func() (*Engine, error),
+	store *storage.PostgresStore,
+	logger zerolog.Logger,
+) *WalkForwardEngine {
+	return walkforward.NewWalkForwardEngine(func() (contracts.EngineRunner, error) {
+		eng, err := engineFactory()
+		if err != nil {
+			return nil, err
+		}
+		// typed-nil 陷阱：*Engine(nil) 转成接口后 != nil，会让下游以为拿到了
+		// 一个可用的 runner 而 panic。必须显式挡掉。
+		if eng == nil {
+			return nil, fmt.Errorf("walk-forward: engine factory returned a nil engine")
+		}
+		return eng, nil
+	}, store, logger)
+}
+
+// --- batch/ subpackage re-exports (S7-P2-1 Commit 7) ---
+
+type (
+	BatchEngine  = batch.BatchEngine
+	BatchConfig  = batch.BatchConfig
+	BatchTask    = batch.BatchTask
+	BatchResult  = batch.BatchResult
+	BatchScore   = batch.BatchScore
+	BatchReport  = batch.BatchReport
+	BatchSummary = batch.BatchSummary
+	Scorer       = batch.Scorer
+)
+
+// NewBatchEngine wrapper — runner accepts *Engine (satisfies EngineRunner)
+// or any contracts.EngineRunner impl. wfEng passes through via the
+// WalkForwardEngine alias (= *walkforward.WalkForwardEngine).
+func NewBatchEngine(runner contracts.EngineRunner, wfEng *WalkForwardEngine, config BatchConfig, logger zerolog.Logger) *BatchEngine {
+	return batch.NewBatchEngine(runner, wfEng, config, logger)
+}
+
+// NewScorer wrapper — delegates to batch.NewScorer.
+func NewScorer() *Scorer { return batch.NewScorer() }
+
+// DefaultBatchConfig wrapper — delegates to batch.DefaultBatchConfig.
+func DefaultBatchConfig() BatchConfig { return batch.DefaultBatchConfig() }
+
+// --- job/ subpackage re-exports (S7-P2-1 Commit 8) ---
+
+type (
+	JobService       = job.JobService
+	JobStore         = job.JobStore
+	JobRecord        = job.JobRecord
+	CreateJobRequest = job.CreateJobRequest
+	Job              = job.Job
+)
+
+// NewJobService wrapper — K10：JobService 改持 EngineRegistry（执行期按
+// RunSpec.kernel 经 Resolve 取 runner），签名随之由 (store, engine)
+// 变为 (store, registry, logger)：runner 的解析推迟到 job 执行时，
+// logger 也不再从 engine 内部提取（调用方显式传入）。DBT-06：可选项
+// （如 WithMarketRouter）原样透传。
+func NewJobService(store JobStore, registry *contracts.EngineRegistry, logger zerolog.Logger, opts ...job.JobServiceOption) *JobService {
+	return job.NewJobService(store, registry, logger, opts...)
+}
+
+// WithMarketRouter 别名 — DBT-06：job 创建期的市场路由（见 job 包）。
+var WithMarketRouter = job.WithMarketRouter
+
+// Compile-time assertion: *Engine satisfies contracts.EngineRunner.
+// If the RunBacktest signature ever drifts from the interface, the
+// build fails here rather than at a distant call site.
+var _ contracts.EngineRunner = (*Engine)(nil)
+
+// defaultTradingConfig wraps the exported contracts.DefaultTradingConfig
+// to keep the two existing call sites in engine.go (NewEngine and
+// NewEngineWithOptions) unchanged. Kept unexported because only the
+// parent package should call it; sibling subpackages reach for
+// contracts.DefaultTradingConfig() directly.
+func defaultTradingConfig() TradingConfig {
+	return contracts.DefaultTradingConfig()
+}

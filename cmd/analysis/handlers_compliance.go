@@ -1,0 +1,427 @@
+package main
+
+import (
+	"tellurion/pkg/httpserver"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+
+	"tellurion/pkg/compliance"
+	"tellurion/pkg/live"
+)
+
+// P2-4 (ODR-028): compliance / investor-suitability endpoints.
+//
+// These endpoints expose the pkg/compliance/appropriateness package
+// to the frontend. They are intentionally read-only — the actual
+// enforcement (i.e. blocking an order that fails the check) is done
+// in handlers_execution.go (see P2-4 forward integration; out of
+// scope for this commit, but the API contract is set so the order
+// path can `POST /api/compliance/check` before `POST /api/orders`).
+//
+// Endpoints:
+//
+//	POST /api/compliance/check          — check a single symbol
+//	GET  /api/compliance/requirements   — list all per-board thresholds
+//	GET  /api/compliance/boards         — boards that require suitability
+//	POST /api/compliance/abnormal/run   — run 6-category detector over
+//	                                      a supplied day's trades/orders
+//	POST /api/compliance/report/daily   — generate large-trade
+//	                                      report.json for a given day
+//
+// The "user_id" + profile fields are read from the request body
+// (POST) so the handler is decoupled from the user-store
+// implementation. In production these would come from the JWT
+// subject + a DB lookup; in paper-trading mode they come from the
+// config-driven stub at main.go.
+
+// ComplianceHandler serves compliance / suitability HTTP endpoints
+// from the analysis service, backed by the in-process
+// pkg/compliance package. The package itself is stateless
+// (registry is RWMutex-guarded but otherwise read-only) so a
+// single shared instance is enough.
+type ComplianceHandler struct {
+	logger zerolog.Logger
+	// defaultProfile is the fallback profile used when the request
+	// does not specify one. In production this is loaded from the
+	// user table; in paper-trading mode it is the
+	// config-driven `trading.default_user_profile`.
+	defaultProfile compliance.SuitabilityProfile
+	// abnormalDetector is the 6-category abnormal-trade detector.
+	// Constructed once with the default thresholds and shared.
+	abnormalDetector *compliance.AbnormalDetector
+	// reporter is the large-transaction reporter. Constructed once
+	// with the default thresholds; the output directory is read
+	// from the analysis-service viper config.
+	reporter *compliance.LargeTraderReporter
+	// divestmentChecker is the P2-7 shareholder-reduction engine.
+	// Constructed once with the regulatory defaults + the shared
+	// clock; clients may override individual rules via viper (see
+	// main.go).
+	divestmentChecker *compliance.DivestmentChecker
+	// now is injectable so tests can pin the clock.
+	now func() time.Time
+}
+
+// NewComplianceHandler constructs a ComplianceHandler.
+//
+// `reporterCfg` and `abnormalThresholds` are taken from the
+// analysis-service config; the call site (main.go) is responsible
+// for mapping viper keys into the strongly-typed config structs
+// so this handler stays free of viper imports.
+func NewComplianceHandler(
+	logger zerolog.Logger,
+	defaultProfile compliance.SuitabilityProfile,
+	reporterCfg compliance.LargeTradeConfig,
+) *ComplianceHandler {
+	return &ComplianceHandler{
+		logger:            logger.With().Str("component", "compliance_handler").Logger(),
+		defaultProfile:    defaultProfile,
+		abnormalDetector:  compliance.NewAbnormalDetector(),
+		reporter:          compliance.NewLargeTraderReporter(reporterCfg),
+		divestmentChecker: compliance.NewDivestmentChecker(nil),
+		now:               func() time.Time { return time.Now() },
+	}
+}
+
+// RegisterRoutes wires the compliance endpoints under /api/compliance.
+// We do not register legacy /compliance/* paths because the
+// compliance module is brand-new (P2-4) — there is no pre-existing
+// client to preserve compatibility for.
+func (h *ComplianceHandler) RegisterRoutes(router *gin.Engine) {
+	group := router.Group("/api/compliance")
+	{
+		// P2-4: investor suitability
+		group.POST("/check", h.check)
+		group.GET("/requirements", h.requirements)
+		group.GET("/boards", h.boards)
+		// P2-5: abnormal-trade detection
+		group.POST("/abnormal/run", h.abnormalRun)
+		// P2-6: large-transaction daily report
+		group.POST("/report/daily", h.reportDaily)
+		// P2-7: shareholder reduction rules
+		group.POST("/divestment/check", h.divestmentCheck)
+		group.GET("/divestment/holder-types", h.divestmentHolderTypes)
+		group.GET("/divestment/methods", h.divestmentMethods)
+		group.GET("/divestment/rules", h.divestmentRules)
+	}
+}
+
+// checkRequest is the input shape for POST /api/compliance/check.
+// Symbol is required; profile fields are optional (they default to
+// the handler's `defaultProfile` if omitted, which is the
+// paper-trading mode behavior).
+type checkRequest struct {
+	Symbol string `json:"symbol" binding:"required"`
+
+	// Optional profile overrides — production callers typically
+	// omit these and let the handler fill from the user table.
+	UserID            string                `json:"user_id,omitempty"`
+	AssetDailyAvgCNY  *float64              `json:"asset_daily_avg_cny,omitempty"`
+	FirstTradeAt      *time.Time            `json:"first_trade_at,omitempty"`
+	RiskLevel         *compliance.RiskLevel `json:"risk_level,omitempty"`
+	BoardsEnabled     []string              `json:"boards_enabled,omitempty"`
+	RiskTestExpiredAt *time.Time            `json:"risk_test_expired_at,omitempty"`
+}
+
+// checkResponse mirrors compliance.CheckResult but with snake_case
+// JSON tags (frontend convention) and a few helper fields the UI
+// needs to render the result without re-walking the result.
+type checkResponse struct {
+	Allowed    bool                         `json:"allowed"`
+	Board      string                       `json:"board"`
+	BoardName  string                       `json:"board_name,omitempty"`
+	Reasons    []string                     `json:"reasons"`
+	UserID     string                       `json:"user_id"`
+	ProfileAge int                          `json:"profile_age_months"`
+	AssetDaily float64                      `json:"asset_daily_avg_cny"`
+	RiskLevel  string                       `json:"risk_level"`
+	Required   *compliance.BoardRequirement `json:"required,omitempty"`
+	CheckedAt  time.Time                    `json:"checked_at"`
+}
+
+// check returns the structured eligibility verdict for the given
+// symbol. The handler NEVER mutates state — the profile snapshot
+// is taken from the request and discarded after the check.
+func (h *ComplianceHandler) check(c *gin.Context) {
+	var req checkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpserver.Error(c, http.StatusBadRequest, err)
+		return
+	}
+
+	// Build the profile. If the caller supplied partial overrides,
+	// they take precedence over the default profile on a per-field
+	// basis; otherwise we use the default wholesale.
+	profile := h.defaultProfile
+	if req.UserID != "" {
+		profile.UserID = req.UserID
+	}
+	if req.AssetDailyAvgCNY != nil {
+		profile.AssetDailyAvgCNY = *req.AssetDailyAvgCNY
+	}
+	if req.FirstTradeAt != nil {
+		profile.FirstTradeAt = *req.FirstTradeAt
+	}
+	if req.RiskLevel != nil {
+		profile.RiskLevel = *req.RiskLevel
+	}
+	if len(req.BoardsEnabled) > 0 {
+		profile.BoardsEnabled = req.BoardsEnabled
+	}
+	if req.RiskTestExpiredAt != nil {
+		profile.RiskTestExpiredAt = *req.RiskTestExpiredAt
+	}
+
+	board := live.ClassifySymbol(req.Symbol)
+	result := profile.Check(board, h.now())
+
+	resp := checkResponse{
+		Allowed:    result.Allowed,
+		Board:      string(result.Board),
+		Reasons:    result.Reasons,
+		UserID:     result.UserID,
+		ProfileAge: result.ProfileAge,
+		AssetDaily: result.AssetDaily,
+		RiskLevel:  result.RiskLevel.String(),
+		Required:   result.Required,
+		CheckedAt:  result.CheckedAt,
+	}
+	if result.Required != nil {
+		resp.BoardName = result.Required.DisplayName
+	}
+
+	// HTTP status: 200 = allowed (or allowed-by-default for boards
+	// outside the suitability scope); 403 = explicitly rejected.
+	// 400 = symbol unparseable (board = unknown AND reasons empty).
+	// 422 = rejected for legitimate compliance reasons.
+	if !result.Allowed && result.Required != nil {
+		c.JSON(http.StatusUnprocessableEntity, resp)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// requirements returns the full BoardRequirement list. The frontend
+// uses this to render the "板块开通条件" page (per-board asset +
+// experience + risk-level requirements, plus human-readable
+// description text).
+func (h *ComplianceHandler) requirements(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"requirements": compliance.AllRequirements(),
+		"generated_at": h.now(),
+	})
+}
+
+// boards returns the list of boards that require suitability checks.
+// Used by the frontend to decide whether to even render the
+// compliance dialog (e.g. a portfolio of main-board-only stocks
+// can skip the check entirely).
+func (h *ComplianceHandler) boards(c *gin.Context) {
+	boards := compliance.BoardsRequiringSuitability()
+	names := make([]string, 0, len(boards))
+	for _, b := range boards {
+		names = append(names, b.String())
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"boards": names,
+		"count":  len(boards),
+	})
+}
+
+// ============================================================
+// P2-5: Abnormal-trade detection endpoint
+// ============================================================
+
+// abnormalRunRequest is the input for POST /api/compliance/abnormal/run.
+// `account_id` is the target account; `orders` and `trades` are
+// the sliding window the detector should analyze. The window is
+// implicit (now - detector.Window); the caller is responsible for
+// passing only in-window records.
+type abnormalRunRequest struct {
+	AccountID string                   `json:"account_id"`
+	Orders    []compliance.OrderRecord `json:"orders"`
+	Trades    []compliance.TradeRecord `json:"trades"`
+}
+
+// abnormalRunResponse wraps the detector output for transport.
+type abnormalRunResponse struct {
+	Alerts []compliance.AbnormalAlert `json:"alerts"`
+	Count  int                        `json:"count"`
+	RunAt  time.Time                  `json:"run_at"`
+}
+
+// abnormalRun runs the 6-category detector over the supplied
+// window. The handler is stateless — the detector itself is
+// concurrency-safe and the request is fully isolated.
+func (h *ComplianceHandler) abnormalRun(c *gin.Context) {
+	var req abnormalRunRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpserver.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	alerts := h.abnormalDetector.RunAll(req.AccountID, req.Orders, req.Trades, h.now())
+	c.JSON(http.StatusOK, abnormalRunResponse{
+		Alerts: alerts,
+		Count:  len(alerts),
+		RunAt:  h.now(),
+	})
+}
+
+// ============================================================
+// P2-6: Large-transaction daily report endpoint
+// ============================================================
+
+// reportDailyRequest is the input for POST /api/compliance/report/daily.
+// `trading_date` is optional; when omitted, the handler uses the
+// current day in the server's local zone. The trades slice is the
+// day's fills; the reporter handles the date filter itself.
+type reportDailyRequest struct {
+	TradingDate string                   `json:"trading_date,omitempty"` // YYYY-MM-DD
+	Trades      []compliance.TradeRecord `json:"trades"`
+}
+
+// reportDailyResponse mirrors the report with the on-disk path
+// prepended for convenience. The full JSON body is also embedded
+// in `report` so the caller doesn't have to re-read the file.
+type reportDailyResponse struct {
+	Path   string                       `json:"path"`
+	Report *compliance.LargeTradeReport `json:"report"`
+}
+
+// reportDaily generates a large-transaction report.json for the
+// given day's trades. The file is written to
+// `reporter.config.OutputPath/large-trades-YYYYMMDD.json` with
+// 0600 perms (operator-only). The handler returns the path
+// alongside the report body so the operator can both inspect and
+// forward the file to the regulator without a second call.
+func (h *ComplianceHandler) reportDaily(c *gin.Context) {
+	var req reportDailyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpserver.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	day := h.now()
+	if req.TradingDate != "" {
+		t, err := time.Parse("2006-01-02", req.TradingDate)
+		if err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "trading_date must be YYYY-MM-DD")
+			return
+		}
+		day = t
+	}
+	report := h.reporter.BuildReport(req.Trades, day)
+	// REV-23(4)：此处原有一个 5s 超时 ctx，但 WriteReport 不接收 ctx——
+	// 建了恒不生效，唯一作用是 ctx.Err() 的一次立即检查（恒 nil），只会
+	// 误导读者以为磁盘写有超时保护。删除假超时；若将来要给磁盘写加超时，
+	// 应让 WriteReport(ctx, ...) 真正接收并在写路径检查。
+	path, err := h.reporter.WriteReport(report)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("write large-trade report failed")
+		httpserver.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	h.logger.Info().
+		Str("path", path).
+		Int("large_trades", len(report.LargeTrades)).
+		Int("cumulative_accounts", len(report.CumulativeByAccount)).
+		Msg("daily large-trade report generated (P2-6)")
+	c.JSON(http.StatusOK, reportDailyResponse{Path: path, Report: report})
+}
+
+// ============================================================
+// P2-7: 减持规则 — HTTP 端点
+// ============================================================
+
+// divestmentCheckRequest is the input shape for POST
+// /api/compliance/divestment/check. The client supplies a
+// ShareholderProfile + a ReductionPlan + an optional history of
+// recent reductions (the latter is required for rolling-window
+// capacity checks; the handler does NOT scan the database on
+// behalf of the caller — separation of concerns keeps this
+// endpoint stateless and test-friendly).
+type divestmentCheckRequest struct {
+	Profile compliance.ShareholderProfile `json:"profile"`
+	Plan    compliance.ReductionPlan      `json:"plan"`
+	Recent  []compliance.Reduction        `json:"recent,omitempty"`
+}
+
+// divestmentCheck runs the P2-7 engine and returns the structured
+// result. HTTP status mirrors the verdict:
+//   - 200 OK           — result.Allowed == true
+//   - 422 Unprocessable — result.Allowed == false (legitimate reject)
+//
+// "Allowed == false + Reasons empty" is a non-event (defensive
+// 500 — would only happen if the engine returned garbage).
+func (h *ComplianceHandler) divestmentCheck(c *gin.Context) {
+	var req divestmentCheckRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpserver.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	result := h.divestmentChecker.Check(req.Profile, req.Plan, req.Recent)
+	if !result.Allowed {
+		// Reasons is non-empty by construction (Check always appends
+		// at least one reason when rejecting); but if for any reason
+		// the engine returned Allowed=false with no reason, fall
+		// back to 500 to surface the bug.
+		if len(result.Reasons) == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "divestment engine rejected with no reason",
+				"profile": req.Profile,
+				"plan":    req.Plan,
+			})
+			return
+		}
+		c.JSON(http.StatusUnprocessableEntity, result)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// divestmentHolderTypes returns the 5 holder types (controller /
+// director / major_5pct / pre_ipo / placement) for UI dropdowns.
+func (h *ComplianceHandler) divestmentHolderTypes(c *gin.Context) {
+	types := compliance.AllHolderTypes()
+	out := make([]gin.H, 0, len(types))
+	for _, t := range types {
+		out = append(out, gin.H{
+			"id":    string(t),
+			"label": compliance.HolderTypeLabel(t),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"holder_types": out,
+		"count":        len(out),
+	})
+}
+
+// divestmentMethods returns the 3 reduction methods (auction /
+// block / agreement) for UI dropdowns.
+func (h *ComplianceHandler) divestmentMethods(c *gin.Context) {
+	methods := compliance.AllReductionMethods()
+	out := make([]gin.H, 0, len(methods))
+	for _, m := range methods {
+		out = append(out, gin.H{
+			"id":    string(m),
+			"label": compliance.MethodLabel(m),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"methods": out,
+		"count":   len(out),
+	})
+}
+
+// divestmentRules returns the current per-holder-type rule set
+// (snapshot). The frontend uses this to render the rule editor
+// and to show "current vs. regulatory default" diff in
+// compliance dashboards.
+func (h *ComplianceHandler) divestmentRules(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"rules":        h.divestmentChecker.Rules(),
+		"generated_at": h.now(),
+	})
+}

@@ -1,0 +1,82 @@
+# REV-17：data-service 的写门（ingest / 全市场同步触发 / 排程管理）需要鉴权。
+# 与 analysis-service.yaml 的 auth.* **同一口径**：jwt_secret 只从 env 读
+# （AUTH_JWT_SECRET），两服务共用同一个 secret —— analysis 签发的 token 在
+# 这里同样有效。留空 = 未启用（开发/CI 的 open-access 模式），
+# **生产必须设置**，否则 :8081 的写门是裸的。
+auth:
+  jwt_secret: ""
+  allow_insecure: false        # env: AUTH_INSECURE
+  insecure_exposure: ""        # env: AUTH_INSECURE_EXPOSURE，只认 loopback-published
+  issuer: "quant-trading"
+  access_token_ttl: 15m
+  refresh_token_ttl: 168h
+
+logging:
+  level: "info"
+  format: "json"
+
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+  # AUD-29: gin 的运行模式。debug | release | test。
+  # 未配置、或写了不认识的值，一律按 release 处理（fail-safe）。
+  # 此前这里由 logging.level != "debug" 推断，与 analysis 服务的
+  # logging.format == "json" 口径不一致 —— 同一份配置能得出不同结果。
+  # env 覆盖：SERVER_GIN_MODE
+  gin_mode: "release"
+
+  # P0-4: CORS 跨源白名单（与 analysis 服务同源，实现在
+  # internal/httpserver）。留空 = 不回显任何 ACAO（fail closed）。
+  # env 覆盖：SERVER_CORS_ALLOWED_ORIGINS="http://a.example,http://b.example"
+  cors:
+    allowed_origins: []
+
+# 网关限流（每 ClientIP / 每分钟窗口）。env 覆盖：RATE_LIMIT_PER_MINUTE
+# （viper AutomaticEnv）；e2e/压测调高、事故响应调低（ODR-013 模式）。
+rate_limit:
+  per_minute: 100
+
+# 数据库。密码**只能**从 env 注入（DATABASE_PASSWORD）。
+#
+# AUD-39：此前 password 写的是字面量 "${DATABASE_PASSWORD}"，而本仓没有 env
+# 展开器 —— 那个字面量会被当成真密码用。现在改成空串，启动期由
+# pkg/storage.BuildDSN 校验（空密码 Fatal 并指向 DATABASE_PASSWORD）。
+#
+# url 留空 = 逐字段拼装；它是 DATABASE_URL 的覆盖点。
+#
+# ── 地址口径（2026-09-25 定，见 docker-compose.yml 文件头）────────────────
+# **这份 yaml 是「在宿主机上直接跑」的视角：数据库/缓存都在 localhost。**
+# 容器里的视角不同（容器内的 localhost 指容器自己），那一侧由
+# docker-compose.yml 的 environment 覆盖成 host.docker.internal。
+#
+# 这里的 host 此前写的是 "postgres"（compose 服务名）—— 那是容器视角，
+# 而 compose 又没给 data-service 注入 DATABASE_HOST，等于把容器地址当成了
+# 本机地址，只是当时 compose 里真有个叫 postgres 的容器才「碰巧能用」
+# （P1-8 同型）。容器里的 postgres 已被移除，这个值必须回到 localhost。
+database:
+  url: ""
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: ""
+  database: "quant_trading"
+  sslmode: "disable"
+
+# 同上：宿主机视角。容器由 compose 注入 redis://host.docker.internal:6379。
+redis:
+  url: "redis://localhost:6379"
+
+# Tushare。token **只能**从 env 注入（TUSHARE_TOKEN）；空 = 未配置。
+#
+# AUD-39：此前写的是字面量 "${TUSHARE_TOKEN}"。没有展开器，于是「未配置」
+# 变成「配置了一个内容为 ${TUSHARE_TOKEN} 的 token」—— Tushare 返回 40101，
+# 而日志里看不出是没填 token（P2-8 那条静默失败就是这个形状）。改成空串后，
+# buildTushareClient 会打印明确的 warn。
+#
+# 注意这里**不**做启动期 Fatal：buildTushareClient 的注释明示「sync 端点会在
+# 调用时失败，但 read 端点仍可用」是有意的设计（只读路径不依赖 token）。
+tushare:
+  token: ""
+  base_url: "https://api.tushare.pro"
+  max_retries: 3
