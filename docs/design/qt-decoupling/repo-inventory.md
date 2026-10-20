@@ -108,7 +108,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | `quant-data-engine` | **不属于本项目**，不动、不改名、不纳入清单 |
 | `nt-sidecar`（core 内 Python 子目录） | **现在不拆**；将来若独立，名字定为 **`tellurion-nt`**（Python，符合「语言不同才拆仓」判据） |
 | `quant-trading-worktrees/` | 目录容器，不是仓 |
-| `contracts/` 顶层数据契约文件 | core 内目录，不是仓；S1 迁入 contracts 仓的 `schemas/`（见 QT-05） |
+| `contracts/` 顶层数据契约文件 | **core 内目录，不是仓，且不迁**：运行时按 cwd 相对路径发现（`cmd/data/setup.go:223-225`），搬走会让字典静默加载失败（ADR-D31） |
 | `nautilus_trader` / `vnpy` / `claudeer` / `gdpr-preferenc` | 上游或其他项目，不属本清单 |
 
 ---

@@ -28,8 +28,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W0 | QT-02 | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
 | W0 | QT-03 | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它 |
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
-| W0 | QT-05 | **S1 契约层 + 工具层抽取**（`contracts/` 含 domain + `kit/` 含 db，两个子 module） | P0 | 契约要有地方住；与 01 撞 `contracts/` → 01 先落常量，05 再搬；**不建新仓** |
-| **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **拆仓**：agent 数据自持（`ai.*`）→ contracts/kit 成独立仓 → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置 |
+| **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31） |
+| **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置 |
 | **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提） |
 | W1 | QT-11 | per-run 策略实例 | P0 | K15 对拍前置；无文件冲突 |
 | W1 | QT-12 | run 级缓存下沉 + 资源准入 | P0 | 同一笔内存账，必须一起做 |
@@ -50,7 +50,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **横切** | QT-50~52 | 装配外移 / 执行 port / 市场摩擦核实 | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
-**并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 换 13 个函数，那是第一个会打穿 agent 编译的改动，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`contracts/` vs `pkg/backtest/engine*` vs 只读扫描）；05 会搬 `contracts/`，务必排在 01 之后。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
+**并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 换 13 个函数，那是第一个会打穿 agent 编译的改动，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
 
 ---
 
@@ -111,8 +111,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] ⬜
 
 - **① 目标**：任何一个仓被一个 agent 接手时，都能**从本仓内**知道「怎么构建、边界在哪、依赖哪版契约、该做什么、禁止什么」，不靠读别的仓。
-- **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决，contracts/kit 由 QT-05' 解决）。
-- **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~R5，**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「replace 指向仓外路径 = 红」，仓内 `replace ./contracts` 在 S1 期合法**，不要误杀；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
+- **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
+- **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~R5，**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
 - **④ 约束与非目标**：不把 core 的 AGENTS 全文复制到各仓（只写本仓必须知道的）；不引入新 CI 平台；不改任何代码。
 - **⑤ 验收**：脚本对 **12 仓**输出绿（agent 的 R1 以 `known-gap → QT-07` 登记方式通过，不是静默忽略；8 个占位仓的 R2 以「有 CI 但无测试」也要显式列出，不许静默通过）；`docs` 仓与 8 个新仓的 CI 首次绿；**12 仓** `AGENTS.md` 均含「依赖的契约版本」与「禁止事项」两节。
 - **⑥ 边界**：只做入口与自检；拆仓本身是 QT-07。
@@ -158,29 +158,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：报告存在且含可复现命令；每个重复样例都能定位到源码行；结论落到 `p0-round2-review.md` §8.3 的表格里（勾选分支）。
 - **⑥ 边界**：只决定"重复怎么办"；排序本身是 QT-21。
 
-### QT-05 · S1 契约层与工具层抽取（`contracts/` 含 domain + `kit/` 含 db）[P0] ⬜
+### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] ⬜
 
-> ⚠️ **本单前提已被 2026-10-20 建仓推翻，待裁决（Plan A / Plan B）**：原文写「仍住在本仓，不建新 git 仓」，但 `tellurion-contracts` 与 `tellurion-kit` **已经是独立仓**（各含 go.mod + 占位包）。
-> - **Plan A（原计划）**：先在 core 内建 `contracts/` `kit/` 子 module（用仓内 replace 快速迭代），W0 冻结后再由 QT-07 搬进两个新仓 → **搬两次**，且 core 里会短暂出现一个不该属于它的 `contracts/` 目录。
-> - **Plan B（建议）**：**代码直接写进两个新仓**，core 用 `go.work`（仅本地、不入库）指向它们做联调；冻结后打 `v0.1.0`，core 改 `require <tag>` → **只搬一次**。代价：W0 期间每次契约变更都要 ``git tag`` 一次（0.x 允许 breaking，只 bump MINOR）。
-> - 未裁决前**不要开工本单**。
+> **形态已裁决（2026-10-20，用户选 Plan B → 落地形态见 ADR-D31）**：两仓已存在（各含最终 module path 的 `go.mod` + `AGENTS.md` + `doc.go` 占位），所以**代码直接写进新仓**，core/agent 用 `require <伪版本>` 取用，**全程不出现 `replace`**。原 Plan A（先在 core 内建 `contracts/` `kit/` 子 module，S2 再搬）作废——它会搬两次，且与 core 顶层 `contracts/` 数据目录撞名。
 
-- **① 目标**：契约（含值对象）与横切工具在**物理上**成为两个独立 go module，依赖方向由编译器强制；这是拆仓前的最后一步，**仍住在本仓，不建新 git 仓**。
-- **② 上下文**：`repo-topology-and-naming.md` §5/§7-S1（D29）；实测：`pkg/domain` 17 文件 3983 行，被 **core 306 个文件、agent 48 个文件**使用，自身仅依赖 `domain/market` 与 `fees`（2 处）；`pkg/backtest/contracts` 6 文件 2113 行，仅依赖 `domain` + `fees`，被 50 处（含 agent 5 处）使用；现状单 module、无 `go.work`。ADR-031 四契约（`RunSpec`/`SignalSpec`/`ResultSpec`/`EngineRunner`）就在这个包里。
+- **① 目标**：契约（含值对象）与横切工具**物理上住进两个独立仓**，依赖方向由编译器 + `go.sum` 强制；core 与 agent 通过**版本依赖**引用它们。
+- **② 上下文**：`repo-topology-and-naming.md` §5/§7-S1（D29）+ ADR-D31；实测：`pkg/domain` 17 文件 3983 行，被 **core 306 文件、agent 48 文件**使用，自身仅依赖 `domain/market` 与 `fees`（2 处）；`pkg/backtest/contracts` 6 文件 2113 行，仅依赖 `domain` + `fees`，被 50 处（含 agent 5 处）使用；ADR-031 四契约（`RunSpec`/`SignalSpec`/`ResultSpec`/`EngineRunner`）就在这个包里。两仓现状：`github.com/ruoxizhnya/tellurion-{contracts,kit}`、`go 1.25`、**public**（`GET /repos/...` = 200）；`tellurion-contracts@main` 实测可 `go get` 到 `v0.0.0-20261020112435-a55208cc2412`（Go 1.25.0）。
 - **③ 要求**：
-  ① 建 `contracts/` 子 module，**go.mod 直接写最终路径** `github.com/ruoxizhnya/tellurion-contracts`——S2 拆仓时 import 路径不用改，只把 replace 换成 tag；
-  ② `pkg/domain` 整包迁入 `contracts/domain`（17 文件）；`fees` 拆两半：**数据形状**（费率/滑点/成本模型的定义）进 contracts，**计算**留 core；
-  ③ `pkg/backtest/contracts` 迁入 `contracts/engine`（四契约 + `MarketRouter`）；
-  ④ 建 `kit/` 子 module（路径 `github.com/ruoxizhnya/tellurion-kit`），迁 12 个包 + 新增 **`kit/db`**（仅 connection/migrate/DSN 解析，**零表结构**，K 裁决落地）；
-  ⑤ core `go.mod` `require` 两个 module + `replace` 指向 `./contracts` `./kit`（**仓内 replace 允许**；S2 删）；
-  ⑥ `go.work` 仅本地生成，加入 `.gitignore`，**不入库**；
-  ⑦ 护栏：反向 import 编译失败；`kit` 内禁业务词（backtest/strategy/order/factor/market…）；全仓禁旧路径 `tellurion/pkg/domain`、`tellurion/pkg/backtest/contracts`；
-  ⑧ **agent 侧同步加 replace**（`replace` 不传递）：agent `go.mod` 加 `...-contracts => ../tellurion/contracts`、`...-kit => ../tellurion/kit`——漏了这条，S1 一完成 agent 立即编译失败；
-  ⑨ **包名策略**：`contracts/engine/` 目录内保持 `package contracts`（现包名就是它），`contracts/domain/` 内 `package domain`；调用点前缀一行不改，只在 import 处加 alias。若改成 `package engine`，本仓 50 处 + agent 5 处都要改前缀；
-  ⑩ 输出「**core-only 类型清单**」：`domain` 的 `screen`/`sector`/`supply_chain`/`macro`/`mining` 在 agent 侧各 0 命中，属 core 专用；S1 仍整包迁，清单留给 S2 后回收（见 D29 §5.2）。
-- **④ 约束与非目标**：**不改任何业务逻辑**；不建新 git 仓（QT-07）；不搬 `sandbox/wasm`（必须与引擎同进程）；不搬 `fees` 的计算部分；**一次只搬一个包**，每搬一次跑 `go build ./...` + `go vet ./...`。
-- **⑤ 验收**：`go list -m all` 显示 3 个 module；`go build ./...` + `go test ./...` 绿；旧路径 grep 零命中；在 `contracts/` 内 import `tellurion/pkg/*` **编译失败**；`kit` 业务词零命中；agent 构建仍走 replace（S3 才删）。
-- **⑥ 边界**：只做 module 抽取与路径替换；拆仓、tag、跨仓护栏属 QT-07 / QT-09。
+  ① `tellurion-contracts`：`domain/`（17 文件，`package domain`）、`engine/`（6 文件，**保持 `package contracts`**）、`fees/`（**只放数据形状**：费率/滑点/成本模型的定义与枚举）；
+  ② `tellurion-kit`：迁 12 个包 + 新增 **`db`**（仅 connection/migrate/DSN 解析，**零表结构**，K 裁决落地）；
+  ③ core 侧：`go get github.com/ruoxizhnya/tellurion-contracts@<sha>`、`@...-kit@<sha>` 写入 `require` 与 `go.sum`；再一次性 sed 全替 `tellurion/pkg/domain` → `github.com/ruoxizhnya/tellurion-contracts/domain`（306 文件）与 `tellurion/pkg/backtest/contracts` → `.../contracts/engine`（50 处）；
+  ④ **禁止 `replace`**：core / agent 的 `go.mod` 里不得出现 `=>`。本地要同时改三个仓时用 **`go.work`**（仓根，`use ( . ../tellurion-contracts ../tellurion-kit )`），**加入 `.gitignore`、不入库**——实测：有 `go.work` 时直接读本地目录、无 `go.sum` 也能构建；没有时按 `go.sum` 走真实版本（**这正是 CI 与 Docker 的路径**）；
+  ⑤ **agent 侧同步**：agent 仓根 `go.work` 写 `use ( . ../tellurion ../tellurion-contracts ../tellurion-kit )`（它仍 replace core，到 S3 才删）；**`require` 同样不传递**，agent 必须自己 `require` 两个仓——漏一条它立刻编不过；
+  ⑥ **core 顶层 `contracts/` 的 5 个数据文件留在原地**：`field_dictionary.yaml` + 4 个 `*.schema.{json,sql}` 是**运行时按 cwd 相对路径自动发现**的部署资产（`cmd/data/setup.go:223-225` 依次试 `./contracts/`、`../contracts/`、`../../contracts/`），不是 Go 包。跟 module 搬走 = 部署后字典**静默加载失败**（编译期查不出）。本单**只搬 Go 代码**；
+  ⑦ 新增 `tools/check_contract_pin.py` + `make contracts-pin-check`：core / agent 的 contracts/kit pin **必须是该仓 `main` 的祖先**（禁止指向未合入的提交），并打印 `repo@sha → 提交日期` 供评审；
+  ⑧ 包名策略：`contracts/engine/` 内保持 `package contracts`、`contracts/domain/` 内 `package domain`；调用点前缀一行不改，只在 import 处处理 alias。若改成 `package engine`，本仓 50 处 + agent 5 处都要改前缀；
+  ⑨ 输出「**core-only 类型清单**」：`screen`/`sector`/`supply_chain`/`macro`/`mining` 在 agent 侧各 0 命中，属 core 专用；S1 仍整包迁，清单留给 S2 后回收（D29 §5.2）。
+- **④ 约束与非目标**：**不改任何业务逻辑**；不搬 `sandbox/wasm`（必须与引擎同进程）；不搬 `fees` 的计算部分；**不动那 5 个数据契约文件**；不在本单打 tag（S2 = QT-07）；**不为省事给 core/agent 加 replace**；一次只搬一个包，每搬一次跑 `go build ./...` + `go vet ./...`。
+- **⑤ 验收**：`go list -m all` 显示 3 个 module，且 contracts/kit 两行**带真实伪版本**（不是 `=> ./...`）；`go build ./...` + `go test ./...` 绿；旧路径 grep 零命中；`git grep -E '=> *\.\./tellurion-(contracts|kit)'` 在 core / agent 均零命中；在两仓内 import `tellurion/...` **编译失败**；`kit` 业务词零命中；agent 与 core 均能 build；`make contracts-pin-check` 绿；**删掉 `go.work` 后 `go build ./...` 仍绿**（证明走的是 `go.sum` 而非本地目录）；`equitydeep` 字典在 `cmd/data` 与部署镜像里都能加载（回归）。
+- **⑥ 边界**：只做代码搬迁与依赖切换；tag、版本策略、跨仓护栏属 QT-07 / QT-09 / QT-19。
 
 ---
 
@@ -359,27 +355,27 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：agent `grep -r "pkg/storage"` = 0；`ai.*` 行数与旧表对拍一致（报告归档）；停写后 core 旧表不再增长；core 侧 deprecated 标记存在；日历/上市窗口经 port 取到且值一致。
 - **⑥ 边界**：只做实验/研究域的数据归属；`ai.*` 之外的 schema 不动；X 线服务的数据归属按 QT-40。
 
-### QT-07 · contracts / kit 拆成独立 git 仓（S2 → S3）[P1] ⬜
+### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] ⬜
 
-- **① 目标**：`tellurion-contracts` 与 `tellurion-kit` 各自**单仓可构建、可自证**（R1~R5 全成立）；core 从「仓内 replace」切到「跨仓 tag」；agent 最终删掉 `../tellurion` replace。
-- **② 上下文**：`repo-topology-and-naming.md` §7/§8（D29）；前置 = W0 五单 + QT-05 全绿；现状两目录已在本仓内且 go.mod 用最终路径（QT-05 的设计），拆仓时 **import 路径不用改**。**本单分两次合入**：S2（①~④⑥，不依赖 QT-50）先合；S3（⑤）等 QT-50 + QT-17 完成后再合——不要因为 ⑤ 未完成而卡住 ①~④。
+- **① 目标**：`tellurion-contracts` / `tellurion-kit` 各自**单仓可构建、可自证**（R1~R5 全成立）；core 与 agent 从「伪版本」切到「`v0.1.0`」；agent 最终删掉 `../tellurion` replace。
+- **② 上下文**：`repo-topology-and-naming.md` §7/§8（D29）+ **ADR-D31**；前置 = W0 + QT-05 全绿。**两仓在 S1 已有实现与真实伪版本依赖**——本单**不再 `git init`、不再迁目录**（原 ①/② 已随 Plan A 作废），只做「伪版本 → tag」与自治补齐。**分两次合入**：S2（①~⑤）先合；S3（⑥）等 QT-50 + QT-17 完成后再合——不要因为 ⑥ 未完成而卡住 ①~⑤。
 - **③ 要求**：
-  ① S2-a：`git init -b main` 两仓 → 迁出目录 → `go mod init` 已是最终路径（无需改）→ `git tag -a v0.1.0`；
-  ② S2-b：core 改 `require github.com/ruoxizhnya/tellurion-contracts v0.1.0` + `-kit v0.1.0`，**删 `replace` 与 `go.work`**；
-  ③ S2-c：两新仓复制主仓 CI 门禁（gofmt/vet/test/repoguard），**不得 checkout 其他仓**；补 `AGENTS.md` + `docs/TASKS.md`（QT-08 的模板）；
-  ④ S2-d：主仓加反向护栏（禁止重新 import 已迁出的本地路径）；
-  ⑤ S3（**依赖 QT-50 + QT-17 完成**）：agent 删 `../tellurion` replace 与 CI 的 rewrite 步骤；agent 只依赖两个新仓的 tag + HTTP；**注意 S3 是唯一允许删 replace 的时点**，提前删 = agent 立刻编不过；
-  ⑥ 行为对拍：拆仓前后同参回测结果**逐位一致**（报告归档）。
-- **④ 约束与非目标**：**不改任何业务逻辑**（纯搬 + 改 require）；不在拆仓同时做 HTTP 化（那是 QT-50）；不为"减少仓数"合并 contracts 与 kit（二者依赖方向不同：contracts 依赖 kit 的 decimal/errors，kit 零业务）；不发布 release note。
-- **⑤ 验收**：两新仓单独 checkout 后 `go build ./...` + `go test ./...` 绿（不 checkout core/agent）；core 删 replace 后 `go build ./...` 绿；`tools/check_repo_autonomy.py` 对两新仓全绿；拆仓前后对拍逐位一致；agent 仓的 R1 在 S3 后转绿。
-- **⑥ 边界**：只做仓的搬出与依赖切换；X 线六个服务仓**不在本单**（真起进程时另立）。
+  ① S2-a：两仓 `git tag -a v0.1.0 -m "v0.1.0: <类型> ..."` 并 push，**tag 必须在 `main` 上**（tag 不 push 不可 `go get`）；
+  ② S2-b：core / agent 把 `require` 的伪版本换成 `v0.1.0` + `go mod tidy`（`go.sum` 同步更新）；**`go.work` 仍不入库**（本地继续用它联调三仓）；
+  ③ S2-c：两仓复制主仓 CI 门禁（gofmt / vet / test / repoguard），**不得 checkout 其他仓**；contracts 仓补 `examples/`（每个 port 一个最小用法，QT-09 ③ 复用）与 `docs/TASKS.md`（AGENTS 建仓时已有）；
+  ④ S2-d：主仓加反向护栏——禁止 import 已迁出路径、**禁止对两仓写 `replace`**；
+  ⑤ S2-e：把 `tools/check_contract_pin.py` 接进 CI（QT-09 ①），并在 core `AGENTS.md` 写 3 行「契约 pin 怎么 bump」；
+  ⑥ S3（**依赖 QT-50 + QT-17 完成**）：agent 删 `../tellurion` replace 与 CI 的 rewrite 步骤；agent 只依赖两个新仓的 tag + HTTP。**注意 S3 是唯一允许删该 replace 的时点**，提前删 = agent 立刻编不过。
+- **④ 约束与非目标**：**不改任何业务逻辑**（只换版本号）；不在拆仓同时做 HTTP 化（那是 QT-50）；不为"减少仓数"合并两仓（依赖方向不同：contracts 依赖 kit 的 decimal/errors，kit 零业务）；不发布 release note（CHANGELOG 见 QT-19）。
+- **⑤ 验收**：两仓单独 checkout 后 `go build ./...` + `go test ./...` 绿（不 checkout core/agent）；core / agent `go list -m` 显示 `v0.1.0` 且**无 `=>`**；`make contracts-pin-check` 绿；`tools/check_repo_autonomy.py` 对两仓全绿；切 tag 前后同参回测**逐位一致**（报告归档）；agent 的 R1 在 S3 后转绿。
+- **⑥ 边界**：只做版本切换与自治补齐；X 线六个服务仓**不在本单**（真起进程时另立）。
 
 ### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] ⬜
 
 - **① 目标**：ADR-D29 §9 的 C1~C5 五条规则**机械可查**；「两边各写一份理解」能在契约层被发现，而不是靠 K15 双跑。
-- **② 上下文**：`repo-topology-and-naming.md` §9；现状无任何跨仓护栏（agent CI 反而在「帮」跨仓构建：checkout core + `go mod edit -replace`）；契约仓 S2 才存在。
+- **② 上下文**：`repo-topology-and-naming.md` §9；现状无任何跨仓护栏（agent CI 反而在「帮」跨仓构建：checkout core + `go mod edit -replace`）；契约仓**自 S1 起就存在且有实现**（ADR-D31），但「以版本被依赖」要等 S2 的 QT-07。
 - **③ 要求**：
-  ① CI 步骤：`replace` 指向**仓外**路径 → 失败；`go.work*` 被 git 跟踪 → 失败（C1/C2）；
+  ① CI 步骤：`replace` 指向**仓外**路径 → 失败（**ADR-D31 之后 core 与两新仓本就不该有 `=>`**，唯一白名单是 agent 的 `=> ../tellurion`，S3 删）；`go.work*` 被 git 跟踪 → 失败（C1/C2）；**contracts/kit 的 pin SHA 必须是该仓 `main` 的祖先**，否则失败（Plan B 的代价，见 ADR-D31 与 QT-05 ⑦）；
   ② 契约仓 `examples/`：每个 port 一个最小用法，让下游 agent 不读实现即知调用形状；
   ③ **契约测试**：同一组用例分别喂 core 与 agent 的实现，语义漂移即红（C3/C5）；
   ④ 契约仓 PR 模板必填「哪个使用方需要这条变更」；
@@ -575,7 +571,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 仓名以 `repo-inventory.md` §2 的「旧→新」为准；**QT-60 已于 2026-10-20 完成，实际仓名就是新名**（旧仓仍在，未归档）。
 > - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；DBT-18 属这一族（`mining.Proposer` 契约指针在 core）。
 > - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` ⬜（2026-10-19 复核仍在册，该仓另有 4 处 ⬜）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅。
-> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，各 5 文件占位）**，内容迁入见 QT-05'；在两仓有实现之前，本索引不登记其任务。
+> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；在两仓有实现前，本索引不登记其任务。
 > - **`tellurion-agent` 仓**：**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏。
 > - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。
 

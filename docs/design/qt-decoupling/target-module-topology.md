@@ -98,7 +98,7 @@
 
 ## 迁移路径（分期，绞杀者模式）
 
-**P0 · 抽 kit 与 contracts**（⚠️ 具体分期以 [ADR-D29](repo-topology-and-naming.md) §7 的 S0~S3 为准：S1 先在本仓内建两个子 module，S2 才拆成独立 git 仓）
+**P0 · 抽 kit 与 contracts**（⚠️ 具体分期以 [ADR-D29](repo-topology-and-naming.md) §7 的 S0~S3 为准；**S1 形态已由 [ADR-D31](project-engineering-file.md) 改为「代码直接落两个新仓 + `require` 伪版本」**，不再先在本仓内建子 module）
 1. 建 `tellurion-kit`：搬 statistics/decimal/errors/logging/id/httpclient/httpserver/auth/authz/observability/clock/sandbox(staticcheck,runner)；core 与 agent 改为依赖 kit。
 2. 建 `tellurion-contracts`：放 port 接口 + 哨兵错误；DTO 由 `openapi.yaml` 生成（ADR-D7）。
 3. 护栏：`kit ← contracts ← core ← agent` 反向边即红。

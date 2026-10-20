@@ -40,9 +40,9 @@
 | D26 | **用户裁决落档**：L 参数两层 / M Strength=强度[0,1] | [project-engineering-file.md](project-engineering-file.md) | **已裁决（用户 2026-10-20）** |
 | D27 | **P0 第二轮深度审查**：旧 20 项逐条闭环核对 + 新增 9 项 P0（N1~N9） | [p0-round2-review.md](p0-round2-review.md) | 审查结论（设计补充基线） |
 | D28 | **用户裁决落档**：N2 成交时点 `next_open` / N9 新增 `emit_target2` / A12 先扫描再定 trap | [p0-round2-review.md](p0-round2-review.md) | **已裁决（用户 2026-10-20）** |
-| D29 | **分仓拓扑与命名**：repo=模块/服务、contract 约束边界、**domain 并入 contracts 仓**（修正 D24-1）、S0~S3 迁移阶梯；含第二轮审查补遗（agent 数据自持 / 过渡期连体 / 版本策略 → QT-17~19） | [repo-inventory.md](repo-inventory.md) | **仓清单与命名（现行唯一名字源，施工前必读）**：两条 module path 规则（应用短名 / 库全名，含 Go 1.25 实测）+ 12 仓表 + 旧→新映射与迁移方式 + 已裁边界（quant-data-engine 不属本项目 / nt-sidecar→tellurion-nt）+ 已知坑（core 不可被 import、GOPRIVATE、文档引用） |
-| [repo-topology-and-naming.md](repo-topology-and-naming.md) | **已裁决（用户 2026-10-20）** |
+| D29 | **分仓拓扑与命名**：repo=模块/服务、contract 约束边界、**domain 并入 contracts 仓**（修正 D24-1）、S0~S3 迁移阶梯；含第二轮审查补遗（agent 数据自持 / 过渡期连体 / 版本策略 → QT-17~19） | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **已裁决（用户 2026-10-20）**；仓清单与命名（**现行唯一名字源，施工前必读**）见 [repo-inventory.md](repo-inventory.md)：两条 module path 规则（应用短名 / 库全名，含 Go 1.25 实测）+ 12 仓表 + 旧→新映射 + 已裁边界 + 已知坑（core 不可被 import、GOPRIVATE、文档引用） |
 | D30 | **仓清单与命名终稿**：项目定名 **tellurion**、owner 保持 `ruoxizhnya`、**应用/服务用单段短名、库用全名**、12 仓表 + 旧→新映射 + 已裁边界 | [repo-inventory.md](repo-inventory.md) | **已裁决（用户 2026-10-20）** |
+| D31 | **S1 姿态改为 Plan B**：12 仓已建 -> **代码直接落两个新仓**，core/agent 用 require 伪版本 + 本地 go.work（**全程无 replace**）；S2 收窄为「伪版本 -> tag v0.1.0」；core 顶层 5 个数据契约文件留原地 | [project-engineering-file.md](project-engineering-file.md) | **已裁决（用户 2026-10-20）**；替代 D29 第 7 节的 S1 形态与 QT-05 原文 |
 
 ### ADR-D ↔ 正式 ADR 关联（引用前先看这张表）
 
@@ -70,7 +70,7 @@
 | A12 | 重复信号 | ✅ **先做存量策略扫描**：零重复 → trap；有重复 → 先 `close` 优先合并 + 计数，trap 留作下一版开关 |
 | M1 | `domain` 归属 | ✅ **并入 contracts 仓**（`contracts/domain`），module 由 5 回落到 4；**替代 D24 第 1 条** |
 | M2 | 版本化起点 | ✅ **S0 打 `v0.1.0` 但保留 `replace`**；删 replace 的前提是 QT-50 完成 |
-| M3 | 拆仓时机 | ✅ **S1 排在 W0 之后**；子 module 的 go.mod 直接写最终路径，S2 拆仓不改 import |
+| M3 | 拆仓时机 | ✅ **S1 排在 W0 之后**；**ADR-D31 改形态：代码直接落两个新仓**（无 replace，S2 只把伪版本换成 tag） |
 | M4 | 项目改名 | ✅ **项目段 `tellurion` → `tellurion`**；owner 保持 `ruoxizhnya`（不建 org、不改 owner —— 引用名一改会连锁报错） |
 | M5 | module path 形态 | ✅ **应用/服务用单段短名**（编译器拒绝 `require`，强制“不可被 import”）、**库用 `github.com/ruoxizhnya/<仓>`** |
 

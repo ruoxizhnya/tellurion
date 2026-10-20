@@ -122,7 +122,7 @@
 ## 7. 待办（分期演进路线 · 绞杀者模式，不推倒重来）
 
 **P0 · 契约与端口（1-2 周）**
-1. 抽出 `tellurion-contracts` module（只依赖 domain；RunSpec/ResultSpec/BacktestRunner/EngineRunner/MarketRouter）。
+1. 抽出 `tellurion-contracts` module（只依赖 domain；RunSpec/ResultSpec/BacktestRunner/EngineRunner/MarketRouter）——**代码直接落 `tellurion-contracts` 仓**，core 以 `require` 伪版本取用（ADR-D31 / QT-05）。
 2. core 与 agent 改为依赖该 module；agent 的 `replace` 保留但语义变为「本地开发便利」。
 3. 定义 `StrategyRuntime` / `RiskPolicy` / `FactorPort` / `MinerPort` 四类 port（先写接口 + 现有实现适配，不改调用点行为）。
 4. 补护栏：应用层禁止直接 import 能力层实现包（AST 扫描，与 `canonical_layer_test.go` 同款）。
@@ -348,6 +348,8 @@ X1a 协议冻结进 contracts → X1b aggregator 面（PIT/频率/票池/快照 
   4. **`kit/db`**（仅 connection/migrate/DSN）——K 裁决落地，使 agent 能自建 `ai.*` 而不借 core 的 store。
   5. **五条 repo autonomy 不变量**（R1 单仓可构建 / R2 单仓可自证 / R3 有 AGENTS / R4 有 TASKS / R5 契约是版本依赖），由 `tools/check_repo_autonomy.py` 机械检查。
   6. **迁移阶梯 S0~S3**：S0 打 tag + 补自治三件套 → S1 本仓内建 `contracts/` `kit/` 子 module（go.work 不入库）→ S2 拆仓 + core 改 tag + 删 replace → S3 agent 去 replace（依赖 QT-50 HTTP 化）。
+
+> ⚠️ **第 6 条的 S1 形态已被 ADR-D31 替换（2026-10-20，用户选 Plan B）**：S1 不再在 core 内建 `contracts/` `kit/` 子 module，改为**代码直接落地两个新仓 + `require` 伪版本**。S0 / S2 / S3 与「S1 排在 W0 之后」不变。原文保留以追溯决策链。
 - 理由：仓是 **agent 的工作上下文单位**；只有「单仓可构建 + 契约以 tag 存在」，一个 agent 才可能不读别的仓源码就完成本仓任务。**S1 排在 W0 之后**，因为 S1 的动作本身就是「把契约形状定下来」，属 W0 产出，做一次而不是两次。
 - 代价/后果：① `pkg/domain` 306 处 import 路径机械替换；② `fees` 需拆类型/计算两半；③ 拆仓后「顺手改另一边」的路没了，边界错误会以「契约里塞实现」的形式沉淀 → 由跨仓依赖五规则（C1~C5）与契约测试兜底；④ agent 的单仓自治要等 QT-50，**不是现在的起点**（诚实登记，不写成已达成）。
 - 状态：**已裁决（用户 2026-10-20 确认三处判断：domain 并入 contracts / S0 打 tag 但保留 replace / S1 排在 W0 后）**；替代 D24 第 1 条，D24 第 2/3 条不变。详见 `repo-topology-and-naming.md` §0，工单 QT-05~QT-09。
@@ -385,3 +387,28 @@ X1a 协议冻结进 contracts → X1b aggregator 面（PIT/频率/票池/快照 
 - 理由：**短名把「应用 vs 库」的边界交给编译器**（被 require 即失败），比写进文档靠人守更可靠；owner 不动是因为它是 path 里最贵的一段，改动收益不抵连锁风险。
 - 代价 / 后果：① 改名一次性成本 **1153 处**（core）/ **268 处**（agent）；② core 永不可被 import，按仓地址 `require` 会报不直观的 `package tellurion/pkg/b is not in std`（须写进 core `AGENTS.md`）；③ 私有 contracts/kit 需 `GOPRIVATE` + git 凭证；④ 文档跨仓引用（`tellurion:` → `tellurion:`）`check_doc_links` 查不出，属易漏项。
 - 状态：**已裁决（用户 2026-10-20）**；替代 D29 §4 的命名规则，D29 的拓扑 / R1~R5 / S0~S3 / C1~C5 不变。工单 **QT-60（S-1，未启动）**。
+
+---
+
+### ADR-D31：S1 姿态改为 Plan B —— 代码直接落两个新仓，用伪版本而不是 replace
+
+- 场景：QT-60 把 12 个仓**先建了**，其中 `tellurion-contracts` / `tellurion-kit` 各含**最终 module path 的 `go.mod`** + `AGENTS.md` + 占位 `doc.go`。而 D29 §7 的 S1 原文写「本仓内建 `contracts/` `kit/` 子 module、不建新仓、仓内 replace 快速迭代」——**前提被推翻**。S1 因此有两种走法：**A** 先在 core 内建子 module（仓内 replace），W0 冻结后由 QT-07 搬进新仓；**B** 代码直接写进两个新仓，core 通过版本依赖取用。**用户 2026-10-20 选 B。**
+- 决策（B 的落地形态比"Plan B 原描述"更严格）：
+  1. **全程不使用 `replace`**。core / agent 用 `require github.com/ruoxizhnya/tellurion-{contracts,kit} <伪版本>` + `go.sum`；本地同时改三个仓时用 **`go.work`**（不入库、进 `.gitignore`）。
+  2. **S1 仍排在 W0 全绿之后**（D29 原判据不变）：W0 定契约形状，S1 搬形状，只做一次。
+  3. **S2 收窄为「伪版本 → `v0.1.0`」**：不再 `git init`、不再迁目录（QT-07 原 ①/② 作废，③~⑥ 保留）。
+  4. **core 顶层 `contracts/` 的 5 个数据文件不迁**（`field_dictionary.yaml` + 4 个 `*.schema.{json,sql}`）：它们是运行时按 cwd 相对路径自动发现的**部署资产**（`cmd/data/setup.go:223-225` 依次试 `./contracts/`、`../contracts/`、`../../contracts/`），不是 Go 包。
+- 选 B 的理由：
+  1. **只搬一次**。A 要把 `pkg/domain`（306 文件 import）先搬进 core/contracts、再搬进新仓，第二次搬还要再动一遍依赖与 agent。
+  2. **避开目录撞名（A 的隐藏地雷）**。core 顶层已有 `contracts/`（数据文件）。A 会让该目录**同时**是「子 module 根」与「运行时相对路径目标」；S2 搬走子 module 时那 5 个文件跟着走，**部署后字典静默加载失败**——编译期查不出来。
+  3. **R1 从第一天成立**。两仓从 S1 起就是独立可构建、可自证的（无 replace），不必等 S2 才"合法"。
+  4. **CI 与 Docker 零改动**。`Dockerfile.service` 是 `COPY . .` 单仓上下文；A 的仓内 replace 反而要动构建上下文。B 走 `go.sum` 的真实版本，构建路径不变。
+- 实测证据（Go 1.25.0 / Windows，2026-10-20）：
+  - `go get github.com/ruoxizhnya/tellurion-contracts@main` → `v0.0.0-20261020112435-a55208cc2412`，`go.sum` 自动生成；两仓 `GET /repos/...` = **200（public）**。
+  - 沙箱实验：`require example.com/lib v0.0.0-00010101000000-000000000000` 且**无 go.sum** → `missing go.sum entry`；加 `go.work use ../lib` 后 `go run` 直接读本地源码 —— **证明 `go.work` 只覆盖本地、不改 `go.mod`、不需要网络**。
+- 代价 / 后果：
+  1. **契约改动要"先合入 contracts 仓，再 bump core 的 pin"**：W0 期间内循环靠 `go.work` 不受影响，但**每个 core PR 之前必须把 pin 推到 contracts `main` 的提交**；否则可能 pin 到未评审的分支提交 → `tools/check_contract_pin.py`（pin SHA 必须是 main 的祖先）+ QT-09 ① 的 CI 步骤机械兜底。
+  2. **伪版本不可读**（`v0.0.0-20261020112435-a55208cc2412`），PR diff 不直观 → `go.mod` 该行上方留一行注释写日期与用途；S2 换 tag 后消失。
+  3. **两仓必须公开可读**（或 `GOPRIVATE` + 凭证）：core 的 CI / 镜像构建不再有本地目录兜底。**当前两仓 public；若将来转私有，core 的 CI 与镜像构建会同时红**——登记为已知风险。
+  4. **`go.work` 是本地产物**：别人机器上没有，新加入者第一次 `go build` 会拉网络版本，看到的契约可能比本地 `../tellurion-contracts` 旧 → 写进 core `AGENTS.md` 的「首次配置」。
+- 状态：**已裁决（用户 2026-10-20 选 Plan B）**；替代 D29 §7 的 S1 形态与 QT-05 原文；D29 的拓扑 / R1~R5 / S0·S2·S3 / C1~C5 不变。工单：QT-05（S1 重写）、QT-07（S2 收窄）、QT-09 ①（新增 pin 祖先检查）。
