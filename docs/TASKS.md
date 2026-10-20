@@ -58,7 +58,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 依据 **ADR-D30** 与 [`repo-inventory.md`](design/qt-decoupling/repo-inventory.md)。**只改名，不改业务逻辑。**
 > 用户口径：新建一套仓、把东西搬过去，不在旧仓大改；旧仓 archive 保留。
 
-### QT-60 · 项目改名到 tellurion（4 仓 + module path + 文档引用）[P0] ⬜
+### QT-60 · 项目改名到 tellurion（4 仓 + module path + 文档引用）[P0] 🟡
 
 - **① 目标**：把 4 个现有仓（`quant-trading` / `-agent` / `-ui` / `-docs`）迁到 `tellurion` 命名，module path 同步为「应用短名 / 库全名」；旧仓 archive，新仓可独立构建。
 - **② 上下文**：`repo-inventory.md` §1/§2（D30）；实测待改 import：core **1153 处 / 526 文件**、agent **268 处 / 37 文件**；四个新仓名在本账号下 **404 空闲**；当前 4 仓 `git tag` 全为 0、工作区干净 —— 这是唯一无损改名窗口（一旦 S0 打了 tag、S2 拆了 contracts，成本翻倍）。
@@ -71,10 +71,18 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
   ⑥ 文档引用替换：跨仓引用前缀 `quant-trading:` → `tellurion:`；仓名 `quant-trading-*` → `tellurion-*`（**历史记录与现状描述不改**，只改目标态）；
   ⑦ 每仓 `go build ./...` + `go vet ./...` +（core）`go test ./...`；agent 需 `../tellurion` 存在才能构建；
   ⑧ push 新仓 → CI 首跑绿；旧仓 GitHub **archive（不删）**，本地保留 2 周只读；
-  ⑨ 更新三处导航：core `AGENTS.md`、core `docs/README.md`、`quant-trading-docs:docs/README.md`（改名后为 `tellurion-docs`）。
+  ⑨ 更新三处导航：core `AGENTS.md`、core `docs/README.md`、`tellurion-docs:docs/README.md`。
 - **④ 约束与非目标**：**不改任何业务逻辑**；不趁改名做重构；不删旧仓、不在旧仓打 tag；不建 contracts/kit（那是 QT-07）；不改 owner。
 - **⑤ 验收**：`grep -rn "github.com/ruoxizhnya/quant-trading" --include=*.go` = **0**；`*.md` 中仅剩历史记录；`go build ./...` + `go vet ./...` 全绿；`git log --oneline | wc -l` 与旧仓一致（历史未丢）；新仓 CI 绿；旧仓只读。
 - **⑥ 边界**：只做改名与依赖路径；`contracts/` / `kit/` 的抽取与拆仓是 QT-05 / QT-07。
+- **⑦ 执行进度（2026-10-20）**：
+  - ✅ 本地四仓已建并改名：`tellurion`(970 文件) / `tellurion-agent`(181) / `tellurion-ui`(207) / `tellurion-docs`(140)，各有一笔初始 commit；
+  - ✅ module path：core=`tellurion`、agent=`tellurion-agent`，agent 走 `replace tellurion => ../tellurion`（**保留到 S3**）；
+  - ✅ **运行时标识全部改名**（用户 2026-10-20 追加要求）：库名 `quant_trading`→`tellurion`、测试库→`tellurion_test`、k8s namespace/configmap/ingress/host、镜像名、compose 变量、JWT Issuer、HTTP UA、默认 DSN、vscode workspace；**旧 Docker 卷名按事实保留在注释里**（改了会让运维删错卷）；
+  - ✅ 验证：core/agent `go build ./...`+`go vet ./...` 绿；`tools/check_deploy_consistency.py` 全绿（含 compose↔k8s↔config 库名一致）；`check_doc_links.py` 40 md 零坏链；
+  - ✅ 另外 8 仓的**本地占位仓**已建（README/AGENTS/go.mod/doc.go，`go build ./...` 全绿）：`contracts` / `kit` / `data` / `strategy` / `risk` / `analytics` / `orchestration` / `broker`；
+  - ⏳ **未完成（阻塞）**：12 个仓的**远端创建与 push**。当前 `gh` 登录身份是 `ruoxizhang`，而 owner 是 `ruoxizhnya`（两个不同账号），GitHub 拒绝跨账号建仓。解法见 `Workspace/push-tellurion-repos.sh` 的身份守卫输出（`gh auth login` 切账号 / 网页建仓加 collaborator / 改 owner）；
+  - ⏳ 未做：旧仓 archive、两份 `AGENTS.md`（agent/ui/docs 仓）的三件套、QT-08 的自检脚本。
 
 ---
 

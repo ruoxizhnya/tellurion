@@ -48,20 +48,31 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 | 2 | **现有→改名** | `ruoxizhnya/tellurion-agent` | `tellurion-agent` | 实验员（AI 链路）；运行期只走 HTTP 调 core |
 | 3 | **现有→改名** | `ruoxizhnya/tellurion-ui` | —（前端，无 `go.mod`） | 前端 |
 | 4 | **现有→改名** | `ruoxizhnya/tellurion-docs` | —（纯文档） | 决策 / 规范 / ADR |
-| 5 | **待建（S2）** | `ruoxizhnya/tellurion-contracts` | `github.com/ruoxizhnya/tellurion-contracts` | port · DTO/值对象（含 `domain/`）· 四契约（`engine/`）· 哨兵错误 · abi 常量 · `schemas/` |
-| 6 | **待建（S2）** | `ruoxizhnya/tellurion-kit` | `github.com/ruoxizhnya/tellurion-kit` | logging · db · errors · decimal · statistics · httpclient · httpserver · authz · observability · clock · sandbox |
-| 7 | **触发式** | `ruoxizhnya/tellurion-data` | `tellurion-data` | X1 数据服务（`cmd/data` + `pkg/marketdata` + `pkg/data/*`） |
-| 8 | **触发式** | `ruoxizhnya/tellurion-strategy` | `tellurion-strategy` | X2 策略资产（定义 / 版本 / artifact）；运行时留 core |
-| 9 | **触发式** | `ruoxizhnya/tellurion-risk` | `tellurion-risk` | X3 风控规则真相源；`RiskPolicy` 同步裁决留 core |
-| 10 | **触发式** | `ruoxizhnya/tellurion-analytics` | `tellurion-analytics` | X4 分析（`cmd/analysis` + 归因 / 基准纯函数） |
-| 11 | **触发式** | `ruoxizhnya/tellurion-orchestration` | `tellurion-orchestration` | X5 编排 / worker（`pkg/backtest/batch` + `walkforward`；`cmd/dualrun` 归属待裁） |
-| 12 | **触发式** | `ruoxizhnya/tellurion-broker` | `tellurion-broker` | X6 交易网关（`pkg/live` + 实盘侧） |
+| 5 | **待建（S2）** · 本地占位已建 | `ruoxizhnya/tellurion-contracts` | `github.com/ruoxizhnya/tellurion-contracts` | port · DTO/值对象（含 `domain/`）· 四契约（`engine/`）· 哨兵错误 · abi 常量 · `schemas/` |
+| 6 | **待建（S2）** · 本地占位已建 | `ruoxizhnya/tellurion-kit` | `github.com/ruoxizhnya/tellurion-kit` | logging · db · errors · decimal · statistics · httpclient · httpserver · authz · observability · clock · sandbox |
+| 7 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-data` | `tellurion-data` | X1 数据服务（`cmd/data` + `pkg/marketdata` + `pkg/data/*`） |
+| 8 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-strategy` | `tellurion-strategy` | X2 策略资产（定义 / 版本 / artifact）；运行时留 core |
+| 9 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-risk` | `tellurion-risk` | X3 风控规则真相源；`RiskPolicy` 同步裁决留 core |
+| 10 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-analytics` | `tellurion-analytics` | X4 分析（`cmd/analysis` + 归因 / 基准纯函数） |
+| 11 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-orchestration` | `tellurion-orchestration` | X5 编排 / worker（`pkg/backtest/batch` + `walkforward`；`cmd/dualrun` 归属待裁） |
+| 12 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-broker` | `tellurion-broker` | X6 交易网关（`pkg/live` + 实盘侧） |
 
 **触发条件不变**（ADR-027 / D20 口径）：需要独立伸缩或独立部署，且只走高 / 低频路径；逐 bar、逐笔、风控裁决**永驻 core 进程内**。**未触发不建仓**。
 
 **服务仓也用短名的理由**：服务之间只通过 contracts 交互（D29 §9），不该互相 import。短名让这条纪律由编译器执行；若某个服务将来确实要对外提供 client 库，再单独拆一个 `tellurion-<x>-client`（库，全名）出来，而不是把服务本身变成库。
 
 ---
+
+### 1.1 建仓执行进度（2026-10-20）
+
+| 项 | 状态 |
+|---|---|
+| 12 个仓的**本地目录** | ✅ 全部就绪，各有一笔初始 commit（4 个迁移仓含全部代码；8 个占位仓含 README/AGENTS/go.mod/doc.go） |
+| 12 个仓的**远端创建 + push** | ⏳ **阻塞**：`gh` 当前登录 `ruoxizhang`，而 owner 是 `ruoxizhnya`（两个不同 GitHub 账号，API 拒绝跨账号建仓） |
+| 解锁方式 | `gh auth login` 切到 `ruoxizhnya` → 跑 `Workspace/push-tellurion-repos.sh`（幂等：已存在则跳过创建，remote 已存在则改写）；或网页建空仓 + 加 `ruoxizhang` 为 Write collaborator 后重跑 |
+| 旧仓 archive | ⏳ 等新仓 push 成功后再做（先 archive 会让改动无处可回退） |
+
+> 占位仓的含义：**有仓、有边界、无实现**。README 写明触发条件，AGENTS 写明「台账出现本仓单号前不要写实现」，避免 agent 进去后凭空造代码。
 
 ## 2. 旧 → 新（改名批次的输入）
 
