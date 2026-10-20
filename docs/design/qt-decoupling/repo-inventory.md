@@ -71,6 +71,7 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 | 12 个仓的**远端创建 + push** | ✅ **已完成**（2026-10-20 14:10）：12/12 仓在 `ruoxizhnya` 下创建，`main` 分支已推送。过程中遇到 GitHub 二级限流（连续建 10 仓后被 `temporarily blocked from content creation`），最后 2 仓由 `finish-two-repos.sh` 退避重试补上 |
 | 复用脚本 | `Workspace/push-tellurion-repos.sh`（幂等：已存在则跳过创建，remote 已存在则改写）——以后加新仓可直接复用；`finish-two-repos.sh` 是限流退避版，可弃 |
 | 旧仓 archive | ⏸ **待确认**：新仓已可独立工作，但 archive 会让旧仓变成只读；建议再观察一周（等 S0 的 tag 与 CI 稳定）再归档 |
+| **可见性** | ⚠️ **12 仓全部为 `public`**（建仓脚本默认）。若本意是私有：`gh repo edit ruoxizhnya/<name> --visibility private --accept-visibility-change-consequences` 逐个改；且 `contracts`/`kit` 转私有后，core/agent 必须配 `GOPRIVATE=github.com/ruoxizhnya/*` + 凭证，否则 `go get` 走 proxy 必然失败 |
 
 > 占位仓的含义：**有仓、有边界、无实现**。README 写明触发条件，AGENTS 写明「台账出现本仓单号前不要写实现」，避免 agent 进去后凭空造代码。
 
