@@ -40,7 +40,9 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 
 ---
 
-## 1. 十二个仓（现有 4 + 待建 2 + 触发式 6）
+## 1. 十二个仓（**上限 / 当前规划**——不是承诺终态；现有 4 + 待建 2 + 触发式 6）
+
+> ⚠️ 口径澄清（refactor-plan-review M5）：「12 仓」是**上限/当前规划**，X 线 6 仓升格起进程前必须先完成与 **ADR-027 §2（服务数 5→7）的对账**（`service-extraction-plan.md` 自述「六候选是能力边界清单，不是最终服务拓扑」），对账结论落本文件；对账可能触发改判（data A/B 二分、reduction-service、分析并入他服务等）。硬前置已登记在 `tellurion:docs/TASKS.md` X 线公共前置。
 
 | # | 状态 | GitHub 仓 | module path | 职责 |
 |---|---|---|---|---|
@@ -111,6 +113,8 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | `contracts/` 顶层数据契约文件 | **core 内目录，不是仓，且不迁**：运行时按 cwd 相对路径发现（`cmd/data/setup.go:223-225`），搬走会让字典静默加载失败（ADR-D31） |
 | `nautilus_trader` / `vnpy` / `claudeer` / `gdpr-preferenc` | 上游或其他项目，不属本清单 |
 | **`cmd/dualrun`（K15 双跑对账）** | **留 core**（2026-10-20 用户裁决）。理由：① 它必须在**同一进程**里链接两个内核（`pkg/backtest` + `pkg/backtest/nautilus` 适配器）与 `tracker` / `metrics` / `storage`，跨进程就拿不到「同一次运行的逐笔成交」；② 它是**引擎的验收门**（CI `align-gate`），不是生产服务，没有独立伸缩需求。**被否选项**：搬 `tellurion-orchestration`——那会让「只派活、不跑引擎」的服务内置一个引擎运行器，X5 的边界当场破掉 |
+| **`docs/openapi.yaml`** | **归 core**（服务端点的唯一真相源，D7「现状不动」口径）；contracts 仓只收生成物 **`dto/`**（`oapi-codegen` 生成，**禁手改**，CI 重生成 diff 为空）。2026-10-20 补裁（refactor-plan-review M3）；agent↔core 新端点随 QT-50 ③-③ 入表 |
+| **`docs/SPEC.md`** | **归 core**（`ResultSpec` 等冻结规范文本）；S2 后其四契约节与 contracts 仓 `engine/` **互锁**——改一处必须同步另一仓（合规测试双向钉，见 `tellurion:docs/TASKS.md` 冻结 schema 变更评审硬规则）。2026-10-20 补裁（refactor-plan-review M3） |
 
 ---
 

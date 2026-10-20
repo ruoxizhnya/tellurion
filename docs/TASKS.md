@@ -30,7 +30,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31） |
 | **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置 |
-| **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提） |
+| **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引） |
 | W1 | QT-11 | per-run 策略实例 | P0 | K15 对拍前置；无文件冲突 |
 | W1 | QT-12 | run 级缓存下沉 + 资源准入 | P0 | 同一笔内存账，必须一起做 |
 | W1 | QT-13 | 复权锚点按 run 区间切片 | P0 | 依赖 QT-12（读的是同一个缓存） |
@@ -46,7 +46,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W2 | QT-26 | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | 依赖 QT-01/QT-24 |
 | **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
 | W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
-| **X 线** | QT-40~45 | 数据/策略/风控/分析/编排/网关六服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03 |
+| **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
+| **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；QT-41b ⛔ 阻塞于待裁决 D |
 | **横切** | QT-50~52 | 装配外移 / 执行 port / 市场摩擦核实 | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
@@ -153,14 +154,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **③ 要求**：① 把 §2.1 表的签名/语义/错误码写成 `contracts` 下的常量与类型（`FieldID`、`Action`、`MaxParamsBytes=4096`、`MaxStateValueBytes=64KiB`、`MaxInstanceStateBytes=4MiB`、`MaxKeys=4096`、`MaxScratchPerBar=256KiB`、`MaxSignalsPerBar=2×symbolCount`）；② 增量命名 `get_bar2`/`get_series_len2`/`get_date2`/`emit_target2`，**不改已有签名**；③ `ValidateImports` 升级为「名字白名单 + 版本族一致性」+ 与 `abi_version` 交叉校验，错误必须在 instantiate 之前可读；④ host 区导出符号 `__host_params_ptr` / `__host_scratch_ptr` / `__host_scratch_size` 的校验骨架（缺失/重叠/越界/未对齐 → 专用哨兵错误），**但只对 `abi_version=2` 强制**：`abi_version=1` 走白名单跳过符号校验——现有 14 个内置 artifact 都没有这些符号，一律 fail-closed 会把 v1 全打死，与本单 ⑤「v1 仍能跑」直接矛盾；⑤ `emit_signal` 与 `emit_target2` 同 bar 同 symbol 混用 → trap 的判定入口；⑥ 契约文件与文档逐项对表（一个测试读常量核 13 项）。
 - **④ 约束与非目标**：**不实现** host 函数体、不改 `BarContext` 结构（那是 QT-24）、不动引擎与检查点、不改 v1 行为、不为"兼容"给 v1 补新符号。
 - **⑤ 验收**：契约测试逐项对表 13 个函数与 6 类上限；4 个 bad artifact（缺 `__host_params_ptr` / ptr 落在模块数据段 / v1+v2 混导 / `abi_version` 与 import 族不符）全部被拒且错误可检索；v1 artifact 仍能实例化并跑通现有测试。
-- **⑥ 边界**：只做"契约 + 校验骨架"；数据填充、host 函数实现、SDK 模板分属 QT-24/QT-26。
+- **⑥ 边界**：只做"契约 + 校验骨架"；数据填充、host 函数实现、SDK 模板分属 QT-24/QT-26。**本契约冻结仅覆盖 Go 内核 + WASM 载体；NT（NautilusTrader）侧 on_bar host API 对齐待裁决 C（设计集 README 待裁决表）裁决后另立单**——C 判「做」则按 abi v2 签名立 NT 对齐单，判「不做」则须成文声明「一份 wasm 跑两核」的对齐边界与 D25 abi v2 的适用范围；两种结局均不回改本单已冻结的 Go 侧契约。
 - **⑦ 前置（硬）**：**QT-18 已合入 main**。本单是 abi v2 的第一次 breaking，core 与 agent 在 S0~S3 期间编译连体，没有 `agent-compat` job 就会"core 绿、agent 静默烂"。
 
 ### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ⬜
 
 - **① 目标**：`SignalSpec.FillTiming` 成为必填契约；默认从 `same_close` 切到 `next_open` 有**可解释的差异报告**作依据。
 - **② 上下文**：`p0-round2-review.md` §8.1（冻结文本）；现状 `engine_daily.go:181-205`（当日切片含当日 close）、`:263-270`（`res.price=末根 close`）、`:571`（`price := pricesCache[symbol]`）⇒ T 日收盘决策 + T 日收盘成交。全设计集此前无一处定义成交时点。
-- **③ 要求**：① `contracts` 加 `FillTiming` 枚举 + `ErrFillTimingMissing`；② 引擎按 `FillTiming` 取成交价：`next_open` 用 T+1 开盘（T+1 停牌/涨跌停按 REV-09 顺延或拒单），`same_close` 保持现状；③ `ResultSpec` 落 `fill_timing` 与 `known_bias: same_close_fill`；④ 选 3~5 个基准策略跑两口径，产出差异报告（笔数/总收益/最大回撤/换手，并解释差异 ≈ 日收益平移一个 bar）；⑤ K15 前置断言：两内核 `FillTiming` 不一致 → `ErrFillTimingMismatch`（口径不符，不是结果不一致）。
+- **③ 要求**：① `contracts` 加 `FillTiming` 枚举 + `ErrFillTimingMissing`；② 引擎按 `FillTiming` 取成交价：`next_open` 用 T+1 开盘（T+1 停牌/涨跌停按 REV-09 顺延或拒单），`same_close` 保持现状；③ `ResultSpec` 落 `fill_timing` 与 `known_bias: same_close_fill`；④ 选 3~5 个基准策略跑两口径，产出差异报告（笔数/总收益/最大回撤/换手，并解释差异 ≈ 日收益平移一个 bar）；⑤ K15 前置断言：两内核 `FillTiming` 不一致 → `ErrFillTimingMismatch`（口径不符，不是结果不一致）；⑥ **schema 变更评审项**（按「维护本文件」节硬规则）：`ResultSpec` 新增 `fill_timing`/`known_bias` 字段触碰冻结面——先触发 `docs/SPEC.md` 合规测试红，同步更新 SPEC 的 ResultSpec 字段节（节号以现行 SPEC 为准，落单时补具体节号），走正式变更评审记录后再落代码。
 - **④ 约束与非目标**：**先出报告再切默认**——本单要**实现 `next_open` 的取价分支**（否则出不了报告），但 `FillTiming` 的默认值在报告归档前不动，即「现有 run 的行为零变化」；不改滑点/费率/撮合内部（部分成交、涨跌停判定）；不允许为"保持历史基准不变"而选口径。
 - **⑤ 验收**：缺字段 → run 拒绝且错误可读；报告归档在 `docs/test-cases/` 或设计集内并被引用；切换后基准结果与报告数值一致（同环境重跑 ±0）。
 - **⑥ 边界**：只做"时点选择"；撮合真实性属 QT-52。
@@ -169,7 +170,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：任何一个回测结果都能回答"用什么输入跑出来的"，且**改任一影响结果的输入 ⇒ hash 必变**；三份 hash 的覆盖面与层级不再互相矛盾。
 - **② 上下文**：`p0-round2-review.md` N6 + N7；事实：`run_spec_hash` 全设计集仅 2 处引用、零定义；三 hash 不含费率/滑点/成本模型/T+1/初始资金/`FillTiming`/锚点 digest/内核版本/toolchain/seed；`dataset_snapshot_hash` 两处定义冲突（`data-service-contract-and-ownership.md` §2.1 五项 vs `adr-029-amendment-host-api-v2.md` §7.1 要求含 `Axis`）；`version_hash` 不含 toolchain 而 `@hash` 却指它（`strategy-asset-service-api.md` §1.2/§3.3）。
-- **③ 要求**：① 按 N6 的 canonical 集合定义 `run_spec_hash`（含 `fill_timing`、`universe_hash`、`adjustment_anchor_digests`、`kernel`/`engine_version`、`seed`）；② `dataset_snapshot_hash` **只保留一处定义**（含 `calendar_hash` 与 `adjustment_basis`），其余文档改为引用；③ `artifact_hash` 定为执行真相，`strategy_ref` 三形态语义写死（`id@artifact_hash` / `id@version_hash` / `id`），结果同时记 `{输入引用, version_hash, artifact_hash}`；④ `run_artifacts` 落 `run_spec_hash` + 分量 + `params_json` + `status`；⑤ 向量测试：改任一分量 → hash 变；不改 → 不变。
+- **③ 要求**：① 按 N6 的 canonical 集合定义 `run_spec_hash`（含 `fill_timing`、`universe_hash`、`adjustment_anchor_digests`、`kernel`/`engine_version`、`seed`）；② `dataset_snapshot_hash` **只保留一处定义**（含 `calendar_hash` 与 `adjustment_basis`），其余文档改为引用；③ `artifact_hash` 定为执行真相，`strategy_ref` 三形态语义写死（`id@artifact_hash` / `id@version_hash` / `id`），结果同时记 `{输入引用, version_hash, artifact_hash}`；④ `run_artifacts` 落 `run_spec_hash` + 分量 + `params_json` + `status`（DDL 加列进 `postgres.go` inline DDL，不建 migration 文件）；⑤ 向量测试：改任一分量 → hash 变；不改 → 不变；⑥ **schema 变更评审项**（按「维护本文件」节硬规则）：若 `ResultSpec`/`RunSpec` 需暴露三 hash 字段（provenance 返回面），触碰冻结面——先触发 `docs/SPEC.md` 合规测试红，同步更新 SPEC 对应节号（落单时补），走正式变更评审；纯 `run_artifacts` 表加列不属冻结面，但 `status` 列取值必须遵守三值口径。
 - **④ 约束与非目标**：不改 `version_hash` 的 canonical 集合（那是 QT-22）；不建新表（`run_artifacts` 已有落点，X0 载体）；不实现数据服务 aggregator（QT-40）。
 - **⑤ 验收**：向量测试覆盖 8 个"必变"分量与 3 个"不必变"场景；`GET /api/runs/{id}/provenance` 能返回三 hash + 引擎名 + seed（可先只落库，端点随 QT-44）；两处 `dataset_snapshot_hash` 定义在文档中只剩一处正文、另一处为引用。
 - **⑥ 边界**：只做"定义 + 落库 + 校验"；数据快照的实际计算在 QT-40。
@@ -211,9 +212,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：策略故障与契约违规**终止 run**，只有数据缺口可以跳过当天且必须留痕；"漂亮曲线但策略一直在 trap"不再可能。
 - **② 上下文**：`p0-round2-review.md` N1；`engine.go:918-926` 对 `getSignals` 的一切错误只 `Warn` + `skipping day`，注释明写"不进 invalid_reasons"；而该错误面同时含 `RejectFutureSignals` 拒绝与 wasm trap。
-- **③ 要求**：① `contracts` 定义 `ErrDataGap` / `ErrStrategyFault` / `ErrContractBreach` 三类哨兵；② provider 侧按类包装（数据缺失→DataGap；trap/非法信号/预算超限/artifact 校验失败→StrategyFault；前视/未知参数/abi 不符→ContractBreach）；③ `RunBacktest` 在 `ErrDataGap` 时跳过当天并写 `invalid_reasons`，其余两类立刻 `EndRun` + `status=failed`，不返回可用于决策的结果；④ `ResultSpec` 加 `Status ∈ {ok,degraded,failed}` + `Failures[]`；⑤ 护栏：`pkg/backtest` 内 `getSignals` 的 err 必须被 return 或映射为 fatal，禁止只 log。
-- **④ 约束与非目标**：不改变数据缺口的既有语义（仍跳过当天）；不新增 run 状态存储（用现有 `StateStore`）；不动信号内容。
-- **⑤ 验收**：构造"每 50 天 trap 一次"的 wasm → run `failed` 且 `Failures` 点名日期/原因；构造缺一天数据的 provider → `degraded` 且 `invalid_reasons` 有记录；护栏测试：把错误改回"只 log"→ 红。
+- **③ 要求**：① `contracts` 定义 `ErrDataGap` / `ErrStrategyFault` / `ErrContractBreach` 三类哨兵；② provider 侧按类包装（数据缺失→DataGap；trap/非法信号/预算超限/artifact 校验失败→StrategyFault；前视/未知参数/abi 不符→ContractBreach）；③ `RunBacktest` 在 `ErrDataGap` 时跳过当天并写 `invalid_reasons`，其余两类立刻 `EndRun` + `status=failed`，不返回可用于决策的结果；④ **`ResultSpec` 状态沿用冻结三值 `completed / invalid / failed`（`docs/SPEC.md` 状态语义节），不引入第四值**：错误分级经映射进三值空间——数据缺口跳天 → `invalid` + 稳定 `invalid_reasons` code `data_gap_skipped`；`ErrStrategyFault`/`ErrContractBreach` → `failed` + `error`；`Failures[]` 只作**诊断明细**（记录日期/错误类/原因），**不是状态来源**，status 仍由 `buildResponseFromState` 单一透传点产出；⑤ 护栏：`pkg/backtest` 内 `getSignals` 的 err 必须被 return 或映射为 fatal，禁止只 log。
+- **④ 约束与非目标**：不改变数据缺口的既有语义（仍跳过当天）；不新增 run 状态存储（用现有 `StateStore`）；不动信号内容；**不改冻结三值 `status` 语义本身**（`docs/SPEC.md` 状态节属冻结面，本单只落映射规则与 `invalid_reasons` 新 code——按「维护本文件」节的冻结 schema 变更评审规则走）。
+- **⑤ 验收**：构造"每 50 天 trap 一次"的 wasm → run `failed` 且 `Failures`（诊断明细）点名日期/原因；构造缺一天数据的 provider → `invalid` 且 `invalid_reasons` 含 `data_gap_skipped`；护栏测试：把错误改回"只 log"→ 红。
 - **⑥ 边界**：只做错误分级；`EndRun` 的创建/销毁是 QT-14。
 
 ### QT-11 · 策略 per-run 实例（注册工厂 + `NewInstance`）[P0] ⬜
@@ -265,7 +266,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：`while(true)` 能在预算内被终止且进程存活；终止后的重建**不会重复下单**。
 - **② 上下文**：`p0-remediation-design.md` C1 + `p0-round2-review.md` N4；`wazero_runtime.go:41-43` 只有 `WithMemoryLimitPages`，未启 `WithCloseOnContextDone`（wazero 默认关闭，关闭时单次调用可永久阻塞 Goroutine/OS 线程）；C1 只写"重建并重放该日期块剩余 bar"，没说重放期 emit 怎么处理。
-- **③ 要求**：① 启用 `WithCloseOnContextDone(true)`，超时返回 `sys.ExitError`；② 双层预算（单次调用 market 50ms / symbol 5ms 可配 + run deadline 默认 10min）；③ `ErrSessionTerminated` 与 `terminated` 状态，终止后禁止调用；④ **`replay_mode = state_only` 为默认**：重放期 `emit_signal`/`emit_target2` 成功但不落 Signals，计数 `replay_suppressed_signals`；重放到故障 bar 后以 `apply` 重执行该 bar；⑤ terminated 的 `EndRun` **不调 finalize**，run 标 `degraded` + `Failures += session_terminated`；⑥ 重建次数按 run 计（上限 3），超限 `failed`；⑦ 开/关周期检查各跑一遍 market scope 727 次 on_bar，量化开销（>10% 则按可信度分级启用，结论成文）。
+- **③ 要求**：① 启用 `WithCloseOnContextDone(true)`，超时返回 `sys.ExitError`；② 双层预算（单次调用 market 50ms / symbol 5ms 可配 + run deadline 默认 10min）；③ `ErrSessionTerminated` 与 `terminated` 状态，终止后禁止调用；④ **`replay_mode = state_only` 为默认**：重放期 `emit_signal`/`emit_target2` 成功但不落 Signals，计数 `replay_suppressed_signals`；重放到故障 bar 后以 `apply` 重执行该 bar；⑤ terminated 的 `EndRun` **不调 finalize**，run 标 **`invalid`** + 稳定 `invalid_reasons` code **`session_terminated`**（映射进冻结三值 `completed/invalid/failed`，不引入 `degraded` 第四值，见 QT-10 ③-④ 的映射规则）；`Failures += session_terminated` 仅作诊断明细；⑥ 重建次数按 run 计（上限 3），超限 `failed`；⑦ 开/关周期检查各跑一遍 market scope 727 次 on_bar，量化开销（>10% 则按可信度分级启用，结论成文）。
 - **④ 约束与非目标**：不用 Gas（wazero v1.12 无此 API）；不做"批量喂全序列"降级；不把 `apply` 重放做成默认（需事务性回滚，成本高）。
 - **⑤ 验收**：`while(true)` 在单次预算内终止且进程存活；在 bar k 注入一次超预算，重建后成交笔数/成交价/净值与无 trap 跑法**逐笔一致**；`replay_suppressed_signals` 计数符合预期；性能基准报告归档。
 - **⑥ 边界**：只做终止与重放；检查点身份是 QT-16。
@@ -333,8 +334,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：一条真实回测能从 artifact 加载 → 逐 bar 执行 → 产出信号 → 成交，且 `emit_target2` 的 sizing 与 policy cap 正确。
 - **② 上下文**：`implementation-plan-mvp.md` G2/G3；`pkg/sandbox/wasm` 整包仍在 repoguard 未接线白名单。
-- **③ 要求**：① `SignalProvider` 的 WASM 实现（`OnBarSession` → `Signals`，走 QT-14 的 per-run 实例）；② `EmittedSignal → domain.Signal` 映射（Action→Direction、Strength、SymbolIdx→Symbol 经 `RunUniverse`）；③ `emit_target2` → 目标权重→手数（`floor(|w|×equity/price/lot)×lot`），policy cap 优先并计 `sizing_clamped_total`；④ 结果标 `sizing_source`；⑤ 五道门（Resolve/Fetch/Verify/Compile/Mount）按 `strategy-asset-service-api.md` §4。
-- **④ 约束与非目标**：内循环零网络（resolve/fetch 只在 run 前一次）；不实现编译服务（QT-41）；不绕过 `ValidateImports`。
+- **③ 要求**：① `SignalProvider` 的 WASM 实现（`OnBarSession` → `Signals`，走 QT-14 的 per-run 实例）；② `EmittedSignal → domain.Signal` 映射（Action→Direction、Strength、SymbolIdx→Symbol 经 `RunUniverse`）；③ `emit_target2` → 目标权重→手数（`floor(|w|×equity/price/lot)×lot`），policy cap 优先并计 `sizing_clamped_total`；④ 结果标 `sizing_source`；⑤ 五道门（Resolve/Fetch/Verify/Compile/Mount）按 `strategy-asset-service-api.md` §4——其中 **Compile 门依赖待裁决 D（编译服务归属）**，未裁决前只对表语义、不实现编译链路（实现属 QT-41b）。
+- **④ 约束与非目标**：内循环零网络（resolve/fetch 只在 run 前一次）；不实现编译服务（**QT-41b**，且其开工依赖裁决 D）；不绕过 `ValidateImports`。
 - **⑤ 验收**：手工 artifact（无需服务）能跑通一次真实回测；分层加仓在 Go/WASM 下逐位一致；混用 `emit_signal`/`emit_target2` 被 trap。
 - **⑥ 边界**：只做接线与转换；M0 的验收是 QT-30。
 
@@ -362,6 +363,19 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
+## 四之二、W4 · AI 策略生成闭环
+
+### QT-32 · W4：AI 策略生成闭环（promote 人工闸门 + 全链留痕）[P1] ⬜
+
+- **① 目标**：产品主目标落地——一条 AI 生成的策略，从 prompt 到回测结果**全程留痕**（源码 → hash → 结果），且 AI 产物必须过 `promote` 人工闸门才进生产回测（`implementation-plan-mvp.md` §6-M2 验收原文）。
+- **② 上下文**：`implementation-plan-mvp.md` 档 2（「代码→编译→资产服务→引擎缓存加载执行」是**要交付的目标**）、G6（AI 生成闭环：Go 子集 + 静态校验 + promote）、§6-M2 里程碑；AI 生成/实验编排归 `tellurion-agent` 仓（ADR-023 三层模型，core 不实现第二个编排者）；编译管线属 QT-41b（本单是其消费方）。**本单承接 G6/M2**——refactor-plan-review H4 指出原台账在 W3 后断链，无单承接产品主目标，本单即补缺（若产品侧改判「G6/M2 不在本代范围」，则删除本单并在执行顺序总览显式声明划出，不得沉默）。
+- **③ 要求**：① AI 生成 Go 子集 → QT-41b 编译管线（TinyGo + 静态校验：import 白名单 / 体积 / 内存上限）→ `artifact_hash` 登记（QT-03）；② **`promote` 人工闸门**：AI 产物默认不进生产回测，须人工审批后才可被 `strategy_ref` 解析为可执行资产（闸门记录进审计，审批人/时间/结论留痕）；③ 全链留痕：prompt / 生成源码 / 编译产物 hash / 回测 `run_spec_hash` / 结果串成可追溯链（复用 QT-03 三 hash + `run_artifacts`）；④ 状态机三路一致性（Batch / Step 从零 / Step 从断点）+ dualrun K15 对拍作质量门（AI 质量问题靠与内置 Go 同逻辑对拍抓，`implementation-plan-mvp.md` §5）；⑤ AI 侧护栏沿用 agent 仓既有 AST/白名单（不新造第二套）。
+- **④ 约束与非目标**：不把 AI 编排逻辑搬进 core（ADR-023）；不省略人工闸门做「自动 promote」（档 3 是远期，不在本单）；不在本单做编译服务实现（QT-41b）；不为 AI 产物放宽 `ValidateImports` / 预算 / fail-closed 任何一条。
+- **⑤ 验收**：一条 AI 生成策略从 prompt 到回测结果全程可追溯（链上每环有 hash 或留痕记录）；未过 promote 的 AI 产物被回测路径拒绝（fail-closed 用例）；三路一致性 + K15 对拍通过；破坏验证：绕过闸门直接登记 → 有测试红。
+- **⑥ 边界**：只做闭环接线与闸门/留痕；生成质量与实验编排属 agent 仓（其台账另立单）；编译管线是 QT-41b；资产存储是 QT-41。
+
+---
+
 ## S2~S3 · 拆仓（W0 与 QT-05 全绿之后）
 
 > 依据 ADR-D29 §7-S2/S3、§8 建仓 checklist。**拆的是已经冻结的东西**——W0 未绿就拆 = 契约每天发版。
@@ -373,7 +387,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **③ 要求**：
   ① agent 仓建 `ai` schema 的 DDL（表名以 core `pkg/storage/experiments.go` / `research.go` / `postgres.go` 的现有定义为准，逐表核对后迁移，**不凭类型名臆造表名**）与自己的 migrate 入口；
   ② agent 用 `kit/db` 建自己的 store，替换 12 处 `PostgresStore` 用法；
-  ③ **仪器域不迁**：`TradingCalendar` / `ListingWindow` 属 core，agent 改走 core 的**只读 port**（D10 §87「只读视图」通道）——**本单需同时补进 D24 的合法动作清单**（现六类里没有「交易日历/上市窗口查询」）——这是对**已裁决文档的增补**，开工前需用户确认第 7 类动作；
+  ③ **仪器域不迁**：`TradingCalendar` / `ListingWindow` 属 core，agent 改走 core 的**只读 port**（D10 §87「只读视图」通道）——**本单需同时补进 D24 的合法动作清单**（现六类里没有「交易日历/上市窗口查询」）——这是对**已裁决文档的增补**，开工前需用户确认第 7 类动作；**获确认后该动作的 endpoint + DTO + 鉴权随 QT-50 ③-③/④ 统一落 `docs/openapi.yaml` 并纳入路由表对拍**（勿另起手写 DTO，refactor-plan-review H2）；
   ④ 双写期：旧表与 `ai.*` 同时写 → 行数/校验和对拍 → 切读 → 停写；core 侧 `experiments.go` / `research.go` 定义标 deprecated 并登记删除期限；
   ⑤ 护栏：agent 禁止 import `pkg/storage`（AST）。
 - **④ 约束与非目标**：**不删 core 旧表**（保留只读一个周期）；不迁行情/回测结果/因子定义（仪器域）；不改 core 的实验 handler；不在本单做 HTTP 化（QT-50）。
@@ -387,7 +401,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **③ 要求**：
   ① S2-a：两仓 `git tag -a v0.1.0 -m "v0.1.0: <类型> ..."` 并 push，**tag 必须在 `main` 上**（tag 不 push 不可 `go get`）；
   ② S2-b：core / agent 把 `require` 的伪版本换成 `v0.1.0` + `go mod tidy`（`go.sum` 同步更新）；**`go.work` 仍不入库**（本地继续用它联调三仓）；
-  ③ S2-c：两仓复制主仓 CI 门禁（gofmt / vet / test / repoguard），**不得 checkout 其他仓**；contracts 仓补 `examples/`（每个 port 一个最小用法，QT-09 ③ 复用）与 `docs/TASKS.md`（AGENTS 建仓时已有）；
+  ③ S2-c：两仓复制主仓 CI 门禁（gofmt / vet / test / repoguard），**不得 checkout 其他仓**；contracts 仓补 `examples/`（每个 port 一个最小用法，QT-09 ③ 复用）与 `docs/TASKS.md`（AGENTS 建仓时已有）；**补随仓接口规格载体**（refactor-plan-review M6/L5）：contracts 仓建 **`docs/API.md`**（导出面完整清单——四契约 + port + 值对象 + 哨兵错误，逐项标稳定性标注与错误语义，指回 `tellurion:docs/SPEC.md` 对应节号）、kit 仓建 **`docs/SCOPE.md`**（12 包逐包准入/禁入清单，源出 `target-module-topology.md` 的包边界表）；二者随 CI 的 AST 护栏同步更新；**私有仓拉取前提**：两仓若设私有，全部 CI/构建环境须配 `GOPRIVATE=github.com/ruoxizhnya/*` 与 git 凭证（否则 `go get` 拉不到），在两仓 AGENTS.md 各写明一行；
   ④ S2-d：主仓加反向护栏——禁止 import 已迁出路径、**禁止对两仓写 `replace`**；
   ⑤ S2-e：把 `tools/check_contract_pin.py` 接进 CI（QT-09 ①），并在 core `AGENTS.md` 写 3 行「契约 pin 怎么 bump」；
   ⑥ S3（**依赖 QT-50 + QT-17 完成**）：agent 删 `../tellurion` replace 与 CI 的 rewrite 步骤；agent 只依赖两个新仓的 tag + HTTP。**注意 S3 是唯一允许删该 replace 的时点**，提前删 = agent 立刻编不过。
@@ -414,18 +428,22 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **① 目标**：把 D29 §9 C5「破坏性变更保留旧接口一个版本周期」变成可执行纪律——否则每次 breaking 都靠人记，`deprecated` 会永远不被删也不可能被删。
 - **② 上下文**：D29 §9 C1~C5；现状三仓 tag 全为 0（QT-06 只解决 core），无 semver 惯例、无兼容矩阵、无 CHANGELOG。contracts 拆仓后独立发版，必须有规则。
 - **③ 要求**：
-  ① contracts 仓 README 写**版本规则表**：`MAJOR` = 删/改签名或语义；`MINOR` = 新增能力（向后兼容）；`PATCH` = 文档/注释/无行为修正；
+  ① contracts 仓 README 写**版本规则表**：`MAJOR` = 删/改签名或语义；`MINOR` = 新增能力（向后兼容）；`PATCH` = 文档/注释/无行为修正；**kit 仓同表**（kit 同为被依赖的库，`MINOR` 含新增导出；refactor-plan-review L4）；
   ② **0.x 阶段（现在到 1.0 前）允许 breaking，但必须 bump MINOR + 写 CHANGELOG 条目**；**1.0 之后**才启用「deprecated 至少保留 1 个 MINOR 周期」；
-  ③ **兼容矩阵**：contracts `vX.Y` ← 支持 core / agent 的哪些版本，写在 contracts 仓 README，每次发版更新；
+  ③ **兼容矩阵**：contracts `vX.Y` ← 支持 core / agent 的哪些版本 + **kit `vX.Y` ← contracts / core 的兼容范围**，分别写在两仓 README，每次发版更新；
   ④ 内容寻址标识（`strategy_ref` / `artifact_hash` / `run_spec_hash`）**不参与 semver**——它们自带版本语义；
   ⑤ tag 规范：annotated tag，message 首行 `vX.Y.Z: <类型>`（feat/fix/breaking）。
 - **④ 约束与非目标**：不引入 release 工具链（goreleaser 等）；不做自动 CHANGELOG 生成；不强制 core 也走同一套（core 是应用不是库，tag 只作依赖锚点）。
-- **⑤ 验收**：contracts 仓 README 存在版本规则表与兼容矩阵；CHANGELOG 至少有一条记录；三个仓的 require 版本都落在矩阵声明范围内。
-- **⑥ 边界**：只定策略与文档；「禁删 deprecated」的机械护栏由 QT-09 ⑤ 实现。
+- **⑤ 验收**：contracts 与 kit 两仓 README 各存在版本规则表与兼容矩阵；CHANGELOG 至少有一条记录；三个仓的 require 版本都落在矩阵声明范围内。
+- **⑥ 边界**：只定策略与文档；「禁删 deprecated」的机械护栏由 QT-09 ⑤ 实现；`GOPRIVATE`/git 凭证前提见 QT-07 ③-S2-c（refactor-plan-review L5，本单不重复登记）。
 
 ---
 
 ## 五、X 线 · 服务拆分（可选部署形态，进程内 port 先行）
+
+> **X 线公共前置（M5/M8，QT-40~45 与 QT-41b 开工前必读，两项都不满足不开工）**：
+> ① **建仓/升格前先与 ADR-027 §2 对账**（M5）：六候选是**能力边界清单，不是最终服务拓扑**（`service-extraction-plan.md` 自述「与 ADR-027 §2 的 5→7 未逐一对账」）；升格建仓前必须与 027 §2 服务口径逐一对账（可能触发 data A/B 二分、reduction-service、分析并入他服务等改判），对账结论落 `repo-inventory.md`；「12 仓」是**上限/当前规划**，不是承诺终态。
+> ② **「接口对表」小节**（M8）：对应服务设计文档开工前补「接口对表」——逐个 port/endpoint 列**签名 + 错误语义 + 版本策略**，显式引用 `kernel-interface-map.md` / contracts 仓对应符号（模板：`data-service-contract-and-ownership.md` 的 `UnifiedDataPoint` 节）；**未对表不开工**。跨进程 wire 面（HTTP endpoint/DTO/鉴权）按 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`，不另起炉灶。
 
 ### QT-40 · X1 数据服务（统一协议 + aggregator + `dataset_snapshot_hash`）[P1] ⬜
 
@@ -439,11 +457,20 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ### QT-41 · X2 策略资产服务（定义/版本/artifact/resolve）[P1] ⬜
 
 - **① 目标**：策略真相源在服务侧，引擎只持可驱逐只读副本；`id@artifact_hash` 可离线复现。
-- **② 上下文**：`strategy-asset-service-api.md` + `strategy-source-of-truth-and-cache.md`（D13/D14）+ QT-03 的 hash 体系；未决 A（BYTEA vs 对象存储）当前按 BYTEA 落地（本地栈）。
-- **③ 要求**：① `strategies` 加列（carrier/abi_version/scope/capability/entry/`active_version_hash`/`active_artifact_hash`）+ `strategy_artifacts` + blobs；② 写侧 7 端点、读侧 2 端点（resolve/artifact）；③ 缓存按 `artifact_hash`（永不失效）+ latest 的 TTL/事件失效；④ promote 不覆盖 artifact 行；⑤ 14 个内置策略登记为 `carrier=builtin`。
-- **④ 约束与非目标**：策略服务**不算信号**；不改执行路径的"先查 artifact 再回退内置"在 QT-26 已定的顺序；不做对象存储（除非 A 改判）。
+- **② 上下文**：`strategy-asset-service-api.md` + `strategy-source-of-truth-and-cache.md`（D13/D14）+ QT-03 的 hash 体系；**未决 A（BYTEA vs 对象存储）——下文 ③-① 的 BYTEA 落地是「假设，需裁决后生效」**（阻塞单：本单，裁决见设计集 README 待裁决表 A 行；未裁决前不开工 ③-①）。
+- **③ 要求**：① `strategies` 加列（carrier/abi_version/scope/capability/entry/`active_version_hash`/`active_artifact_hash`）+ `strategy_artifacts` + blobs（**假设，需裁决 A 生效后落地**：blob 载体按 BYTEA 假设写，A 若改判对象存储则本项重写）；② 写侧 7 端点、读侧 2 端点（resolve/artifact）；③ 缓存按 `artifact_hash`（永不失效）+ latest 的失效策略——**TTL vs 事件失效二选一属未决 F，未裁决前本项按「假设，需裁决后生效」处理，不得静默二选一**（阻塞单：本单，裁决见 README 待裁决表 F 行）；④ promote 不覆盖 artifact 行；⑤ 14 个内置策略登记为 `carrier=builtin`。
+- **④ 约束与非目标**：策略服务**不算信号**；不改执行路径的"先查 artifact 再回退内置"在 QT-26 已定的顺序；不做对象存储（除非 A 改判）；**A/F 未裁决的假设项不许按假设值直接上 main**（裁决落地前相关子项保持 ⛔）。
 - **⑤ 验收**：服务停机后已缓存 hash 的回测照跑且结果一致；同源码两工具链 → 两 artifact 可分别追溯；`id@version_hash` 解析结果回写实际 `artifact_hash`。
-- **⑥ 边界**：只做资产与解析；编译服务见 QT-41b（并入本单要求 ① 之外的 CI 侧）。
+- **⑥ 边界**：只做资产与解析；编译服务是独立单 **QT-41b**（本单 ①~⑤ 不含编译链路）。
+
+### QT-41b · X2 策略编译服务（Go 子集 → artifact 管线）[P1] ⛔（阻塞于待裁决 D：编译服务归属）
+
+- **① 目标**：策略源码到 `artifact_hash` 产物的编译链路成文并落地（编译 → 校验 → 登记 artifact），AI 生成闭环（QT-32）与人工 promote 共用同一条管线。
+- **② 上下文**：`strategy-asset-service-api.md` §4 五道门中的 Compile 门；`implementation-plan-mvp.md` §6-M2（AI 生成闭环含编译环节）；原 QT-41 ⑥ 曾以「QT-41b」悬空引用（refactor-plan-review H3），本单即其正式落点。**归属未定**：编译服务归策略资产服务（X2）还是独立能力，属待裁决 D（见设计集 README 待裁决表）；未裁决前本单 ⛔ 不开工。
+- **③ 要求**：① Compile 门语义成文（toolchain 版本固定、env-only 白名单、产物 `-target=wasm-unknown`）；② 编译产物经 QT-03 的 `artifact_hash` 登记进 QT-41 的 `strategy_artifacts`；③ 同源码两工具链 → 两 artifact 可分别追溯（与 QT-41 ⑤ 对齐）；④ 编译失败的错误语义进 contracts 哨兵错误族；⑤ 与 QT-26 ③-⑤ 五道门的 Resolve/Fetch/Verify/Mount 分界逐项对表。
+- **④ 约束与非目标**：不实现第二个编排者（ADR-023）；不放宽 `ValidateImports`；不在本单做 promote 闸门（那是 QT-32）。
+- **⑤ 验收**：一份 Go 子集策略源码经本管线产出 artifact 且 `artifact_hash` 可离线复现；编译失败可检索；五道门对表文档归档。
+- **⑥ 边界**：只做编译链路；资产存储/解析是 QT-41；AI 生成闭环是 QT-32。
 
 ### QT-42 · X3 风控服务（规则真相源 + 进程内 RiskPolicy）[P2] ⬜
 
@@ -490,9 +517,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：框架包零业务依赖；agent 与 core 的边界只剩"粗粒度 HTTP + contracts"。
 - **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记），禁止 per-bar/per-symbol/per-order 远程调用。
-- **③ 要求**：① 装配代码移到 `cmd/*/wiring`（或 `pkg/wiring`），kernel 只留 Module/BootOrder/生命周期/槽位；② 定义 agent 侧 HTTP 客户端（六类粗粒度动作）；③ 护栏：kernel 禁止 import 业务族；agent 禁止 import core 实现包、禁止逐 bar 远程调用（AST）。
-- **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义。
-- **⑤ 验收**：kernel 的非测试 import 里零业务族；搬运前后 `package_wiring_test.go`/`module_lifecycle_callback_test.go` 各跑一次全绿；agent 侧 grep 无 per-bar 远程调用。
+- **③ 要求**：① 装配代码移到 **`cmd/*/wiring`**（**落点定死，不再二选一**——装配属应用层不属库，不放 `pkg/wiring`；refactor-plan-review L6），kernel 只留 Module/BootOrder/生命周期/槽位；② 定义 agent 侧 HTTP 客户端（六类粗粒度动作；第 7 类「日历/上市窗口查询」待 QT-17 ③-③ 用户确认后并入）；③ **wire 契约落 `docs/openapi.yaml`**：每类动作的 endpoint + DTO 写入 `docs/openapi.yaml`，纳入既有「生产路由表与 yaml 双向对拍」机制（D7 单一真相源规则，`protocol-and-data-boundary.md`）；`contracts/dto` 由 `oapi-codegen` 生成、**禁手改**（CI 重新生成后 diff 必须为空）；④ **鉴权模型**：复用既有 JWT + RBAC（敏感操作走 `RequireRole`），CORS 沿白名单；本地开发 insecure 模式 **loopback-only 且 fail-closed**（非环回一律拒）；⑤ 错误码与限流语义随 endpoint 成文（进 openapi.yaml 描述面）；⑥ 护栏：kernel 禁止 import 业务族；agent 禁止 import core 实现包、禁止逐 bar 远程调用（AST）。
+- **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义；**不绕过 `docs/openapi.yaml` 手写 dto**（生成物禁手改）；不为图省事把七类动作拆成 per-bar/per-symbol 细粒度端点。
+- **⑤ 验收**：kernel 的非测试 import 里零业务族；搬运前后 `package_wiring_test.go`/`module_lifecycle_callback_test.go` 各跑一次全绿；agent 侧 grep 无 per-bar 远程调用；`docs/openapi.yaml` 含全部新端点且**路由表对拍绿**；`contracts/dto` 与生成物一致（重生成 diff 为空）；**fail-closed 用例**：无 token / 越权角色 / 非白名单来源 / 非环回 insecure 请求全部被拒且报错可检索。
 - **⑥ 边界**：只做装配与边界；module 拆分是 QT-05。
 
 ### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] ⬜
@@ -595,11 +622,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ## 八、跨仓任务索引（不在本仓，勿双写）
 
 > 仓名以 `repo-inventory.md` §2 的「旧→新」为准；**QT-60 已于 2026-10-20 完成，实际仓名就是新名**（旧仓仍在，未归档）。
-> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；DBT-18 属这一族（`mining.Proposer` 契约指针在 core）。
-> - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` ⬜（2026-10-19 复核仍在册，该仓另有 4 处 ⬜）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅。
-> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；在两仓有实现前，本索引不登记其任务。
+> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；DBT-18 属这一族（`mining.Proposer` 契约指针在 core）；**refactor 修复传播单** ⬜（agent↔core HTTP wire 契约消费对齐 + C1 三值 `status`/`invalid_reasons` 消费口径——正文登记在该仓 `docs/TASKS.md`，本仓不镜像）。
+> - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` ⬜（2026-10-19 复核仍在册，该仓另有 4 处 ⬜）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅；**refactor 修复传播单** ⬜（三值 `status` 消费 + `invalid_reasons` 的 `data_gap_skipped`/`session_terminated` 展示口径，C1——正文在该仓 `docs/TASKS.md`）。
+> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；**随仓接口规格载体**（contracts `docs/API.md` / kit `docs/SCOPE.md`，M6）与**版本策略/兼容矩阵 + GOPRIVATE 前提**（L4/L5）见 QT-07 ③-S2-c / QT-19，正文立单在两仓自己的 `docs/TASKS.md`。
 > - **`tellurion-agent` 仓**：**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏。
-> - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。
+> - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。**ADR-D 升格单** ⬜（M9：D24/D25/D29/D30 已裁决且直接驱动施工（QT-05/07/60），须按 `tellurion-docs:docs/adr/` 流程升格为正式 ADR；升格完成前设计集 README 的升格路径注记保留——正文立单在该仓 `docs/TASKS.md`）。
 
 ---
 
@@ -608,7 +635,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - 新增 task 必须按 [AGENTS.md §8.5](../AGENTS.md) 写全六字段；**六字段里必须显式引用冻结契约的路径与节号**（本代 wave-0 的冻结文本在 `docs/design/qt-decoupling/p0-round2-review.md` §8、`p0-remediation-design.md`、`adr-029-amendment-host-api-v2.md`）。
 - 完成即标 ✅（附日期）并移入 `archive/`；本文件只留未完成项。换代时整篇加时间戳归档（`archive/TASKS-YYYY-MM-DD-archived.md`），旧代正文不改写。
 - **派工前必须先证伪工单前提**（读码核对 → 不符就停下回报 + 给拆法，不硬做、不扩范围）。
-- **执行顺序**：严格按「S-1(QT-60 ✅) → **QT-61** → S0（QT-06 → **QT-18** → QT-08）→ W0 → S1(QT-05) → S2（QT-17 → QT-07 → QT-19 → QT-09）→ W1 → W2 → W3」；同波次内撞文件的按 QT 序号串行，一单一 commit。**W0 完成前不开 W1 的代码单**——否则 artifact 与基准都要重做。
+- **执行顺序（偏序，非全序；refactor-plan-review M4）**：硬链 **S-1(QT-60 ✅) → QT-61 → S0（QT-06 → QT-18 → QT-08）→ W0 → S1(QT-05)**；S2 段（QT-17 → QT-07 → QT-19 → QT-09）须在 W0 + QT-05 全绿后；**W1 不依赖 S2**——W0 后即可开工，且 **仅 QT-17 可与 W1 并行**（QT-07/09/19 不与 W1 抢档）；W2 在 W1 后、W3 在 W2 后。同波次内撞文件的按 QT 序号串行，一单一 commit。**W0 完成前不开 W1 的代码单**——否则 artifact 与基准都要重做。
+- **冻结 schema 变更评审（硬规则；refactor-plan-review H1）**：凡触碰 `ResultSpec` / `RunSpec` / `SignalSpec` / `docs/SPEC.md` 冻结字段的单，六字段内必须列「**schema 变更评审项 + 需同步更新的 SPEC 节号**」，并按固定顺序执行：**先触发合规测试红 → 更新 SPEC 文本 → 走正式变更评审记录 → 才许合入**；未列评审项的单一律不得改冻结面（含「顺手加一列/加一字段」）。
 - **合入门禁（硬约束，不是建议）**：⓪ ~~QT-60 未完成前 QT-06 不得开工~~ → **已满足（QT-60 于 2026-10-20 完成）**，tag 现在可以打在新仓；新增 ⓪' **QT-61 的「gofmt + doc-links」两项绿之前，QT-06 的「两仓 CI 绿」验收不可达**——要么先做 QT-61，要么把 QT-06 验收改成「本次改动相关的 job 绿 + 其余 known-fail 登记」；① **QT-18 未合入 main 前，QT-01 不得合入**——第一个 breaking 就在 QT-01 的 abi v2，护栏不在就会漏；② QT-05 未合入前，QT-07 不得开工；③ QT-07/QT-09 未绿前，不得在任何仓新增跨仓 `replace`（D29 §9 C1）。
 - **新需求优先于存量未完成任务**；与旧任务重叠的可合并或直接删除，跨仓迁移的任务条目保留可追溯指针。
 - 归档文件的状态标记若与自身完成记录矛盾，**只在文件头加订正说明**，条目正文与标题的历史措辞不改写。

@@ -20,7 +20,7 @@
 | D6 | 区分「策略资产服务 ✅ 独立」与「策略运行时 ❌ 不做服务」 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 提议（修正 D3） |
 | D7 | 协议分层：contracts（进程内）与 OpenAPI（跨进程）各管一段 | [protocol-and-data-boundary.md](protocol-and-data-boundary.md) | 提议 |
 | D8 | 表归属边界：复用存储能力 ≠ 共享表（⚠️ 两处已被 D10 修正） | [protocol-and-data-boundary.md](protocol-and-data-boundary.md) | 提议（部分被 D10 修正） |
-| D9 | 四 module 拓扑 kit / contracts / core / agent，依赖单向无环（⚠️ module 数量已被 D24 修正为五） | [target-module-topology.md](target-module-topology.md) | 提议（部分被 D24 修正） |
+| D9 | 四 module 拓扑 kit / contracts / core / agent，依赖单向无环（⚠️ module 数量已被 D24 修正为五，**再经 M1 并入回落为 4：`kit → contracts(含 domain) → core`，见 repo-topology §5**） | [target-module-topology.md](target-module-topology.md) | 提议（部分被 D24 / M1 修正） |
 | D10 | 数据归属重划：实验域数据归 agent 自建 `ai.*` schema | [target-module-topology.md](target-module-topology.md) | 提议（修正 D8） |
 | D11 | 回测引擎「摘出来」决策（依赖反转 E1~E4） | [backtest-extraction.md](backtest-extraction.md) | 提议 |
 | D12 | 策略加载外化（编译/资产/执行三分 + 五步工作流） | [strategy-loading-externalization.md](strategy-loading-externalization.md) | 提议 |
@@ -40,9 +40,11 @@
 | D26 | **用户裁决落档**：L 参数两层 / M Strength=强度[0,1] | [project-engineering-file.md](project-engineering-file.md) | **已裁决（用户 2026-10-20）** |
 | D27 | **P0 第二轮深度审查**：旧 20 项逐条闭环核对 + 新增 9 项 P0（N1~N9） | [p0-round2-review.md](p0-round2-review.md) | 审查结论（设计补充基线） |
 | D28 | **用户裁决落档**：N2 成交时点 `next_open` / N9 新增 `emit_target2` / A12 先扫描再定 trap | [p0-round2-review.md](p0-round2-review.md) | **已裁决（用户 2026-10-20）** |
-| D29 | **分仓拓扑与命名**：repo=模块/服务、contract 约束边界、**domain 并入 contracts 仓**（修正 D24-1）、S0~S3 迁移阶梯；含第二轮审查补遗（agent 数据自持 / 过渡期连体 / 版本策略 → QT-17~19） | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **已裁决（用户 2026-10-20）**；仓清单与命名（**现行唯一名字源，施工前必读**）见 [repo-inventory.md](repo-inventory.md)：两条 module path 规则（应用短名 / 库全名，含 Go 1.25 实测）+ 12 仓表 + 旧→新映射 + 已裁边界 + 已知坑（core 不可被 import、GOPRIVATE、文档引用） |
+| D29 | **分仓拓扑与命名**：repo=模块/服务、contract 约束边界、**domain 并入 contracts 仓**（修正 D24-1）、S0~S3 迁移阶梯 + 第二轮审查补遗（→ QT-17~19） | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **已裁决（用户 2026-10-20）**；仓名与 module path 唯一真相源见 [repo-inventory.md](repo-inventory.md)（施工前必读）¹ |
 | D30 | **仓清单与命名终稿**：项目定名 **tellurion**、owner 保持 `ruoxizhnya`、**应用/服务用单段短名、库用全名**、12 仓表 + 旧→新映射 + 已裁边界 | [repo-inventory.md](repo-inventory.md) | **已裁决（用户 2026-10-20）** |
 | D31 | **S1 姿态改为 Plan B**：12 仓已建 -> **代码直接落两个新仓**，core/agent 用 require 伪版本 + 本地 go.work（**全程无 replace**）；S2 收窄为「伪版本 -> tag v0.1.0」；core 顶层 5 个数据契约文件留原地 | [project-engineering-file.md](project-engineering-file.md) | **已裁决（用户 2026-10-20）**；替代 D29 第 7 节的 S1 形态与 QT-05 原文 |
+
+> ¹ repo-inventory 唯一真相源含：两条 module path 规则（应用短名 / 库全名，含 Go 1.25 实测）+ 12 仓表 + 旧→新映射 + 已裁边界 + 已知坑（core 不可被 import、GOPRIVATE、文档引用）。（行内注释移此，防表行断行——refactor-plan-review L1）
 
 ### ADR-D ↔ 正式 ADR 关联（引用前先看这张表）
 
@@ -71,22 +73,22 @@
 | M1 | `domain` 归属 | ✅ **并入 contracts 仓**（`contracts/domain`），module 由 5 回落到 4；**替代 D24 第 1 条** |
 | M2 | 版本化起点 | ✅ **S0 打 `v0.1.0` 但保留 `replace`**；删 replace 的前提是 QT-50 完成 |
 | M3 | 拆仓时机 | ✅ **S1 排在 W0 之后**；**ADR-D31 改形态：代码直接落两个新仓**（无 replace，S2 只把伪版本换成 tag） |
-| M4 | 项目改名 | ✅ **项目段 `tellurion` → `tellurion`**；owner 保持 `ruoxizhnya`（不建 org、不改 owner —— 引用名一改会连锁报错） |
+| M4 | 项目改名 | ✅ **项目段 `quant-trading` → `tellurion`**（2026-10-20 订正：本行曾被改名迁移误替换为自指）；owner 保持 `ruoxizhnya`（不建 org、不改 owner —— 引用名一改会连锁报错） |
 | M5 | module path 形态 | ✅ **应用/服务用单段短名**（编译器拒绝 `require`，强制“不可被 import”）、**库用 `github.com/ruoxizhnya/<仓>`** |
 
 ### 待用户裁决清单（文档不代裁，阻塞实施）
 
-> 2026-10-20：N2 / N9 / A12 已裁决，见上表；**K 已定（新增 `kit/db`：仅 connection/migrate/DSN）**，见 D29 与 QT-05。剩余 A/C/D/E/F/G/H。
+> 2026-10-20：N2 / N9 / A12 已裁决，见上表；**K 已定（新增 `kit/db`：仅 connection/migrate/DSN）**，见 D29 与 QT-05。剩余 A/C/D/E/F/G/H。**「阻塞单」列**指未裁决时被卡住的具体工单（`tellurion:docs/TASKS.md`，refactor-plan-review H3 修复补列）。
 
-| # | 事项 | 出处 | 为什么必须你拍 |
-|---|---|---|---|
-| A | artifact 存 PG BYTEA 还是对象存储 | D14 §7 | 决定 `storage` 列落地形态（本地栈 vs 多机结论不同） |
-| C | NT 内核是否实现同一套 on_bar host API（**若做，直接按 v2 签名**） | D14 §7 | 决定「一份 wasm 跑两核」能否成立 |
-| D | 编译服务放 agent 仓还是独立 module | D14 §7 | 影响 module 拓扑与 toolchain 归属 |
-| E | 引擎缓存放内存还是本地磁盘 | D13 §7 | 冷启动成本与跨进程复用 |
-| F | latest 引用用 TTL 还是事件失效 | D13 §7 | 一致性延迟 vs 引入 webhook/msgbus 复杂度 |
-| G | 内置 14 策略「全迁移」还是「保留 init + 同步登记」 | D13 §7 | 迁移工作量与护栏写法 |
-| H | `carrier=external`（L3b）是否纳入同一 `strategy_ref` | D13 §7 | 资产服务是否统一管两类策略 |
+| # | 事项 | 出处 | 为什么必须你拍 | 阻塞单 |
+|---|---|---|---|---|
+| A | artifact 存 PG BYTEA 还是对象存储 | D14 §7 | 决定 `storage` 列落地形态（本地栈 vs 多机结论不同） | QT-41 ③-①（已标「假设，需裁决后生效」，未裁不开工该子项） |
+| C | NT 内核是否实现同一套 on_bar host API（**若做，直接按 v2 签名**）**｜升级：阻塞 QT-01 契约冻结的定稿范围** | D14 §7 | 决定「一份 wasm 跑两核」能否成立；两种结局都改变 QT-01 冻结覆盖 Go-only 还是双核（refactor-plan-review H5） | QT-01 ③（已写冻结范围声明：未裁则按 Go-only 冻结 + 书面声明 NT 对齐边界） |
+| D | 编译服务放 agent 仓还是独立 module | D14 §7 | 影响 module 拓扑与 toolchain 归属 | **QT-41b**（⛔ 已标阻塞）+ QT-26 ③-⑤ Compile 门（标「依赖待裁决 D」） |
+| E | 引擎缓存放内存还是本地磁盘 | D13 §7 | 冷启动成本与跨进程复用 | QT-41（缓存实现子项） |
+| F | latest 引用用 TTL 还是事件失效 | D13 §7 | 一致性延迟 vs 引入 webhook/msgbus 复杂度 | QT-41 ③-③（已标「假设，需裁决后生效」，不得静默二选一） |
+| G | 内置 14 策略「全迁移」还是「保留 init + 同步登记」 | D13 §7 | 迁移工作量与护栏写法 | QT-41 ③-⑤ |
+| H | `carrier=external`（L3b）是否纳入同一 `strategy_ref` | D13 §7 | 资产服务是否统一管两类策略 | QT-41（`strategy_ref` 语义，联动 QT-03 ③-③） |
 
 
 ## 其他文件
@@ -100,7 +102,7 @@
 | [kernel-interface-map.md](kernel-interface-map.md) | Go 内核接口面清单（输入 5 类入口 / 输出面），契约外置的输入 |
 | [external-wasm-proposal-review.md](external-wasm-proposal-review.md) | 第三方 Wasm 方案评审（3 条不成立；发现 P0 缺陷 `WithCloseOnContextDone` 缺失） |
 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 头脑风暴记录（与 ADR-027 对齐、WASM 机制、contracts 三层、能力化模型） |
-| [repo-topology-and-naming.md](repo-topology-and-naming.md) | **分仓拓扑与命名（D29，施工前必读）**：五条 repo autonomy 不变量 + 6 仓拓扑与命名规则 + domain 归属裁定 + 现状差距实测 + S0~S3 阶梯 + 8 步建仓 checklist + 跨仓依赖五规则 |
+| [repo-topology-and-naming.md](repo-topology-and-naming.md) | **分仓拓扑与命名（D29，施工前必读）**：五条 repo autonomy 不变量 + 分仓拓扑与命名规则（现 4 库；12 仓为上限/当前规划，以 repo-inventory 为准）+ domain 归属裁定 + 现状差距实测 + S0~S3 阶梯 + 8 步建仓 checklist + 跨仓依赖五规则 |
 
 ## 贯穿纪律（摘要）
 

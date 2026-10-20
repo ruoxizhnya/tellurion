@@ -176,9 +176,10 @@ var (
    - `ErrDataGap` → 当日不成交 + `invalid_reasons += "data_gap:date:symbol"`（现状行为，但必须留痕）；
    - `ErrStrategyFault` / `ErrContractBreach` → **立刻 `EndRun`，run status = `failed`，不产出可用于决策的 `BacktestResult`**。
 3. `ResultSpec` 增加 `Status ∈ {ok, degraded, failed}` 与 `Failures []Failure`。下游（分析服务、编排、promote 闸门）**只接受 `ok`**；`degraded` 必须显式带原因列表。
+   > ⚠️ **2026-10-20 订正（refactor-plan-review C1）**：`{ok, degraded, failed}` 与冻结三值 `status`（`docs/SPEC.md`：`completed / invalid / failed`）冲突，**不得按本条引入第四值**。实施口径：`degraded`（数据缺口跳天）→ **`invalid`** + 稳定 `invalid_reasons` code `data_gap_skipped`；`ErrStrategyFault`/`ErrContractBreach` → **`failed`** + `error`；`Failures[]` 只作**诊断明细**，不作状态来源；status 仍由 `buildResponseFromState` 单一透传点产出。下游判据同步改为「**只接受 `completed`**」。详见 `tellurion:docs/TASKS.md` QT-10 ③-④ 映射规则。
 4. 护栏：`pkg/backtest` 内对 `getSignals` 的返回值**禁止"仅 log 继续"**（写一条单测/repoguard：`getSignals` 的 err 必须在同一函数内被 `return` 或映射为 fatal）。
 
-**验收**：构造一个"每 50 天 trap 一次"的 wasm → run 必须 `failed`，且 `Failures` 点名日期与原因；构造一个"某天数据缺失"的 provider → run `degraded`，`invalid_reasons` 有记录，成交笔数符合预期。
+**验收**：构造一个"每 50 天 trap 一次"的 wasm → run 必须 `failed`，且 `Failures` 点名日期与原因；构造一个"某天数据缺失"的 provider → run ~~`degraded`~~ **`invalid`**（+ 稳定 `invalid_reasons` code `data_gap_skipped`，见上 ⚠️ 订正），`invalid_reasons` 有记录，成交笔数符合预期。
 
 **工单**：G22（P0，与 A1 同批——`EndRun` 的语义本来就依赖"错误路径也要走到 EndRun"）。
 
@@ -288,9 +289,10 @@ replay_mode = state_only | apply
    - `apply`（不推荐）：回滚引擎侧组合/成交/资金到检查点再重放。需要引擎支持事务性回滚，成本高，只在"策略状态与成交强耦合且无法 state_only 复现"时使用，必须显式配置。
 2. `emit_signal` 在 `state_only` 下返回**成功但不记录**（返回值语义固定），并计数 `replay_suppressed_signals`；超过阈值（如 10×预期）告警——它意味着"策略在重放期行为异常"。
 3. 终止路径的 `EndRun`：**不得调用 `finalize`**（模块已 Close），run 标记 `degraded`，`Failures += session_terminated`；B5 的 finalize 语义只在正常路径成立（文档必须写这一句）。
+   > ⚠️ **2026-10-20 订正（refactor-plan-review C1）**：「标记 `degraded`」按冻结三值改为 **`invalid` + 稳定 `invalid_reasons` code `session_terminated`**（映射规则见 `tellurion:docs/TASKS.md` QT-10 ③-④ / QT-15 ⑤），`Failures += session_terminated` 仅作诊断明细，不引入 `degraded` 第四值。
 4. 重建次数上限（C1 的 3 次）按 **run** 计，不按 bar 计；超过即 `failed`（不要"每个 bar 都可以重建 3 次"）。
 
-**验收**：在 bar k 注入一次 trap（人为 sleep 超预算）→ 重建后成交笔数、成交价、净值与"无 trap 跑法"**逐笔一致**（不是"接近"）；`replay_suppressed_signals` 计数符合预期；finalize 里发 `long` 在 normal 路径 trap、在 terminated 路径不执行且 run 标 degraded。
+**验收**：在 bar k 注入一次 trap（人为 sleep 超预算）→ 重建后成交笔数、成交价、净值与"无 trap 跑法"**逐笔一致**（不是"接近"）；`replay_suppressed_signals` 计数符合预期；finalize 里发 `long` 在 normal 路径 trap、在 terminated 路径不执行且 run 标 ~~`degraded`~~ **`invalid`**（+ `session_terminated`，见上 ⚠️ 订正）。
 
 **工单**：G25（P0，与 C1/A9 同批——三者共用"会话/检查点"语义）。
 

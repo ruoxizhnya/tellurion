@@ -39,16 +39,18 @@
 | 组件 | 状态 | 位置 |
 |---|---|---|
 | WASM 运行时 wazero v1.12.0（纯 Go 无 cgo） | ✅ | `go.mod:18` |
-| 逐 bar 协议 `initialize → on_bar(t) → finalize` | ✅ | `on_bar_session.go:51` |
-| 前视隔离（`t_offset>0` → trap） | ✅ | `host_api.go` `hostGetBar` |
-| 能力白名单 `env` 8 函数 + `ValidateImports` | ✅ | `host_api.go` |
-| 内存上限 64MB（runtime 级） | ✅ | `sandbox.go` `DefaultMaxMemory` |
-| 超时调用框架（30s） | ✅ | `CallWithTimeout` |
-| 状态持久化 + 断点续跑（**日期边界裁决**） | ✅ | `checkpoint.go` + `StateStore` |
-| 双引擎路由 fail-closed | ✅ | `contracts.MarketRouter` |
-| 版本哈希治理样板 | ✅ | `factor_definitions.version_hash`（`factor_def.go:151`） |
-| L3b 外部信号全链路（按 `as_of` 消费） | ✅ | `signal_strategy.go` |
-| 插件 HTTP 加载端点（路径逃逸防护） | ✅ | `handlers_plugin.go`（REV-08） |
+| 逐 bar 协议 `initialize → on_bar(t) → finalize` | ✅ | `pkg/sandbox/wasm/on_bar_session.go:51` |
+| 前视隔离（`t_offset>0` → trap） | ✅ | `pkg/sandbox/wasm/host_api.go` `hostGetBar` |
+| 能力白名单 `env` 8 函数 + `ValidateImports` | ✅ | `pkg/sandbox/wasm/host_api.go` |
+| 内存上限 64MB（runtime 级） | ✅ | `pkg/sandbox/wasm/sandbox.go` `DefaultMaxMemory` |
+| 超时调用框架（30s） | ✅ | `pkg/sandbox/wasm/sandbox.go:258` `CallWithTimeout` |
+| 状态持久化 + 断点续跑（**日期边界裁决**） | ✅ | `pkg/strategy/checkpoint.go` + `pkg/strategy/state_store.go`（`StateStore`；另 `pkg/backtest/state/state_store.go`） |
+| 双引擎路由 fail-closed | ✅ | `pkg/backtest/contracts` `MarketRouter` |
+| 版本哈希治理样板 | ✅ | `factor_definitions.version_hash`（`pkg/domain/factor_def.go:151`） |
+| L3b 外部信号全链路（按 `as_of` 消费） | ✅ | `pkg/strategy/signal_strategy.go` |
+| 插件 HTTP 加载端点（路径逃逸防护） | ✅ | `cmd/analysis/handlers_plugin.go`（REV-08） |
+
+> （refactor-plan-review L7：位置列已补仓内相对全路径——行号会随 W0 后改动漂移，认路径不认行号。）
 
 **换句话说：最难的部分（沙箱、协议、防前视、状态恢复）已经做完了。**
 

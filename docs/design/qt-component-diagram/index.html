@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quant Lab · quant-trading 全系统构件图</title>
+<title>Quant Lab · tellurion 全系统构件图</title>
 <style>
   :root {
     --bg: #f8fafc; --panel: #ffffff; --ink: #0f172a; --muted: #475569;
@@ -34,10 +34,11 @@
 <body>
 
 <header>
-  <h1>Quant Lab · quant-trading 全系统构件图</h1>
+  <h1>Quant Lab · tellurion 全系统构件图</h1>
   <div class="sub">
-    依据 <b>quant-trading/docs/ARCHITECTURE.md</b>（last-verified 2026-10-17）与四仓源码盘点（2026-10-19）绘制。
-    虚线 = 消息 / 预留 / 缓存类连线；实线 = 调用 / 装配 / 数据落库连线。
+    依据 <b>tellurion:docs/ARCHITECTURE.md</b>（绘制时称 <code>quant-trading/docs/ARCHITECTURE.md</code>，last-verified 2026-10-17）与四仓源码盘点（2026-10-19）绘制。
+    虚线 = 消息 / 预留 / 缓存类连线；实线 = 调用 / 装配 / 数据落库连线。<br>
+    <b>2026-10-20 注记（QT-60 改名迁移同步）</b>：图中仓名已迁为 tellurion 系——quant-trading→tellurion、quant-trading-ui→tellurion-ui、quant-trading-agent→tellurion-agent、quant-trading-docs→tellurion-docs；本图为 2026-10-19 盘点绘制的形态，仅同步仓名、结构不更新。
   </div>
   <div class="chips">
     <span class="chip"><b>4 仓</b>：core / agent / ui / docs</span>
@@ -59,7 +60,7 @@
   <button onclick="zoomReset()">重置</button>
   <span style="flex:1"></span>
   <button onclick="copySrc()">复制 Mermaid 源码</button>
-  <button onclick="location.href='quant-trading-components.mmd'">下载 .mmd</button>
+  <button onclick="location.href='tellurion-components.mmd'">下载 .mmd</button>
 </div>
 
 <div id="err"></div>
@@ -68,9 +69,10 @@
   <div class="zoomwrap" id="zoomwrap">
 <pre class="mermaid-src" id="msrc">
 %% ============================================================
-%% Quant Lab · quant-trading 全系统构件图（紧凑版 v2）
+%% Quant Lab · tellurion 全系统构件图（紧凑版 v2）
 %% 优化：组内用不可见连线 ~~~ 做纵向分列，压制横向铺开
 %% 依据：docs/ARCHITECTURE.md（last-verified 2026-10-17）+ 全仓源码盘点（2026-10-19）
+%% 2026-10-20 注记（QT-60 改名迁移同步）：图中仓名已迁为 tellurion 系——quant-trading→tellurion、quant-trading-ui→tellurion-ui、quant-trading-agent→tellurion-agent、quant-trading-docs→tellurion-docs；本图为 2026-10-19 盘点绘制的形态，仅同步仓名、结构不更新。
 %% 注：REV-16 已删除 strategy-service :8082；pkg/strategy 保留为库层
 %% ============================================================
 
@@ -85,12 +87,12 @@ subgraph EXT["外部依赖"]
 end
 
 %% ─────────── 文档仓 ───────────
-subgraph DOCS["quant-trading-docs · 跨领域文档仓"]
+subgraph DOCS["tellurion-docs · 跨领域文档仓"]
   DOCSR["ADR / ODR 决策档案 · PRODUCT · VISION&lt;br/&gt;ROADMAP · TEST · 运维 guides"]:::docn
 end
 
 %% ─────────── 前端仓 ───────────
-subgraph FE["前端仓 quant-trading-ui · Vue 3 + Vite + Naive UI"]
+subgraph FE["前端仓 tellurion-ui · Vue 3 + Vite + Naive UI"]
   NGINX["nginx SPA 托管 :8080&lt;br/&gt;/api 反代 analysis"]:::fe
   ROUTER["router 路由表"]:::fe
   PAGES["页面 13 个（Dashboard · 回测引擎/对比 · 选股器&lt;br/&gt;策略实验室/构建器 · Copilot · Explore&lt;br/&gt;数据同步 · Alerts · Evidence · 因子引用 · Login）"]:::fe
@@ -199,7 +201,7 @@ subgraph DAT["data-service :8081 · 数据摄取 / 同步 / 因子计算（cmd/d
 end
 
 %% ─────────── ai-service :8086（agent 仓）───────────
-subgraph AII["ai-service :8086 · AI 实验员（quant-trading-agent 仓）"]
+subgraph AII["ai-service :8086 · AI 实验员（tellurion-agent 仓）"]
   AI_H["gin 四族路由 :8086&lt;br/&gt;copilot · pipeline · explore · tools&lt;br/&gt;经 bootstrap 复用 core 装配 同参"]:::aisvc
   CO["CopilotService&lt;br/&gt;NL → 代码 → 沙箱编译 → 回测"]:::aisvc
   PI["pipeline&lt;br/&gt;意图 → YAML → 回测 → 实验日志"]:::aisvc

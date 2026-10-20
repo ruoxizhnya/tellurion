@@ -21,7 +21,7 @@
 
 | 概念 | 是什么 | 边界由什么保证 | 数量 |
 |---|---|---|---|
-| **repo（仓）** | agent 的工作上下文单位 | git 边界 + 本仓 `AGENTS.md`/CI/`TASKS.md` | **现在 4 个** → S2 后 6 个 → 终态 12 个 |
+| **repo（仓）** | agent 的工作上下文单位 | git 边界 + 本仓 `AGENTS.md`/CI/`TASKS.md` | **现在 4 个有内容**（12 仓物理已建 2026-10-20：contracts/kit 占位待 S1 落码、X 线 6 个触发前仅骨架）→ S2 后 6 个 → 终态 12 个 |
 | **module（Go module）** | 编译单元，决定"能不能 import" | `go.mod` + 依赖方向护栏 | 每仓 1 个（仓内不再多 module） |
 | **service（进程）** | 部署单元 | contract + 网络边界 | 现在 1 个，X 线起进程时才增加 |
 
@@ -51,7 +51,7 @@
 
 ## 3. 目标仓拓扑
 
-### 3.1 现在（6 仓）
+### 3.1 依赖拓扑（6 个非触发仓；此图是 **S1 落码后的形态**——contracts/kit 2026-10-20 已建占位、代码随 QT-05 落入，「现在」口径见 §1 数量列）
 
 ```
 第 1 层   ┌──────────────────────────────┐
@@ -205,7 +205,7 @@
 | `tellurion-agent` | `...-agent` | **1（→ `../tellurion`，require `v0.0.0`）** | 0 | ❌ | ✅ | ✅（**checkout core 并改写 replace**） | R1/R3/R5 全不成立 |
 | `tellurion-ui` | 无（前端） | — | 0 | ❌ | ✅ | ✅ | R3 |
 | `tellurion-docs` | 无 | — | 0 | ❌ | ❌ | ❌ | R2/R3/R4 |
-| `tellurion-contracts` / `-kit` | — | — | — | — | — | — | **尚不存在** |
+| `tellurion-contracts` / `-kit` | — | — | — | — | — | — | **已建（2026-10-20 占位），代码待 S1（QT-05）落** |
 
 补一条决定顺序的事实：**agent 目前 import core 的 20 个包 / 37 个文件**（`domain` 48 处、`storage` 14、`strategy` 11、`expression` 10、`data/source` 6、`backtest` 5…）。
 ⇒ **删掉 `replace` 不是"改一行"，而是"agent 先不再 import core 实现包"**。所以 agent 的单仓自治排在 S3（QT-50 HTTP 化之后），不是现在。

@@ -1,6 +1,7 @@
 %% ============================================================
-%% Quant Lab · quant-trading 构件图（高层抽象版）
-%% 大模块 + 模块内聚合子块 + 主数据流；明细版见 quant-trading-components.mmd
+%% Quant Lab · tellurion 构件图（高层抽象版）
+%% 大模块 + 模块内聚合子块 + 主数据流；明细版见 tellurion-components.mmd
+%% 2026-10-20 注记（QT-60 改名迁移同步）：图中仓名已迁为 tellurion 系——quant-trading→tellurion、quant-trading-ui→tellurion-ui、quant-trading-agent→tellurion-agent、quant-trading-docs→tellurion-docs；本图为 2026-10-19 盘点绘制的形态，仅同步仓名、结构不更新。
 %% ============================================================
 
 flowchart TB
@@ -13,10 +14,10 @@ subgraph EXT["外部依赖"]
 end
 
 %% ─────────── 文档仓 ───────────
-DOCS["quant-trading-docs<br/>ADR · VISION · guides"]:::docn
+DOCS["tellurion-docs<br/>ADR · VISION · guides"]:::docn
 
 %% ─────────── 前端 ───────────
-subgraph FE["前端 quant-trading-ui · Vue 3"]
+subgraph FE["前端 tellurion-ui · Vue 3"]
   FE_APP["nginx :8080 SPA<br/>13 页面 · Pinia · api 客户端 14（JWT）"]:::fe
   FE_E2E["Playwright E2E"]:::fe
 end

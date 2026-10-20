@@ -31,6 +31,7 @@
 - 状态：**提议（范围已由 D24 限定）**
 
 ### ADR-D2：契约外置为只依赖 domain 的 module `tellurion-contracts`
+> ⚠️ **2026-10-20 订正（M1 / D29 §5 替代本条「只依赖 domain」口径）**：`domain` 已**并入 contracts 仓**（`contracts/domain`），module 由 5 回落 4；最终依赖方向 **`kit ← contracts(含 domain) ← core`，`agent → kit + contracts`（编译期）+ `HTTP → core`（运行期粗粒度）**，`contracts → kit`（仅纯工具包）允许（见 `repo-topology-and-naming.md` §3.1/§5）。本条正文保留追溯，护栏与 go.mod 实现一律按订正后方向（refactor-plan-review M2）。
 - 场景：agent 与 core 现在是编译期 `replace` 单向绑定，core 改签名就打断 agent 构建。
 - 决策：把 `RunSpec`/`ResultSpec`/`BacktestRunner`/`EngineRunner`/`MarketRouter` 及后续 port 抽成**只依赖 `quant-trading-domain` 的 Go module**（四契约引用 `domain.Signal`/`domain.BacktestResult` 等值对象；强行"零依赖"只能复制类型 → 两套真相），core 与 agent（及未来任何应用）都只依赖它。
 - 理由：把「单向库依赖」升级为「双方依赖同一契约」，方向不变但耦合面从「整个 core 的导出面」收缩到「契约接口面」；契约可独立版本化；为将来真拆进程预留了天然的序列化边界。
@@ -187,7 +188,7 @@
 | G19 | **同 bar 同 symbol 多信号语义冻结**（推荐 trap） | 半天（P0） | 相反 action 两条 → 确定性行为 |
 | G20 | **`Scope.RunUniverse`**（run 级稳定）+ `Universe` 降级为当日名单 | 1 天（P0） | Universe 增减 5 天，symbol_idx 不变 |
 | G21 | **symbol scope 分片与预算**（并发信号量 + 单 run 512 MiB 软预算 + 指标） | 2 天（P0，M0b 前置） | 5000 标的跑完不 OOM；预算调小仍能跑完 |
-| G22 | **错误分级 / fail-closed 落地**（`ErrDataGap` vs `ErrStrategyFault` vs `ErrContractBreach`；策略故障终止 run，不再「跳过当天」） | 1-2 天（P0，与 G7 同批） | 每 50 天 trap 一次的 wasm → run=failed；数据缺口 → degraded 且 invalid_reasons 有记录 |
+| G22 | **错误分级 / fail-closed 落地**（`ErrDataGap` vs `ErrStrategyFault` vs `ErrContractBreach`；策略故障终止 run，不再「跳过当天」） | 1-2 天（P0，与 G7 同批） | 每 50 天 trap 一次的 wasm → run=failed；数据缺口 → ~~degraded~~ **invalid**（+ `data_gap_skipped`，refactor-plan-review C1 订正：映射进冻结三值，不引入第四值，见 `tellurion:docs/TASKS.md` QT-10 ③-④）且 invalid_reasons 有记录 |
 | G23 | **成交时点冻结**（`FillTiming = next_open \| same_close`，进 run_spec_hash；先出差异报告再定默认） | 1 天 + 差异报告（P0，契约冻结） | 两口径差异可解释；K15 遇口径不一致报「口径不符」而非「结果不一致」 |
 | G24 | **检查点身份**（PK 加 `shard_key`；信封加 `run_identity_hash`=universe+scope+shard+params） | 1-2 天（P0，与 G16 同批） | 5000 分片 5000 行；换票池恢复被拒且点名差异项 |
 | G25 | **终止重建的重放语义**（`replay_mode=state_only` 默认；重放期 emit 不落 Signals；terminated 不调 finalize） | 1-2 天（P0，与 G1/G16 同批） | 注入 trap 后成交逐笔与无 trap 一致 |

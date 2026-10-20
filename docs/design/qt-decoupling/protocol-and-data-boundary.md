@@ -28,6 +28,8 @@
 **判据**：**这条边现在真的跨进程吗？** 是 → 走 OpenAPI；否 → 走 contracts。不要给一条进程内的边预先发明 wire 协议。
 推论：**现在不该为 agent→core 造 OpenAPI DTO**；等真拆进程那天，contracts 里的 interface 正好是生成 OpenAPI 的源（先有接口，后有 endpoint）。
 
+> ⚠️ **2026-10-20 订正注（refactor-plan-review H2）**：上一行推论**只对「拆进程之前」成立**。QT-50 已裁决 agent↔core 走 **HTTP 粗粒度（D24）**，该边**在 QT-50 落地后即为跨进程 wire**，判据翻转：六/七类粗粒度动作的 endpoint + DTO **必须落 `docs/openapi.yaml`**（纳入既有路由表对拍），`contracts/dto` 由 `oapi-codegen` 生成、禁手改，并复用既有 JWT + RBAC（`RequireRole`）+ CORS 白名单 + loopback-only fail-closed 鉴权面——见 `tellurion:docs/TASKS.md` QT-50 ③-③/④。但**逐 bar / 逐 symbol / 逐 order 的内循环边**照旧不发明 wire 协议（硬否决不变）。
+
 ## ADR-D8：表归属边界 —— 复用存储能力 ≠ 共享表
 
 > ⚠️ **本文两处已被 ADR-D10（`target-module-topology.md`）修正，以 D10 为准**：① 「agent 继续用 core 的 store 句柄是合理的」**作废**——agent 应自建 store（用 kit 的连接能力），不再借 core 的 store 句柄；② agent 自有数据的 schema 归属以 **`ai.*`**（D10 口径）为准，本文的 `research.ai_*` 表述作废。D8 的其余部分（表归属唯一、写路径走 port、护栏兜底）仍然成立。

@@ -47,6 +47,7 @@
 | `tellurion-agent` | 实验员：实验循环、基因池、验证、工具编排、Copilot | **kit · domain · contracts（编译期）+ HTTP → core（运行期，粗粒度）** | 禁止直连 core 的表；禁止 import core 实现包；**禁止 per-bar / 逐笔粒度远程调用** |
 
 **依赖不变量（护栏）**：`kit ← domain ← contracts ← core`；`agent → kit/domain/contracts`（编译期）+ `HTTP → core`（运行期粗粒度）。任何反向边命中即红。**（D24 修正：原 `kit ← contracts ← core ← agent` 已废）**
+> ⚠️ **2026-10-20 订正（本行原口径已被 M1 / D29 §5 取代，护栏实现不得按上行方向写）**：`domain` 已**并入 contracts 仓**（`contracts/domain`），最终不变量为 **`kit ← contracts(含 domain) ← core`，`agent → kit + contracts`（编译期）+ `HTTP → core`（运行期粗粒度）**；**`contracts → kit`（仅 `decimal`/`errors` 等纯工具）允许**（见 `repo-topology-and-naming.md` §3.1 依赖表与 §5）。上行「`kit ← domain ← contracts ← core`」是 domain 独立成 module 时期的口径，原文保留追溯（refactor-plan-review M2）。
 
 ### kit 的准入判据（两条同时满足）
 
@@ -101,7 +102,7 @@
 **P0 · 抽 kit 与 contracts**（⚠️ 具体分期以 [ADR-D29](repo-topology-and-naming.md) §7 的 S0~S3 为准；**S1 形态已由 [ADR-D31](project-engineering-file.md) 改为「代码直接落两个新仓 + `require` 伪版本」**，不再先在本仓内建子 module）
 1. 建 `tellurion-kit`：搬 statistics/decimal/errors/logging/id/httpclient/httpserver/auth/authz/observability/clock/sandbox(staticcheck,runner)；core 与 agent 改为依赖 kit。
 2. 建 `tellurion-contracts`：放 port 接口 + 哨兵错误；DTO 由 `openapi.yaml` 生成（ADR-D7）。
-3. 护栏：`kit ← contracts ← core ← agent` 反向边即红。
+3. 护栏：`kit ← contracts(含 domain) ← core`，`agent → kit + contracts`（编译期）+ `HTTP → core`（运行期）；反向边即红（2026-10-20 随 M1 订正，原写 `kit ← contracts ← core ← agent`——agent 与 core 之间只有运行期 HTTP，不是编译边）。
 
 **P1 · 数据归属重划**
 4. agent 建 `ai.*` schema 与自己的 store（用 kit 的连接/migrate 能力）；
