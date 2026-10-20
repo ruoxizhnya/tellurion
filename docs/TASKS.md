@@ -550,6 +550,23 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
+### QT-61 · CI 基线归零（改名后暴露的 4 项预存在失败）[P1] ⬜
+
+- **① 目标**：让四仓 CI 从"长期红"变成"红即代表新问题"。现状是红太久，真回归会被当成噪声忽略——这次改名的两个真回归（gofmt 121 文件、归档 5 条坏链）就是混在这堆红里才没被及时发现。
+- **② 上下文**：`tellurion` 首次 CI（run 39418563489）四项失败，逐项取证如下；**均非改名引入**：
+  | 失败项 | 证据 |
+  |---|---|
+  | NT sidecar tests / Dual-run gate | `catalog path .../nt-sidecar/catalog does not exist`；旧仓 2026-10-16 同一行报错（catalog 是生成物，未入库） |
+  | agent `TestStrategyPromptIncludesDSLSyntax` / `TestFactorDSLSyntax_DerivesFromRegistry` | 旧 agent 仓同测试同报错；`turnover_rate` 在 `pkg/expression/registry.go:222` **确实注册**（DependsOn TableMarketActivity），而测试把它列为"幻影字段" → 注册表与护栏测试漂移（OBS-08 未闭环） |
+  | ui `SchedulePanel.test.ts` 1 failed（4910ms） | 旧 ui 仓 CI 亦 failure；该用例 4.9s 接近超时，疑似 flaky |
+  | core `TestResolveStockPool_UniverseCsi300Expands` / `_FailsLoudWhenConstituentsEmpty` | 需要真库里有 csi300 成分（2024-10-31 ~ 2026-09-30 快照）；CI 只灌 `seed_alignment_fixture.sql`。旧仓该步骤被 gofmt 先拦住，**从未跑到** |
+- **③ 要求**：① NT：把 `nt-sidecar/catalog` 的生成纳入 CI（`export_bars.py` + 固定 symbols），或把依赖 catalog 的用例改成显式 skip 并在报告里点名"catalog 未生成"（**不许静默 skip**）；② OBS-08：先判定 `turnover_rate` 是否真能被 DSL 求值（注册表说能、护栏测试说不能，二者必须有一方错），再决定修注册表还是修测试；③ ui：给 `SchedulePanel` 用例加稳定等待或提高 timeout，连跑 20 次不许失败；④ core universe：CI 增加成分数据 seed（或该用例改 `TEST_UNIVERSE=1` 显式开关，默认 skip 且在 CI 汇总里显示"未覆盖"）。
+- **④ 约束与非目标**：**不许用 `continue-on-error` 掩盖**；不许删测试求绿；不改业务语义；不引第三方 CI 服务。
+- **⑤ 验收**：四仓 `main` 的 CI 全绿，或剩余失败**全部**是 `known-fail` 白名单里带单号+期限的项；CI 汇总里能看到"跳过了哪些用例、为什么"。
+- **⑥ 边界**：只做测试与 CI 配置；`turnover_rate` 若确认是业务缺陷，另立单进 W2。
+
+---
+
 ## 八、跨仓任务索引（不在本仓，勿双写）
 
 > 仓名以 `repo-inventory.md` §2 的「旧→新」为准；**QT-60 完成前，实际仓名仍是旧名**。
