@@ -45,7 +45,7 @@ func DefaultTestDBConfig() TestDBConfig {
 		Port:     port,
 		User:     getEnvOrDefault("TEST_DB_USER", "postgres"),
 		Password: getEnvOrDefault("TEST_DB_PASSWORD", "postgres"),
-		Database: getEnvOrDefault("TEST_DB_NAME", "quant_trading_test"),
+		Database: getEnvOrDefault("TEST_DB_NAME", "tellurion_test"),
 	}
 }
 

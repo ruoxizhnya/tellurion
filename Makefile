@@ -22,8 +22,8 @@ build-analysis:
 		--build-arg BUILD_VERSION=${VERSION} \
 		--build-arg BUILD_COMMIT=${COMMIT} \
 		--build-arg BUILD_TIME=${BUILD_TIME} \
-		-t ${REGISTRY}/quant-trading-analysis:${VERSION} \
-		-t ${REGISTRY}/quant-trading-analysis:latest \
+		-t ${REGISTRY}/tellurion-analysis:${VERSION} \
+		-t ${REGISTRY}/tellurion-analysis:latest \
 		-f cmd/analysis/Dockerfile .
 
 build-data:
@@ -32,8 +32,8 @@ build-data:
 		--build-arg BUILD_VERSION=${VERSION} \
 		--build-arg BUILD_COMMIT=${COMMIT} \
 		--build-arg BUILD_TIME=${BUILD_TIME} \
-		-t ${REGISTRY}/quant-trading-data:${VERSION} \
-		-t ${REGISTRY}/quant-trading-data:latest \
+		-t ${REGISTRY}/tellurion-data:${VERSION} \
+		-t ${REGISTRY}/tellurion-data:latest \
 		-f cmd/data/Dockerfile .
 
 # Build all services
@@ -54,12 +54,12 @@ build: build-analysis build-data
 # Push targets
 # ============================================================
 push-analysis: build-analysis
-	docker push ${REGISTRY}/quant-trading-analysis:${VERSION}
-	docker push ${REGISTRY}/quant-trading-analysis:latest
+	docker push ${REGISTRY}/tellurion-analysis:${VERSION}
+	docker push ${REGISTRY}/tellurion-analysis:latest
 
 push-data: build-data
-	docker push ${REGISTRY}/quant-trading-data:${VERSION}
-	docker push ${REGISTRY}/quant-trading-data:latest
+	docker push ${REGISTRY}/tellurion-data:${VERSION}
+	docker push ${REGISTRY}/tellurion-data:latest
 
 push: push-analysis push-data
 
@@ -102,8 +102,8 @@ test:
 	go test ./... -count=1 -race -coverprofile=coverage.out
 	go run ./tools/coveragegate -profile=coverage.out \
 		-total-min=52 \
-		-pkg-min=github.com/ruoxizhnya/quant-trading/pkg/backtest=65 \
-		-pkg-min=github.com/ruoxizhnya/quant-trading/pkg/domain=75
+		-pkg-min=tellurion/pkg/backtest=65 \
+		-pkg-min=tellurion/pkg/domain=75
 	@echo "✅ Tests completed"
 
 lint:

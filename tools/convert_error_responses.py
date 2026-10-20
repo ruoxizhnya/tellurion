@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-IMPORT = '"github.com/ruoxizhnya/quant-trading/internal/httpserver"'
+IMPORT = '"tellurion/internal/httpserver"'
 SKIPPED = []
 
 

@@ -37,7 +37,7 @@ func TestTestDBConfig_DSNHasTheExpectedAbsoluteValue(t *testing.T) {
 		Port:     6543,
 		User:     "alice",
 		Password: "s3cret",
-		Database: "quant_trading_test",
+		Database: "tellurion_test",
 	}
 
 	got, err := cfg.DSN()
@@ -45,7 +45,7 @@ func TestTestDBConfig_DSNHasTheExpectedAbsoluteValue(t *testing.T) {
 
 	// 绝对值断言：防「推导式断言跟着实现一起漂移」。
 	assert.Equal(t,
-		"postgres://alice:s3cret@db.internal:6543/quant_trading_test?sslmode=disable",
+		"postgres://alice:s3cret@db.internal:6543/tellurion_test?sslmode=disable",
 		got)
 
 	// 推导式断言：DSN() 的结果必须就是 storage.BuildDSN 的结果。
@@ -115,7 +115,7 @@ func TestTestDBConfig_DSNRejectsAnEmptyPassword(t *testing.T) {
 		Port:     5432,
 		User:     "postgres",
 		Password: "", // 旧实现会静默拼出 postgres://postgres:@localhost:5432/…
-		Database: "quant_trading_test",
+		Database: "tellurion_test",
 	}
 
 	// 前置断言：密码必须真的是空的，否则测的是别的东西。
@@ -164,5 +164,5 @@ func TestDefaultTestDBConfig_FallsBackWhenEnvIsEmpty(t *testing.T) {
 	assert.Equal(t, 5432, cfg.Port)
 	assert.Equal(t, "postgres", cfg.User)
 	assert.Equal(t, "postgres", cfg.Password)
-	assert.Equal(t, "quant_trading_test", cfg.Database)
+	assert.Equal(t, "tellurion_test", cfg.Database)
 }

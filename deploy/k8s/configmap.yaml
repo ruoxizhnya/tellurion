@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: quant-trading-config
-  namespace: quant-trading
+  name: tellurion-config
+  namespace: tellurion
   labels:
-    app.kubernetes.io/name: quant-trading
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/name: tellurion
+    app.kubernetes.io/part-of: tellurion
 data:
   # 服务发现（P1-8）
   #
@@ -38,14 +38,14 @@ data:
   # POSTGRES_DB —— **一份词汇表，各自在边界上翻译**，不在这里重复定义
   # 第二个名字（POSTGRES_DB / POSTGRES_USER 已删除）。
   #
-  # 值必须与 config/*.yaml、docker-compose.yml 一致（quant_trading /
+  # 值必须与 config/*.yaml、docker-compose.yml 一致（tellurion /
   # postgres）。此前这里是 quantlab / quantlab，而应用读的是
-  # quant_trading / postgres —— 即使键名修好，库名与用户名仍然对不上。
+  # tellurion / postgres —— 即使键名修好，库名与用户名仍然对不上。
   # 这条不变量由 tools/check_deploy_consistency.py 的检查 5 守护。
   DATABASE_HOST: "postgres"
   DATABASE_PORT: "5432"
   DATABASE_USER: "postgres"
-  DATABASE_DATABASE: "quant_trading"
+  DATABASE_DATABASE: "tellurion"
   # ── Cache (Redis) ──────────────────────────────────────────────────
   # AUD-39：同理，应用读的是 `redis.url` → **REDIS_URL**。此前写的是
   # REDIS_HOST / REDIS_PORT，零读取者。

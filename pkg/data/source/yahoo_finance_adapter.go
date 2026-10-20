@@ -154,7 +154,7 @@ func (a *YahooFinanceAdapter) fetchDailyForSymbol(ctx context.Context, sym, rang
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (quant-trading)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (tellurion)")
 	req.Header.Set("Accept", "application/json")
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -222,7 +222,7 @@ func (a *YahooFinanceAdapter) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (quant-trading)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (tellurion)")
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: yahoo_finance: %v", ErrUpstreamUnavailable, err)

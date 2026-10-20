@@ -89,7 +89,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: quant_trading
+      DATABASE_DATABASE: tellurion
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       TUSHARE_TOKEN: ${TUSHARE_TOKEN}
       REDIS_URL: redis://host.docker.internal:6379
@@ -163,7 +163,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: quant_trading
+      DATABASE_DATABASE: tellurion
       REDIS_URL: redis://host.docker.internal:6379
       DATA_SERVICE_URL: http://data-service:8081
       # STRATEGY_SERVICE_URL 已随 OBS-11（2026-10-09）删除：策略服务 standby
@@ -230,7 +230,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: quant_trading
+      DATABASE_DATABASE: tellurion
       REDIS_URL: redis://host.docker.internal:6379
       DATA_SERVICE_URL: http://data-service:8081
       # factor.compute / factor.evaluate / compute_factor_ic 三个工具经
@@ -259,8 +259,8 @@ services:
 
 # 注意：原先这里声明了 postgres_data / redis_data 两个卷。
 # 数据库与缓存移出容器后它们不再被任何服务挂载。**本文件不再声明**，但
-# 磁盘上的 Docker 卷 quant-trading_postgres_data（1.26GB）/
-# quant-trading_redis_data 仍然存在（compose 删声明不删卷）。
+# 改名前的旧卷 quant-trading_postgres_data（1.26GB）/
+# quant-trading_redis_data 仍留在磁盘上（compose 删声明不删卷）。
 # 里面是旧的容器版数据 —— 已知为**空库**（表结构就绪、业务表 0 行，
 # 见 docs/TEST.md）。确认不再需要时用显式删除回收：
 #   docker volume rm quant-trading_postgres_data quant-trading_redis_data

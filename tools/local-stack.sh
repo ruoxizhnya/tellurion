@@ -28,7 +28,7 @@ ROOT_WIN="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_WIN"
 
 # 容器服务 → 宿主端口（与 docker-compose.yml 的 127.0.0.1: 映射一一对应）
-# REV-16：strategy-service(:8082) 已删除；:8080 是前端（拆仓后由 quant-trading-ui 的
+# REV-16：strategy-service(:8082) 已删除；:8080 是前端（拆仓后由 tellurion-ui 的
 # nginx 提供），不在本栈的容器清单里——两者都不再断言，否则脚本会永远等不到它们。
 SERVICES="data-service:8081 analysis-service:8085 ai-service:8086"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"

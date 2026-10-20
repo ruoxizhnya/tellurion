@@ -54,33 +54,33 @@ STRICT_LINK_RE = re.compile(r"\]\((?!https?://|mailto:|//|#)([^)\s]+?)(?:\s+\"[^
 #
 # README.md（REV-14，2026-10-17）：它是新人读的第一份文档，也是腐烂得最厉害的一份
 # —— 曾整整 7 条索引链接全指向已迁出 core 的文档（VISION/ROADMAP/ADR/TEST/
-# NEXT_STEPS 全在 quant-trading-docs 仓）。不纳入检查就等于「门面不设防」，而且
+# NEXT_STEPS 全在 tellurion-docs 仓）。不纳入检查就等于「门面不设防」，而且
 # 这类失实**人类读者发现得最晚**（没人会去点自己以为是常识的文档）。
 ENTRY_FILES = ("AGENTS.md", "README.md")
 
 # ─── 跨仓链接豁免（2026-10-09 文档拆仓）──────────────────────────────
 # 拆仓后 core 仓留存的活跃文档（SPEC/TASKS/live-trading）仍引用着已迁到
-# quant-trading-docs / quant-trading-agent / quant-trading-ui 的文档。这些链接
+# tellurion-docs / tellurion-agent / tellurion-ui 的文档。这些链接
 # **目标真实存在**（只是不在 core 仓），不是坏链。检查器对命中下列前缀/文件的
 # 链接跳过，而不是误报成死链。
 #
 # ⚠️ 维护：再次迁出文档时，把迁出的目录/文件追加进这里。否则检查器会对跨仓
 # 引用误报坏链 —— 那会训练人忽略红灯，比没检查更糟。
 MIGRATED_PREFIXES = (
-    "adr/",                    # → quant-trading-docs
-    "guides/",                 # → quant-trading-docs
-    "hermes/",                 # → quant-trading-agent
-    "design/equitydeep/",      # → quant-trading-docs
-    "design/pages/",           # → quant-trading-ui
-    "archive/odr/",            # → quant-trading-docs
-    "archive/superseded-adr/",  # → quant-trading-docs
-    "archive/reports-",        # → quant-trading-docs
+    "adr/",                    # → tellurion-docs
+    "guides/",                 # → tellurion-docs
+    "hermes/",                 # → tellurion-agent
+    "design/equitydeep/",      # → tellurion-docs
+    "design/pages/",           # → tellurion-ui
+    "archive/odr/",            # → tellurion-docs
+    "archive/superseded-adr/",  # → tellurion-docs
+    "archive/reports-",        # → tellurion-docs
 )
 MIGRATED_FILES = {
-    # 顶层 → quant-trading-docs
+    # 顶层 → tellurion-docs
     "ADR.md", "AGENTS_TEMPLATE.md", "ARCHITECTURE.md", "PRODUCT.md",
     "ROADMAP.md", "TEST.md", "VISION.md",
-    # design 根下（前端设计系统）→ quant-trading-ui
+    # design 根下（前端设计系统）→ tellurion-ui
     "design/index.md", "design/principles.md", "design/visual.md",
     "design/components.md", "design/interaction.md", "design/backtest-engine-design.md",
     # archive 根下 → docs / agent

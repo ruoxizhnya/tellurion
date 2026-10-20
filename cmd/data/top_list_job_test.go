@@ -5,7 +5,7 @@ package main
 // 路径与 capital_flow_job_test.go 同一条形状：HTTP 门 → JobService → Queue →
 // WorkerPool 派发 → topListExecutor → NewETLPipeline → Registry.Fetch
 // （链 top_list:[eastmoney_toplist]）→ BulkInsert，落的是**真库**
-// `quant_trading.top_list`，落完逐字段读回与源响应比对。
+// `tellurion.top_list`，落完逐字段读回与源响应比对。
 //
 // 两处替身，理由如实：
 //   - **作业行用内存 store**（复用 memJobStore）：Queue.Dequeue 取「最老的

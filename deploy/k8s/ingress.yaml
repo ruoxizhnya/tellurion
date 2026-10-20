@@ -1,11 +1,11 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: quant-trading-ingress
-  namespace: quant-trading
+  name: tellurion-ingress
+  namespace: tellurion
   labels:
-    app.kubernetes.io/name: quant-trading
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/name: tellurion
+    app.kubernetes.io/part-of: tellurion
   annotations:
     # AUD-32：这里原先是 `rewrite-target: /`。配合下面的 `path: /`
     # 会把**所有** URI 重写成 `/` —— /api/health 到后端就只剩 `/` 了。
@@ -21,7 +21,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: quant-trading.local
+    - host: tellurion.local
       http:
         paths:
           # AUD-32：前端现在是独立的 web 服务（deploy/k8s/web-deployment.yaml），
@@ -30,7 +30,7 @@ spec:
           # 这一行原先写着「Main API + Vue SPA served by analysis-service
           # (port 8085)」—— 那是「由 Go 侧托管 SPA」方案的假设。AUD-32 裁决
           # 采用独立的 web 服务，若只改 compose 不改这里，k8s 路径下打开
-          # quant-trading.local 拿到的会是一份**没有 SPA 的** analysis
+          # tellurion.local 拿到的会是一份**没有 SPA 的** analysis
           # （= legacy 静态页或 404），而 compose 路径却是好的 —— 典型的
           # 「两边各自对、接起来就错」。
           #

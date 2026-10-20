@@ -23,7 +23,7 @@ import (
 // httptest.Server via BaseURL.
 const (
 	defaultEastmoneyBaseURL   = "https://push2.eastmoney.com"
-	defaultEastmoneyUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) quant-trading/1.0"
+	defaultEastmoneyUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) tellurion/1.0"
 	defaultRequestInterval    = 300 * time.Millisecond
 )
 

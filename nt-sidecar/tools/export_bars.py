@@ -50,7 +50,7 @@ from sidecar.mapping import (  # noqa: E402 — import after sys.path tweak
     bar_type_for,
 )
 
-DEFAULT_DSN = "postgres://postgres:postgres@localhost:5432/quant_trading?sslmode=disable"
+DEFAULT_DSN = "postgres://postgres:postgres@localhost:5432/tellurion?sslmode=disable"
 DEFAULT_VENUE = "SIM"
 
 # The translation layer (sidecar.mapping.BAR_FIELD_MAP) addresses columns by

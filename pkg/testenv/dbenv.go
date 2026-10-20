@@ -18,7 +18,7 @@ import (
 // 它取代了历史上并存的三种约定：`QUANT_TEST_DSN`（pkg/eventstore、
 // pkg/msgbus、pkg/kernel、pkg/expression、pkg/strategy、pkg/backtest/obs01）、
 // `TEST_DB_DSN`（cmd/analysis、pkg/auth）与 21 个测试文件里各写一遍的
-// 硬编码字面量 `postgres://postgres:postgres@localhost:5432/quant_trading`。
+// 硬编码字面量 `postgres://postgres:postgres@localhost:5432/tellurion`。
 //
 // 语义（fail-loud 与显式 skip 的分界）：
 //   - 未设置：DB 测试跳过，且跳过被登记，包末由 TestMain 汇总打印——
@@ -118,7 +118,7 @@ func writeDBSkipSummary(w io.Writer, total int, byReason map[string]int) {
 		return
 	}
 	fmt.Fprintf(w, "[testdb] %s 未设置：本测试二进制 %d 个 DB 用例被跳过（明细：%v）。"+
-		"设 %s 指向真库（本地：postgres://postgres:postgres@localhost:5432/quant_trading?sslmode=disable）即可真正执行。\n",
+		"设 %s 指向真库（本地：postgres://postgres:postgres@localhost:5432/tellurion?sslmode=disable）即可真正执行。\n",
 		DatabaseDSNEnv, total, byReason, DatabaseDSNEnv)
 }
 

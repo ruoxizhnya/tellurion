@@ -7,7 +7,7 @@ auth:
   jwt_secret: ""
   allow_insecure: false        # env: AUTH_INSECURE
   insecure_exposure: ""        # env: AUTH_INSECURE_EXPOSURE，只认 loopback-published
-  issuer: "quant-trading"
+  issuer: "tellurion"
   access_token_ttl: 15m
   refresh_token_ttl: 168h
 
@@ -60,7 +60,7 @@ database:
   port: 5432
   user: "postgres"
   password: ""
-  database: "quant_trading"
+  database: "tellurion"
   sslmode: "disable"
 
 # 同上：宿主机视角。容器由 compose 注入 redis://host.docker.internal:6379。

@@ -2,10 +2,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: postgres
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   type: ClusterIP
   clusterIP: None  # headless service for StatefulSet stable DNS
@@ -20,10 +20,10 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: postgres
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   serviceName: postgres
   replicas: 1
@@ -34,7 +34,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: postgres
-        app.kubernetes.io/part-of: quant-trading
+        app.kubernetes.io/part-of: tellurion
     spec:
       containers:
         - name: postgres
@@ -49,16 +49,16 @@ spec:
             # 侧的名字，key 是 configmap 侧的键** —— 两者故意不同，不要
             # 「顺手统一」。此前 key 写的是 POSTGRES_DB / POSTGRES_USER，
             # 而 configmap 里那两个键的值是 quantlab，与应用读的
-            # quant_trading / postgres 对不上。
+            # tellurion / postgres 对不上。
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:
-                  name: quant-trading-config
+                  name: tellurion-config
                   key: DATABASE_DATABASE
             - name: POSTGRES_USER
               valueFrom:
                 configMapKeyRef:
-                  name: quant-trading-config
+                  name: tellurion-config
                   key: DATABASE_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
@@ -71,13 +71,13 @@ spec:
               subPath: postgres
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "postgres", "-d", "quant_trading"]
+              command: ["pg_isready", "-U", "postgres", "-d", "tellurion"]
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "postgres", "-d", "quant_trading"]
+              command: ["pg_isready", "-U", "postgres", "-d", "tellurion"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5

@@ -108,7 +108,7 @@ func (b *buyEverythingStrategy) GenerateSignals(_ context.Context, bars map[stri
 
 func (b *buyEverythingStrategy) Weight(strategy.Signal, float64) float64 { return 0.1 }
 
-// openReadOnlyStore 按生产 env 命名连库（库名默认 quant_trading），连不上或
+// openReadOnlyStore 按生产 env 命名连库（库名默认 tellurion），连不上或
 // 无数据则 skip。绝不写库。
 func openReadOnlyStore(t *testing.T, ctx context.Context) *storage.PostgresStore {
 	t.Helper()
@@ -128,7 +128,7 @@ func openReadOnlyStore(t *testing.T, ctx context.Context) *storage.PostgresStore
 		Port:     port,
 		User:     envOr("DATABASE_USER", "postgres"),
 		Password: envOr("DATABASE_PASSWORD", "postgres"),
-		Name:     envOr("DATABASE_NAME", "quant_trading"),
+		Name:     envOr("DATABASE_NAME", "tellurion"),
 		SSLMode:  "disable",
 	})
 	require.NoError(t, err)

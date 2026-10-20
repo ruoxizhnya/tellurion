@@ -5,7 +5,7 @@ package storage
 // ─── 真库测试纪律（照 signal_store_test.go / state_store_test.go，红线区） ─
 //  1. **自己的数据自己造、自己验、自己删**：每个用例独享一个 source 标记
 //     （itest-<uuid>），清理只 `DELETE ... WHERE source = $1`。
-//     **绝不**无 WHERE 删表——本机 5432 的 quant_trading 是真库（AUD-62 教训）。
+//     **绝不**无 WHERE 删表——本机 5432 的 tellurion 是真库（AUD-62 教训）。
 //  2. **库不在就红，不 skip**：真库用例连接失败即 t.Fatalf（与 testStore() 的
 //     skip 惯例**故意不同**——本族用例自灌自证，红必须指向「库没起」这个真实
 //     原因；起库后必须全绿）。

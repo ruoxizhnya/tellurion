@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: data-service
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: data-service
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   replicas: 1
   selector:
@@ -15,18 +15,18 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: data-service
-        app.kubernetes.io/part-of: quant-trading
+        app.kubernetes.io/part-of: tellurion
     spec:
       containers:
         - name: data
-          image: quant-trading/data:latest
+          image: tellurion/data:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8081
           envFrom:
             - configMapRef:
-                name: quant-trading-config
+                name: tellurion-config
           env:
             # AUD-39：名字必须是 DATABASE_PASSWORD（代码读 `database.password`）。
             # 此前注入的是 POSTGRES_PASSWORD —— 零读取者，密码到不了应用手里。
@@ -67,10 +67,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: data-service
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: data-service
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   type: ClusterIP
   selector:

@@ -36,8 +36,8 @@ package data
 // 下单**（AUD-55，`computeEffectiveTarget` 的抵扣条件写窄了）。它让「订单 vs
 // 现金」成为每日事件，于是结果对**任何**扰动都过敏 —— 见下面的更新说明。
 //
-// 依赖：真库（quant_trading）+ 真 Tushare token。两者缺一就 skip ——
-// 那不是代码缺陷，是环境没就绪。testutil 的 quant_trading_test 连错库会
+// 依赖：真库（tellurion）+ 真 Tushare token。两者缺一就 skip ——
+// 那不是代码缺陷，是环境没就绪。testutil 的 tellurion_test 连错库会
 // 得到一个空库然后以「没数据」skip 掉、永远绿，所以这里显式连生产那个库。
 //
 // ═══════════════════════════════════════════════════════════════════════════
@@ -164,7 +164,7 @@ func adjDSN(t *testing.T) string {
 	}
 	name := os.Getenv("DATABASE_NAME")
 	if name == "" {
-		name = "quant_trading"
+		name = "tellurion"
 	}
 	dsn, err := storage.BuildDSN(storage.DatabaseConfig{
 		URL: os.Getenv("DATABASE_URL"), Host: host, Port: port,

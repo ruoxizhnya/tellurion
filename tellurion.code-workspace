@@ -7,13 +7,13 @@
 			"path": "../qt-verify"
 		},
 		{
-			"path": "../quant-trading-agent"
+			"path": "../tellurion-agent"
 		},
 		{
-			"path": "../quant-trading-docs"
+			"path": "../tellurion-docs"
 		},
 		{
-			"path": "../quant-trading-ui"
+			"path": "../tellurion-ui"
 		}
 	],
 	"trae": {

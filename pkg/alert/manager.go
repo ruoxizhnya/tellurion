@@ -1,5 +1,5 @@
 // Package alert provides a centralized alerting framework for the
-// quant-trading platform. The AlertManager evaluates a portfolio snapshot
+// tellurion platform. The AlertManager evaluates a portfolio snapshot
 // against a set of rule-based detectors and dispatches triggered alerts
 // to one or more channels (log, webhook).
 //

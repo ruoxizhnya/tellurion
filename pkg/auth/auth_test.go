@@ -37,7 +37,7 @@ func TestConfig_WithDefaults(t *testing.T) {
 	c := Config{}.WithDefaults()
 	assert.Equal(t, 15*time.Minute, c.AccessTokenTTL)
 	assert.Equal(t, 7*24*time.Hour, c.RefreshTokenTTL)
-	assert.Equal(t, "quant-trading", c.Issuer)
+	assert.Equal(t, "tellurion", c.Issuer)
 
 	c2 := Config{AccessTokenTTL: time.Minute, Issuer: "foo"}.WithDefaults()
 	assert.Equal(t, time.Minute, c2.AccessTokenTTL)

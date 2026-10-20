@@ -1,7 +1,7 @@
 package main
 
 // DBT-09 的作业层证据：capital_flow 这条链接上 Tushare moneyflow 之后，
-// **从 HTTP 门真的走一次**，落的是真库 `quant_trading.capital_flow`。
+// **从 HTTP 门真的走一次**，落的是真库 `tellurion.capital_flow`。
 //
 // 与 capital_flow_job_test.go 的关键差别是「用哪条链」：那边手搭一条
 // `capital_flow:[eastmoney]` 的替身链（DATA-10 时点的生产形状），本文件走

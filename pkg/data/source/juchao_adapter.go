@@ -131,7 +131,7 @@ func (a *JuchaoAdapter) ensureOrgIDMap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "quant-trading/1.0")
+	req.Header.Set("User-Agent", "tellurion/1.0")
 	req.Header.Set("Accept", "application/json")
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -212,7 +212,7 @@ func (a *JuchaoAdapter) queryAnnouncements(ctx context.Context, sym, orgID strin
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (quant-trading)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (tellurion)")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := a.httpClient.Do(req)

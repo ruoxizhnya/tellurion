@@ -7,7 +7,7 @@ package main
 // 本文件从 HTTP 门开始，经 JobService → Queue.Dequeue → WorkerPool 的真实派发
 // （含 jobProgressReporter 与重试收敛）→ capitalFlowExecutor → NewETLPipeline →
 // Registry.Fetch（链 capital_flow:[eastmoney]）→ BulkInsert，落的是**真库**
-// `quant_trading.capital_flow`，落完再逐字段读回与源响应比对。
+// `tellurion.capital_flow`，落完再逐字段读回与源响应比对。
 //
 // 两处是替身，理由如实写在这儿：
 //   - **作业行（sync_jobs）用内存 store**，行情落库用真库。原因不是省事，是

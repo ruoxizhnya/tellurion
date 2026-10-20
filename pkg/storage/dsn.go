@@ -84,7 +84,7 @@ func BuildDSN(c DatabaseConfig) (string, error) {
 	}
 	name := c.Name
 	if name == "" {
-		name = "quant_trading"
+		name = "tellurion"
 	}
 	sslmode := c.SSLMode
 	if sslmode == "" {

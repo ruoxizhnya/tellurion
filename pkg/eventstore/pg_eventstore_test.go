@@ -4,7 +4,7 @@
 //  1. **自己的数据自己造、自己验、自己删**：每个用例独享一个 run_id
 //     （uuid），清理只 `DELETE ... WHERE run_id = $1`。**绝不用**
 //     `DELETE FROM audit.message_log`（无 WHERE）——本机 5432 的
-//     quant_trading 是真库（AUD-62 教训：曾在这个库上被测试删掉 4 行真实
+//     tellurion 是真库（AUD-62 教训：曾在这个库上被测试删掉 4 行真实
 //     交易日数据）。
 //  2. **时间点选 2200 年**：Replay 只能按 ts 过滤、拿不到 publisher/run_id
 //     （Envelope 没有这两个字段）。把写数据的 ts 放在一个真实业务绝不会用到的

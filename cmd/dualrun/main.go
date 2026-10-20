@@ -41,7 +41,7 @@ import (
 )
 
 func main() {
-	pgDSN := flag.String("pg", "postgres://postgres:postgres@127.0.0.1:5432/quant_trading?sslmode=disable", "Postgres DSN")
+	pgDSN := flag.String("pg", "postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable", "Postgres DSN")
 	sidecarURL := flag.String("url", nautilus.DefaultURL, "NT sidecar base URL")
 	symbolsFlag := flag.String("symbols", "000001.SZ,600000.SH", "comma-separated symbols")
 	start := flag.String("start", "2024-01-02", "window start (inclusive)")

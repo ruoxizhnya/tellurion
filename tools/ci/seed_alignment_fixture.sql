@@ -34,7 +34,7 @@
 -- （漂移）≈ 2.1% ≪ ±10% 主板涨跌停；
 -- volume ≥ 160 万股/日 vs 目标仓 5 万股级，D_max=0.10 参与率不卡。
 --
--- 前置：库 quant_trading（同 CI go job 的 POSTGRES_DB）。
+-- 前置：库 tellurion（同 CI go job 的 POSTGRES_DB）。
 -- 窗口 2024-01-02..2024-12-31 = dualrun 默认实验窗（bh / quarterly 两条
 -- 信号流的调仓日 2024-04-01/07-01/10-08 全部落在其内）。
 

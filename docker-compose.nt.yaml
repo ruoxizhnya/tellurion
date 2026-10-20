@@ -26,7 +26,7 @@ services:
     build:
       context: ./nt-sidecar
       dockerfile: Dockerfile
-    image: quant-trading/nt-sidecar:2.0.0rc6
+    image: tellurion/nt-sidecar:2.0.0rc6
     container_name: nt-sidecar
     # Shares the host netns so the in-container 127.0.0.1 bind is the host
     # loopback the Go service uses (ADR-031 D5 preserved).

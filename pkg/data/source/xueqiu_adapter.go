@@ -105,7 +105,7 @@ func (a *XueqiuAdapter) fetchHotSearch(ctx context.Context, _ FetchRequest) (*Fe
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (quant-trading)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (tellurion)")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Referer", "https://xueqiu.com/")
 
@@ -203,7 +203,7 @@ func (a *XueqiuAdapter) fetchNewsForSymbol(ctx context.Context, code string, sta
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (quant-trading)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (tellurion)")
 	req.Header.Set("Accept", "application/json")
 	resp, err := a.httpClient.Do(req)
 	if err != nil {

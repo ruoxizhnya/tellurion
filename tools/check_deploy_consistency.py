@@ -194,7 +194,7 @@ def find_nested_value(text: str, section: str, key: str) -> str | None:
 # 键推导出的 env 名不是同一个字符串。服务照常启动，只在真正用到时才失败，而且
 # 失败信息（"password authentication failed"）读起来像「值错了」而不是
 # 「名字错了」—— k8s 侧曾同时给错键名（POSTGRES_* vs DATABASE_*）和错值
-# （quantlab vs quant_trading）。
+# （quantlab vs tellurion）。
 #
 # 基准是 viper 的推导规则：AutomaticEnv + SetEnvKeyReplacer(".", "_") 把配置键
 # `database.host` 映射成 env 名 **DATABASE_HOST**。这条规则一旦改，下面两个检查

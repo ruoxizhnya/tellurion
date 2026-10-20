@@ -47,7 +47,7 @@ func universeDSN(t *testing.T) string {
 	}
 	name := os.Getenv("DATABASE_NAME")
 	if name == "" {
-		name = "quant_trading"
+		name = "tellurion"
 	}
 	dsn, err := storage.BuildDSN(storage.DatabaseConfig{
 		URL: os.Getenv("DATABASE_URL"), Host: host, Port: port,

@@ -48,7 +48,7 @@ func (c *EastmoneyClient) GetJSON(ctx context.Context, base string, path string,
 	if err != nil {
 		return fmt.Errorf("eastmoney: build request: %w", err)
 	}
-	req.Header.Set("User-Agent", "quant-trading/1.0")
+	req.Header.Set("User-Agent", "tellurion/1.0")
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

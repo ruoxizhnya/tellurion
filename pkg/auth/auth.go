@@ -110,7 +110,7 @@ type Config struct {
 	JWTSecret       []byte
 	AccessTokenTTL  time.Duration // default 15m
 	RefreshTokenTTL time.Duration // default 7d
-	Issuer          string        // default "quant-trading"
+	Issuer          string        // default "tellurion"
 }
 
 // WithDefaults returns c with zero-value fields replaced by sensible defaults.
@@ -122,7 +122,7 @@ func (c Config) WithDefaults() Config {
 		c.RefreshTokenTTL = 7 * 24 * time.Hour
 	}
 	if c.Issuer == "" {
-		c.Issuer = "quant-trading"
+		c.Issuer = "tellurion"
 	}
 	return c
 }

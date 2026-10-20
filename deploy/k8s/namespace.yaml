@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: quant-trading
+  name: tellurion
   labels:
-    name: quant-trading
-    app.kubernetes.io/part-of: quant-trading
+    name: tellurion
+    app.kubernetes.io/part-of: tellurion

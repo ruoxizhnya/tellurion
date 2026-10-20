@@ -129,7 +129,7 @@ cat <<EOF
     ${DC} logs -f data-service
 
 → 跑完后用这条确认库里真有数据：
-    ${DC} exec -T postgres psql -U postgres -d quant_trading -c \\
+    ${DC} exec -T postgres psql -U postgres -d tellurion -c \\
       "select (select count(*) from stocks) stocks,
               (select count(*) from stocks where delist_date is not null) delisted,
               (select count(*) from ohlcv_daily_qfq) ohlcv,

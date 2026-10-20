@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: analysis-service
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: analysis-service
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   replicas: 2
   selector:
@@ -15,18 +15,18 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: analysis-service
-        app.kubernetes.io/part-of: quant-trading
+        app.kubernetes.io/part-of: tellurion
     spec:
       containers:
         - name: analysis
-          image: quant-trading/analysis:latest
+          image: tellurion/analysis:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8085
           envFrom:
             - configMapRef:
-                name: quant-trading-config
+                name: tellurion-config
           env:
             # AUD-39：名字必须是 DATABASE_PASSWORD —— 代码读的是
             # `database.password`，AutomaticEnv 把它映射成 DATABASE_PASSWORD。
@@ -66,10 +66,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: analysis-service
-  namespace: quant-trading
+  namespace: tellurion
   labels:
     app.kubernetes.io/name: analysis-service
-    app.kubernetes.io/part-of: quant-trading
+    app.kubernetes.io/part-of: tellurion
 spec:
   type: ClusterIP
   selector:

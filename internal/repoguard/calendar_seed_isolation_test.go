@@ -20,14 +20,14 @@ package repoguard
 // table; the only isolation available is the date itself.
 //
 // Measured cost (2026-09-26, default build): after `go test ./...` the live
-// `quant_trading` database had lost 4 rows — 2024-12-31, 2025-01-01,
+// `tellurion` database had lost 4 rows — 2024-12-31, 2025-01-01,
 // 2025-01-02, 2025-01-03. Three of those are real trading days (the OHLCV
 // table holds ~5,370 symbols for each of them), so a backtest spanning the
 // 2024/2025 year boundary silently skipped three sessions. The two culprits
 // were `TestSaveTradingCalendarEntry_and_GetTradingCalendar` (TESTEX @
 // 2024-12-31) and `TestSaveTradingCalendarBatch` (TESTEX2 @ 2025-01-01..03)
 // in pkg/storage/postgres_test.go — both of which connect to the **live** DSN
-// (`postgres://…@localhost:5432/quant_trading`).
+// (`postgres://…@localhost:5432/tellurion`).
 //
 // Why a structural guard and not just those two fixes: the same file already
 // contained `seedIsolatedCalendar`, whose comment explains this exact trap and

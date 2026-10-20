@@ -1,5 +1,5 @@
 // Package options implements option pricing models and Greeks calculation
-// for the quant-trading platform (P2-11).
+// for the tellurion platform (P2-11).
 //
 // Supported models:
 //   - Black-Scholes (European options, analytical Greeks)

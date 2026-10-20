@@ -1,5 +1,5 @@
 // Package systemalert provides system-level operational alerting for the
-// quant-trading platform. Unlike the parent pkg/alert package (which
+// tellurion platform. Unlike the parent pkg/alert package (which
 // evaluates portfolio-risk rules against a PortfolioSnapshot and dispatches
 // risk Alerts), this package handles operational alerts such as data-sync
 // stalls, backtest failures, strategy degradation, and system errors.

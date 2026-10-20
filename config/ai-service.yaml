@@ -21,7 +21,7 @@ auth:
   jwt_secret: ""
   allow_insecure: false
   insecure_exposure: ""
-  issuer: "quant-trading"
+  issuer: "tellurion"
   access_token_ttl: 15m
   refresh_token_ttl: 168h      # 7d
 
@@ -34,7 +34,7 @@ database:
   port: 5432
   user: "postgres"
   password: ""
-  database: "quant_trading"
+  database: "tellurion"
   sslmode: "disable"
 
 # 容器视角（compose 服务名）—— 与 analysis-service.yaml 同口径。

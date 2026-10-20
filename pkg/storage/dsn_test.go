@@ -67,12 +67,12 @@ func TestBuildDSN_UsesRawURLAndIgnoresFields(t *testing.T) {
 
 func TestBuildDSN_RejectsPlaceholderInURL(t *testing.T) {
 	cfg := DatabaseConfig{
-		URL:      "postgres://postgres:${DATABASE_PASSWORD}@postgres:5432/quant_trading?sslmode=disable",
+		URL:      "postgres://postgres:${DATABASE_PASSWORD}@postgres:5432/tellurion?sslmode=disable",
 		Host:     "postgres",
 		Port:     5432,
 		User:     "postgres",
 		Password: "definitely-set",
-		Name:     "quant_trading",
+		Name:     "tellurion",
 		SSLMode:  "disable",
 	}
 	// 前置条件：密码**是**填了的 —— 这样「报错」只可能来自占位符那条规则，
@@ -112,5 +112,5 @@ func TestBuildDSN_FillsDefaultsForOptionalFields(t *testing.T) {
 	// 只有凭据是必填的；host / port / name / sslmode 留空各自回落默认值。
 	got, err := BuildDSN(DatabaseConfig{User: "alice", Password: "pw"})
 	require.NoError(t, err)
-	assert.Equal(t, "postgres://alice:pw@localhost:5432/quant_trading?sslmode=disable", got)
+	assert.Equal(t, "postgres://alice:pw@localhost:5432/tellurion?sslmode=disable", got)
 }

@@ -45,7 +45,7 @@ type fixtureData struct {
 func loadBenchmarkFixture() *fixtureData {
 	paths := []string{
 		"../../testdata/momentum-5stock-1yr.json",
-		"/Users/ruoxi/longshaosWorld/quant-trading/testdata/momentum-5stock-1yr.json",
+		"/Users/ruoxi/longshaosWorld/tellurion/testdata/momentum-5stock-1yr.json",
 	}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
