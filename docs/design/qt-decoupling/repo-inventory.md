@@ -48,8 +48,8 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 | 2 | **现有→改名** | `ruoxizhnya/tellurion-agent` | `tellurion-agent` | 实验员（AI 链路）；运行期只走 HTTP 调 core |
 | 3 | **现有→改名** | `ruoxizhnya/tellurion-ui` | —（前端，无 `go.mod`） | 前端 |
 | 4 | **现有→改名** | `ruoxizhnya/tellurion-docs` | —（纯文档） | 决策 / 规范 / ADR |
-| 5 | **待建（S2）** · 本地占位已建 | `ruoxizhnya/tellurion-contracts` | `github.com/ruoxizhnya/tellurion-contracts` | port · DTO/值对象（含 `domain/`）· 四契约（`engine/`）· 哨兵错误 · abi 常量 · `schemas/` |
-| 6 | **待建（S2）** · 本地占位已建 | `ruoxizhnya/tellurion-kit` | `github.com/ruoxizhnya/tellurion-kit` | logging · db · errors · decimal · statistics · httpclient · httpserver · authz · observability · clock · sandbox |
+| 5 | **已建（占位）**；S1 落代码（ADR-D31） | `ruoxizhnya/tellurion-contracts` | `github.com/ruoxizhnya/tellurion-contracts` | port · DTO/值对象（含 `domain/`）· 四契约（`engine/`）· 哨兵错误 · abi 常量 · `schemas/` |
+| 6 | **已建（占位）**；S1 落代码（ADR-D31） | `ruoxizhnya/tellurion-kit` | `github.com/ruoxizhnya/tellurion-kit` | logging · db · errors · decimal · statistics · httpclient · httpserver · authz · observability · clock · sandbox |
 | 7 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-data` | `tellurion-data` | X1 数据服务（`cmd/data` + `pkg/marketdata` + `pkg/data/*`） |
 | 8 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-strategy` | `tellurion-strategy` | X2 策略资产（定义 / 版本 / artifact）；运行时留 core |
 | 9 | **触发式** · 本地占位已建 | `ruoxizhnya/tellurion-risk` | `tellurion-risk` | X3 风控规则真相源；`RiskPolicy` 同步裁决留 core |
@@ -113,6 +113,21 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 
 ---
 
+## 3.1 未裁边界（集中登记，**不要散落在单仓文档里**）
+
+> 单仓文档里写"待裁"的条目，读的人无法判断该找谁拍。所以凡是"归属没定"的，一律登记在这里，并在单仓文档里只留一行指针。
+> 这张表在 2026-10-20 审查时建立——之前 `cmd/dualrun` 的归属只写在 `tellurion-orchestration` 的 AGENTS 里，等于没人知道去哪看。
+
+| # | 待裁事项 | 现状 | 备选与倾向 | 影响 |
+|---|---|---|---|---|
+| U1 | `cmd/dualrun`（双跑对账）归 core 还是 `tellurion-orchestration` | 代码在 core | 倾向 **留 core**：它读订单/成交（运行域真相），而编排只派活不裁决 | 若判给 orchestration，必须同时把订单读模型搬过去 → 与"只派活"冲突 |
+| U2 | 订单 / 成交 / 持仓 的最终归属 | **core 的 `quant`**（`quant.orders` / `fills` / `positions` / `portfolio_snapshot`） | 将来拆 `exec` schema 时**先立 ADR**；在此之前 broker 只透传，不做本地真相 | 2026-10-20 审查发现 broker 文档写"run 或 exec（待裁，倾向 run）"——**已纠正**：`run` 是任务域，不含订单 |
+| U3 | `strategy_state` 迁 `run` 之后，core 侧的持久化义务 | 设计已定"迁 `run`"，core 走 port | core 需要新增 `RunStateStore` port（Save/Load），实现由 orchestration 提供 | **尚未登记为工单**；不补这条，X5 一动 core 就编不过 |
+| U4 | `eventstore` / `msgbus`（`audit` schema）是否出仓 | 留 core，无出仓计划 | 倾向**永不出仓**：事件存储是引擎与总线的底座，拆出去等于把热路径变成远程调用 | 若出仓，`audit.message_log` 的写入会被卷进网络抖动 |
+| U5 | `testenv` / `testutil`（测试脚手架） | 留 core | 倾向**留 core**（服务仓各自造，或多仓共享时再进 `kit`） | 进 `kit` 会让 `kit` 沾上测试依赖（`testing` 包） |
+
+---
+
 ## 4. 与 ADR-D29 的关系
 
 | D29 的内容 | 本篇的处理 |
@@ -134,5 +149,5 @@ D29 正文保留旧名，作为 2026-10-20 之前的历史记录，不再逐处�
 | 工单 | **QT-60（S-1 改名批次）**，排在 S0 之前，当前**未启动**（用户要求先落文档） |
 | 为什么排在 S0 之前 | QT-06 要打 `v0.1.0`，tag 必须打在**新仓**；先打后改 = tag 指向一个即将 archive 的仓 |
 | 为什么排在 QT-05 之前 | QT-05 要在 `pkg/domain` 上做 306 处路径替换；先改名再抽 module，同一批路径只改一次 |
-| 私有仓前提 | contracts / kit 拆出去后是私有仓，消费方（core / agent / CI）必须配 `GOPRIVATE=github.com/ruoxizhnya/tellurion-*` + git 凭证，否则 `go get` 会走 proxy 直接失败（**此前未登记，QT-07/QT-19 需补**） |
+| 可见性 | **现状 12 仓全部 public**（建仓脚本默认）。**若将来转私有**：contracts / kit 变私有后 core 的 CI 与镜像构建会同时红，必须同步配 `GOPRIVATE=github.com/ruoxizhnya/tellurion-*` + 拉取凭证（ADR-D31 已把它登记为已知风险） |
 | 文档引用 | 所有 `quant-trading:docs/...` 形式的跨仓引用要改 `tellurion:docs/...`（`check_doc_links` 查不出这类纯文本，属易漏项） |

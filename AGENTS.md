@@ -8,6 +8,37 @@
 
 ---
 
+## 0. 分仓拓扑：我在哪（2026-10-20 起）
+
+本项目拆成 **12 个仓**。仓名与 module path 的唯一真相源是
+[`repo-inventory.md`](docs/design/qt-decoupling/repo-inventory.md)；**动手前先确认自己要改的是哪个仓**。
+
+| 仓 | 一句话 | 与本仓的关系 |
+|---|---|---|
+| **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
+| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（S1 起 `require` 伪版本，**禁 `replace`**） |
+| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 同上 |
+| `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
+| `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |
+| `tellurion-data` | 数据面唯一入口（connector / aggregator） | 触发后接管 `market` / `ingest`；本仓改为只读 API |
+| `tellurion-strategy` | 策略**资产**（定义 / 版本 / artifact） | 执行仍在本仓（表达式 / WASM host） |
+| `tellurion-risk` | 规则真相源 + 聚合监控 + 熔断下发 | **同步裁决留本仓**（`RiskPolicy.CheckOrder`，零网络） |
+| `tellurion-analytics` | 指标 / 归因 / 敏感性 / 蒙特卡洛 | 只按 `run_id` 读结果，零 import 本仓引擎 |
+| `tellurion-orchestration` | job / batch / walkforward 排队与状态机 | 任务状态将从本仓迁出（`strategy_state` → `run`） |
+| `tellurion-broker` | 交易通道适配（MockTrader → XTP） | 本仓 `pkg/live` 保留纸交易与实盘**运行域** |
+| `tellurion-docs` | 总体设计知识库 | 跨仓的"How & Why"看那里，不要在本仓重复写 |
+
+### 本仓的三条硬规则
+
+1. **本仓是应用，不是库**：module path 是单段 `tellurion`，**任何仓都无法 `require` 它**（Go 要求首段含点）。
+   要让别的仓复用能力 → 把**形状**放进 `tellurion-contracts`；不要新建 core client，也不要为了"复用"把业务包导出。
+2. **不许在本仓重建已迁出的东西**：`web/`（前端）、`pkg/ai/**`（含 `validation` / `tools`）都不在这里。
+   需要改它们就去对应仓。**在 core 新建 `web/` 或 `pkg/ai/` 一律视为边界错误。**
+3. **DDL 唯一路径**：`pkg/storage/postgres.go` 的 `migrationStatements()` 数组（`migrate()` 启动时按序执行）。
+   `migrations/` 与 `docs/migrations/` 的 `.sql` **不执行**，只作历史证据。
+
+---
+
 ## 1. 项目概述
 
 > **顶层定位（ADR-023, 2026-09-16）**: 这是一间**单人自托管的量化研究实验室**，不是 SaaS。三个角色：
@@ -23,25 +54,27 @@
 >
 > **单人自托管的前提**：多租户 / RBAC / 计费 / 限流 / 高可用都是**纯负担，可砍**。
 
-**Quant Lab** 底座采用 Go 后端 + Vue 3 前端 + PostgreSQL + Redis 架构。
+**Quant Lab** 由 12 个仓组成：core（本仓，Go）+ 前端仓 + AI 仓 + 契约/工具库 + 6 个触发式服务仓 + 文档仓。
 
-- **语言**: Go 1.25 (后端), TypeScript + Vue 3 (前端)
+- **语言**: Go 1.25（本仓）。TypeScript + Vue 3 在 `tellurion-ui` 仓 —— **本仓没有前端代码**
 - **当前版本**: Phase 4 (AI-Native Evolution)；ADR-023 三层模型已落盘 —
   AI 编排层（`pkg/ai/loop` 循环控制器 + `experiments` / `factor_hypothesis` 实验日志表）、
-  能力层（MCP 工具桥 + `pkg/validation` 五维确定性校验器 + `pkg/ai/causal` 因果维）、
+  能力层（MCP 工具桥 + 五维确定性校验器 + 因果维）——**这三块代码 2026-10-09 起在 `tellurion-agent` 仓**
+  （`agent:pkg/ai/loop`、`agent:pkg/ai/validation`、`agent:pkg/ai/tools`、`agent:pkg/ai/causal`）；
   数据层（行情 / 财务 / 产业链 / 研究洞察）
 - **状态**: 底座核心功能已完成；**执行载体已定型为表达式**（ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`））——
   LLM 生成的 Go 代码只是**可审阅 artifact**，不加载、不执行
-- **入口**: `cmd/analysis/main.go` (后端), `cmd/data/main.go` (数据服务), `web/src/main.ts` (前端)
+- **入口**: `cmd/analysis/main.go`（:8085 主 API）, `cmd/data/main.go`（:8081 数据服务）, `cmd/dualrun/`（双跑对账）
+  —— 前端入口 `web/src/main.ts` 已随前端拆到 `tellurion-ui` 仓，本仓没有它
   - `cmd/ai` (AI 服务 :8086) —— **2026-10-09 起 AI 层整体迁往 `tellurion-agent` 仓**（AI 拆仓，ADR-027 §5 第 8 步前置切片）：`pkg/ai` + `CopilotService` + 四族 AI handler（copilot/pipeline/explore/tools）现在住在 agent 仓；本仓的 analysis-service 对这四族路由做纯反代（`handlers_ai_proxy.go`），前端与 openapi 契约不变。依赖方向单向 agent→core（repoguard 钉住）
-- **构建**: `go build ./...` (后端), `npm run build` (前端)
+- **构建**: `go build ./...`（本仓）。前端构建（`npm run build`）在 `tellurion-ui` 仓
 
 ### 技术栈
 
 | 组件 | 技术 | 版本/端口 |
 |------|------|----------|
 | 后端 API | Go + Gin | :8085 |
-| 前端 SPA | Vue 3 + Naive UI | :5173 (dev) |
+| 前端 SPA | Vue 3 + Naive UI | :5173 (dev) —— **不在本仓**（`tellurion-ui`） |
 | 数据服务 | Go + Gin | :8081 |
 | **AI 服务** | Go + Gin | :8086（**源码在 `tellurion-agent` 仓**，2026-10-09 AI 拆仓；compose 经 additional_contexts 构建） |
 | **风控 + 执行** | **in-process** | **合并到 analysis (per ODR-021, P1-15)** |
@@ -62,6 +95,11 @@
 
 ## 2. 架构概览
 
+> ⚠️ **本节的框图是"拆仓前的整体服务视角"**，用来讲清系统怎么搭，**不是本仓的目录说明**。
+> 本仓只实现其中两件：**analysis-service（:8085）** 与 **data-service（:8081）**；
+> 前端（Browser）在 `tellurion-ui`，AI 服务（:8086）在 `tellurion-agent`，其余能力服务尚未立项。
+> 看本仓实际目录请直接跳 §3。
+
 **分层视角（ADR-023，顶层架构）**: 三层。**分界线是「能否无人值守」，不是「静态 vs 动态」**：
 
 ```
@@ -72,7 +110,7 @@ L1  数据层      行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日�
 
 - **编排者只有一个**。禁止 EquityDeep（或任何其他组件）成为第二个 agent。
 - **能力层存在的意义是拦住 AI 直接读库/读文件**。L1/L2 给定输入必有确定输出、可自动测试；L3 会失败，必须可监督。
-- **验证器链的六个维度里五个是纯计算**（统计 / 经济 / 稳健 / 偏差 / 冗余，在 `pkg/validation`），只有**因果**一项需要语言模型（`pkg/ai/causal`）。所以验证器不是「第二个 agent」，而是**被调用的确定性函数** —— 实现成本与不确定性都低一个量级。
+- **验证器链的六个维度里五个是纯计算**（统计 / 经济 / 稳健 / 偏差 / 冗余，在 **`tellurion-agent` 的 `pkg/ai/validation`**），只有**因果**一项需要语言模型（`agent:pkg/ai/causal`）——**这两块都不在本仓**。所以验证器不是「第二个 agent」，而是**被调用的确定性函数** —— 实现成本与不确定性都低一个量级。
 - **拒绝多 agent 投票与 arbitrator 仲裁**：错误相关会放大偏差；仲裁层不可解释，违背可监督性。
 - **目标是可校准，不是准确**：输出「未来有效的概率 X%」，考核**校准误差**（声称 60% 的应实际命中 50–70%），而非推荐准确率。校准良好的信心才能用于配仓位。
 - **EquityDeep 从「工作面」降为「数据底座」**，拆成两块：**产业链图谱**（公司-环节归属 / 上下游映射 / 传导指标，可当因子）与**研究洞察**（"为什么值得关注"的自然语言，供 AI 生成假设时检索）。纵向深研从「研究的前置步骤」变为「被异常触发的按需动作」。
@@ -89,7 +127,7 @@ L1  数据层      行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日�
 
 > **不做 `plugin.Open`**（ADR-024 的主要「不做」记录）：Windows 根本不支持 Go plugin（`-buildmode=plugin` 仅 Linux / macOS / FreeBSD），而开发环境就是 Windows —— 本地无法验证的加载路径不配当主链路；依赖版本必须逐字节一致，符号冲突难复现难排查；且「让 LLM 写代码再动态加载」= AI 造仪器，与 ADR-023 冲突。**ADR-001 的插件机制本身保留** —— 它服务人工编写的、需要热插拔的策略，与"AI 生成代码"是两回事。
 
-**服务视角（已实现）**: 微服务架构，Analysis Service 作为 API 网关协调 Data Service 和 Strategy Service。
+**服务视角（已实现）**: 今天只有 **3 个进程**：`analysis-service`（:8085，同时是 API 网关）、`data-service`（:8081）、`ai-service`（:8086，源码在 `tellurion-agent` 仓）。analysis 对 data 做反代/调用，对 ai 四族路由做纯反代。**`strategy-service`（:8082）已于 REV-16 删除**（ADR-012 关闭），别再按"三个后端服务"理解。
 
 ```
 Browser (Vue SPA :5173)
@@ -153,59 +191,54 @@ Browser (Vue SPA :5173)
 ## 3. 目录结构
 
 ```
-tellurion/
-├── cmd/                    # 服务入口
-│   ├── analysis/           # 主服务 (:8085，含 MCP 工具层 — AI 能力的唯一入口)
-│   └── data/               # 数据服务 (:8081)
-├── pkg/                    # 业务逻辑包
-│   ├── ai/                 # AI 编排层 (L3) + 意图/表达式基础设施
-│   │   ├── loop/           # 循环控制器 + 实验日志（ADR-023 的「AI 实验员」回路）
-│   │   ├── causal/         # 因果审查（验证器链里唯一需要模型的一维）
-│   │   ├── intent/         # LLM 意图解析：自然语言 → 语义类型 + 参数
-│   │   ├── yaml/           # YAML 配置生成器：意图 → 表达式策略配置（ADR-024 载体）
-│   │   ├── pipeline/       # 策略生成流水线：意图 → YAML → 代码 artifact → 编译校验 → 回测
-│   │   ├── agents/         # Research/Generate/Validate/Evolve — pipeline 内部在用（见 doc.go，ODR-046 废的是交互层不是能力层）
-│   │   ├── expression/     # 因子表达式 DSL + AST
-│   │   ├── gene_pool/      # 因子/策略基因池
-│   │   ├── client/         # 回测/因子 HTTP 客户端
-│   │   ├── metrics/        # IC、换手率计算
-│   │   ├── search/         # TPE + 遗传算法
-│   │   ├── evolution/      # 种群管理 + 选择/交叉/变异
-│   │   ├── drift/          # 概念漂移检测
-│   │   ├── validator/      # 代码验证器
-│   │   └── prompts/        # LLM 提示模板
-│   ├── validation/         # 验证器链 (L2)：统计/经济/稳健/偏差/冗余 —— 五维纯计算
-│   ├── tools/              # MCP 工具桥 (L2) — Hermes Agent 调用入口
-│   │   ├── tool.go         # Tool 接口 + Registry + ToolInfo
-│   │   ├── registry.go     # 注册表 + 快照/列举
-│   │   ├── sideeffect.go   # 副作用分级（fail-closed）
-│   │   └── builtin/        # 21 内置工具 (backtest/factor/gene_pool/gate/research/...)
-│   ├── backtest/           # 回测引擎 (engine, job, batch, walkforward)
-│   ├── data/               # 数据管道 (sync, marketdata, factors)
-│   ├── domain/             # 领域模型 (OHLCV, Signal, Portfolio)
-│   ├── storage/            # PostgreSQL 存储（**DDL 唯一真相**：postgres.go 内联 migrate()）
-│   ├── strategy/           # 策略框架 + 插件 + 表达式策略 (expression/)
-│   ├── risk/               # 风控模块 (stoploss, position sizing)
-│   ├── live/               # 实盘/纸交易引擎 (Phase 4)
-│   └── sandbox/            # AI 代码沙箱（静态检查 + 资源受限 runner）
-├── web/src/                # Vue 3 前端 (无 AI 组件 — 见下方说明)
-│   ├── api/                # API 客户端
-│   ├── pages/              # 页面组件 (无 AIResearch.vue — ODR-045 弃用)
-│   ├── components/         # 可复用组件 (无 ai/ 子目录 — ODR-045 弃用)
-│   └── utils/              # 工具函数
-├── docs/                   # 文档 (见下方导航)
-│   ├── adr/                # 架构决策记录 (ADR-001~024，活跃)
-│   ├── archive/odr/        # 运营决策记录 (ODR-001~065) — ⚠️ 在 archive/ 下
-│   ├── archive/superseded-adr/  # 被取代的 ADR (009/010/012/021/022)
-│   ├── design/equitydeep/  # EquityDeep 上游规格 (v1.1)
-│   └── hermes/             # Hermes Agent 配置 + Skill + 验收测试 (Phase 4)
-├── e2e/tests/              # Playwright E2E 测试
-└── migrations/             # 数据库迁移 SQL — ⚠️ **不被执行**，见该目录 README
+tellurion/                        # core —— 热路径全在这里，不出进程
+├── cmd/
+│   ├── analysis/                 # 主 HTTP 服务 (:8085)：API + 内嵌前端静态资源 + AI 四族路由纯反代
+│   ├── data/                     # 数据服务 (:8081)：同步 / connector / ETL
+│   └── dualrun/                  # 双跑对账（⚠️ 归属待裁，见 repo-inventory「未裁边界」）
+├── pkg/
+│   ├── api/                      # HTTP 层（gin 路由与中间件）
+│   ├── bootstrap/                # 启动装配（配置 / 监听 / 依赖注入）
+│   ├── kernel/                   # 模块化内核装配（Clock / Bus / Store 的 BootOrder）
+│   ├── backtest/                 # 引擎 + contracts(四契约) + batch + walkforward + metrics
+│   ├── strategy/                 # 策略运行时 + 插件 + SignalProvider（留 core）
+│   ├── execution/ execalgo/      # 撮合 / 执行算法（留 core）
+│   ├── portfolio/ settlement/    # 组合 / 结算（留 core）
+│   ├── risk/                     # RiskPolicy 同步裁决（留 core，永不出仓）
+│   ├── compliance/ alert/        # 合规检测 + 告警编排（→ tellurion-risk，X3）
+│   ├── data/ marketdata/ sync/   # 数据管道（→ tellurion-data，X1）
+│   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
+│   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
+│   ├── fees/                     # 费率模型（形状 → contracts，计算留 core）
+│   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**
+│   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
+│   ├── domain/                   # 领域模型（→ tellurion-contracts，S1）
+│   ├── logging/ errors/ id/ decimal/ statistics/   # 横切（→ tellurion-kit，S1）
+│   ├── httpclient/ httpserver/ observability/      # 横切（→ tellurion-kit，S1）
+│   ├── auth/ authz/ clock/ sandbox/                # 横切（→ tellurion-kit，S1）
+│   └── testenv/ testutil/        # 测试脚手架（留 core）
+├── e2e/                          # Go 端到端 / 守卫测试（guard_test.go、integration_test.go）
+├── migrations/                   # ⚠️ 历史 SQL 镜像，**不执行**（见该目录 README）
+├── contracts/                    # ⚠️ 运行时数据契约资产（field_dictionary.yaml + schema），**不是 Go 包**
+├── deploy/                       # 部署编排（compose / Dockerfile / nginx）
+├── docs/                         # 本仓文档：SPEC / ARCHITECTURE / TASKS / design/
+└── tools/                        # 仓库自查脚本（doc links / repoguard / 契约 pin）
 ```
 
+**已迁出（不在本仓，别在这里找）**：
+
+| 原路径 | 现在住在 | 依据 |
+|---|---|---|
+| `pkg/ai/**`（loop / causal / intent / yaml / pipeline / agents / expression / gene_pool / client / metrics / search / evolution / drift / validator / prompts） | `tellurion-agent`（`pkg/ai/**`） | 2026-10-09 AI 拆仓；本仓 `cmd/analysis/handlers_ai_proxy.go` 只做纯反代 |
+| `pkg/validation/`（五维确定性校验器）、`pkg/tools/`（MCP 工具桥） | `tellurion-agent`（`pkg/ai/validation`、`pkg/ai/tools`） | 同上 |
+| `web/src/**`（Vue 3 前端） | `tellurion-ui`（`web/src/**`） | 2026-10-09 前端拆仓 |
+| Playwright E2E（`e2e/tests/*.spec.ts`） | `tellurion-ui` | 同上；本仓 `e2e/` 只剩 Go 守卫与集成测试 |
+
+
 > **⚠️ `migrations/` 与 `docs/migrations/` 里的 `.sql` 不被执行。**
-> **加表 / 加列的唯一路径**是在 `pkg/storage/postgres.go` 的 `migrate()` 数组末尾
-> 追加一条幂等 DDL（编号续最大的那个）。散落的 `.sql` 只作历史证据保留，
+> **加表 / 加列的唯一路径**是在 `pkg/storage/postgres.go` 的 `migrationStatements()`
+> 数组末尾追加一条幂等 DDL（编号续最大的那个；`migrate()` 启动时按序执行）。
+> 这套机制**没有版本表、没有 down、没有执行记录** —— 有意取舍，理由见 `migrations/README.md`。散落的 `.sql` 只作历史证据保留，
 > 只读、不维护、不进导航 —— 详见 [`migrations/README.md`](migrations/README.md)。
 > `pkg/storage/bulk_insert_ddl_test.go` 有防漂移断言：ETL 的 `TableMapper`
 > 目标表必须出现在内联 DDL 里。
@@ -213,7 +246,7 @@ tellurion/
 > **ODR-045 (2026-07-02)**: 原计划的 9 个前端 AI 组件 (FactorLab.vue,
 > StrategyWorkshop.vue, EvolutionObs.vue, PipelineDashboard.vue,
 > AIResearch.vue, FactorCard.vue, StrategyCard.vue, GenealogyTree.vue,
-> FitnessChart.vue) **P1-13 创建后 S7-P2-7 作为死代码删除** — `web/src/components/ai/` 目录已不存在。
+> FitnessChart.vue) **P1-13 创建后 S7-P2-7 作为死代码删除** — 那个 `web/src/components/ai/` 目录**随前端整体迁到 `tellurion-ui` 仓后已不存在**；前端侧不要再重建它。
 >
 > **ODR-046 (2026-07-02)**: Hermes Agent 作为自主研究层替代前端 AI UI 方案。
 > 研究主路径现为: Hermes → MCP bridge (`pkg/tools/`, 21 个工具) → Go 后端。
@@ -225,17 +258,26 @@ tellurion/
 ## 4. 角色与边界
 
 ### 你是谁
-你是一个全栈开发 Agent，协助进行后端服务、前端页面、API 集成、测试和文档工作。你编写生产级代码，遵循现有模式和约定。
+你是一个 **后端** Agent，只做本仓（core）：Go 服务、引擎、存储、API、测试与文档。
+**前端在 `tellurion-ui`，AI 在 `tellurion-agent`** —— 两边都不要在本仓动。
 
 ### 工作范围（What You Work On）
-- **后端**: `cmd/`, `pkg/` (Go modules — backtest, data, domain, storage, strategy, **ai**, **live**)
-- **前端**: `web/src/` (Vue 3 + TypeScript + Naive UI + Chart.js + Pinia)
-- **测试**: `e2e/tests/` (Playwright E2E tests)
-- **文档**: `docs/` (Markdown design documents)
-- **ODR**: `docs/archive/odr/` (Operational Decision Records — process/governance decisions)
+- **后端**: `cmd/`（analysis / data / dualrun）、`pkg/`（引擎、策略运行时、撮合、结算、存储、内核装配…）
+- **测试**: `e2e/`（Go 守卫 + 集成测试；**不是** Playwright）
+- **文档**: `docs/`（SPEC / ARCHITECTURE / TASKS / design）
+- **ODR**: `docs/archive/odr/`（过程与治理决策）
+
+### 不归本仓（改它们请去对应仓）
+| 想改 | 去 |
+|---|---|
+| 页面 / 组件 / 前端测试 / Playwright | `tellurion-ui` |
+| AI 探索 / 生成 / pipeline / 工具注册表 / 验证器链 | `tellurion-agent` |
+| 跨仓共享的类型与 port | `tellurion-contracts`（先定形状，再回来改实现） |
+| 横切工具（logging / db / decimal / http client…） | `tellurion-kit` |
 
 ### 禁区（What You NEVER Modify）
-- `node_modules/`, `dist/`, `.vite/` — 自动生成，gitignored
+- **在本仓新建 `web/` 或 `pkg/ai/`** —— 它们在 2026-10-09 已拆出，重建等于制造第二个真相
+- `node_modules/`, `dist/`, `.vite/` — 自动生成（本仓已无前端；若出现在本仓说明有东西走错地方）
 - `.env*` 文件 — 包含密钥
 - `migrations/` 与 `docs/migrations/` 的 `.sql` — **历史记录，只读不维护**。加表 / 加列请改 `pkg/storage/postgres.go` 的 `migrate()` 数组（见 [`migrations/README.md`](migrations/README.md)）
 - `docker-compose.yml` 基础配置 — 通过 `docker-compose.override.yml` 覆盖
@@ -255,17 +297,20 @@ go test ./pkg/data/... -v               # Run data pipeline tests
 go test ./pkg/storage/... -v            # Run PostgreSQL storage tests
 ```
 
-### Frontend (Vue 3)
+### 前端 / E2E（**不在本仓**）
+
+本仓没有 `web/`，也没有 Playwright：
+
 ```bash
-cd web && npm install                   # Install dependencies
-npm run dev                             # Start Vite dev server (:5173)
-npm run build                           # Production build to dist/
-npm run lint                            # ESLint + Prettier check
-npm run typecheck                       # TypeScript strict mode check
-npm run lint:tests                      # Static scan for vitest toBe(expected, "message") misuse (F2-new)
-npm test                                # Run Vitest unit tests (calls lint:tests first)
-npm run test:watch                      # Vitest watch mode
-npm run test:coverage                   # Vitest with coverage report
+# 前端（install / dev / build / lint / typecheck / vitest / playwright）
+#   → 去 tellurion-ui 仓，命令见该仓 AGENTS.md
+```
+
+本仓的 `e2e/` 是 **Go** 测试：
+
+```bash
+go test ./e2e/...                        # 守卫 + 集成测试
+cd e2e && go test ./guard/... -v         # 只跑守卫
 ```
 
 ### E2E Tests (Playwright)
@@ -321,80 +366,13 @@ type Strategy interface {
 ```
 参见: `pkg/strategy/strategy.go`, [SPEC.md](docs/SPEC.md), VISION.md（`tellurion-docs:docs/VISION.md`）
 
-### Frontend (Vue 3 + TypeScript)
+### 前端（**不在本仓**）
 
-- **Composition API** 与 `<script setup lang="ts">` 专用
-- **Naive UI** 组件库（通过 NConfigProvider 使用暗色主题）
-- **Pinia** 状态管理 — 大对象使用 `shallowRef`（BacktestResult），简单状态使用 `ref`
-- **Chart.js 4** 数据可视化（权益曲线、交易标记）
-- **Vue Router 4** SPA 导航
-- 组件命名：PascalCase（如 `BacktestForm.vue`, `EquityChart.vue`, `MetricsCards.vue`）
-- Composables 命名：`use*.ts`（如 `useBacktest.ts`）
-- 工具函数集中在 `web/src/utils/format.ts` — 不要在组件中重复 `fmtPercent()`
+前端代码（Vue 3 / Naive UI / Pinia / Chart.js / Vue Router）整体在 **`tellurion-ui`** 仓，
+本仓不写 `.vue` / `.ts`，也没有 `web/` 目录。要改前端 → 去那个仓读它的 `AGENTS.md`。
 
-**Key Frontend Patterns**:
-```typescript
-// API Client — 所有调用通过 web/src/api/client.ts
-// Base URL: http://localhost:8085 (Vite proxy in dev mode)
-import { getBacktestReport } from '@/api/backtest'
-import { runBacktest as apiRunBacktest } from '@/api/backtest'
-
-// State management — 大对象使用 shallowRef
-const result = shallowRef<BacktestResult | null>(null)
-triggerRef(result) // 手动触发响应式更新
-
-// Icon components — 用 markRaw() 包装防止 Vue 响应式代理
-import { markRaw } from 'vue'
-const metrics = ref([{ icon: markRaw(ServerOutline), ... }])
-
-// Chart.js 渲染 — 在状态更新后始终 await nextTick() 再访问 canvas
-async function renderChart() {
-  chartData.value = data
-  await nextTick()
-  if (!eqCanvasRef.value) return
-  const ctx = eqCanvasRef.value.getContext('2d')
-  // ... create chart
-}
-```
-
----
-
-## 7. 数据流
-
-```
-Browser (Vue SPA :5173)
-  │
-  ├──► GET /health            ──► analysis-service :8085
-  ├──► POST /backtest         ──► analysis-service → engine.go → postgres
-  ├──► GET /ohlcv/:symbol     ──► analysis-service → data-service :8081 (proxy)
-  ├──► GET /strategies        ──► analysis-service → StrategyDB (local)
-  ├──► POST /batch/backtest   ──► analysis-service → BatchEngine → postgres
-  ├──► POST /walkforward      ──► analysis-service → WalkForwardEngine → postgres
-  ├──► GET /sync/stream       ──► analysis-service → SSE (real-time)
-  ├──► GET /datasource/status ──► analysis-service → DataAdapter
-  ├──► GET /plugins           ──► analysis-service → PluginLoader
-  ├──► POST /api/risk/*       ──► analysis-service → in-process risk.RiskManager (P1-15)
-  ├──► POST /api/execution/*  ──► analysis-service → in-process live.MockTrader (P1-15)
-  │
-  └──► Redis (:6379) ◄──── factor_cache, session store, sync_job_cache
-              │
-              └──► PostgreSQL (:5432) ◄── stocks, ohlcv, fundamentals,
-                                          backtest_jobs, sync_jobs, sync_schedules
-
-EquityDeep（数据底座，L1 — 非 agent、无独立编排）
-  │
-  ──► GET /api/evidence/{content_hash} ──► L1 只读证据 API ─► ingest.raw (唯一原始记录)
-       （单一入口: 不自行调用 akshare；叙事写 vault markdown，状态投影写 research.*）
-```
-
-> **数据归属（禁止双写）**: 可重建数据物理唯一于 PG — A 原始源响应
-> `ingest.raw` / B 规范化 `market.*` / C 派生计算 `quant.*` + Redis `factor_cache`；
-> 不可重建的研究叙事唯一于 vault markdown；`research.*` 是 markdown 的可重建投影
-> （可 DROP 重建）。共享靠**同一份数据 + content_hash 坐标**，不靠复制。
-
----
-
-## 8. 工作流规范
+> 这条以前是本仓的一大段前端规范（组件命名、`shallowRef`、`markRaw`、`nextTick`）；
+> 2026-10-09 前端拆仓后它留在 core 只会误导 agent 在本仓找 `web/src/`。原文已随前端迁走。
 
 ### 工作类型分类
 
@@ -562,14 +540,17 @@ EquityDeep（数据底座，L1 — 非 agent、无独立编排）
 ## 9. 行为边界
 
 ### Always Do（必须做）
-- ✅ 在提交前端变更前运行 `npm run lint && npm run typecheck`
+
+> 带 **[ui]** 的条目属于 `tellurion-ui` 仓。**本仓没有前端代码**，在 core 里不需要也不该执行它们。
+
+- ✅ **[ui]** 在提交前端变更前运行 `npm run lint && npm run typecheck`
 - ✅ 在提交后端变更前运行 `go vet ./... && go test ./...`
-- ✅ UI 变更后运行 `npx playwright test`
+- ✅ **[ui]** UI 变更后运行 `npx playwright test`
 - ✅ 更改接口或架构时更新相关文档
 - ✅ 参考 VISION.md（`tellurion-docs:docs/VISION.md`） 进行架构决策时遵循设计原则
-- ✅ 大对象使用 `shallowRef`（BacktestResult, portfolio_values 数组）
-- ✅ Icon 组件使用 `markRaw()` 包装防止 Vue 响应式警告
-- ✅ 状态更改后访问 DOM refs 前 `await nextTick()`
+- ✅ **[ui]** 大对象使用 `shallowRef`（BacktestResult, portfolio_values 数组）
+- ✅ **[ui]** Icon 组件使用 `markRaw()` 包装防止 Vue 响应式警告
+- ✅ **[ui]** 状态更改后访问 DOM refs 前 `await nextTick()`
 - ✅ **遵循 Document Self-Maintenance Protocol**（见第 10 章）— 保持文档实时更新
 - ✅ 新增数据表/字段时先确认其**数据归属**（ADR-023 数据层分区）— 可重建数据物理唯一于 PG，不落 vault
 
@@ -587,11 +568,11 @@ EquityDeep（数据底座，L1 — 非 agent、无独立编排）
 - ❌ **绝不在代码中硬编码 API 密钥、密码或凭据**
 - ❌ **绝不绕过评审直接推他人贡献的分支** — 单人维护期本仓可直接提交 `main`（前提与补偿门禁见 ODR-067，正文在 `tellurion-docs` 仓 `docs/archive/odr/`）；上游仓（如 `nautilus_trader`）按各自 `AGENTS.md` 走 PR，不套用本授权
 - ❌ **绝不修改 `node_modules/`, `dist/`, `.env*` 或自动生成的文件**
-- ❌ **绝不使用 `any` 类型且无显式注释说明**
+- ❌ **[ui]** **绝不使用 `any` 类型且无显式注释说明**
 - ❌ **绝不生成无法解释的代码**
-- ❌ **绝不使用 `ref()` 处理大对象（>50 属性或嵌套数组）— 使用 `shallowRef`**
-- ❌ **绝不状态更改后立即访问 DOM refs（canvas, input）— await `nextTick()`**
-- ❌ **绝不跨组件复制工具函数如 `fmtPercent()`**
+- ❌ **[ui]** **绝不使用 `ref()` 处理大对象（>50 属性或嵌套数组）— 使用 `shallowRef`**
+- ❌ **[ui]** **绝不状态更改后立即访问 DOM refs（canvas, input）— await `nextTick()`**
+- ❌ **[ui]** **绝不跨组件复制工具函数如 `fmtPercent()`**
 - ❌ **绝不让同一份数据在两个位置各自存储** — 共享走 `content_hash` 证据坐标，不复制
 - ❌ **绝不让 AI 直接摸数据**（读库 / 读文件）— 一律经能力层 MCP 工具（ADR-023 §2）
 - ❌ **绝不编写独立的 Report (.md) 文件 — 使用 ODR 替代**
@@ -836,7 +817,7 @@ Please continue from where we left off.
 ### 项目健康度
 - **Phase**: 4 (AI-Native Evolution) 进行中；Phase 3 (Integration & Scale) 已收口
 - **测试覆盖** (2026-06-29 实测, 总体 62.9% statement-weighted): backtest 76.0% | strategy 64.4% (顶层) / plugins 83.1% (子包) | data/source 60.9% | data/sentiment 76.8% | storage 13.2% (无 DB 时 skip) | ai 28.9% (顶层) / 子包 16-95% (avg ~67%) | live 75.8% | marketdata 79.0% | risk 85.3% | compliance 91.6% | fees 100% | expression 74.5%
-- **关键服务**: Analysis ✅ | Data ✅ | **Sync ✅** | **AI Research ✅ (running)** | Strategy ⏸️ (standby per ADR-012, awaiting Phase 3 D3 activation)
+- **关键服务（本仓口径）**: Analysis ✅（:8085）| Data ✅（:8081）| Sync ✅（在 data 服务内）—— **AI Research 的代码在 `tellurion-agent` 仓**；**strategy-service（:8082）已于 REV-16 删除**，不要再按"五个服务"理解
 - **Hermes Agent 集成** (2026-07-02, ODR-046): Phase 1-2 完成 — **21 个 MCP 工具** (`pkg/tools/builtin/`, ODR-057 新增 `research.profile`) + L1-L4 验证门禁 + 自主挖掘 Skill + 预算控制器配置. 前端 AI UI 已弃用 (ODR-045), Hermes 自然语言交互替代. `pkg/ai/agents/` Go-native agents 保留向后兼容但已弃用.
 - **审计状态** (2026-06-29 ODR-043): 4 维度审计完成, 12 Critical / 18 High / 10 Medium 问题点; 5 真实 bug 已识别待修复
 - **架构定位** (2026-09-16, Accepted — ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`） / ODR-048（`tellurion-docs:docs/archive/odr/odr-048-top-level-product-redefinition.md`）, 取代 ADR-022（`tellurion-docs:docs/archive/superseded-adr/adr-022-unified-research-platform.md`） / ADR-021): **一间单人自托管实验室** — AI 实验员（唯一编排者，会循环）操作底座，人当实验室主任；EquityDeep 从「工作面」**降为数据底座**（产业链图谱 + 研究洞察），不再是第二个 agent。三层模型见 §2。执行载体见 ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`）（表达式，不是 LLM 生成的代码）。
@@ -860,11 +841,11 @@ Please continue from where we left off.
 
 | Issue | Workaround |
 |-------|-----------|
-| **Legacy HTML UI 已退役** | **已删除（[AUD-33]，2026-09-22）** —— 6 个文件（`cmd/analysis/static/`，5 html + 1 css）+ `main.go` 的 10 条 HTML 路由与 `/static` 挂载 + 4 条裸镜像路由（`/ohlcv/:symbol`、`POST /screen`、`/stocks/count`、`/market/index`）全部移除。**analysis-service 现在只提供 API**：`:8085/` 返回 404 是**预期行为**，不是故障。前端只有 `web/`（Vue SPA），由 nginx 托管在**宿主 8080**（[AUD-32]），只通过 `/api/*` 打后端。**不要重新引入** catch-all `/` 或 `/static` 挂载 —— 那会让两个前端在同一端口上悄悄分叉，且 `cmd/analysis/deps_test.go` 的 `mustNotHave` 会立刻报错 |
+| **Legacy HTML UI 已退役** | **已删除（[AUD-33]，2026-09-22）** —— 6 个文件（`cmd/analysis/static/`，5 html + 1 css）+ `main.go` 的 10 条 HTML 路由与 `/static` 挂载 + 4 条裸镜像路由（`/ohlcv/:symbol`、`POST /screen`、`/stocks/count`、`/market/index`）全部移除。**analysis-service 现在只提供 API**：`:8085/` 返回 404 是**预期行为**，不是故障。前端只有 `tellurion-ui` 仓的 `web/`（Vue SPA），由 nginx 托管在**宿主 8080**（[AUD-32]），只通过 `/api/*` 打后端。**不要重新引入** catch-all `/` 或 `/static` 挂载 —— 那会让两个前端在同一端口上悄悄分叉，且 `cmd/analysis/deps_test.go` 的 `mustNotHave` 会立刻报错 |
 | **`LiveEngine` 生产零调用方**（[AUD-34]，裁决 2026-09-22：**保留**） | `pkg/live/engine.go` 的 `LiveEngine`（约 450 行完整的 Start/Stop/SubmitOrder/PositionManager 编排）**没有任何生产调用方** —— 唯一的生产消费者 `handlers_paper_trading.go` 已随 [AUD-33] 之前的 AUD-19 删除；活的 `/api/execution/*` 走 `MockTrader`，不经过它。**它只被测试覆盖**（`live_test.go` / `engine_test.go`），**从未被真实请求跑过**；`SimulatedBroker` 同样零调用方。**这是被明确接受的风险，不是已解决的问题** —— 一个从没被真实请求执行过的路径，等于把首次运行留给生产。**接线到实时行情 / 真实券商之前，先补一条从 HTTP 层真的接一次的集成测试**，不要直接上资金 |
-| `ChatbubbleEllipsisOutline` icon name doesn't exist | Correct name is `ChatbubbleEllipsesOutline` (with 'e' before 's') |
-| Trade markers may not render if portfolio_values is empty | Ensure backtest returns valid data before calling renderChart() |
-| **前端 AI 组件已删除** (ODR-045, 2026-07-02) | 9 个组件 P1-13 创建后 S7-P2-7 作为死代码删除; Hermes Agent 自然语言交互替代 (ODR-046). 不要重建 `web/src/components/ai/` — 使用 `pkg/tools/builtin/` MCP 工具层 |
+| **[ui]** `ChatbubbleEllipsisOutline` icon name doesn't exist | 正确名是 `ChatbubbleEllipsesOutline`（`s` 前有 `e`）。**这条属于 `tellurion-ui` 仓**（本仓无前端） |
+| **[ui]** Trade markers may not render if `portfolio_values` is empty | 渲染前确保回测返回有效数据。**属于 `tellurion-ui` 仓**（本仓无前端） |
+| **[ui]** **前端 AI 组件已删除** (ODR-045, 2026-07-02) | 9 个组件 P1-13 创建后 S7-P2-7 作为死代码删除; Hermes Agent 自然语言交互替代 (ODR-046). 不要重建 `web/src/components/ai/`（现在在 `tellurion-ui` 仓）；AI 侧走 `tellurion-agent` 的 `pkg/ai/tools` MCP 工具层 |
 | `pkg/ai/agents/optimize.go` 不存在 | S10-1 误标 ✅; TPE/遗传算法在 `pkg/ai/search/` 但无 agent 包装层. 新代码用 MCP 工具 `walk_forward_validate` (ODR-046) |
 | **ODR-011 Multi-Source Risks** (CR-48, ODR-012) | See sub-table below |
 | `fundamentals` 与 `stock_fundamentals` 表字段重叠 | **已收口**（ODR-056（`tellurion-docs:docs/archive/odr/odr-056-fundamentals-table-consolidation.md`） / EQD-P3-1，2026-09-15）：迁移 025 将 `fundamentals` 存量按 `symbol → ts_code` 并入 `stock_fundamentals` 后 **DROP 旧表**；4 个 `symbol` 系读写函数已收敛。**基本面数据一律读写 `stock_fundamentals`，不要再引用 `fundamentals` 表** |
