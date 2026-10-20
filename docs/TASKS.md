@@ -108,9 +108,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑥ 边界**：只做编译兼容护栏；S3 后 agent 不再依赖 core 源码，本 job 转为「跨仓 tag 兼容检查」并保留。
 - **⑦ 排序约束（硬）**：**本单合入 main 之前，QT-01 不得合入**。理由：QT-01 把 host 函数从 8 个换成 13 个（abi v2），是分仓后第一个打穿 agent 编译的改动；护栏不在，这次破坏就已经漏过去了。
 
-### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] ⬜
+### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] 🔶
 
 - **① 目标**：任何一个仓被一个 agent 接手时，都能**从本仓内**知道「怎么构建、边界在哪、依赖哪版契约、该做什么、禁止什么」，不靠读别的仓。
+
+> **进度（2026-10-20，已推送）**：10 个仓（agent / ui / contracts / kit / data / strategy / risk / analytics / orchestration / broker）已按主仓 `docs/` 模式建好文档机制并提交：每仓 `AGENTS.md`（构建 / 边界 / 禁止 / 依赖版本 / 台账入口）+ `docs/README.md`（导航）+ `docs/TASKS.md`（本仓唯一台账，六字段）+ `docs/ARCHITECTURE.md` + `docs/adr/`（只增不删 + 模板）+ `docs/archive/`（归档规则）；8 个 Go 仓补 `.gitignore`（含 `go.work`）+ `.github/workflows/ci.yml`（gofmt/build/vet/test，**本机实跑四条全绿**）+ `LICENSE`（MIT）；`agent` / `ui` 的 `AGENTS.md` 与 `.gitattributes` 属**首次建立**（此前完全缺失）。
+> 顺带修掉：`agent` 37 个文件的 gofmt（改名副作用，此前遗漏）+ `agent` / `ui` 共 15 条存量坏链（拆仓后文档失配）→ 现在 10 仓 markdown **相对链接 0 断链**。
+> **剩余**：① `tools/check_repo_autonomy.py`（本单 ①，未做）；③ 的 `docs` 仓 CI/TASKS（用户本轮明确排除 `docs`）；④ core `AGENTS.md` 的「分仓规则」节；⑤ 各仓 CI 首次绿的线上确认（8 个新仓的 workflow 是本次新增，首跑结果待看）。
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~R5，**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
 - **④ 约束与非目标**：不把 core 的 AGENTS 全文复制到各仓（只写本仓必须知道的）；不引入新 CI 平台；不改任何代码。
