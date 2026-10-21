@@ -97,7 +97,7 @@
 | ID | 等级 | 问题 | 方向 |
 |---|---|---|---|
 | BE-18 | 🔴 | `.so` 通道在 Windows 上不可用（`plugin_stubs.go` → `plugin: not implemented`），本地栈无法验证 | 外化主通道改走 WASM；`.so` 按 ADR-024 标注为存量遗留（冻结不扩展、逐步退役） |
-| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空，仓内无 `go build -buildmode=plugin`/tinygo 调用，ADR-027 §2.6.1「编译在 ai-service」未落地 | 建独立编译服务，产出内容寻址 artifact |
+| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空，仓内无 `go build -buildmode=plugin`/tinygo 调用，ADR-027 §2.6.1「编译在 ai-service」未落地 | 建独立编译服务，产出内容寻址 artifact。**2026-10-21 已裁决 D**：编译服务落 `tellurion-strategy` 仓的独立进程/容器（`cmd/compiler`），ADR-027 §2.6.1 登记为被本裁决修订 |
 | BE-20 | 🟠 | 回测结果未记录策略 artifact 的 `content_hash`（只有 `PluginInfo.GitHash`，且仅覆盖 `.so`） | 结果落到 `strategy_ref{id, hash}`，否则 K15 双跑对齐失去可复现前提 |
 
 ---

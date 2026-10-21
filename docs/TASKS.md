@@ -89,7 +89,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > 依据 ADR-D29 §7-S0。这两单**不改任何业务代码**，只让「独立仓」从目录独立变成**版本独立 + 有行为入口**。
 
-### QT-06 · core 打 `v0.1.0` + agent 改 require tag（S0）[P0] 🔶
+### QT-06 · core 打 `v0.1.0` + agent 改 require tag（S0）[P0] ✅
 
 - **① 目标**：agent 对 core 的依赖从「源码路径」变成「版本号」——这是 S3 删 `replace` 的唯一前置（没有 tag，就没有版本可依赖）。
 - **② 上下文**：`repo-topology-and-naming.md` §6 实测：core 仓 `git tag` 数量 = **0**；agent `go.mod:10` `require github.com/ruoxizhnya/quant-trading v0.0.0`、`:81` `replace ... => ../quant-trading`（**QT-60 改名后**：`require tellurion`、`replace tellurion => ../tellurion`，行号以改名后为准）；CI 用 `go mod edit -replace` 改写路径（`.github/workflows/ci.yml:32-34`）。agent 当前 import core 的 20 个包 / 37 个文件，**所以本单不删 replace**。
@@ -98,11 +98,12 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：`git rev-parse v0.1.0^{tag}` 存在且指向分仓起点 commit；**本次改动相关的 job 绿**（core 的 `gofmt` / `Doc link check`、agent 的 `Build` / `Vet`），其余红项按 QT-61 登记为 known-fail、**不作为本单失败**（原验收写「两仓 CI 全绿」，在 QT-61 之前不可达）；tag 已 push 到远端（`git ls-remote --tags origin` 可见）；agent `go mod tidy` 后 require 仍为 `v0.1.0`（未被 replace 抹回 `v0.0.0`）。
 - **⑥ 边界**：只做版本化起点；单仓可构建属 QT-07 的 S3 段。
 
-> **🔶 本地已就绪（2026-10-21）；待主任授权后 push 才算落地**：
+> **✅ 完成记录（2026-10-21，远端已落地）**：
 > - **core tag**：`git tag -a v0.1.0` 打在分仓起点 HEAD（annotated，`v0.1.0^{tag}` 存在、解引用到当前 main 提交），message 明写「= 分仓起点，不是发布版本」。只打 tag，**未改任何 core 代码**。
+> - **tag 已 push 到远端**：`git ls-remote --tags origin` 实测远端已有 `refs/tags/v0.1.0`（tag 对象 `42b0758` → 提交 `d9041c1`），⑤ 的「push 到远端」判据成立；**tag 不可变**，后续 breaking 只能发 `v0.1.1`/`v0.2.0`，禁止 force-push tag。
 > - **agent require**：`go.mod` 的 `tellurion v0.0.0` → `v0.1.0`；`replace tellurion => ../tellurion` **保留**并补注释「本地/CI 联调专用，S3（QT-07）删除」。本地验证 `go mod tidy` 后 require 仍为 `v0.1.0`（未被抹回 v0.0.0，§⑤ 判据），`go build ./...` 经 replace 绿、`go.sum` 无变化。
 > - **文档**：`repo-topology-and-naming.md` §6 现状表 core tag 0→1、agent require v0.0.0→v0.1.0（AGENTS/CI 列的陈旧归 QT-08，不在本单混改）。
-> - **未完成（阻塞在授权）**：**push tag 到远端**（`git ls-remote --tags origin` 可见）+ push 相关 commit 后「本次改动相关 job 绿」的 CI 观察 —— 二者是远端动作，需主任确认后再做。S0 期靠 replace 本地/CI 编译，不依赖远端 tag；真正要用它跑 S3 之前 push 即可。远端 CI 全绿还依赖 QT-61 合入后首跑。
+> - **CI 观察**（2026-10-21）：本单改动早已在 main 上；后续任何 push 触发的 core `gofmt`/`Doc link check` 与 agent `Build`/`Vet` 若有红，按 QT-61 的 known-fail 口径登记，不回退 tag（tag 指向的提交本身不因后续红而失效）。
 
 ### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ✅
 
@@ -591,9 +592,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：定死「三份 hash 存在哪张表、谁是权威」，然后把 QT-03 已冻结的定义接进执行路径——让任一结果真能查到自己的输入。
 - **② 上下文**：QT-03 ④ 原文「不建新表（`run_artifacts` 已有落点，X0 载体）」**不成立**：`grep -rn 'run_artifacts'` 在 `*.go`/`*.sql`/`*.yaml` **零命中**，只在 7 份设计文档里；`orchestration-service-design.md` §3 标 **待建（X0 载体）**、§8 红线「`run` schema DDL 只归编排服务」，而编排仓是 S0 占位未启动。core 侧今天的 run 记录是 `backtest_jobs`（无 schema、O0 计划迁往 `run.backtest_jobs`）。两个候选落点各有代价：**(a) 现在就加在 core `backtest_jobs`** —— 立刻可查，但那是一列要随 O0 迁移的表，等于把 provenance 搬两次，且与「run schema 只归编排服务」的红线擦边；**(b) 等编排服务 O1 建 `run.run_artifacts`** —— 归属干净，但 W1/W2 的每一单（QT-15/16/20/22）都想读这三 hash，会集体等一个未启动的服务。
-- **③ 要求**：① **先裁决落点**（建议 (a) 的变体：core 侧建一张 `quant.run_provenance`，PK=run_id，只存「输入身份」不存任务状态，O0/O1 时随 job 表迁移或被 `run.run_artifacts` 取代——归属清晰且不挡编排服务的路）；② 定则后把 `RunSpecInput` 接进 `Engine.RunBacktest`（run 开始时算一次、落一次），`FillTiming` / `Kernel` 用**实际生效值**而非请求值（N6-5）；③ `params_json` + `params_hash` 存**解析后的生效参数**（A3）；④ `status` 取值必须遵守冻结的三值口径 `completed / invalid / failed`（**不得引入第四值**，见 QT-10 ③-④）；⑤ 若 `ResultSpec`/`RunSpec` 要暴露三 hash（provenance 返回面）→ **走 SPEC.md 合规测试红的正式 schema 变更评审**（QT-03 ③-⑥ 的未完项）；⑥ 「同参复现」判据成文：两条 `run_spec_hash` 不同 ⇒ 禁止标为同参复现。
+- **③ 要求**：① **落点已裁决（2026-10-21）**：core 侧建 `quant.run_provenance`（PK=`run_id`，**只存「输入身份」、不存任务状态**）；表由 core 拥有（`quant` schema 为 core 自建），O1 时由 `run.run_artifacts` **双写/对拍/切读/停写**后取代并删除，迁移债登记在 `tellurion-orchestration:docs/TASKS.md` QT-44 ③；② 定则后把 `RunSpecInput` 接进 `Engine.RunBacktest`（run 开始时算一次、落一次），`FillTiming` / `Kernel` 用**实际生效值**而非请求值（N6-5）；③ `params_json` + `params_hash` 存**解析后的生效参数**（A3）；④ **provenance 表不存 `status`**（单一同源原则：`status` 以 `backtest_jobs` / 未来 `run.backtest_jobs` 为唯一权威，对外查询用 join 或视图）；对外暴露时仍遵守冻结的三值口径 `completed / invalid / failed`（**不得引入第四值**，见 QT-10 ③-④）；⑤ 若 `ResultSpec`/`RunSpec` 要暴露三 hash（provenance 返回面）→ **走 SPEC.md 合规测试红的正式 schema 变更评审**（QT-03 ③-⑥ 的未完项）；⑥ 「同参复现」判据成文：两条 `run_spec_hash` 不同 ⇒ 禁止标为同参复现；⑦ 列清单固定为 `run_id / run_spec_hash / dataset_snapshot_hash / artifact_hash / version_hash / strategy_ref_input / params_json / params_hash / seed / kernel / engine_version / fill_timing / risk_rules_hash（可空，QT-42 预留） / created_at`；同一 `run_id` 写入不同 hash ⇒ **fail-loud**（身份漂移，禁止 `ON CONFLICT DO NOTHING` 静默吞）。
 - **④ 约束与非目标**：不改 QT-03 已冻结的 canonical 定义（要改就升域标签 v2，代价是全部历史 hash 作废）；不实现数据服务 aggregator 的快照计算（QT-40）；不在本单接 `GET /api/runs/{id}/provenance` 端点（QT-44）。
-- **⑤ 验收**：任一真实 run 在库里能查到 `{run_spec_hash, dataset_snapshot_hash, artifact_hash, version_hash, strategy_ref_input, params_json, seed, kernel, engine_version, status}`；改费率/滑点/票池/日历/复权/内核/FillTiming/seed 任一 ⇒ 新 run 的 `run_spec_hash` 变（端到端一条腿，不只是单测）；DDL 走 `pkg/storage/postgres.go` 的 `migrationStatements()`（AGENTS §0 硬规则 3：**唯一真相，无例外**）。
+- **⑤ 验收**：任一真实 run 经 `quant.run_provenance ⋈ backtest_jobs` 能查到 `{run_spec_hash, dataset_snapshot_hash, artifact_hash, version_hash, strategy_ref_input, params_json, seed, kernel, engine_version, status}`（provenance 表本身不含 `status`，经 join/视图取得）；改费率/滑点/票池/日历/复权/内核/FillTiming/seed 任一 ⇒ 新 run 的 `run_spec_hash` 变（端到端一条腿，不只是单测）；DDL 走 `pkg/storage/postgres.go` 的 `migrationStatements()`（AGENTS §0 硬规则 3：**唯一真相，无例外**）。
 - **⑥ 边界**：只做「落点裁决 + 写入路径」；provenance 的对外返回面属 QT-44。
 
 ---

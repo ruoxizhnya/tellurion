@@ -43,7 +43,7 @@
 
 ### 1.3 `strategy_artifact_blobs`（新，字节码本体，可选分表）
 
-`strategy_id + version_hash` → `bytes BYTEA`。**本地栈建议直接 BYTEA + 体积上限（如 8 MiB）**；`storage='url'` 时此表可空，走 `artifact_url` 字段指向对象存储/本地目录。分表的理由：避免字节码拖慢定义表的查询与备份。
+`strategy_id + version_hash` → `bytes BYTEA`。**已裁决（2026-10-21，A 行）：本地栈直接 BYTEA + 体积上限 8 MiB（超限 fail-loud）**；`storage='url'` 时此表可空，走 `artifact_url` 字段指向对象存储/本地目录（列分支保留，暂不实现）。分表的理由：避免字节码拖慢定义表的查询与备份。
 
 ---
 
@@ -138,7 +138,7 @@ version_hash = hex(sha256.Sum256(b))
 
 | # | 问题 | 影响 |
 |---|---|---|
-| A | artifact 放 PG BYTEA 还是对象存储？本地栈 vs 多机结论不同 | 决定 `storage` 列落地形态 |
+| A | ~~artifact 放 PG BYTEA 还是对象存储？~~ **✅ 已裁决（2026-10-21）**：本地栈 PG BYTEA（单 blob ≤ 8 MiB，超限 fail-loud），`storage='url'` 仅保留列分支作逃逸阀、暂不实现 | `storage` 列落地形态已定 |
 | B | ~~`strategy_ref` 锁定版本是否为**强制**？~~ **✅ 已裁决（2026-10-19，D25）**：latest 仅作语法糖，提交边界解析并固化 hash；执行/结果只认 hash；CI/双跑/台账直接传 hash | 可复现性与交互便利兼得 |
 | C | NT 内核是否实现同一套 on_bar host API？ | 决定 wasm 能否真的"一份跑两核" |
-| D | 编译服务放 agent 仓（ADR-027 §2.6.1）还是独立？ | 影响 module 拓扑与 toolchain 归属 |
+| D | ~~编译服务放 agent 仓（ADR-027 §2.6.1）还是独立？~~ **✅ 已裁决（2026-10-21）**：归 `tellurion-strategy` 仓的独立进程/容器（`cmd/compiler`，独立镜像、锁 toolchain 版本）；不新建第 13 仓、不放 agent 仓；ADR-027 §2.6.1 登记为被修订 | module 拓扑与 toolchain 归属已定 |

@@ -37,7 +37,7 @@
 | `run.backtest_jobs` | 任务队列（状态机：queued→running→done/failed） | 从 `backtest_jobs`（无归属 schema）迁入 |
 | `run.walk_forward_reports` | 前向验证报告 | 从 `walk_forward_reports` 迁入 |
 | `run.batch_runs` | 批量扫描批次 + 评分汇总 | 待建 |
-| `run.run_artifacts` | 每次 run 的三 hash 留痕（`strategy_ref` / `dataset_snapshot_hash` / `risk_rules_hash`）+ 明细 artefact 指针 | **待建（X0 载体）** |
+| `run.run_artifacts` | 每次 run 的三 hash 留痕（`strategy_ref` / `dataset_snapshot_hash` / `risk_rules_hash`）+ 明细 artefact 指针 | **待建（X0 载体）**；过渡期由 core 侧 **`quant.run_provenance`**（QT-63 裁决 2026-10-21：只存输入身份、**不存 `status`**，status 仍以 `backtest_jobs` 为权威）承载，O1 双写/对拍/切读/停写后取代 |
 | `run.worker_registry` | worker 注册与心跳 | 待建（多 worker 时） |
 
 **归属修正**（ADR-D19 已登记）：~~`backtest_jobs` / `strategy_state`~~ `backtest_jobs` 目前在内核侧持久化，**迁到 `run`**，内核走 port——否则"内核无持久化状态"不成立。**（⚠️ 2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）：`strategy_state` 不迁 `run`——归 strategy-runtime 模块（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`。）**

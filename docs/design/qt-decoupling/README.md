@@ -75,20 +75,22 @@
 | M3 | 拆仓时机 | ✅ **S1 排在 W0 之后**；**ADR-D31 改形态：代码直接落两个新仓**（无 replace，S2 只把伪版本换成 tag） |
 | M4 | 项目改名 | ✅ **项目段 `quant-trading` → `tellurion`**（2026-10-20 订正：本行曾被改名迁移误替换为自指）；owner 保持 `ruoxizhnya`（不建 org、不改 owner —— 引用名一改会连锁报错） |
 | M5 | module path 形态 | ✅ **应用/服务用单段短名**（编译器拒绝 `require`，强制“不可被 import”）、**库用 `github.com/ruoxizhnya/<仓>`** |
+| A | artifact 存储载体 | ✅ **本地栈 PG BYTEA**（单 blob ≤ 8 MiB，超限 fail-loud）；保留 `storage='url'` 列分支作将来逃逸阀，暂不实现对象存储 |
+| D | 编译服务归属 | ✅ **归 `tellurion-strategy` 仓的独立进程/容器**（`cmd/compiler`，独立镜像、锁 toolchain 版本）；不新建第 13 仓、不放 `tellurion-agent`；ADR-027 §2.6.1「编译在 ai-service」登记为**被本裁决修订** |
+| E | 引擎缓存载体 | ✅ **内存 LRU 一级 + 本地磁盘内容寻址二级**；按容量与 TTL 驱逐（artifact 不可变，磁盘缓存安全） |
+| F | latest 失效策略 | ✅ **TTL 300s**；promote 响应携带新 hash 供本进程主动失效；**不引入 webhook/msgbus** |
+| G | 内置 14 策略迁移 | ✅ **保留 init 启动 + 同步登记**（`carrier=builtin`），不做全量迁移 |
+| H | external 是否纳入同一 `strategy_ref` | ✅ **纳入同一命名空间**，解析按 `carrier` 路由；外部载体 hash 语义单独成文，不与 `artifact_hash` 混用 |
 
 ### 待用户裁决清单（文档不代裁，阻塞实施）
 
-> 2026-10-20：N2 / N9 / A12 已裁决，见上表；**K 已定（新增 `kit/db`：仅 connection/migrate/DSN）**，见 D29 与 QT-05。剩余 A/C/D/E/F/G/H。**「阻塞单」列**指未裁决时被卡住的具体工单（`tellurion:docs/TASKS.md`，refactor-plan-review H3 修复补列）。
+> 2026-10-20：N2 / N9 / A12 已裁决，见上表；**K 已定（新增 `kit/db`：仅 connection/migrate/DSN）**，见 D29 与 QT-05。2026-10-21：**A/D/E/F/G/H 六项已裁决（见上表 裁决记录）**，QT-41 与 QT-41b 阻塞解除；**本表仅剩 C**（C 不阻塞实施：QT-01 已按「Go-only 冻结 + 书面声明 NT 对齐边界」兜底）。**「阻塞单」列**指未裁决时被卡住的具体工单（`tellurion:docs/TASKS.md`，refactor-plan-review H3 修复补列）。
 
 | # | 事项 | 出处 | 为什么必须你拍 | 阻塞单 |
 |---|---|---|---|---|
-| A | artifact 存 PG BYTEA 还是对象存储 | D14 §7 | 决定 `storage` 列落地形态（本地栈 vs 多机结论不同） | QT-41 ③-①（已标「假设，需裁决后生效」，未裁不开工该子项） |
 | C | NT 内核是否实现同一套 on_bar host API（**若做，直接按 v2 签名**）**｜升级：阻塞 QT-01 契约冻结的定稿范围** | D14 §7 | 决定「一份 wasm 跑两核」能否成立；两种结局都改变 QT-01 冻结覆盖 Go-only 还是双核（refactor-plan-review H5） | QT-01 ③（已写冻结范围声明：未裁则按 Go-only 冻结 + 书面声明 NT 对齐边界） |
-| D | 编译服务放 agent 仓还是独立 module | D14 §7 | 影响 module 拓扑与 toolchain 归属 | **QT-41b**（⛔ 已标阻塞）+ QT-26 ③-⑤ Compile 门（标「依赖待裁决 D」） |
-| E | 引擎缓存放内存还是本地磁盘 | D13 §7 | 冷启动成本与跨进程复用 | QT-41（缓存实现子项） |
-| F | latest 引用用 TTL 还是事件失效 | D13 §7 | 一致性延迟 vs 引入 webhook/msgbus 复杂度 | QT-41 ③-③（已标「假设，需裁决后生效」，不得静默二选一） |
-| G | 内置 14 策略「全迁移」还是「保留 init + 同步登记」 | D13 §7 | 迁移工作量与护栏写法 | QT-41 ③-⑤ |
-| H | `carrier=external`（L3b）是否纳入同一 `strategy_ref` | D13 §7 | 资产服务是否统一管两类策略 | QT-41（`strategy_ref` 语义，联动 QT-03 ③-③） |
+
+> **A / D / E / F / G / H 已于 2026-10-21 裁决**（逐条结果见上一节「裁决记录」），对应阻塞单 QT-41 / QT-41b 已解除；本表只保留 C。
 
 
 ## 其他文件
