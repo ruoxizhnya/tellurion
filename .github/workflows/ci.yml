@@ -308,35 +308,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4                       # core 进 workspace 根
 
-      # 跨仓 checkout 需要只读 PAT —— GitHub 默认 GITHUB_TOKEN 看不到别的仓。
-      # 未配 secrets.AGENT_REPO_TOKEN 时不硬失败，而是把「护栏此刻处于降级」如实摆出来：
-      # 合入门禁临时由本地 `sh tools/ci/agent_compat.sh` + PR 贴输出兜住（QT-18 ①-b）。
-      # 入口是脚本不是 make 目标：主力开发机是 Windows + Git Bash，`command -v make` 退出 1，
-      # 一条只在 Linux 才跑得动的降级门禁等于没门禁。PAT 就位后
-      # 本 job 自动接管、降级下线。**降级是过渡，不是长期替代 CI** —— 别把它当绿灯。
-      - name: Detect cross-repo PAT
-        id: pat
-        env:
-          TOK: ${{ secrets.AGENT_REPO_TOKEN }}
-        run: |
-          if [ -n "$TOK" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=QT-18 降级模式::未配只读 PAT secrets.AGENT_REPO_TOKEN，跨仓 checkout 跳过。合入前请用 sh tools/ci/agent_compat.sh 本地跑（CI 这一步调的就是同一条脚本，Windows + Git Bash 可直接跑），并把输出贴进 PR 描述。PAT 就位后本 job 自动接管。"
-          fi
-
+      # tellurion-agent 是 public 仓 ⇒ **匿名 checkout 即可**，不需要 secrets.AGENT_REPO_TOKEN
+      # （2026-10-21 实测：`git -c credential.helper= ls-remote https://github.com/ruoxizhnya/tellurion-agent`
+      # 可匿名读到 HEAD）。默认 GITHUB_TOKEN 只对当前仓有效，因此这里必须显式 `token: ''`
+      # 走匿名克隆。若 agent 仓将来转私有，本步会 fail-loud —— 届时再配只读 fine-grained PAT
+      # 并把 token 指回来，**不要**退回「跳过 + 假绿」的降级模式。
       - name: Checkout agent repo
-        if: steps.pat.outputs.present == 'true'
         uses: actions/checkout@v4
         with:
           repository: ruoxizhnya/tellurion-agent
           ref: main
-          token: ${{ secrets.AGENT_REPO_TOKEN }}
+          token: ''
           path: agent
 
       - uses: actions/setup-go@v5
-        if: steps.pat.outputs.present == 'true'
         with:
           go-version: "1.25"
           cache: true
@@ -348,7 +333,6 @@ jobs:
       # 一道进仓、reviewer 看得见的人在环签核（须与 agent 适配 PR 同批），**不是 continue-on-error
       # 那种无视成败的掩盖**；白名单留置期间不得静默合入无适配的破坏。文件不存在即严格红。
       - name: Build + vet agent against this core
-        if: steps.pat.outputs.present == 'true'
         env:
           AGENT_REPO: ${{ github.workspace }}/agent
         run: |
