@@ -230,7 +230,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：任何一个回测结果都能回答"用什么输入跑出来的"，且**改任一影响结果的输入 ⇒ hash 必变**；三份 hash 的覆盖面与层级不再互相矛盾。
 - **② 上下文**：`p0-round2-review.md` N6 + N7；事实：`run_spec_hash` 全设计集仅 2 处引用、零定义；三 hash 不含费率/滑点/成本模型/T+1/初始资金/`FillTiming`/锚点 digest/内核版本/toolchain/seed；`dataset_snapshot_hash` 两处定义冲突（`data-service-contract-and-ownership.md` §2.1 四项 vs `adr-029-amendment-host-api-v2.md` §7.1 要求含 `Axis`）；`version_hash` 不含 toolchain 而 `@hash` 却指它（`strategy-asset-service-api.md` §1.2/§3.3）。
-- **③ 要求**：① 按 N6 的 canonical 集合定义 `run_spec_hash`（含 `fill_timing`、`universe_hash`、`adjustment_anchor_digests`、`kernel`/`engine_version`、`seed`）；② `dataset_snapshot_hash` **只保留一处定义**（含 `calendar_hash` 与 `adjustment_basis`），其余文档改为引用；③ `artifact_hash` 定为执行真相，`strategy_ref` 三形态语义写死（`id@artifact_hash` / `id@version_hash` / `id`），结果同时记 `{输入引用, version_hash, artifact_hash}`；④ `run_artifacts` 落 `run_spec_hash` + 分量 + `params_json` + `status`（DDL 加列进 `postgres.go` inline DDL，不建 migration 文件）；⑤ 向量测试：改任一分量 → hash 变；不改 → 不变；⑥ **schema 变更评审项**（按「维护本文件」节硬规则）：若 `ResultSpec`/`RunSpec` 需暴露三 hash 字段（provenance 返回面），触碰冻结面——先触发 `docs/SPEC.md` 合规测试红，同步更新 SPEC 对应节号（落单时补），走正式变更评审；纯 `run_artifacts` 表加列不属冻结面，但 `status` 列取值必须遵守三值口径。
+- **③ 要求**：① 按 N6 的 canonical 集合定义 `run_spec_hash`（含 `fill_timing`、`universe_hash`、`adjustment_anchor_digests`、`kernel`/`engine_version`、`seed`）；② `dataset_snapshot_hash` **只保留一处定义**（含 `calendar_hash` 与 `adjustment_basis`），其余文档改为引用；③ `artifact_hash` 定为执行真相，`strategy_ref` 三形态语义写死（`id@artifact_hash` / `id@version_hash` / `id`），结果同时记 `{输入引用, version_hash, artifact_hash}`；④ 落库表已由 QT-63 裁决为 core `quant.run_provenance`：落 `run_spec_hash` + 分量 + `params_json`，**不落 `status`**（status 以 `backtest_jobs` 为唯一权威，见 QT-63 ④）；DDL 加列/建表进 `postgres.go` inline DDL，不建 migration 文件；⑤ 向量测试：改任一分量 → hash 变；不改 → 不变；⑥ **schema 变更评审项**（按「维护本文件」节硬规则）：若 `ResultSpec`/`RunSpec` 需暴露三 hash 字段（provenance 返回面），触碰冻结面——先触发 `docs/SPEC.md` 合规测试红，同步更新 SPEC 对应节号（落单时补），走正式变更评审；纯 `quant.run_provenance` 建表/加列不属冻结面；`status` 三值口径仍适用于 `backtest_jobs`（provenance 表不存 status）。
 - **④ 约束与非目标**：不改 `version_hash` 的 canonical 集合（那是 QT-22）；**〔2026-10-21 前提证伪，见结案记录 ②〕** ~~不建新表（`run_artifacts` 已有落点，X0 载体）~~；不实现数据服务 aggregator（QT-40）。
 - **⑤ 验收**：向量测试覆盖 8 个"必变"分量与 3 个"不必变"场景；`GET /api/runs/{id}/provenance` 能返回三 hash + 引擎名 + seed（可先只落库，端点随 QT-44）；两处 `dataset_snapshot_hash` 定义在文档中只剩一处正文、另一处为引用。
 - **⑥ 边界**：只做"定义 + 落库 + 校验"；数据快照的实际计算在 QT-40。
@@ -340,7 +340,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：run 覆写参数真正生效且可追溯；未知键 400；执行期不再读 DB 的 `strategies.params`。
 - **② 上下文**：`p0-remediation-design.md` A3 / D26；`contracts.go:171-199` 无 params；`ReloadFromDB`/`ConfigureStrategy` 零生产调用点。
-- **③ 要求**：① `BacktestRequest` 加 `StrategyRef` + `StrategyParams`；② 生效参数 = 默认 ⊕ 覆写（浅合并），未知键按 `ValidateRunSpec` 口径拒绝；③ 类型/范围校验用清单 `manifest.params[]`；④ 经 `RunMeta.Params → initialize(paramsJSON)`；⑤ `run_artifacts` 存 `params_json + params_hash`（QT-03 的字段）。
+- **③ 要求**：① `BacktestRequest` 加 `StrategyRef` + `StrategyParams`；② 生效参数 = 默认 ⊕ 覆写（浅合并），未知键按 `ValidateRunSpec` 口径拒绝；③ 类型/范围校验用清单 `manifest.params[]`；④ 经 `RunMeta.Params → initialize(paramsJSON)`；⑤ `quant.run_provenance` 存 `params_json + params_hash`（QT-03 的字段；QT-63 裁决后表名以 provenance 为准）。
 - **④ 约束与非目标**：不支持嵌套键（避免歧义）；不改 `strategies.params` 的管理面语义（只是执行期不再读它）；不做参数扫描器（属编排 QT-44）。
 - **⑤ 验收**：同策略不同参数并发两笔各自生效；未知键 400 且点名；从历史记录能完整还原生效参数。
 - **⑥ 边界**：只做参数通路；版本哈希是 QT-22。
@@ -429,7 +429,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：产品主目标落地——一条 AI 生成的策略，从 prompt 到回测结果**全程留痕**（源码 → hash → 结果），且 AI 产物必须过 `promote` 人工闸门才进生产回测（`implementation-plan-mvp.md` §6-M2 验收原文）。
 - **② 上下文**：`implementation-plan-mvp.md` 档 2（「代码→编译→资产服务→引擎缓存加载执行」是**要交付的目标**）、G6（AI 生成闭环：Go 子集 + 静态校验 + promote）、§6-M2 里程碑；AI 生成/实验编排归 `tellurion-agent` 仓（ADR-023 三层模型，core 不实现第二个编排者）；编译管线属 QT-41b（本单是其消费方）。**本单承接 G6/M2**——refactor-plan-review H4 指出原台账在 W3 后断链，无单承接产品主目标，本单即补缺（若产品侧改判「G6/M2 不在本代范围」，则删除本单并在执行顺序总览显式声明划出，不得沉默）。
-- **③ 要求**：① AI 生成 Go 子集 → QT-41b 编译管线（TinyGo + 静态校验：import 白名单 / 体积 / 内存上限）→ `artifact_hash` 登记（QT-03）；② **`promote` 人工闸门**：AI 产物默认不进生产回测，须人工审批后才可被 `strategy_ref` 解析为可执行资产（闸门记录进审计，审批人/时间/结论留痕）；③ 全链留痕：prompt / 生成源码 / 编译产物 hash / 回测 `run_spec_hash` / 结果串成可追溯链（复用 QT-03 三 hash + `run_artifacts`）；④ 状态机三路一致性（Batch / Step 从零 / Step 从断点）+ dualrun K15 对拍作质量门（AI 质量问题靠与内置 Go 同逻辑对拍抓，`implementation-plan-mvp.md` §5）；⑤ AI 侧护栏沿用 agent 仓既有 AST/白名单（不新造第二套）。
+- **③ 要求**：① AI 生成 Go 子集 → QT-41b 编译管线（TinyGo + 静态校验：import 白名单 / 体积 / 内存上限）→ `artifact_hash` 登记（QT-03）；② **`promote` 人工闸门**：AI 产物默认不进生产回测，须人工审批后才可被 `strategy_ref` 解析为可执行资产（闸门记录进审计，审批人/时间/结论留痕）；③ 全链留痕：prompt / 生成源码 / 编译产物 hash / 回测 `run_spec_hash` / 结果串成可追溯链（复用 QT-03 三 hash + `quant.run_provenance`，QT-63 裁决）；④ 状态机三路一致性（Batch / Step 从零 / Step 从断点）+ dualrun K15 对拍作质量门（AI 质量问题靠与内置 Go 同逻辑对拍抓，`implementation-plan-mvp.md` §5）；⑤ AI 侧护栏沿用 agent 仓既有 AST/白名单（不新造第二套）。
 - **④ 约束与非目标**：不把 AI 编排逻辑搬进 core（ADR-023）；不省略人工闸门做「自动 promote」（档 3 是远期，不在本单）；不在本单做编译服务实现（QT-41b）；不为 AI 产物放宽 `ValidateImports` / 预算 / fail-closed 任何一条。
 - **⑤ 验收**：一条 AI 生成策略从 prompt 到回测结果全程可追溯（链上每环有 hash 或留痕记录）；未过 promote 的 AI 产物被回测路径拒绝（fail-closed 用例）；三路一致性 + K15 对拍通过；破坏验证：绕过闸门直接登记 → 有测试红。
 - **⑥ 边界**：只做闭环接线与闸门/留痕；生成质量与实验编排属 agent 仓（其台账另立单）；编译管线是 QT-41b；资产存储是 QT-41。
