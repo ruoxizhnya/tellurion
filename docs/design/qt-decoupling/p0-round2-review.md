@@ -608,7 +608,7 @@ emit_target2(symbol_idx: i32, weight: f64) -> void
 
 | 文档 | 改动 |
 |---|---|
-| `adr-029-amendment-host-api-v2.md` | §2.1 函数表加 `emit_target2`（12 → 13 个函数）；新增 §8 引用本节 |
+| `adr-029-amendment-host-api-v2.md` | §2.1 函数表加 `emit_target2`（**8 个 v1 + 4 个 v2 = 12 个函数**；2026-10-21 QT-01 订正：本行原写「12 → 13」，与 §7.2-1 自己给的枚举 8+4 不符）；新增 §8 引用本节 |
 | `README.md`（本设计集） | 裁决记录加 3 行；待裁决清单移除 N2/N9/A12 |
 | `project-engineering-file.md` | 新增 ADR-D28 |
 | `docs/TASKS.md` | 归档第 3 代，第 4 代工单 QT-01/02/04 直接引用本节 |

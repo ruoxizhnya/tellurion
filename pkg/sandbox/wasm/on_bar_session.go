@@ -25,6 +25,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"tellurion/pkg/backtest/contracts"
 )
 
 // OnBarSession 是「逐 bar on_bar(t) + finalize」协议的会话，替代旧
@@ -48,9 +50,31 @@ type OnBarSession struct {
 
 // NewOnBarSession compiles wasmBytes and instantiates an on_bar-protocol session.
 // 调用方必须先 InstantiateHostModule（见 WazeroRuntime.InstantiateHostModule）。
+//
+// QT-01 的加载门在这条路径上串起来（时序即契约）：
+//
+//	Compile（白名单 + 族互斥 + 签名比对）
+//	  → DetectHostAbiFamily（import section 自证，**先于**实例化）
+//	  → Instantiate
+//	  → ValidateLoadedArtifact（v2 强制宿主区声明；v1 走 legacy 分支 + warning）
+//	  → Initialize（params ≤ MaxParamsBytes）
+//
+// v1 artifact 的行为在这条链上零变化：族判定得到 v1，ValidateLoadedArtifact 只回
+// 一条 legacy_host_layout 诊断。v2 artifact 若没声明宿主区，就会在这里被拒——
+// 而不是等到 host 把 params 写进模块自己的数据段。
 func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*OnBarSession, error) {
 	module, err := s.Compile(ctx, wasmBytes)
 	if err != nil {
+		return nil, err
+	}
+	abiMod, ok := module.(AbiModule)
+	if !ok {
+		_ = module.Close(ctx)
+		return nil, fmt.Errorf("wasm: runtime %T does not expose the import section, so the abi family cannot be self-proved", s.runtime)
+	}
+	family, err := DetectHostAbiFamily(abiMod)
+	if err != nil {
+		_ = module.Close(ctx)
 		return nil, err
 	}
 	inst, err := s.InstantiateModule(ctx, module)
@@ -58,12 +82,34 @@ func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*O
 		module.Close(ctx)
 		return nil, err
 	}
+	diagnostics, err := ValidateLoadedArtifact(inst, family)
+	if err != nil {
+		_ = inst.Close()
+		return nil, err
+	}
+	for _, d := range diagnostics {
+		s.log.Warn().Str("abi_diagnostic", d).Str("abi_version", family.String()).
+			Msg("wasm artifact uses the legacy host memory layout (params at offset 0, scratch at 4096) — " +
+				"host writes are not covered by a module declaration")
+	}
 	return &OnBarSession{inst: inst, sandbox: s}, nil
 }
 
 // Initialize calls the module's "initialize" export with JSON params.
 // Returns nil on success (the module returns 0).
+//
+// QT-01 / A6：params 上限是**契约**不是建议。超限一律拒绝，不截断——截断等于
+// 给策略一份残缺 JSON，表现是「参数没生效」这种最难查的静默错；而旧实现里
+// params > 4096 还会被后续 state 写入直接盖住尾巴（A6 点名的病）。
+//
+// 写入地址目前仍是 legacy 的绝对偏移 0；abi v2 应按模块声明的
+// __host_params_ptr 写并用 contracts.ValidateParamsWrite 复核可用区间，
+// 那一步属 QT-26。上限本身与地址无关，所以现在就能生效。
 func (sp *OnBarSession) Initialize(ctx context.Context, params []byte) error {
+	if len(params) > contracts.MaxParamsBytes {
+		return fmt.Errorf("%w: params is %d bytes > MaxParamsBytes=%d (rejected, not truncated)",
+			contracts.ErrParamsTooLarge, len(params), contracts.MaxParamsBytes)
+	}
 	if err := sp.inst.WriteMemory(0, params); err != nil {
 		return fmt.Errorf("write params: %w", err)
 	}

@@ -1,16 +1,40 @@
 package wasm
 
 // 极简 WASM binary 编码器（测试用）。参考 wazero 官方测试的 encodeModule
-// 做法，只支持本测试需要的子集：type / import / function / memory / export /
-// code 六个 section，无 data、无 global、无 table。
+// 做法，只支持本测试需要的子集：type / import / function / memory / global /
+// export / code / data 八个 section。无 table、无 element、无 start。
 //
-// 本文件只服务 sandbox_test.go，不引入生产代码路径。
+// 本文件只服务测试，不引入生产代码路径。
+//
+// QT-01 之后这里多了两样能力，都是「坏 artifact」造证据的前置：
+//   - global（i32 常量 + 导出）：N5 的 __host_params_ptr / __host_scratch_ptr /
+//     __host_scratch_size 就是导出 i32 全局，没有它就测不了宿主区校验；
+//   - data（活动数据段）：要造「ptr 落在模块自己的数据段」那种坏 artifact，
+//     数据段必须真的在那儿，否则测试只是在测一个假想的地址。
 
 // 值类型
 const (
 	valI32 byte = 0x7f
 	valI64 byte = 0x7e
 	valF64 byte = 0x7c
+)
+
+// section id（WebAssembly 1.0 二进制布局）
+const (
+	secType   byte = 1
+	secImport byte = 2
+	secFunc   byte = 3
+	secMemory byte = 5
+	secGlobal byte = 6
+	secExport byte = 7
+	secCode   byte = 10
+	secData   byte = 11
+)
+
+// export kind
+const (
+	expKindFunc   byte = 0x00
+	expKindGlobal byte = 0x03
 )
 
 // 指令 opcode（本测试用到的子集）
@@ -56,12 +80,29 @@ type wasmMemory struct {
 	min uint32
 }
 
+// wasmGlobal 是一个常量全局。N5 的三个声明符号用 i32；valType 也允许 i64，
+// 是为了能造出「声明符号类型不对」这种坏 artifact。
+type wasmGlobal struct {
+	valType byte
+	i32     int32
+	i64     int64
+}
+
+// wasmDataSegment 是一段**活动**数据段（memory 0，偏移为 i32.const）。
+// 这就是「模块自己的静态数据」——host 往这段地址写就是踩模块的变量。
+type wasmDataSegment struct {
+	offset int32
+	bytes  []byte
+}
+
 // wasmModule 是本编码器支持的最小模块模型。
 type wasmModule struct {
 	types   []wasmFuncType
 	imports []wasmImport // 导入函数（函数索引空间：先 imports 后 funcs）
 	funcs   []uint32     // 本地函数 → 类型索引
 	memory  *wasmMemory
+	globals []wasmGlobal
+	data    []wasmDataSegment
 	export  []wasmExport
 	codes   [][]byte // 本地函数体（不含 locals 前缀，本测试无局部变量）
 }
@@ -76,7 +117,7 @@ func (m *wasmModule) encode() []byte {
 	buf = append(buf, 0x01, 0x00, 0x00, 0x00) // version 1
 
 	// Type section (id=1)
-	buf = appendSection(buf, 1, func(s []byte) []byte {
+	buf = appendSection(buf, secType, func(s []byte) []byte {
 		s = appendUleb128(s, uint32(len(m.types)))
 		for _, ft := range m.types {
 			s = append(s, 0x60) // func type
@@ -90,7 +131,7 @@ func (m *wasmModule) encode() []byte {
 
 	// Import section (id=2) —— wasm 规定 import 在 function 之前。
 	if len(m.imports) > 0 {
-		buf = appendSection(buf, 2, func(s []byte) []byte {
+		buf = appendSection(buf, secImport, func(s []byte) []byte {
 			s = appendUleb128(s, uint32(len(m.imports)))
 			for _, imp := range m.imports {
 				s = appendUleb128(s, uint32(len(imp.module)))
@@ -105,7 +146,7 @@ func (m *wasmModule) encode() []byte {
 	}
 
 	// Function section (id=3)
-	buf = appendSection(buf, 3, func(s []byte) []byte {
+	buf = appendSection(buf, secFunc, func(s []byte) []byte {
 		s = appendUleb128(s, uint32(len(m.funcs)))
 		for _, idx := range m.funcs {
 			s = appendUleb128(s, idx)
@@ -115,7 +156,7 @@ func (m *wasmModule) encode() []byte {
 
 	// Memory section (id=5)
 	if m.memory != nil {
-		buf = appendSection(buf, 5, func(s []byte) []byte {
+		buf = appendSection(buf, secMemory, func(s []byte) []byte {
 			s = appendUleb128(s, 1)            // 1 memory
 			s = append(s, 0x00)                // flags (no max)
 			s = appendUleb128(s, m.memory.min) // min pages
@@ -123,9 +164,30 @@ func (m *wasmModule) encode() []byte {
 		})
 	}
 
+	// Global section (id=6) —— 常量全局（mutable=false）。
+	if len(m.globals) > 0 {
+		buf = appendSection(buf, secGlobal, func(s []byte) []byte {
+			s = appendUleb128(s, uint32(len(m.globals)))
+			for _, g := range m.globals {
+				s = append(s, g.valType) // value type
+				s = append(s, 0x00)      // mutable = false
+				switch g.valType {
+				case valI64:
+					s = append(s, opI64Const)
+					s = appendSleb128(s, g.i64)
+				default:
+					s = append(s, opI32Const)
+					s = appendSleb128(s, int64(g.i32))
+				}
+				s = append(s, opEnd)
+			}
+			return s
+		})
+	}
+
 	// Export section (id=7)
 	if len(m.export) > 0 {
-		buf = appendSection(buf, 7, func(s []byte) []byte {
+		buf = appendSection(buf, secExport, func(s []byte) []byte {
 			s = appendUleb128(s, uint32(len(m.export)))
 			for _, exp := range m.export {
 				s = appendUleb128(s, uint32(len(exp.name)))
@@ -138,7 +200,7 @@ func (m *wasmModule) encode() []byte {
 	}
 
 	// Code section (id=10)
-	buf = appendSection(buf, 10, func(s []byte) []byte {
+	buf = appendSection(buf, secCode, func(s []byte) []byte {
 		s = appendUleb128(s, uint32(len(m.codes)))
 		for _, body := range m.codes {
 			funcBody := appendUleb128(nil, 0) // 0 locals
@@ -148,6 +210,22 @@ func (m *wasmModule) encode() []byte {
 		}
 		return s
 	})
+
+	// Data section (id=11) —— 活动段、memory 0、i32.const 偏移。
+	if len(m.data) > 0 {
+		buf = appendSection(buf, secData, func(s []byte) []byte {
+			s = appendUleb128(s, uint32(len(m.data)))
+			for _, d := range m.data {
+				s = append(s, 0x00) // mode: active, memory index 0
+				s = append(s, opI32Const)
+				s = appendSleb128(s, int64(d.offset))
+				s = append(s, opEnd)
+				s = appendUleb128(s, uint32(len(d.bytes)))
+				s = append(s, d.bytes...)
+			}
+			return s
+		})
+	}
 
 	return buf
 }
@@ -167,6 +245,20 @@ func appendUleb128(b []byte, v uint32) []byte {
 		c := byte(v & 0x7f)
 		v >>= 7
 		if v == 0 {
+			return append(b, c)
+		}
+		b = append(b, c|0x80)
+	}
+}
+
+// appendSleb128 追加有符号 LEB128 编码（i32.const / i64.const 的操作数用它 ——
+// 负偏移如 i32.const -1 用 uleb 编出来是 5 字节且语义错，wasm 校验器会直接拒收模块）。
+func appendSleb128(b []byte, v int64) []byte {
+	for {
+		c := byte(v & 0x7f)
+		v >>= 7
+		done := (v == 0 && c&0x40 == 0) || (v == -1 && c&0x40 != 0)
+		if done {
 			return append(b, c)
 		}
 		b = append(b, c|0x80)

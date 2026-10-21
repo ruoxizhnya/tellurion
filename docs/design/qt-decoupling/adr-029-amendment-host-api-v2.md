@@ -152,7 +152,8 @@ type BarContext struct {
 **机制事实**：`WithFunc(hostGetBar)` 的 Go 签名决定 wasm 导入类型（`host_api.go:107`），v1 是 `(i32,i32)->f64`、v2 是 `(i32,i32,i32)->f64`；wasm 导入按**名字 + 类型**匹配，**同一 host 模块不能导出两个同名函数**。
 
 **要求**（已采纳 §2.3 的增量函数名方案，取代原先的"按版本注册不同函数集"）：
-1. host 模块 `env` 一次注册 **13 个函数**（8 个 v1 + `get_bar2` + `get_series_len2` + `get_date2` + `emit_target2`，其余共用）；
+1. host 模块 `env` 一次注册 **12 个函数**（8 个 v1 + `get_bar2` + `get_series_len2` + `get_date2` + `emit_target2`，其余共用）；
+   > **2026-10-21 订正（QT-01 落代码时发现）**：本条原写「13 个函数」，但它自己给的枚举是 8+4=**12**。§2.1 表（ABI 的唯一真相）枚举出的冻结集合就是 12 个名字。已同步订正 `p0-round2-review.md` §8.4、`repo-topology-and-naming.md` 的合入门禁、`docs/TASKS.md` QT-01；代码侧的判据是 `contracts.HostFnCount()`（返回枚举结果，不返回文档里的字面数），并由 `abi_contract_table_test.go` 钉住。**若将来真补第 13 个函数（如 B4 里那条可选的 `is_tradable`），必须先改本表、走一次 abi 冻结，再让数字变成 13。**
 2. `ValidateImports` 升级为两步：① 名字白名单（含新名）；② **版本族一致性**——导入 `get_bar2` 与 `get_bar` 互斥，一对都没有 ⇒ 拒绝；
 3. 加载器用 import section 判定协议族，与声明 `abi_version` 交叉校验，不符 **fail-closed**（在 instantiate 之前，错误可读）；
 4. `abi_version=1` → `scope` 强制按 `symbol`（旧语义）；声明 v1 却写 `scope=market` ⇒ 拒绝（v1 协议表达不了横截面）。

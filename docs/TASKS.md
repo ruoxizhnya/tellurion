@@ -24,7 +24,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **S-1** | QT-60 ✅ | **改名到 tellurion**（12 仓已建 + module path + 运行时标识；旧仓 archive 延后） | P0 | **已完成（2026-10-20）**——tag 已可打在新仓 |
 | **S0-前置** | QT-61 | **CI 基线归零**（4 项预存在失败） | P0 | **排在 QT-06 之前**：QT-06/QT-07 的验收写着「CI 绿」，基线不归零则验收不可达 |
 | **S0** | QT-06 → **QT-18** → QT-08 | **分仓起步**：core 打 `v0.1.0` + **过渡期连体护栏** + 四仓自治三件套 | P0 / P1 | **QT-18 是 W0 的合入门禁**：未合入前 QT-01 不得进 main（第一个 breaking 就发生在 QT-01 的 abi v2）；QT-06/08 可与 W0 并行 |
-| **W0** | QT-01 | abi v2 契约冻结（13 函数 + 内存区 + 枚举） | P0 | 一切 WASM 单的前置；artifact 出厂后改不动 |
+| **W0** | QT-01 ✅ | abi v2 契约冻结（12 函数 + 内存区 + 枚举） | P0 | **已完成（2026-10-21）**；一切 WASM 单的前置；artifact 出厂后改不动。原写「13 函数」是算错（8 v1 + 4 v2 = 12），订正见该单结案记录 |
 | W0 | QT-02 | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
 | W0 | QT-03 | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它 |
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
@@ -48,10 +48,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；QT-41b ⛔ 阻塞于待裁决 D |
-| **横切** | QT-50~52 | 装配外移 / 执行 port / 市场摩擦核实 | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行 |
+| **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
-**并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 换 13 个函数，那是第一个会打穿 agent 编译的改动，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
+**并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 新增 4 个 host 函数（8 → 12），那第一个会打穿 agent 编译的改动点在它身上，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
 
 ---
 
@@ -106,7 +106,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ✅
 
-- **① 目标**：S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换 13 个函数、错误分级改 `getSignals` 返回、per-run 实例改 `Registry.Get` 语义、检查点主键变更）。要让这类破坏**在 core 的 PR 上立刻红**，而不是等两周后有人打开 agent 仓才发现它已经烂了。
+- **① 目标**：S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 的 host 函数由 8 个扩到 12 个、错误分级改 `getSignals` 返回、per-run 实例改 `Registry.Get` 语义、检查点主键变更）。要让这类破坏**在 core 的 PR 上立刻红**，而不是等两周后有人打开 agent 仓才发现它已经烂了。
 - **② 上下文**：`repo-topology-and-naming.md` §7/§10（D29）；实测 core `.github/workflows/ci.yml` **零 agent 相关步骤**（grep 0 命中）；agent CI 反向 checkout core 并 `go mod edit -replace`（`.github/workflows/ci.yml:18-34`）——只有 agent 侧知道 break，core 侧无感知。
 - **③ 要求**：① core CI 新增 `agent-compat` job：`actions/checkout` 拉 agent 仓（`repository: ruoxizhnya/tellurion-agent`）→ `go mod edit -replace tellurion=${{ github.workspace }}` → `go build ./...` + `go vet ./...`；
   ①-b **前置（外部）**：GitHub Actions 默认 token 只能访问当前仓，跨仓 checkout 必须配 `secrets.AGENT_REPO_TOKEN`（fine-grained PAT，只读 agent 仓）。**没有 PAT 时走降级方案**：提供 `make agent-compat`（本地/开发者机器跑同样的 checkout+build），并在 PR 模板里要求贴出该命令的输出——**降级只是过渡，不能长期替代 CI**；② **只 build/vet，不跑 agent 测试**（agent 测试需要 core 二进制/数据库，成本不成比例）；③ job 红时：core PR 必须附带 agent 侧适配 PR 链接，或在 PR 描述登记「known-break + 单号 + 期限」，二者必须有其一；④ 若 break 是有意的（如 abi v2），在 job 里允许 `known-break` 白名单（文件化，不用注释掉的代码）。
@@ -162,15 +162,35 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 一、W0 · 契约冻结（写契约/常量/报告；**默认行为不变**）
 
-### QT-01 · abi v2 契约冻结（13 个 host 函数 + 内存区所有权 + 枚举）[P0] ⬜
+### QT-01 · abi v2 契约冻结（12 个 host 函数 + 内存区所有权 + 枚举）[P0] ✅
 
 - **① 目标**：一份**唯一真相**的 abi v2 契约落到代码里（常量 + 校验 + schema），v1 artifact 仍可跑；后续所有 WASM 单都引用它，不再各自解释文档。
-- **② 上下文**：`docs/design/qt-decoupling/adr-029-amendment-host-api-v2.md` §2.1（13 函数表，2026-10-20 补 `emit_target2`）、§7.1~7.8、§8；`p0-remediation-design.md` A5/A6/B1/B2/B3；`p0-round2-review.md` §8.2（emit_target2）、N5（host 区所有权）。现状：`host_api.go:40-47` 只有 8 函数；`BarContext.Series []float64` 只有 close；`hostGetBar` 的 `_ = fieldID`（`:164`）；`OnBarSession.Initialize` 直接 `WriteMemory(0, params)`（`on_bar_session.go:67`）；`hostGetState` 固定 `Write(4096, val)`（`host_api.go:231`）。
-- **③ 要求**：① 把 §2.1 表的签名/语义/错误码写成 `contracts` 下的常量与类型（`FieldID`、`Action`、`MaxParamsBytes=4096`、`MaxStateValueBytes=64KiB`、`MaxInstanceStateBytes=4MiB`、`MaxKeys=4096`、`MaxScratchPerBar=256KiB`、`MaxSignalsPerBar=2×symbolCount`）；② 增量命名 `get_bar2`/`get_series_len2`/`get_date2`/`emit_target2`，**不改已有签名**；③ `ValidateImports` 升级为「名字白名单 + 版本族一致性」+ 与 `abi_version` 交叉校验，错误必须在 instantiate 之前可读；④ host 区导出符号 `__host_params_ptr` / `__host_scratch_ptr` / `__host_scratch_size` 的校验骨架（缺失/重叠/越界/未对齐 → 专用哨兵错误），**但只对 `abi_version=2` 强制**：`abi_version=1` 走白名单跳过符号校验——现有 14 个内置 artifact 都没有这些符号，一律 fail-closed 会把 v1 全打死，与本单 ⑤「v1 仍能跑」直接矛盾；⑤ `emit_signal` 与 `emit_target2` 同 bar 同 symbol 混用 → trap 的判定入口；⑥ 契约文件与文档逐项对表（一个测试读常量核 13 项）。
+- **② 上下文**：`docs/design/qt-decoupling/adr-029-amendment-host-api-v2.md` §2.1（**12 函数表**，2026-10-20 补 `emit_target2`；原写 13 见结案记录）、§7.1~7.8、§8；`p0-remediation-design.md` A5/A6/B1/B2/B3；`p0-round2-review.md` §8.2（emit_target2）、N5（host 区所有权）。现状：`host_api.go:40-47` 只有 8 函数；`BarContext.Series []float64` 只有 close；`hostGetBar` 的 `_ = fieldID`（`:164`）；`OnBarSession.Initialize` 直接 `WriteMemory(0, params)`（`on_bar_session.go:67`）；`hostGetState` 固定 `Write(4096, val)`（`host_api.go:231`）。
+- **③ 要求**：① 把 §2.1 表的签名/语义/错误码写成 `contracts` 下的常量与类型（`FieldID`、`Action`、`MaxParamsBytes=4096`、`MaxStateValueBytes=64KiB`、`MaxInstanceStateBytes=4MiB`、`MaxKeys=4096`、`MaxScratchPerBar=256KiB`、`MaxSignalsPerBar=2×symbolCount`）；② 增量命名 `get_bar2`/`get_series_len2`/`get_date2`/`emit_target2`，**不改已有签名**；③ `ValidateImports` 升级为「名字白名单 + 版本族一致性」+ 与 `abi_version` 交叉校验，错误必须在 instantiate 之前可读；④ host 区导出符号 `__host_params_ptr` / `__host_scratch_ptr` / `__host_scratch_size` 的校验骨架（缺失/重叠/越界/未对齐 → 专用哨兵错误），**但只对 `abi_version=2` 强制**：`abi_version=1` 走白名单跳过符号校验——现有 14 个内置 artifact 都没有这些符号，一律 fail-closed 会把 v1 全打死，与本单 ⑤「v1 仍能跑」直接矛盾；⑤ `emit_signal` 与 `emit_target2` 同 bar 同 symbol 混用 → trap 的判定入口；⑥ 契约文件与文档逐项对表（一个测试读常量核 12 项）。
 - **④ 约束与非目标**：**不实现** host 函数体、不改 `BarContext` 结构（那是 QT-24）、不动引擎与检查点、不改 v1 行为、不为"兼容"给 v1 补新符号。
-- **⑤ 验收**：契约测试逐项对表 13 个函数与 6 类上限；4 个 bad artifact（缺 `__host_params_ptr` / ptr 落在模块数据段 / v1+v2 混导 / `abi_version` 与 import 族不符）全部被拒且错误可检索；v1 artifact 仍能实例化并跑通现有测试。
+- **⑤ 验收**：契约测试逐项对表 12 个函数与 6 类上限；4 个 bad artifact（缺 `__host_params_ptr` / ptr 落在模块数据段 / v1+v2 混导 / `abi_version` 与 import 族不符）全部被拒且错误可检索；v1 artifact 仍能实例化并跑通现有测试。
 - **⑥ 边界**：只做"契约 + 校验骨架"；数据填充、host 函数实现、SDK 模板分属 QT-24/QT-26。**本契约冻结仅覆盖 Go 内核 + WASM 载体；NT（NautilusTrader）侧 on_bar host API 对齐待裁决 C（设计集 README 待裁决表）裁决后另立单**——C 判「做」则按 abi v2 签名立 NT 对齐单，判「不做」则须成文声明「一份 wasm 跑两核」的对齐边界与 D25 abi v2 的适用范围；两种结局均不回改本单已冻结的 Go 侧契约。
 - **⑦ 前置（硬）**：**QT-18 已合入 main**。本单是 abi v2 的第一次 breaking，core 与 agent 在 S0~S3 期间编译连体，没有 `agent-compat` job 就会"core 绿、agent 静默烂"。
+
+> **✅ 完成记录（2026-10-21）**：
+>
+> **落点**：契约 = `pkg/backtest/contracts/abi.go`（叶子包，不 import wazero，SDK/NT/编译服务都能读这一份）；校验 = `pkg/sandbox/wasm/abi_check.go` + `host_api_v2_pending.go`；接线 = `on_bar_session.go` 的加载链、`wazero_runtime.go` 的 global 自省。测试：`contracts/abi_contract_table_test.go` + `contracts/abi_test.go` + `wasm/abi_check_test.go`。
+>
+> **① 文档的「13 个 host 函数」是算错的，已订正为 12。** 四处引用（adr-029 §7.2-1、p0-round2 §8.4、repo-topology 合入门禁、本台账 QT-01 标题与 ⑤）都写 13，但 §7.2-1 自己给的枚举是「8 个 v1 + `get_bar2` + `get_series_len2` + `get_date2` + `emit_target2`」= 8+4 = **12**；`host_api.go` 的 v1 白名单实测 8 个。代码侧 `HostFnCount()` 返回**枚举结果**而不是文档里的字面数，`TestHostFnCount_IsTwelve_NotTheThirteenTheDocsClaim` 把「13」留在测试里当反例。⇒ 若将来真要补第 13 个（如 B4 那条**可选**的 `is_tradable`），必须先改 §2.1 表、走一次 abi 冻结，不能让代码先长。
+>
+> **② 四个 v2 函数「注册但不实现」是刻意的，且没有违反 ④「不实现 host 函数体」。** 函数体一律 `panic`（trap），文案点名 QT-24/QT-26。为什么必须注册：§5 要求 env 一次注册全部函数，而**宿主区校验发生在 instantiate 之后**——不注册，v2 artifact 连实例化都过不了，「四类坏 artifact 全部被拒」就只能靠喂结构体来测，测的是脚手架不是护栏。证据腿：`TestPendingV2HostFunctions_Trap` 钉住「注册 ≠ 可用」。
+>
+> **③ `ValidateImports` 的分工**：白名单 + **族互斥** + **签名比对**在 `ValidateImports`（compile 期）；「既不导 v1 也不导 v2」在 `ValidateArtifactAbi`（加载期）。理由：零 env import 的模块是「一个没有任何能力的合法模块」（沙箱通用入口 `Run` 与工具/测试模块就是这形状），它不是策略 artifact——把它在白名单门里拒掉，等于让结构性规则冒充安全性规则，且会打破既有测试。签名比对是本单**超出 ③ 字面**加的一条，依据是 §7.2 的事实「import 按名字+类型匹配」：只查名字的话，同名不同型要等到 instantiate 才炸，报的是类型错而不是「协议版本不对」。
+>
+> **④ 加载链已在 `NewOnBarSession` 上串起来**（族自证**先于**实例化 → 实例化 → 宿主区校验 → params 上限）。v1 行为零变化：`wasmAccumulator`（导入 get_bar、不带宿主区符号——正是「现有内置 artifact」的形状）仍绿，并显式返回 `legacy_host_layout` 诊断（N5-4 要求的 warning），不静默放行。
+>
+> **⑤ 一处如实登记的 v1 行为变化**：`Initialize` 现在拒绝 > `MaxParamsBytes`(4096) 的 params。这是 ④「不改 v1 行为」的例外，理由三条：A6/N5 的验收都点名「params 4097 → 拒绝且错误可读」；旧行为不是「能跑」而是「params 被后续 state 写覆盖，参数静默错」；全仓 `Initialize` **零生产调用方**（只有两个测试，params 分别 14/2 字节）。⇒ 冻结上限若没有这条就是死常量，比没冻更糟。
+>
+> **⑥ 残余缺口（不当成已完成，另立 QT-62）**：坏 artifact ②「ptr 落在模块数据段」只在 **ptr 落在低区（< 4096）**时可静态判住——判据是 `MinHostParamsPtr` 下界（TinyGo 的 data/stack 就在那一带）。若模块数据段本身超过 4096 而 SDK 模板把宿主区声明进数据段中间，host 侧**看不出来**：wazero 的 `CompiledModule` 不暴露 Data section，N5 的设计口径也是「宿主区由模块声明，模块自己是地址空间的权威」。修法两条（数据段探针 / 改成运行期哨兵值验证，即 N5 验收 ④），都要先定「谁对这段地址负责」，故不在本单顺手做。
+>
+> **验收逐条**：契约表 ×§2.1 逐项对表（12 函数 + 8/4 分族 + 6 类上限绝对数值断言）✅；四类坏 artifact 全拒且 `errors.Is` 可检索 ✅；v1 仍能实例化 + 现有测试全绿（`go test ./... -count=1` 退出码 0）✅；host 注册表 × 契约表双向对账 ✅；`agent-compat`（本地等价物，= make 目标那串命令）绿 ⇒ 本单不破 agent 编译 ✅。**未做（不属本单）**：NT 侧对齐（待裁决 C）、`BarContext` v2 数据模型（QT-24）、SDK 模板与 params 按声明地址投递（QT-26）。
+>
+> **破坏验证（§8.5.3-2，8 条腿全红；临时改坏 → 跑测 → 还原，md5 逐字节校验一致）**：删宿主区低区下界 / 改 `get_bar` 的 wire 名字 / 改 `__host_params_ptr` 符号名 / 改 scope 取值 `market` / `MaxStateValueBytes` 64→65KiB / 跳过版本族互斥检查 / 取消注册 `get_date2` / 删 params 上限守卫——每一条都让对应测试变红。**其中一条当场逮到我自己的假护栏并订正**：`对表` 测试原先写成 `{HostFnGetBar, …}` 用 Go 常量引用函数名，于是把常量值从 `"get_bar"` 改成 `"get_bar_x"` 时**测试全绿**——契约、注册表、校验器一起平移，没人发现「artifact 绑的那个名字变了」。这是 §8.5.3-2 说的「分清护栏错与脚手架错」里最阴的一种：脚手架看起来像证据。现已改成**字面量**并补 `TestFrozenWireNames`（把 12 个函数名、3 个宿主区符号名、2 个 scope 取值、abi 文本全部钉成字符串字面量——判据是「改一个字符 = 一次 ABI 破坏，且编译期看不出来」）。
 
 ### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ⬜
 
@@ -580,6 +600,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 4. **core universe** — `TestResolveStockPool_UniverseCsi300Expands` / `_FailsLoudWhenConstituentsEmpty` 用硬编码 DSN 默认值连 CI 空 postgres service（表不存在→`require.NoError` 直接红，其余 DB 测试走 `TEST_DATABASE_DSN` 早 skip、独它连不上）。改成 `TEST_UNIVERSE=1` 显式 opt-in，默认在 `universeDSN` 顶部 `t.Skip`（非静默：CI `go` 任务加 notice 步点名「未覆盖面」）。本地验证默认 SKIP、`TEST_UNIVERSE=1` 时越过守卫走到 DB 连接。
 >
 > 合入本项后，QT-61 的「gofmt + doc-links」与本四项一起满足 QT-06 的「相关 job 绿 + 其余显式 skip 且在汇总点名」验收；⓪' 门禁解除。
+>
+> **✅ 首跑 CI 实测（2026-10-21，push 后）：三仓 main 全部 success** —— core `01a71e1` / agent `7f711e5` / ui `1075c28`。清掉旧基线红的过程**印证了 QT-61 的立项动机**（红太久→真回归被当噪声）：旧红盖住了 3 个从没在 CI 跑到的真缺陷，逐层揭开：
+> - **align-gate 层 1（`5998926`）**：合成种子把 `volume` 灌成小数 ⇒ NT `as_quantity` fail-loud ⇒ export 崩。取整修夹具。
+> - **align-gate 层 2（`01a71e1`）**：`Start sidecar` 步 cwd=nt-sidecar 却传相对 `--catalog nt-sidecar/catalog` ⇒ 解析成双段 `nt-sidecar/nt-sidecar/catalog`。改绝对 `$GITHUB_WORKSPACE` 路径。两层都清后 `Dual-run alignment gate`（bh + quarterly）第一次真跑并绿。
+> - **ui 层**：那条被登记为「4.9s 疑似 flaky」的用例，加 timeout 后**跑到了断言才暴露真因是 locale 依赖**（断言硬编码 `2026/10/15`，CI=en-US 渲染 `10/15/2026`）⇒ 改用组件同一 `toLocaleString` 现算期望（`1075c28`）。timeout 余量仍保留（双管其下：既给 naive-UI 挂载加预算，又修了真断言）。
+> - 均 §④：不 continue-on-error、不删测试、不改业务语义（formatTime / as_quantity 判定不动）。**`agent-compat` job 在首跑里以「降级 notice」通过（未配 `secrets.AGENT_REPO_TOKEN`）—— PAT 就位后需再跑一次真破坏腿留证。**
+
+---
+
+### QT-62 · 宿主区声明无法核对模块自身数据段（QT-01 残余缺口）[P1] ⬜
+
+- **① 目标**：让「`__host_params_ptr` / `__host_scratch_ptr` 落在模块自己的静态数据上」这件事在**任何地址**上都能被判住，而不只在低区（< 4096）。
+- **② 上下文**：QT-01 ⑤ 的第二类坏 artifact（ptr 落在模块数据段）今天只在 ptr 落进低区时由 `MinHostParamsPtr` 下界拦住的（`contracts.HostRegionDeclaration.Validate`）。wazero v1.12 的 `CompiledModule` **不暴露 Data section**（实测接口只有 Name/ImportedFunctions/ExportedFunctions/ImportedMemories/ExportedMemories/CustomSections/Close），宿主区在 instantiate 之后能读到的只有 global 值与 `Memory().Size()`。⇒ 若模块数据段本身越过 4096（TinyGo 稍大的程序就会），而 SDK 模板把宿主区声明到数据段中间，host 侧看不出重叠，直到运行期把策略变量改成 params 字节——**静默错**，正是 N5 立项要防的形态。
+- **③ 要求**：二选一（先定「这段地址空间的权威是谁」再动手）：
+  ① **静态腿**：从 wasm 字节码自己解 Data section（id=11），取活动段 `[offset, offset+len)` 的并集，与声明的三段区间做重叠判定；被动段（bulk-memory）与非常量 offset 表达式（`global.get`）按「无法证明不重叠」fail-closed。
+  ② **行为腿（N5 验收 ④ 的原方案）**：装载后用测试策略把全局区填成哨兵值，host 写 params 后回读哨兵是否被改写——测的是「实际有没有踩到」，不依赖解析。
+- **④ 约束与非目标**：不改已冻结的契约（三个符号名、i32 类型、下限、对齐都不动）；不新增第四个导出符号（那是一次新的 ABI 破坏）；不动 `BarContext`（QT-24）。
+- **⑤ 验收**：构造一个「数据段在 32768、`__host_scratch_ptr` 也声明在 32768」的 v2 模块 ⇒ 被拒且错误可检索（今天这条**过不了**，是本单的立项证据）；现有 QT-01 的全部测试不退化；破坏验证两腿（把数据段挪走 ⇒ 放行）。
+- **⑥ 边界**：只解决「重叠能不能被证明」；params 按声明地址投递属 QT-26，SDK 模板属 QT-27。
 
 ---
 
@@ -727,9 +766,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > **2026-10-21 自 `tellurion-ui:docs/TASKS.md` 迁入**（该单原标注「待迁 core」，归属 core 的 `cmd/data` + `pkg/storage`；六字段原样迁入、正文不改写，ui 仓只留指针）。
 
-### DATA-04 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）⬜ 待做
+### DATA-14 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）⬜ 待做
 
-> ⚠️ **编号提醒（2026-10-21）**：`docs/archive/TASKS-2026-10-16-archived.md:553` 另有旧 DATA-04（成交量单位统一，✅ 2026-10-14），同号不同单；消歧换号见 SPEC-R-03。
+> ✅ **编号换号（2026-10-21，SPEC-R-03）**：本单原号 DATA-04，与 `docs/archive/TASKS-2026-10-16-archived.md:553` 旧 DATA-04（成交量单位统一，✅ 2026-10-14）撞号；现役单换号为 **DATA-14**，归档旧单一字不改。
 
 - **① 目标**：集合型端点在**结果为空**时返回 `[]`（或 SPEC 明写可为 `null` 并让所有消费方按可空处理），二选一，不能一边声明数组一边给 `null`。
 - **② 上下文**（2026-10-14 curl 当场实测，不是读码推测）：
@@ -760,9 +799,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 九、spec 审查遗留（2026-10-21）
 
-> 来源：系统规格专项审查（`docs/design/system-spec-review-2026-10-21.md`）修复阶段立单——审查发现本身已全部修复或裁决落地，以下 3 条是修复中判定「需另行处置」的遗留。M10（10 份 api-schema 补「空集合编码语义」节）不单独立单，挂在现役 **DATA-04** 定形后统一补节。
+> 来源：系统规格专项审查（`docs/design/system-spec-review-2026-10-21.md`）修复阶段立单——审查发现本身已全部修复或裁决落地，以下 3 条是修复中判定「需另行处置」的遗留。M10（10 份 api-schema 补「空集合编码语义」节）不单独立单，挂在现役 **DATA-14**（原 DATA-04）定形后统一补节。
 
-### SPEC-R-01 · 3 处模块内自建表是否收编进 `migrate()`（DDL 真相口径收口）[P2] ⬜
+### SPEC-R-01 · 3 处模块内自建表是否收编进 `migrate()`（DDL 真相口径收口）[P2] ✅（2026-10-21）
 
 - **① 目标**：裁定并落地 DDL 落点口径——把 `pkg/eventstore/schema.go`、`pkg/strategy/state_store.go`、`pkg/strategy/signal_store.go` 三处模块内自建表收编进 `pkg/storage/postgres.go` 的 `migrate()`，或成文认可「主路径 + 登记例外」为正式口径。
 - **② 上下文**（spec 审查 M3）：`pkg/eventstore/schema.go:40`（audit schema + `audit.message_log`）、`pkg/strategy/state_store.go:54`（`quant.strategy_state`）、`pkg/strategy/signal_store.go:35`（重复建 `quant.external_signals`）均在 postgres.go 之外建表，「唯一 DDL 真相」声明不实；AGENTS.md 已按「DDL 主路径 + 例外登记」措辞修订（2026-10-21），但收编与否未裁。`signal_store.go` 的重复建表另有幂等隐患。
@@ -771,7 +810,19 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：裁决成文（ODR 或本单结案记录）；若收编，`migrate()` 幂等测试覆盖三表，且 grep 证实 postgres.go 之外无生产态 `CREATE TABLE` 残留（测试文件除外）。
 - **⑥ 边界**：只做 DDL 落点归一；表归属认领是 SPEC-R-02。
 
-### SPEC-R-02 · 五张无主表的 owner 认领（L7 收尾）[P2] ⬜
+> **结案记录（2026-10-21，裁决 = 收编）**：
+> - 新增 `storage.AuditSchemaDDL`（Migration 054）与 `storage.StrategyStateSchemaDDL`（Migration 055），在
+>   `pkg/storage/postgres.go` 的 `migrationStatements()` 末尾追加；`pkg/eventstore.SchemaDDL`、
+>   `pkg/strategy.SchemaDDL`、`pkg/strategy.SignalSchemaDDL` 改为 storage 变量的**别名**（同一底层数组），
+>   `quant.external_signals` 文本去重为一处。表结构字段零变更。
+> - **schema 变更评审记录**：本次仅合并 DDL 落点，不改表结构/列/约束/索引；评审结论 = 「落点变更、结构不变」，
+>   同步更新 `docs/SPEC.md` 模块化内核新表节与 `AGENTS.md` 第 3 条硬规则、`project-engineering-file.md`。
+> - **测试**：`pkg/storage/module_ddl_test.go`（零 DB）钉住三表在 `migrationStatements()` 各建一次、
+>   且 `pkg/storage` 之外生产态 `.go` 无 `CREATE TABLE`/`CREATE SCHEMA` 字面量；三个模块包各加
+>   别名身份断言；`pkg/storage/integration_test.go` 新增 `migrate()` 连续两次 + `to_regclass` 三表存在性。
+> - **grep 复核**：全仓 `*.go` 的 `CREATE TABLE|CREATE SCHEMA` 仅命中 `pkg/storage`（含其 `_test.go`）。
+
+### SPEC-R-02 · 五张无主表的 owner 认领（L7 收尾）[P2] ✅（2026-10-21）
 
 - **① 目标**：`factor_hypothesis`、`factor_returns`、`ic_analysis`、`quant.external_signals`、`users` 五张表在各仓归属表中无认领行——逐张定唯一 owner 并补进归属表。
 - **② 上下文**（spec 审查 L7，2026-10-21 实测）：全库 6 schema/53 常驻表中上述五表无主（`factor_mining_records` 已由 `tellurion-data:docs/db-schema.md` 补认领，L5 已修）；同源的「52 表/6 schema」口径不实已订正为 53 常驻表。
@@ -780,7 +831,20 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：五表各有唯一 owner 行且与实际写者一致（DDL 以 `pkg/storage/postgres.go` 为准）；各仓归属表 grep 无「无主」残留；双向指针齐。
 - **⑥ 边界**：只做归属认领；因子名注册表等协议面不涉及。
 
-### SPEC-R-03 · 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 [P3] ⬜
+> **结案记录（2026-10-21，五表各有唯一 owner）**：
+> | 表 | 唯一 owner | 落点 |
+> |---|---|---|
+> | `factor_hypothesis` | tellurion-data（因子域） | `tellurion-data:docs/db-schema.md` §1.3 |
+> | `factor_returns` | tellurion-data（因子域） | 同上 |
+> | `ic_analysis` | tellurion-data（因子域） | 同上 |
+> | `quant.external_signals` | core strategy-runtime 模块 | `tellurion-strategy:docs/db-schema.md` §1（不属本仓行）+ 本节 |
+> | `users` | core（ADR-017 鉴权域） | `tellurion-ui:docs/db-schema.md` §1 鉴权行 + 本节 |
+>
+> 中央归属表 `data-service-contract-and-ownership.md` §1 与 `project-engineering-file.md` ADR-D19 补录段同步；
+> 各归属仓 `docs/TASKS.md` 已留双向指针（`DATA-TASKS` 指针条目）；未迁表、未改 schema。DDL 以
+> `tellurion:pkg/storage/postgres.go` 为准（SPEC-R-01 收编后无例外）。
+
+### SPEC-R-03 · 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 [P3] ✅（2026-10-21）
 
 - **① 目标**：消除「DATA-04」一号两指：现役 DATA-04（空集合 `null` vs `[]`，2026-10-21 自 `tellurion-ui` 迁入）与 `docs/archive/TASKS-2026-10-16-archived.md:553` 旧 DATA-04（成交量单位统一，✅ 2026-10-14）撞号。
 - **② 上下文**（spec 审查 M1 修复时发现，已核实 archive:553）：引用只写「DATA-04」时无法区分两单；M10 联动注记与 `tellurion-ui:docs/TASKS.md` 迁移指针均指向现役单，需要唯一可引用的号。
@@ -788,6 +852,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：`docs/archive/` 不动（历史不改写铁律）；只改号与引用，不改单的正文内容；空集合契约语义本身归现役单正文。
 - **⑤ 验收**：现役活文档 grep「DATA-04」仅指向归档旧单（带 archive 路径），现役单以新号唯一可引用；迁移指针双向可追溯。
 - **⑥ 边界**：只做编号消歧；不动其他单号。
+
+> **结案记录（2026-10-21，现役单已换号为 DATA-14）**：本文件现役单标题与引用已换号（见 §七 `DATA-14`，原 DATA-04）；
+> `tellurion-ui:docs/TASKS.md` 迁移指针、`tellurion-ui:docs/design/stitch_quantlab_ux_redesign/TASKS.md`、
+> `docs/design/system-spec-review-2026-10-21.md` M10/§8 引用、`docs/SPEC.md` 消歧横幅均已同步。
+> `docs/archive/TASKS-2026-10-16-archived.md:553` 旧单**一字未改**；活文档中其余「DATA-04」均带 archive 路径或属历史引用。
 
 ---
 

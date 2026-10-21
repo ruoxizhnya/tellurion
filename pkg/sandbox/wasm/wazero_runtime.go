@@ -97,6 +97,12 @@ func (m *wazeroCompiledModule) Exports() []string {
 	return out
 }
 
+// ImportedFunctions implements AbiModule（QT-01 的协议族自证需要看到 import 表，
+// 而加载器只拿得到本包装类型）。非导出接口方法，不进 CompiledModule 接口。
+func (m *wazeroCompiledModule) ImportedFunctions() []api.FunctionDefinition {
+	return m.cm.ImportedFunctions()
+}
+
 // Close implements CompiledModule.
 func (m *wazeroCompiledModule) Close(ctx context.Context) error {
 	return m.cm.Close(ctx)
@@ -158,6 +164,14 @@ func (i *wazeroInstance) MemorySize() uint32 {
 		return 0
 	}
 	return mem.Size()
+}
+
+// ExportedGlobal 满足 hostRegionModule（QT-01 的宿主区自省）。
+//
+// 刻意不加进 Instance 接口：Instance 是导出接口，S0~S3 期间 agent 与本仓编译
+// 连体，给一个用不到的接口加方法等于凭空制造一次 breaking。
+func (i *wazeroInstance) ExportedGlobal(name string) api.Global {
+	return i.mod.ExportedGlobal(name)
 }
 
 // Call implements Instance. 未导出的函数 → ErrFunctionNotExported。

@@ -5,9 +5,14 @@ package wasm
 // 核心原则：不靠审阅代码保证安全，靠**能力隔离**。WASM 实例只能调用宿主
 // 显式导入的函数；没有 import 的能力它物理上做不到。本节实现：
 //
-//  1. host 导入函数白名单（get_bar / get_series_len / get_symbol_count /
-//     get_cross_section / get_state / set_state / emit_signal / log），
-//     通过 wazero 的 HostModuleBuilder 注册，模块名固定为 "env"。
+//  1. host 导入函数白名单：模块名固定 "env"，函数名与签名由
+//     `pkg/backtest/contracts` 的 abi 契约表冻结（QT-01）。v1 家族 8 个
+//     （get_bar / get_series_len / get_symbol_count / get_cross_section /
+//     get_state / set_state / emit_signal / log）全部**已实现**；v2 家族 4 个
+//     （get_bar2 / get_series_len2 / get_date2 / emit_target2）**已注册但函数体
+//     待接线**（见 host_api_v2_pending.go：调用即 trap，点名 QT-24/QT-26）。
+//     注册而不实现是为了让 v2 artifact 能走完「实例化 → 宿主区校验」这段
+//     加载路径，从而本单的 fail-closed 门可被真实字节码验证，而不是只能造假输入。
 //  2. `get_bar(t_offset, field_id)` 在 `t_offset > 0` 时**直接 panic**（wazero
 //     把 panic 转成 wasm trap），使「读未来数据」物理上不可能。get_cross_section
 //     同样 trap。
@@ -30,22 +35,15 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"tellurion/pkg/backtest/contracts"
 )
 
 // HostModuleName 是 host 导入函数的模块名，wasm 二进制 import 它。
 const HostModuleName = "env"
 
-// 白名单 host 函数的导出名。
-const (
-	HostFnGetBar          = "get_bar"
-	HostFnGetSeriesLen    = "get_series_len"
-	HostFnGetSymbolCount  = "get_symbol_count"
-	HostFnGetCrossSection = "get_cross_section"
-	HostFnGetState        = "get_state"
-	HostFnSetState        = "set_state"
-	HostFnEmitSignal      = "emit_signal"
-	HostFnLog             = "log"
-)
+// host 函数的导出名一律取自 abi 契约（contracts.HostFn*）——本包不再自带一份
+// 名字表。理由与 QT-01 ① 同源：名字/签名/语义只有一处真相，两边各写一份必然漂移。
 
 // hostCtxKey 是 context 中注入 *BarContext 的私有键。
 type hostCtxKey struct{}
@@ -102,52 +100,34 @@ func trapNoContext(fn string) {
 
 // InstantiateHostModule 在 runtime 上实例化 host 白名单模块 "env"。
 // 必须在实例化任何依赖它的 wasm 策略模块**之前**调用。
+//
+// v1 + v2 全部 12 个名字**一次注册**（不同名，无冲突）——这是 §2.3 增量命名方案
+// 的前提：Runtime 是进程级单例（D14），按版本分两套注册会逼出双 Runtime、编译缓存
+// 分裂。v2 四个函数的体待 QT-24/QT-26 接线，现在调用即 trap。
 func (r *WazeroRuntime) InstantiateHostModule(ctx context.Context) error {
-	_, err := r.rt.NewHostModuleBuilder(HostModuleName).
-		NewFunctionBuilder().WithFunc(hostGetBar).Export(HostFnGetBar).
-		NewFunctionBuilder().WithFunc(hostGetSeriesLen).Export(HostFnGetSeriesLen).
-		NewFunctionBuilder().WithFunc(hostGetSymbolCount).Export(HostFnGetSymbolCount).
-		NewFunctionBuilder().WithFunc(hostGetCrossSection).Export(HostFnGetCrossSection).
-		NewFunctionBuilder().WithFunc(hostGetState).Export(HostFnGetState).
-		NewFunctionBuilder().WithFunc(hostSetState).Export(HostFnSetState).
-		NewFunctionBuilder().WithFunc(hostEmitSignal).Export(HostFnEmitSignal).
-		NewFunctionBuilder().WithFunc(hostLog).Export(HostFnLog).
-		Instantiate(ctx)
+	_, err := configureHostModule(r.rt.NewHostModuleBuilder(HostModuleName)).Instantiate(ctx)
 	return err
 }
 
-// hostFnWhitelist 是白名单 host 函数名集合（import section 扫描用）。
-var hostFnWhitelist = map[string]bool{
-	HostFnGetBar:          true,
-	HostFnGetSeriesLen:    true,
-	HostFnGetSymbolCount:  true,
-	HostFnGetCrossSection: true,
-	HostFnGetState:        true,
-	HostFnSetState:        true,
-	HostFnEmitSignal:      true,
-	HostFnLog:             true,
-}
-
-// ValidateImports 扫描编译后模块的 import section，拒绝任何「非 env 模块」或
-// 「非白名单函数」的 import。这是 ADR-029 §3.4「可审阅 = 审源码 + host API
-// 使用清单」的落地：清单靠扫描 import section 得出，未申报的 import 直接拒绝。
+// configureHostModule 把契约表的 12 个函数挂到 host 模块构建器上。
 //
-// 返回 nil 表示所有 import 都在白名单内；否则返回列出所有越权 import 的错误。
-func ValidateImports(cm wazero.CompiledModule) error {
-	var bad []string
-	for _, fn := range cm.ImportedFunctions() {
-		modName, name, isImport := fn.Import()
-		if !isImport {
-			continue
-		}
-		if modName != HostModuleName || !hostFnWhitelist[name] {
-			bad = append(bad, fmt.Sprintf("%s.%s", modName, name))
-		}
-	}
-	if len(bad) > 0 {
-		return fmt.Errorf("wasm: forbidden imports %v (only env whitelist allowed)", bad)
-	}
-	return nil
+// 抽出来是为了让「注册表 × 契约表」能被测试直接对账（见 abi_check_test.go 的
+// TestHostModuleRegistration_MatchesContractTable）——没有这一步，「契约里 12 个、
+// 运行时只注册 8 个」这种缺口就只能靠人肉比对。
+func configureHostModule(b wazero.HostModuleBuilder) wazero.HostModuleBuilder {
+	return b.
+		NewFunctionBuilder().WithFunc(hostGetBar).Export(contracts.HostFnGetBar).
+		NewFunctionBuilder().WithFunc(hostGetSeriesLen).Export(contracts.HostFnGetSeriesLen).
+		NewFunctionBuilder().WithFunc(hostGetSymbolCount).Export(contracts.HostFnGetSymbolCount).
+		NewFunctionBuilder().WithFunc(hostGetCrossSection).Export(contracts.HostFnGetCrossSection).
+		NewFunctionBuilder().WithFunc(hostGetState).Export(contracts.HostFnGetState).
+		NewFunctionBuilder().WithFunc(hostSetState).Export(contracts.HostFnSetState).
+		NewFunctionBuilder().WithFunc(hostEmitSignal).Export(contracts.HostFnEmitSignal).
+		NewFunctionBuilder().WithFunc(hostLog).Export(contracts.HostFnLog).
+		NewFunctionBuilder().WithFunc(hostGetBar2).Export(contracts.HostFnGetBar2).
+		NewFunctionBuilder().WithFunc(hostGetSeriesLen2).Export(contracts.HostFnGetSeriesLen2).
+		NewFunctionBuilder().WithFunc(hostGetDate2).Export(contracts.HostFnGetDate2).
+		NewFunctionBuilder().WithFunc(hostEmitTarget2).Export(contracts.HostFnEmitTarget2)
 }
 
 // hostGetBar 实现 get_bar(t_offset i32, field_id i32) → f64。
@@ -159,7 +139,7 @@ func hostGetBar(ctx context.Context, tOffset, fieldID int32) float64 {
 	}
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnGetBar)
+		trapNoContext(contracts.HostFnGetBar)
 	}
 	_ = fieldID // 本切片 field_id 未接线 SeriesSpec，恒取 close
 	idx := bc.T + tOffset
@@ -173,7 +153,7 @@ func hostGetBar(ctx context.Context, tOffset, fieldID int32) float64 {
 func hostGetSeriesLen(ctx context.Context) int32 {
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnGetSeriesLen)
+		trapNoContext(contracts.HostFnGetSeriesLen)
 	}
 	return int32(len(bc.Series))
 }
@@ -182,7 +162,7 @@ func hostGetSeriesLen(ctx context.Context) int32 {
 func hostGetSymbolCount(ctx context.Context) int32 {
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnGetSymbolCount)
+		trapNoContext(contracts.HostFnGetSymbolCount)
 	}
 	return int32(len(bc.Symbols))
 }
@@ -195,7 +175,7 @@ func hostGetCrossSection(ctx context.Context, tOffset, fieldID, idx int32) float
 	}
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnGetCrossSection)
+		trapNoContext(contracts.HostFnGetCrossSection)
 	}
 	_ = fieldID
 	t := bc.T + tOffset
@@ -218,7 +198,7 @@ func hostGetCrossSection(ctx context.Context, tOffset, fieldID, idx int32) float
 func hostGetState(ctx context.Context, m api.Module, keyPtr, keyLen uint32) uint64 {
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnGetState)
+		trapNoContext(contracts.HostFnGetState)
 	}
 	key, ok := m.Memory().Read(keyPtr, keyLen)
 	if !ok {
@@ -238,7 +218,7 @@ func hostGetState(ctx context.Context, m api.Module, keyPtr, keyLen uint32) uint
 func hostSetState(ctx context.Context, m api.Module, keyPtr, keyLen, valPtr, valLen uint32) {
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnSetState)
+		trapNoContext(contracts.HostFnSetState)
 	}
 	key, ok := m.Memory().Read(keyPtr, keyLen)
 	if !ok {
@@ -257,7 +237,7 @@ func hostSetState(ctx context.Context, m api.Module, keyPtr, keyLen, valPtr, val
 func hostEmitSignal(ctx context.Context, symbolIdx, action int32, strength float64) {
 	bc := barContextFrom(ctx)
 	if bc == nil {
-		trapNoContext(HostFnEmitSignal)
+		trapNoContext(contracts.HostFnEmitSignal)
 	}
 	bc.Signals = append(bc.Signals, EmittedSignal{
 		SymbolIdx: symbolIdx,
