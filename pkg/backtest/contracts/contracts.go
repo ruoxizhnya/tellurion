@@ -185,6 +185,15 @@ type BacktestRequest struct {
 	// 查注册表路由执行器、未知内核 fail-closed 报错是 K10（EngineRunner 路由）。
 	Kernel string `json:"kernel,omitempty"`
 
+	// FillTiming 是成交时点口径（QT-02 · §8.1）："next_open" / "same_close"。
+	// 空值 = DefaultFillTiming，语义由 EffectiveFillTiming() 给出 —— 与 Kernel
+	// 同一条纪律：**默认值不回填字段**，否则存量请求序列化会变。
+	//
+	// 引擎侧不读这个原始字段，读的是解析后的生效值（domain.BacktestParams.
+	// FillTiming）；一个既没声明也不是已知口径的值在日循环入口被拒
+	// （ErrFillTimingMissing / ErrFillTimingUnknown），引擎永远不猜。
+	FillTiming string `json:"fill_timing,omitempty"`
+
 	// EngineParams 是引擎特有参数块（FR-4.2）。**未知名拒绝而非忽略**：
 	// 任何目标内核不识别的键都必须让请求 400，静默吞掉会让调用方以为参数
 	// 生效了（"以为在测 NT 其实在测 Go" 的参数版）。校验入口

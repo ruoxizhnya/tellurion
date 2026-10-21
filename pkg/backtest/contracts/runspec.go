@@ -49,15 +49,24 @@ func (r BacktestRequest) EffectiveKernel() string {
 
 // ValidateRunSpec 校验 RunSpec 的内核路由字段，返回非 nil 即请求非法
 // （API 层映射 400）。当前拒绝项：engine_params 里的未知名、signals 行的
-// 非法值（K15）。
+// 非法值（K15）、显式声明但不认识的 fill_timing（QT-02）。
 //
 // 为什么是「拒绝而非忽略」：静默吞掉一个拼错的参数名，调用方会以为参数
 // 生效了并拿这次结果下结论 —— 与 FR-1.3「不得静默回退 go 内核」同一条
 // fail-closed 原则，只是发生在参数维度。signals 同理：一行 weight=1.5 的
 // 脏数据如果被钳到 1.0，双跑对齐报告里就多了一个「查无实据」的差异。
+//
+// fill_timing 只拒**显式声明且不认识**的值：空值走 EffectiveFillTiming 的
+// 默认语义（QT-02 ④：报告归档前默认口径不动，存量请求必须继续可用），
+// 而引擎日循环入口那道 ResolveFillTiming 才是「必填」的执行点 —— 它管的
+// 是所有入口（HTTP / job / batch / walkforward / 直接调 Engine）。
 func (r BacktestRequest) ValidateRunSpec() error {
 	if err := r.validateSignals(); err != nil {
 		return err
+	}
+	if r.FillTiming != "" && !r.EffectiveFillTiming().Valid() {
+		return fmt.Errorf("%w (got %q for kernel %q)", ErrFillTimingUnknown,
+			r.FillTiming, r.EffectiveKernel())
 	}
 
 	if len(r.EngineParams) == 0 {

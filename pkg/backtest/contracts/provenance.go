@@ -152,8 +152,11 @@ type RunSpecInput struct {
 	Universe  []string
 
 	// 频率与成交口径
-	Frequency  string
-	FillTiming string // QT-02 冻结 FillTiming 枚举后此字段改为其类型；string 底型，字节编码不变
+	Frequency string
+	// FillTiming 是 QT-02 冻结的成交时点口径。底型 string ⇒ canonical 字节编码
+	// 与它还是裸 string 时逐字节相同（黄金向量在 provenance_vector_test.go 钉住
+	// 这一条：换成命名类型不该让任何历史 hash 变化）。
+	FillTiming FillTiming
 
 	// 内核与引擎版本（N6-5：结果必须记**实际执行核**，路由改写也要记）
 	Kernel        string
@@ -198,7 +201,7 @@ func (in RunSpecInput) Hash() (string, error) {
 	c.Str("universe_hash", UniverseHash(in.Universe))
 
 	c.Str("frequency", in.Frequency)
-	c.Str("fill_timing", in.FillTiming)
+	c.Str("fill_timing", string(in.FillTiming))
 
 	c.Str("kernel", in.Kernel)
 	c.Str("engine_version", in.EngineVersion)
