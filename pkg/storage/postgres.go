@@ -1274,6 +1274,12 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 // 「独立可安装 / 测试自证」的幂等兜底入口。
 var AuditSchemaDDL = []string{
 	`CREATE SCHEMA IF NOT EXISTS audit`,
+	// BusTap「先记录后分发」的落点。列清单是 K0 冻结契约，改列 = 改契约。
+	//   ts        —— **业务时间**（回测=VirtualClock 当前值，实盘=墙钟），
+	//                不是落库时间；Replay 按它检索。
+	//   payload   —— jsonb，序列化方式见 pkg/eventstore.PGEventStore.Append 注释。
+	//   publisher —— 写入方标识（store 实例持有，Message 接口里没有）。
+	//   run_id    —— 一次 run 的归因锚点，可空（run 建立前的早期消息）。
 	`CREATE TABLE IF NOT EXISTS audit.message_log (
 		id         BIGSERIAL PRIMARY KEY,
 		ts         TIMESTAMPTZ NOT NULL,
@@ -1294,6 +1300,11 @@ var AuditSchemaDDL = []string{
 // 「独立可安装 / 测试自证」的幂等兜底入口。
 var StrategyStateSchemaDDL = []string{
 	`CREATE SCHEMA IF NOT EXISTS quant`,
+	// 一个 run 可跑多个策略，状态按「策略 × run」定位；同一个 (策略, run)
+	// 只保留最新一份（upsert）。列清单是 K0 冻结契约，改列 = 改契约。
+	//   ts    —— **状态对应时刻**（回测 = VirtualClock 虚拟时间，
+	//            实盘 = 墙钟），续跑按它跳过已处理的 bar 前缀。
+	//   state —— SaveState() 的原始字节，不解释内容。
 	`CREATE TABLE IF NOT EXISTS quant.strategy_state (
 		strategy_id TEXT NOT NULL,
 		run_id      TEXT NOT NULL,

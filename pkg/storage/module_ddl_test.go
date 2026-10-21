@@ -48,7 +48,7 @@ func TestModuleDDLConsolidatedIntoMigrate(t *testing.T) {
 		}
 	}
 
-	// ── ② pkg/storage 之外的production 代码不得再持有 DDL 文本 ────────
+	// ── ② pkg/storage 之外的生产态代码不得再持有 DDL 文本 ──────────
 	offenders, err := findForeignDDL("../..")
 	if err != nil {
 		t.Fatalf("扫描仓库 Go 源码失败: %v", err)
