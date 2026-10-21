@@ -123,7 +123,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > YAML 校验通过（5 job）；doc-links 0 断链。
 
-### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] 🔶
+### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] ✅
 
 - **① 目标**：任何一个仓被一个 agent 接手时，都能**从本仓内**知道「怎么构建、边界在哪、依赖哪版契约、该做什么、禁止什么」，不靠读别的仓。
 
@@ -151,7 +151,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **顺带纠正我先前给的一条理由**：我写「它读订单/成交（运行域真相）」——**不准确**。`cmd/dualrun` 读的是**回测内**的成交明细（`pkg/backtest/tracker` 在进程内产出），不碰实盘 `quant.orders`/`fills`。真正理由是：要**同进程**链接 `pkg/backtest` + `pkg/backtest/nautilus` 两套内核（跨进程拿不到同一次运行的逐笔成交），且它是**引擎的验收门**（CI `align-gate`），不是生产服务。
 > 未裁边界由 5 条降为 4 条（U1 留空号，不重编号——避免各仓文档里的 `U3` 指针失效）。
 > **第六批（2026-10-21，本单 ① 自检脚本）**：`tools/check_repo_autonomy.py` 已交付。静态核 R1（仓外 `=>` / committed go.work 即红，唯一容忍 = agent `=> ../tellurion` 作**已登记缺口→QT-07**）、R2（按类型分派；8 个 S0 占位仓「有 CI 无测试」**显式列出、不静默通过**）、R3（AGENTS 依赖章节 + 禁止标记；core 缺字面标题作**已登记缺口→QT-08**）、R5（contracts/kit 跨仓版本声明一致性，core 汇总）、R6（三份边界契约非空；core / docs **显式豁免**并写理由）。已知缺口登记表是单一来源，脚本会去台账核实工单号在册——「登记才放行，没登记就红」。本地对**12 仓全量**跑 GREEN（2 缺口登记 + 2 豁免，均显式）；**破坏验证**：给 kit 塞未登记 `go.work` → RED + exit 1，删除 → 复绿；`--run-builds` 逐仓实跑 build/vet 的接线已单仓 smoke。已接入 core CI 的 docs job 作 R5 汇总入口（core-only checkout 时核 core 自身 + 点名兄弟仓缺席）。修掉一处**假护栏**：R1 正则原先只匹配单行 `^replace`，块形式会漏检 → 改为取任何非注释行的 `=>` 目标。
-> **剩余**：③ 的 `docs` 仓 CI/TASKS（用户本轮明确排除 `docs`）；④ core `AGENTS.md` 的「分仓规则」节；⑤ 各仓 CI 首次绿的线上确认（8 个新仓的 workflow 是本次新增，首跑结果待看）。
+> **第七批（2026-10-21，自审收尾：脚本两处误判 + 给它一条自证腿）**：通读自己上一批写的 `tools/check_repo_autonomy.py`，逮到两处**会让护栏在关键时刻失真**的缺陷，都改了：
+> ① **go.work 判据写成了 `exists` 而不是 `tracked`** —— 而各仓 AGENTS 明写「本机同时改多个仓时可用 `go.work` 联调，但它**不入库**」。按 exists 判，主任合规地开本机联调就会被判红；第六批那条「给 kit 塞未登记 go.work → RED」的取证**因此是错的**（它测的是一条本不该红的合规状态）。现改为问 git index（`git ls-files --error-unmatch`），`go.work` 与 `go.work.sum` 都核，入库才红。
+> ② **R5 拿整格字符串比对版本** —— 各仓那格的写法天然是「待定（S2 后 `v0.1.0`）」vs「`v0.1.0`」，整格比对会把「S2 半收口」（有的仓已钉、有的还标待定）判成**分叉硬红**，而脚本自己在那条 note 里写着这状态「收口前允许」。现改为只提版本 token（`v\d+\.\d+\.\d+`）并按「钉版 / 计划版」分桶：只有**两个仓都钉了、且钉得不一样**才红；混布只点名（R5-note）。今天 12 仓仍全绿（都还是同一句「待定（S2 后 v0.1.0）」）。
+> 顺带三处小账：`check_r5(present)` 原先为切红/note 被**调用两遍**（两次结果可以不一致）⇒ 调一遍再切；输出横幅产品名写成 `Qoder` ⇒ 改回 `Quant Lab`；`import sys` 是死导入 ⇒ 删。
+> **新增 `--self-test`（8 条夹具腿，已接进 core CI 的同一步）**：这条 job 是 R1~R6 唯一执法者，而它自己没人核（§8.5.3-2「假护栏比没护栏更糟」）。腿覆盖 R1 抓单行 / 抓 `replace ( ... )` 块形式 / **不误伤** fork 替换（目标是模块版本而非路径），R1 不误伤未入库 go.work + 抓到入库 go.work（真 `git init` 临时夹具），R5 同版不红 / 异版红 / 钉与待定混布只点名。夹具全在 `tempfile` 里，不碰真仓；`git` 缺席时**显式 SKIP** 而不是假通过。
+> **破坏验证**：把上面 ①②两处还原成原来的错法跑副本 ⇒ 自证 **3 条 FAIL、退出 1**（不是空转）；改回后 `--self-test` 退出 0，全量 12 仓扫描仍退出 0。
+> **剩余三项按实测关闭**（原「剩余」三条写于脚本交付前，今天逐条拿证据复核）：③ `docs` 仓 CI/TASKS —— 第四批已建（main 上 6 次 run 全 success）；④ core `AGENTS.md` 的分仓规则节 —— 已落为 **§0 分仓拓扑：我在哪**（12 仓表 + 本仓三条硬规则），第四批第 ① 项的产物；⑤ 各仓 CI 首次绿的线上确认 —— 2026-10-21 `gh api` 实测 contracts/kit/data/strategy/risk/analytics/orchestration/broker 八仓 main 最新 run **全部 success**（run 号 7/7/9/8/8/8/9/8），`docs` 同绿 ⇒ 本单 ⑤ 验收「12 仓绿 + 显式列缺口」成立。
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~**R6**（R6 = 三份功能边界契约存在且非空），**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
 - **④ 约束与非目标**：不把 core 的 AGENTS 全文复制到各仓（只写本仓必须知道的）；不引入新 CI 平台；不改任何代码。

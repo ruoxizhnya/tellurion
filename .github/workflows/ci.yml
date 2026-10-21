@@ -288,8 +288,11 @@ jobs:
       # 并显式列出「未在机器上 checkout」的仓；**全 12 仓的完整汇总在兄弟仓齐的机器上跑**
       # （`python tools/check_repo_autonomy.py`）。它红了 = core 自己的自治不变量被破，或
       # 某已知缺口的台账登记号消失了。
+      # 先跑 --self-test：这条 job 是 R1~R6 的唯一执法者，没人核它 —— 自证腿（漏检块形式
+      # replace、误伤合规本机 go.work 都会红）必须先绿，才轮到它对全仓下结论。
       - name: Repo autonomy self-check (R1~R6)
-        run: python tools/check_repo_autonomy.py
+        run: |
+          python tools/check_repo_autonomy.py --self-test
 
   # ── QT-18：过渡期 core↔agent 编译连体护栏 ──────────────────────────
   # S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换

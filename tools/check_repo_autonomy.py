@@ -5,11 +5,16 @@
 没有它，「每个仓都能独立自证」只写在文档里、没人核。
 
 用法（在 core 仓根跑；兄弟仓以 `../tellurion-<x>` 同级 checkout 才能全量核）：
-    python tools/check_repo_autonomy.py            # 静态结构自检（快、确定、CI 安全）
-    python tools/check_repo_autonomy.py --run-builds   # 额外逐仓跑 build/vet/test（⑤ 字面项，慢）
+    python tools/check_repo_autonomy.py                 # 静态结构自检（快、确定、CI 安全）
+    python tools/check_repo_autonomy.py --self-test     # 护栏自证（CI 每次都跑，理由见下）
+    python tools/check_repo_autonomy.py --run-builds    # 额外逐仓跑 build/vet/test（⑤ 字面项，慢）
 
 退出码：
     0 = 全部通过（含**已登记**的已知缺口）；1 = 有未登记的 RED（CI 据此失败）。
+
+`--self-test` 为什么必须有：本脚本是 R1~R6 唯一的机械执法者，而它自己没人核 —— 护栏静默
+失灵（漏检 `replace ( ... )` 块形式、把合规的本机 go.work 判成红）比没有护栏更糟，因为前者
+最终会让人把它关掉。夹具建在临时目录，不碰任何真仓；无 git 时**显式 SKIP**而不是假通过。
 
 六条不变量（本脚本怎么落地）：
   R1 单仓可构建   —— go.mod 里任何把模块指向**仓外文件系统路径**的 `=>` 即红；committed
@@ -40,8 +45,9 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
 
 # 规范仓清单（唯一名字源见 docs/design/qt-decoupling/repo-inventory.md，这里按类型标注）。
@@ -76,6 +82,9 @@ KNOWN_GAPS = {
 BOUNDARY_FILES = ("docs/db-schema.md", "docs/api-schema.md", "docs/dataflow.md")
 # 依赖版本表里对 contracts/kit 的声明取样用。
 CONTRACT_PINS = ("tellurion-contracts", "tellurion-kit")
+# R5 取样：只提版本 token；带「待定/待 Sx」措辞的格子算**尚未钉**，不算钉版。
+VERSION_RE = re.compile(r"v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?")
+PENDING_RE = re.compile(r"待定|待\s*S\d|尚未")
 
 
 def core_dir() -> Path:
@@ -133,10 +142,22 @@ def check_r1(repo: str, d: Path) -> list[tuple[str, str]]:
             key = (repo, "R1")
             ticket = KNOWN_GAPS[key][1] if key in KNOWN_GAPS else None
             issues.append((f"{repo}: replace 指向仓外 `{target}`", ticket))
-    # committed go.work：入库即红（本机联调产物，应在 .gitignore）。
-    if (d / "go.work").exists():
-        issues.append((f"{repo}: 仓根存在 go.work（应 gitignore，不入库）", None))
+    # committed go.work / go.work.sum：**入库**即红（不是「存在」即红）。
+    # 各仓 AGENTS 明写「本机同时改多个仓时可用 go.work 联调，但它不入库（.gitignore 已挡）」，
+    # 所以判 exists 会把合规的本机联调状态误判成红 —— 误伤的护栏会让人整段删掉它。
+    for rel in ("go.work", "go.work.sum"):
+        if git_tracked(d, rel):
+            issues.append((f"{repo}: {rel} 已入库（应 gitignore，只作本机联调产物）", None))
     return issues
+
+
+def git_tracked(d: Path, rel: str) -> bool:
+    """`rel` 是否进了 git index（tracked）。文件不存在 / 被 gitignore / 无 git 一律 False。"""
+    if shutil.which("git") is None:
+        return False
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", rel],
+                       cwd=d, capture_output=True, text=True)
+    return r.returncode == 0
 
 
 # ───────────────────────── R3：AGENTS 行为入口两节 ─────────────────────────
@@ -174,22 +195,40 @@ def collect_contract_pin(repo: str, d: Path) -> dict[str, str]:
 
 
 def check_r5(present: dict[str, Path]) -> list[str]:
-    """按 pin 名归组，跨仓取值不一致 → 红。"""
+    """按 pin 名归组，跨仓**已钉版本**不一致 → 红；钉/待定混布 → 显式点名（非静默、也非硬红）。
+
+    取样时只提版本 token，不按整格字符串比对：各仓写法天然是
+    「待定（S2 后 `v0.1.0`）」vs「`v0.1.0`」，整格比对会把「S2 半收口」这个
+    本脚本自己认定为允许的状态判成红（假红比没红更糟：它会在最该看的时候被关掉）。
+    """
     by_pin: dict[str, dict[str, str]] = {}
     for repo, d in present.items():
-        for pin, ver in collect_contract_pin(repo, d).items():
-            by_pin.setdefault(pin, {})[repo] = ver
-    reds: list[str] = []
-    for pin, vals in sorted(by_pin.items()):
-        # 归一：去掉「待定/待 Sx」措辞后是否落到同一个版本号上。
-        normalized = {v for v in vals.values() if re.search(r"v\d", v)}
-        pending = {v for v in vals.values() if not re.search(r"v\d", v)}
-        if len(normalized) > 1:
-            reds.append(f"R5：{pin} 的版本在各仓不一致 → {sorted(normalized)}")
-        if normalized and pending:
-            # 有的仓已钉版本、有的还写「待定」：是「S2 未收口」的如实状态，非硬红，但点名。
-            reds.append(f"R5-note：{pin} 已出现钉版 {sorted(normalized)}，但仍有仓标「待定」{len(pending)} 处（S2/QT-07 收口前允许，须一致收敛）")
-    return reds
+        for pin, cell in collect_contract_pin(repo, d).items():
+            by_pin.setdefault(pin, {})[repo] = cell
+
+    out: list[str] = []
+    for pin, cells in sorted(by_pin.items()):
+        pinned: set[str] = set()
+        planned: set[str] = set()
+        unpinned: int = 0
+        for cell in cells.values():
+            ver = VERSION_RE.search(cell)
+            if PENDING_RE.search(cell):
+                if ver:
+                    planned.add(ver.group(0))
+                else:
+                    unpinned += 1
+            elif ver:
+                pinned.add(ver.group(0))
+        if len(pinned) > 1:
+            out.append(f"R5：{pin} 在各仓**已钉**的版本不一致 → {sorted(pinned)}")
+            continue
+        if pinned and (planned or unpinned):
+            out.append(f"R5-note：{pin} 已出现钉版 {sorted(pinned)}，但仍有 {len(planned) + unpinned} 个仓标「待定」"
+                       f"（计划版 {sorted(planned) if planned else '无版本号'}；S2/QT-07 收口前允许，须一致收敛）")
+        elif not pinned and len(planned) > 1:
+            out.append(f"R5-note：{pin} 各仓都还没钉，但计划版本已分叉 → {sorted(planned)}（收口前先对齐口径）")
+    return out
 
 
 # ───────────────────────── R6：三份功能边界契约 ─────────────────────────
@@ -248,10 +287,99 @@ def run_builds(present: dict[str, tuple[str, Path]]) -> list[str]:
     return reds
 
 
+def self_test() -> int:
+    """护栏自证：造夹具喂给各检查函数，验它**拦得住真违规、也不误伤合规状态**。
+
+    为什么非要有这条：本脚本是 R1~R6 的唯一机械执法者，它自己错了没人核 ——
+    「假护栏比没护栏更糟」（QT-08 §③ / core AGENTS §8.5.3-2）。夹具全建在 tempfile 里，
+    不碰任何真仓；`git` 缺席时**显式跳过**并说明，不假装通过。
+    """
+    print("Quant Lab — check_repo_autonomy 护栏自证（夹具在临时目录，不触真仓）")
+    if shutil.which("git") is None:
+        print("  [SKIP] 本机无 git ⇒ 无法造 tracked go.work 夹具 —— 这是跳过，不是通过")
+        # 退出码仍为 0（无 git 是环境限制，判红是假红），但必须在 CI 里留下可见的痕迹：
+        # 否则「自证跑过了」和「自证没跑」在线上长得一模一样 —— 正是 QT-18 那条降级空跑。
+        print("::warning title=QT-08 护栏自证未运行::本机无 git，R1 的 go.work tracked 腿与"
+              "入库 go.work 腿全部跳过（8 条腿里 5 条依赖 git 夹具）。这不代表护栏自证通过。")
+        return 0
+
+    fails: list[str] = []
+
+    def expect(label: str, ok: bool) -> None:
+        print(f"  [{'ok' if ok else 'FAIL'}] {label}")
+        if not ok:
+            fails.append(label)
+
+    def r1_on(text: str) -> list[tuple[str, str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "tellurion-fake"
+            d.mkdir()
+            (d / "go.mod").write_text(text, encoding="utf-8")
+            return check_r1("tellurion-fake", d)
+
+    def r5_on(cells: dict[str, str]) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            present = {}
+            for repo, cell in cells.items():
+                d = Path(tmp) / repo
+                (d / "docs").mkdir(parents=True)
+                (d / "AGENTS.md").write_text(
+                    "## 4. 依赖的契约版本\n\n| 依赖 | 版本 | 说明 |\n|---|---|---|\n"
+                    f"| `tellurion-contracts` | {cell} | x |\n", encoding="utf-8")
+                present[repo] = d
+            return check_r5(present)
+
+    # R1 正证据：单行与块形式两种仓外 replace 都得抓到（只 grep `^replace` 会漏块形式）。
+    expect("R1 抓到单行仓外 replace",
+           any("仓外" in i[0] for i in r1_on("module x\n\nreplace tellurion => ../tellurion\n")))
+    expect("R1 抓到 replace 块形式里的仓外路径",
+           any("仓外" in i[0] for i in r1_on("module x\n\nreplace (\n\ttellurion => ../tellurion\n)\n")))
+    # R1 反证：把模块替成 fork（目标是**模块路径**、不是文件系统）不该红 —— 红了就等于
+    # 把「不许源码路径依赖」写成「不许任何 replace」，那是会逼人关掉护栏的误伤。
+    expect("R1 不误伤 fork 替换（目标是模块版本而非路径）",
+           not r1_on("module x\n\nreplace tellurion v0.1.0 => github.com/some/fork v0.1.0\n"))
+
+    # R1 go.work：AGENTS 允许本机联调（不入库），所以判据必须是 tracked 而不是 exists。
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp) / "tellurion-fake"
+        (d / "docs").mkdir(parents=True)
+        (d / "go.mod").write_text("module x\n", encoding="utf-8")
+        (d / "go.work").write_text("go 1.25\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+        subprocess.run(["git", "add", "go.mod"], cwd=d, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "init"], cwd=d, check=True)
+        expect("R1 不误伤未入库（哪怕没 .gitignore）的本机 go.work",
+               not any("go.work" in i[0] for i in check_r1("tellurion-fake", d)))
+        subprocess.run(["git", "add", "go.work"], cwd=d, check=True)
+        expect("R1 抓到入库的 go.work",
+               any("go.work" in i[0] for i in check_r1("tellurion-fake", d)))
+
+    # R5：钉版一致 → 无话；两仓钉了不同版 → 红；「有的钉了、有的还待定」是 S2 半收口的
+    # 允许状态 → 只点名不硬红（整格比对会把它误判成分叉，那种假红最容易被关掉）。
+    expect("R5 各仓钉同一版 → 不红",
+           not r5_on({"a": "`v0.1.0`", "b": "v0.1.0"}))
+    expect("R5 两仓钉了不同版 → 红",
+           any(x.startswith("R5：") for x in r5_on({"a": "v0.1.0", "b": "v0.2.0"})))
+    expect("R5 钉版与「待定（S2 后 v0.1.0）」混布 → 点名但不硬红",
+           all(x.startswith("R5-note：") for x in r5_on({"a": "v0.1.0", "b": "待定（S2 后 `v0.1.0`）"}))
+           and bool(r5_on({"a": "v0.1.0", "b": "待定（S2 后 `v0.1.0`）"})))
+
+    if fails:
+        print(f"\n结果：护栏自证 RED —— {len(fails)} 条：{fails}")
+        return 1
+    print("\n结果：护栏自证 GREEN —— R1/R5 既能拦住真违规，也不误伤合规状态。")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="QT-08 十二仓自治自检（R1~R6）")
     ap.add_argument("--run-builds", action="store_true", help="逐 go 仓实跑 build/vet（慢；⑤ 字面执行项）")
+    ap.add_argument("--self-test", action="store_true", help="护栏自证：夹具喂进检查函数，验它拦得住违规也不误伤合规态")
     args = ap.parse_args()
+
+    if args.self_test:
+        return self_test()
 
     core = core_dir()
     present: dict[str, Path] = {}
@@ -289,15 +417,17 @@ def main() -> int:
         reds += r2_reds
         notes += r2_notes
 
-    # R5 跨仓汇总（core 跑，比对各仓对 contracts/kit 的版本声明）
-    reds += [x for x in check_r5(present) if x.startswith("R5：")]
-    notes += [x for x in check_r5(present) if x.startswith("R5-note：")]
+    # R5 跨仓汇总（core 跑，比对各仓对 contracts/kit 的版本声明）。只算一次：
+    # 分两遍调 check_r5 是在红/note 之间制造「两次结果可以不一致」的空间。
+    r5 = check_r5(present)
+    reds += [x for x in r5 if x.startswith("R5：")]
+    notes += [x for x in r5 if x.startswith("R5-note：")]
 
     if args.run_builds:
         reds += run_builds({r: (type_of[r], d) for r, d in present.items()})
 
     # ── 报告 ──
-    print("Qoder — repo autonomy self-check (R1~R6)\n")
+    print("Quant Lab — repo autonomy self-check (R1~R6)\n")
     if absent:
         print(f"未在本机 checkout（跳过，需全量时在兄弟仓齐的机器上跑）：{', '.join(absent)}\n")
 
