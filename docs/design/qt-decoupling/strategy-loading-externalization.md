@@ -16,7 +16,7 @@
 
 关键文件：`pkg/strategy/loader.go`（`PluginSymbol = "Strategy"`、`PluginInfo{Version, GitHash, Path, Size}`、`resolvePluginPath`）、`cmd/analysis/handlers_plugin.go`（路由与 REV-08 加固）、`pkg/sandbox/wasm/sandbox.go` 与 `on_bar_session.go`（全部接口只接受 `wasmBytes []byte`）。
 
-**`.so` 的编译步骤查无实据**：`cmd/analysis/generated_strategies/` 是空目录；全仓唯一出现 `go build -buildmode=plugin` 的地方是 `pkg/strategy/plugins/example_plugin.go:6` 的**注释**（示例）。agent 仓 grep `buildmode` / `go build` 也零命中 ⇒ **ADR-027 §833「编译在 ai-service」目前没有落地**，编译是人工离线动作。
+**`.so` 的编译步骤查无实据**：`cmd/analysis/generated_strategies/` 是空目录；全仓唯一出现 `go build -buildmode=plugin` 的地方是 `pkg/strategy/plugins/example_plugin.go:6` 的**注释**（示例）。agent 仓 grep `buildmode` / `go build` 也零命中 ⇒ **ADR-027 §2.6.1「编译在 ai-service」目前没有落地**，编译是人工离线动作。
 
 ---
 
@@ -97,7 +97,7 @@
 | ID | 等级 | 问题 | 方向 |
 |---|---|---|---|
 | BE-18 | 🔴 | `.so` 通道在 Windows 上不可用（`plugin_stubs.go` → `plugin: not implemented`），本地栈无法验证 | 外化主通道改走 WASM；`.so` 按 ADR-024 标注为存量遗留（冻结不扩展、逐步退役） |
-| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空，仓内无 `go build -buildmode=plugin`/tinygo 调用，ADR-027 §833「编译在 ai-service」未落地 | 建独立编译服务，产出内容寻址 artifact |
+| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空，仓内无 `go build -buildmode=plugin`/tinygo 调用，ADR-027 §2.6.1「编译在 ai-service」未落地 | 建独立编译服务，产出内容寻址 artifact |
 | BE-20 | 🟠 | 回测结果未记录策略 artifact 的 `content_hash`（只有 `PluginInfo.GitHash`，且仅覆盖 `.so`） | 结果落到 `strategy_ref{id, hash}`，否则 K15 双跑对齐失去可复现前提 |
 
 ---

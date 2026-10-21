@@ -141,4 +141,4 @@ version_hash = hex(sha256.Sum256(b))
 | A | artifact 放 PG BYTEA 还是对象存储？本地栈 vs 多机结论不同 | 决定 `storage` 列落地形态 |
 | B | ~~`strategy_ref` 锁定版本是否为**强制**？~~ **✅ 已裁决（2026-10-19，D25）**：latest 仅作语法糖，提交边界解析并固化 hash；执行/结果只认 hash；CI/双跑/台账直接传 hash | 可复现性与交互便利兼得 |
 | C | NT 内核是否实现同一套 on_bar host API？ | 决定 wasm 能否真的"一份跑两核" |
-| D | 编译服务放 agent 仓（ADR-027 §833）还是独立？ | 影响 module 拓扑与 toolchain 归属 |
+| D | 编译服务放 agent 仓（ADR-027 §2.6.1）还是独立？ | 影响 module 拓扑与 toolchain 归属 |

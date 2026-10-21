@@ -100,7 +100,7 @@
 | ID | 等级 | 问题 | 方向 |
 |---|---|---|---|
 | BE-18 | 🔴 | `.so` 通道在 **Windows 上不可用**：Go `src/plugin/plugin_dlopen.go` 的 build tag 仅 `(linux&&cgo)\|\|(darwin&&cgo)\|\|(freebsd&&cgo)`，其余平台落到 `plugin_stubs.go`，`plugin.Open` 返回 `plugin: not implemented`。本机（Windows）无法验证热加载 | 外化主通道改走 WASM；`.so` 退为"仅 Linux/Docker 的可信同源通道" |
-| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空目录，全仓唯一 `go build -buildmode=plugin` 出现在 `pkg/strategy/plugins/example_plugin.go:6` 的注释里；agent 仓同样零命中 ⇒ ADR-027 §833「编译在 ai-service」**未落地** | 建独立编译服务（锁 toolchain），产出内容寻址 artifact（`.wasm` + hash + abi_version） |
+| BE-19 | 🟠 | **无编译链路**：`cmd/analysis/generated_strategies/` 为空目录，全仓唯一 `go build -buildmode=plugin` 出现在 `pkg/strategy/plugins/example_plugin.go:6` 的注释里；agent 仓同样零命中 ⇒ ADR-027 §2.6.1「编译在 ai-service」**未落地** | 建独立编译服务（锁 toolchain），产出内容寻址 artifact（`.wasm` + hash + abi_version） |
 | BE-20 | 🟠 | 回测结果**未记录策略 artifact 的 content_hash**（现只有 `PluginInfo.GitHash`，且仅覆盖 `.so`） | 结果落到 `strategy_ref{id, hash}`，否则 K15 双跑对齐失去可复现前提 |
 | BE-21 | 🔴 | **策略实例跨 run 共享**：`Registry.Get` 返回注册时的同一实例（`registry.go:51-61`），`SignalStrategy.cursor` 等状态跨 run 存活；并发两笔即互污染 | 注册改**构造函数**，每次 run 取新实例；否则"回测可复现"与 K15 对拍都不成立 |
 | BE-22 | 🔴 | **策略参数从未在执行路径生效**：`BacktestRequest` 无 params 字段；`ReloadFromDB`/`ConfigureStrategy` 零生产调用点 ⇒ 内置策略恒用编译期默认值 | 加 `StrategyParams` 进 RunSpec（未知名拒绝）+ 生效参数落运行记录；WASM `initialize(params)` 的前置 |

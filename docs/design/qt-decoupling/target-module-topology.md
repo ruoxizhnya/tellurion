@@ -66,7 +66,7 @@
 | sandbox/staticcheck · sandbox/runner | — | ✅ | 编译期静态门与进程沙箱，AI 侧与入库侧共用 |
 | **fees · marketimpact** | 零依赖 | ❌ **留 core** | **零依赖 ≠ 该进 kit**：它们是 A 股费率与冲击模型，是**业务规则**不是工具 |
 | ~~domain~~ | fees | **✅ 独立 module（ADR-D24）** | 领域值对象；需先解 `domain → fees` 耦合（fees 仍留 core） |
-| sandbox/wasm (wazero runtime) | — | ❌ 留 core | 需逐 bar 喂数据，必须在引擎进程内（ADR-027 §833） |
+| sandbox/wasm (wazero runtime) | — | ❌ 留 core | 需逐 bar 喂数据，必须在引擎进程内（ADR-027 §2.6.1） |
 
 ## ADR-D10：数据归属重划（回答「agent 为什么要拿 core 的数据」）
 

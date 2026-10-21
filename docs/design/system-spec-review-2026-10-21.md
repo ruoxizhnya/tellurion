@@ -165,7 +165,7 @@
 | tellurion-docs | H1、M22、M23、M25、L2、L3、L10 | 客观订正 |
 | tellurion-agent | H2、M7、M8、L4 | 客观订正 |
 | tellurion-ui | H6、M2、M4、M5、M6、M7、L8 | 客观订正 |
-| tellurion-data | H8、M15、M16、M17、M21、L5、L9 | M21 归属待裁（立单不改判） |
+| tellurion-data | H8、M15、M16、M17、M21、**M24**、L5、L9 | M21 归属待裁（立单不改判）；M24 系 §7 建表时遗漏、2026-10-21 对账补入 |
 | tellurion-broker | H3、M12 | 客观订正 |
 | tellurion-risk | H4 | 客观订正 |
 | tellurion-orchestration | M13、M14、M19 | M19 strategy_state 行与 H5 挂钩 |
@@ -198,3 +198,8 @@
 **立单登记（3 单，`tellurion:docs/TASKS.md` §九）**：SPEC-R-01（M3：3 处模块内自建表是否收编进 `migrate()`，涉 schema 面走 H1 评审）、SPEC-R-02（L7：factor_hypothesis / factor_returns / ic_analysis / quant.external_signals / users 五张无主表认领；factor_mining_records 已由 data 认领）、SPEC-R-03（DATA-04 新旧同号歧义换号）。M10（空集合语义节）挂现役 DATA-04 定形后统一补节，各仓暂不预写。
 
 **提交纪律**：本批 12 仓修复按仓原子提交（core 先行）；上批遗留 7 文件（QT-08 指针 ×5 + DATA-04 迁移 ×2）先行独立归口提交，不与本批混提。
+
+**全量对账补修（2026-10-21，49 条逐条对账后收尾）**：对账口径为报告 49 条逐条三态核对（✅已修 / ➖合理保留 / ❌未修），结论 46+ ✅、L4 ➖（有意待定项）。对账查出 3 处遗漏并已补修：
+1. **M24 ❌→✅**：`tellurion-data:docs/ARCHITECTURE.md:49` 箭头方向当时漏修（§7 落点表建表时亦漏列 M24，均已补）——按 REPO-MAP 箭头图例反转为「四方 ──(HTTP)──► data」并加图例注。
+2. **M28 同源残留 ⚠️→✅**：主修（strategy-loading-externalization.md:4）已改 §2.6.1，但「ADR-027 §833」（行号误作节号）在 5 个设计篇另有 6 处残留（strategy-loading-externalization.md:19/:100、backtest-engine-review.md:103、brainstorm-2026-10-19.md:13、strategy-asset-service-api.md:144、target-module-topology.md:69）——统一改 §2.6.1（已验证 ADR-027 `:1010` §2.6.1 真实存在、`:833` 系「六处变化表」行号）。
+3. **L2 尾巴 ⚠️→✅**：`tellurion-docs:docs/TASKS.md:10` 措辞「core `docs/TASKS.md`」补改 `tellurion:docs/TASKS.md`（adr-025/026 半批此前已改）；保留完整 URL 作链接目标，兼顾该仓 AGENTS.md「跨仓引用 = 完整 URL」自设约定。
