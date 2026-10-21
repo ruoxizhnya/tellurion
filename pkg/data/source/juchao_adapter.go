@@ -235,10 +235,11 @@ func (a *JuchaoAdapter) queryAnnouncements(ctx context.Context, sym, orgID strin
 		if annID == "" || title == "" {
 			continue
 		}
-		annTime := parseEastmoneyDate(row["adjunctUrl"]) // placeholder; overwritten below
-		// annTime is typically in the "announcementTime" field.
-		if v, ok := row["announcementTime"]; ok {
-			annTime = parseEastmoneyDate(v)
+		annTime, ok := parseAnnouncementTime(row)
+		if !ok {
+			// DBT-13 ③-②「这里读不懂时应该发生什么」：拒收该行（形状与取证见
+			// parseAnnouncementTime）—— 宁可少一行，不可写错一行。
+			continue
 		}
 		items = append(items, DataItem{
 			Symbol:    sym,
@@ -253,6 +254,69 @@ func (a *JuchaoAdapter) queryAnnouncements(ctx context.Context, sym, orgID strin
 		})
 	}
 	return items, nil
+}
+
+// parseAnnouncementTime 读一条公告的可见时间，两条腿按顺序试：
+// ① announcementTime（源实际给的形状）② adjunctUrl 路径里的日期段。
+// 两条都读不懂 ⇒ ok=false，由调用方拒收该行（DBT-13）。
+//
+// 真源取证（2026-10-21 向 http://www.cninfo.com.cn/new/hisAnnouncement/query
+// 发一条 600519 的真实查询，节选）：
+//
+//	"announcementTime": 1786723200000,                   // epoch **毫秒**
+//	"adjunctUrl": "finalpage/2026-08-15/1225475868.PDF", // 日期段与上者一致
+//
+// 也就是说这个字段从来不是日历日；把它交给只认日历日的解析器，
+// 拿到的就是「今天」。
+func parseAnnouncementTime(row map[string]interface{}) (time.Time, bool) {
+	v := row["announcementTime"]
+	if t, ok := parseEpochMillis(v); ok {
+		return t, true
+	}
+	// 同一字段给成日历日形状时也认 —— 两种都是「源确实给了日期」。
+	if t, ok := parseEastmoneyDateStrict(v); ok {
+		return t, true
+	}
+	return announcementDateFromAdjunctURL(stringFromMap(row, "adjunctUrl"))
+}
+
+// parseEpochMillis 把 epoch 毫秒折成**交易所日历日**，归一在 UTC 零点。
+//
+// 为什么不是直接 .UTC()：cninfo 给的是**北京时间的午夜**那个瞬间
+// （1786723200000 = 2026-08-15T00:00:00+08:00 = 2026-08-14T16:00:00Z）。
+// 直接转 UTC 会把日历日往前退一天，而 adjunctUrl 里明写着 2026-08-15。
+// 折成「+08 看见的那一天，落在 UTC 零点」与同族链路的既有口径一致
+// （东财榜单给 "2026-09-24 00:00:00" 这类无时区日历日，time.Parse 出来就是
+// UTC 零点），也让落库结果不依赖跑作业那台机器的本地时区。
+//
+// 顺带做一道**量级**自检：结果落在 2000~2100 年之外就当读不懂。源哪天改口径
+// 给成秒（1970）或微秒（四万年后），这道闸把它变成「一行被拒收」，而不是
+// 「一行日期荒谬的记录」。
+func parseEpochMillis(v interface{}) (time.Time, bool) {
+	// encoding/json 解进 map[string]interface{} 的数字一律是 float64；
+	// 1786723200000 < 2^53，折成 int64 无损。
+	x, ok := v.(float64)
+	if !ok || x <= 0 {
+		return time.Time{}, false
+	}
+	const beijingOffsetSeconds = 8 * 60 * 60
+	y, m, d := time.UnixMilli(int64(x)).In(time.FixedZone("CST", beijingOffsetSeconds)).Date()
+	if y < 2000 || y > 2100 {
+		return time.Time{}, false
+	}
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC), true
+}
+
+// announcementDateFromAdjunctURL 从 PDF 路径里取日期段：
+// "finalpage/2026-08-15/1225475868.PDF" → 2026-08-15。
+// 逐段交给 parseEastmoneyDateStrict，认不出的段（"finalpage"、文件名）自然落空。
+func announcementDateFromAdjunctURL(adjunctURL string) (time.Time, bool) {
+	for _, seg := range strings.Split(adjunctURL, "/") {
+		if t, ok := parseEastmoneyDateStrict(seg); ok {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // HealthCheck implements DataSourceAdapter.HealthCheck.

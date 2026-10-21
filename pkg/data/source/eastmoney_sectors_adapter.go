@@ -504,13 +504,17 @@ func (a *EastmoneyTopListAdapter) fetchTopList(ctx context.Context, req FetchReq
 			}
 		}
 		if rawDate, okDate := row["TRADE_DATE"]; !okDate || strings.TrimSpace(fmt.Sprintf("%v", rawDate)) == "" {
-			// 缺日期必须当场失败。`parseEastmoneyDate` 认不出的形状会回落
-			// `time.Now()`（见该函数末尾的注释）—— 那是把"我读不懂"接管理成
-			// "日期就是今天"。这里先把能判定的那一形状（缺失 / 空串）拦下；
-			// 那个回落本身与其余调用方已按实测登记为独立工单。
+			// 源没给日期 —— 与「给了但读不懂」分开报（DBT-13 ⑤ 要求两种失败各有报文）。
 			return nil, fmt.Errorf("eastmoney_toplist: %s has no TRADE_DATE — refusing to store a row whose date we cannot read", sym)
 		}
-		tradeDate := parseEastmoneyDate(row["TRADE_DATE"])
+		tradeDate, readable := parseEastmoneyDateStrict(row["TRADE_DATE"])
+		if !readable {
+			// DBT-13：这里原先吃的是 `parseEastmoneyDate` 的 `time.Now()` 回落 ——
+			// 一行日期读不懂的榜单会被写成「今天」，既错又撞冲突键 (今天, symbol)
+			// 覆盖当天真数据。读不懂就当场失败，不猜。
+			return nil, fmt.Errorf("eastmoney_toplist: %s TRADE_DATE %q is not a date this parser can read — refusing to guess it",
+				sym, stringFromMap(row, "TRADE_DATE"))
+		}
 		// 兜底守卫，与 filter 语法无关：源返回的行必须真在请求窗口内。
 		// filter 写错时东财不报错、静默回全量最新页，所以「窗口由请求决定」
 		// 这件事不能只靠请求参数长对了来保证 —— 见上面 q.Set("filter", …) 那段。
@@ -704,13 +708,24 @@ func stringFromMap(m map[string]interface{}, key string) string {
 	return ""
 }
 
-func parseEastmoneyDate(v interface{}) time.Time {
+// parseEastmoneyDateStrict 只认源实际给过的形状（三种日期布局 + 8 位数字），
+// 认不出的 **返回 ok=false**，绝不猜一个日期出来。
+//
+// 前身 `parseEastmoneyDate` 在末尾 `return time.Now().UTC()` —— 把「我读不懂」
+// 接管成「日期就是今天」。DBT-13（2026-10-21）收口：那是全仓唯一一处
+// 「解析失败回落墙上时钟」的形状（取证与遗留口径见 docs/TASKS.md 结案记录）。
+// 调用点里 `fetchTopList` 直接迁到这里；juchao 的两处经 `parseAnnouncementTime`
+// （该源给的是 epoch 毫秒，不是日历日，见 `juchao_adapter.go`）。
+// 布局表里 `"2006-01-02"` 与 `"2006-01-02 15:04:05"` 各被 DBT-10 重复列过一次，
+// 一并去重 —— 重复项不改变可接受的形状集。
+func parseEastmoneyDateStrict(v interface{}) (time.Time, bool) {
 	switch x := v.(type) {
 	case string:
-		// Eastmoney typically returns dates as "2026-05-14" or "20260514".
-		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02", "20060102", "2006-01-02", "2006-01-02 15:04:05"} {
+		// Eastmoney typically returns dates as "2026-05-14" or "20260514";
+		// the datacenter 榜单/公告端点给的是带时刻的 "2026-09-24 00:00:00"。
+		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02", "20060102"} {
 			if t, err := time.Parse(layout, x); err == nil {
-				return t
+				return t, true
 			}
 		}
 	case float64:
@@ -718,9 +733,9 @@ func parseEastmoneyDate(v interface{}) time.Time {
 		s := strconv.FormatInt(int64(x), 10)
 		if len(s) == 8 {
 			if t, err := time.Parse("20060102", s); err == nil {
-				return t
+				return t, true
 			}
 		}
 	}
-	return time.Now().UTC()
+	return time.Time{}, false
 }

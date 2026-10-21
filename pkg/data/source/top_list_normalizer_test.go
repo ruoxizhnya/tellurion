@@ -5,10 +5,12 @@ package source
 // 这道闸的**全部意义**是「一条脏行不许带崩整批写事务」，所以测试的正身是
 // 「坏行进不去 + 好行照常进 + 被丢的条数可数」，而不是「好行长什么样」。
 //
-// 同时如实钉住它**挡不住**的那一种：上游 parseEastmoneyDate 对坏日期返回
-// time.Now() 而非零值，所以畸形日期在这一跳是**看不见**的（详见
-// top_list_normalizer.go 文件头的登记）。这里把它写成一条显式断言，
-// 是为了让「这道闸覆盖了日期」这个误读当场失败 —— 护栏的边界也要有证据。
+// 同时如实钉住它**挡不住**的那一种：这道闸只认「零值日期」，一条**非零但错**
+// 的日期在这一跳是**看不见**的（详见 top_list_normalizer.go 文件头的边界登记）。
+// 上游那个把坏日期折成 time.Now() 的洞已于 2026-10-21 由 DBT-13 在**源侧**关掉，
+// 所以今天这条断言钉的不再是「洞」，而是「责任在谁」：日期真伪归源侧解析，
+// 这道闸只管身份缺件。这里把它写成一条显式断言，是为了让
+// 「这道闸覆盖了日期」这个误读当场失败 —— 护栏的边界也要有证据。
 
 import (
 	"testing"
@@ -148,17 +150,19 @@ func TestTopListNormalizer_DropIsCountedNotSilent(t *testing.T) {
 
 // TestTopListNormalizer_CannotCatchUpstreamBadDate 是本护栏的**边界声明**。
 //
-// 上游 parseEastmoneyDate(eastmoney_sectors_adapter.go:661) 对畸形/缺失
-// TRADE_DATE 返回 time.Now().UTC()，不是零值。所以「日期坏掉」在这一跳
-// 长得跟「今天的榜单」一模一样：TradeTime 非零 ⇒ 闸门放行，落库的
-// trade_date 是今天。
+// 这道闸认的是**零值**。一条非零但日期错误的行（源给错、或别的生产者算错）
+// 在这一跳与「今天的榜单」长得一模一样：TradeTime 非零 ⇒ 闸门放行，落库
+// trade_date 就是那个错日期。
 //
-// 这条断言不是为了证明它坏（那是另一单的活），而是为了**阻止误读**：
-// 谁要是把上面的 zero_trade_time 判据理解成「畸形日期已被挡住」，
-// 这条测试会当场红。改动 parseEastmoneyDate 让它返回零值时，
-// 这条会失败并强迫改的人回来更新这里的登记。
+// 2026-10-21 之前的写法是「上游 parseEastmoneyDate 把畸形 TRADE_DATE 折成
+// time.Now()，所以畸形日期看不见」—— 那个洞已由 **DBT-13 在源侧关掉**
+// （`parseEastmoneyDateStrict` 认不出返回 ok=false，`fetchTopList` 缺失/读不懂
+// 都整页失败；证据见 dbt13_adapter_date_fidelity_test.go）。本条断言保留，
+// 但它今天钉的是**责任归属**：日期真伪归源侧解析器，不归这道闸。
+// 谁要是把上面的 zero_trade_time 判据理解成「畸形日期已被这道闸挡住」，
+// 这条会当场红。
 func TestTopListNormalizer_CannotCatchUpstreamBadDate(t *testing.T) {
-	// 模拟上游把坏日期折成「现在」之后的产物 —— 这正是链上真实会看到的形状。
+	// 一条日期非零、但由上游算错的行 —— 闸门看不见它的错。
 	malformedButNonZero := DataItem{
 		Symbol:    "600519.SH",
 		TradeTime: time.Now().UTC(),
@@ -166,8 +170,8 @@ func TestTopListNormalizer_CannotCatchUpstreamBadDate(t *testing.T) {
 	}
 	p := TopListNormalizer(malformedButNonZero, "eastmoney_toplist", DataTypeTopList)
 	assert.NotNil(t, p.Data,
-		"如实记录：非零但错误的日期会被放行。真正的洞在 parseEastmoneyDate 返回 time.Now() 那行，"+
-			"不在这道闸 —— 别把这道闸读成日期校验")
+		"如实记录：非零但错误的日期会被放行。这道闸只管身份缺件，"+
+			"日期真伪在源侧 parseEastmoneyDateStrict（DBT-13）—— 别把这道闸读成日期校验")
 	assert.False(t, p.TradeTime.IsZero())
 }
 
