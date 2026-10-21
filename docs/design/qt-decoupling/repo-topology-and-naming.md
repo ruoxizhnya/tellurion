@@ -197,12 +197,12 @@
 
 ---
 
-## 6. 现状差距（2026-10-20 实测，不是推测）
+## 6. 现状差距（2026-10-20 实测，不是推测；tag 行 2026-10-21 随 QT-06 更新）
 
 | 仓 | `go.mod` | replace | tag | AGENTS | TASKS | CI | 差距 |
 |---|---|---|---|---|---|---|---|
-| `tellurion` | `tellurion` | 0 | **0** | ✅ | ✅ | ✅ | **没有任何版本可被依赖** |
-| `tellurion-agent` | `...-agent` | **1（→ `../tellurion`，require `v0.0.0`）** | 0 | ❌ | ✅ | ✅（**checkout core 并改写 replace**） | R1/R3/R5 全不成立 |
+| `tellurion` | `tellurion` | 0 | **1（`v0.1.0` = 分仓起点，非发布版本；QT-06）** | ✅ | ✅ | ✅ | 有基线版本可 require，但 agent 仍靠 `replace` 编译连体，删 replace 待 S3 |
+| `tellurion-agent` | `...-agent` | **1（→ `../tellurion`，require `v0.1.0`；QT-06 起指 tag，replace 保留待 S3）** | 0 | ❌ | ✅ | ✅（**checkout core 并改写 replace**） | R1/R3/R5 全不成立 |
 | `tellurion-ui` | 无（前端） | — | 0 | ❌ | ✅ | ✅ | R3 |
 | `tellurion-docs` | 无 | — | 0 | ❌ | ❌ | ❌ | R2/R3/R4 |
 | `tellurion-contracts` / `-kit` | — | — | — | — | — | — | **已建（2026-10-20 占位），代码待 S1（QT-05）落** |

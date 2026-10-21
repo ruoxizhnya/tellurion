@@ -89,7 +89,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > 依据 ADR-D29 §7-S0。这两单**不改任何业务代码**，只让「独立仓」从目录独立变成**版本独立 + 有行为入口**。
 
-### QT-06 · core 打 `v0.1.0` + agent 改 require tag（S0）[P0] ⬜
+### QT-06 · core 打 `v0.1.0` + agent 改 require tag（S0）[P0] 🔶
 
 - **① 目标**：agent 对 core 的依赖从「源码路径」变成「版本号」——这是 S3 删 `replace` 的唯一前置（没有 tag，就没有版本可依赖）。
 - **② 上下文**：`repo-topology-and-naming.md` §6 实测：core 仓 `git tag` 数量 = **0**；agent `go.mod:10` `require github.com/ruoxizhnya/quant-trading v0.0.0`、`:81` `replace ... => ../quant-trading`（**QT-60 改名后**：`require tellurion`、`replace tellurion => ../tellurion`，行号以改名后为准）；CI 用 `go mod edit -replace` 改写路径（`.github/workflows/ci.yml:32-34`）。agent 当前 import core 的 20 个包 / 37 个文件，**所以本单不删 replace**。
@@ -97,6 +97,12 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不打 `v1.0.0`、不发 release、不建 CHANGELOG 流程；不改 agent 代码；**不删 replace**（前置未满足：agent 仍 import core 实现包，见 QT-07 §S3）。
 - **⑤ 验收**：`git rev-parse v0.1.0^{tag}` 存在且指向分仓起点 commit；**本次改动相关的 job 绿**（core 的 `gofmt` / `Doc link check`、agent 的 `Build` / `Vet`），其余红项按 QT-61 登记为 known-fail、**不作为本单失败**（原验收写「两仓 CI 全绿」，在 QT-61 之前不可达）；tag 已 push 到远端（`git ls-remote --tags origin` 可见）；agent `go mod tidy` 后 require 仍为 `v0.1.0`（未被 replace 抹回 `v0.0.0`）。
 - **⑥ 边界**：只做版本化起点；单仓可构建属 QT-07 的 S3 段。
+
+> **🔶 本地已就绪（2026-10-21）；待主任授权后 push 才算落地**：
+> - **core tag**：`git tag -a v0.1.0` 打在分仓起点 HEAD（annotated，`v0.1.0^{tag}` 存在、解引用到当前 main 提交），message 明写「= 分仓起点，不是发布版本」。只打 tag，**未改任何 core 代码**。
+> - **agent require**：`go.mod` 的 `tellurion v0.0.0` → `v0.1.0`；`replace tellurion => ../tellurion` **保留**并补注释「本地/CI 联调专用，S3（QT-07）删除」。本地验证 `go mod tidy` 后 require 仍为 `v0.1.0`（未被抹回 v0.0.0，§⑤ 判据），`go build ./...` 经 replace 绿、`go.sum` 无变化。
+> - **文档**：`repo-topology-and-naming.md` §6 现状表 core tag 0→1、agent require v0.0.0→v0.1.0（AGENTS/CI 列的陈旧归 QT-08，不在本单混改）。
+> - **未完成（阻塞在授权）**：**push tag 到远端**（`git ls-remote --tags origin` 可见）+ push 相关 commit 后「本次改动相关 job 绿」的 CI 观察 —— 二者是远端动作，需主任确认后再做。S0 期靠 replace 本地/CI 编译，不依赖远端 tag；真正要用它跑 S3 之前 push 即可。远端 CI 全绿还依赖 QT-61 合入后首跑。
 
 ### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ✅
 
