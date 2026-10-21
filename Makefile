@@ -3,7 +3,7 @@
 # Usage: make [target] VERSION=v1.0.0
 # ============================================================
 
-.PHONY: all build push clean test lint help
+.PHONY: all build push clean test lint agent-compat help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "local")
@@ -111,6 +111,38 @@ lint:
 	golangci-lint run ./...
 	@echo "✅ Linting complete"
 
+# QT-18：过渡期（S0~S3）agent 编译期依赖 core 源码，而 W0/W1 的改动全是 breaking
+# （abi v2 换 host 函数、错误分级改 getSignals 返回…）。要让「core 绿、agent 静默烂」
+# 在 core 侧当场暴露，就得拿当前 core 工作区去编一遍 agent。
+#
+# 这是 CI agent-compat job 的本地/降级等价物（未配只读 PAT secrets.AGENT_REPO_TOKEN 时，
+# 合入门禁靠这条 + PR 里贴出的输出兜住；PAT 就位后 CI job 在 runner 上跑同样的两步）。
+#
+# 刻意 clone 到临时目录、不在 ../tellurion-agent 里原地改 go.mod：那会脏了开发者
+# 正在编辑的 agent 工作区。replace 指向 $(CURDIR)（当前 core 工作区，含未提交改动）,
+# 所以它验的是「我这次 core 改动会不会破 agent 编译」，正是 PR 想问的。只 build/vet，
+# 不跑 agent 单测（那些要 core 二进制/DB，成本不成比例，且不是本护栏的职责）。
+AGENT_REPO ?= ../tellurion-agent
+agent-compat:
+	@echo "🔗 agent-compat: 用当前 core 工作区编译 agent（QT-18 编译连体护栏）..."
+	@if [ ! -d "$(AGENT_REPO)" ]; then \
+		echo "::error::找不到兄弟 agent 仓 $(AGENT_REPO)。降级路径需本机把 tellurion-agent checkout 在 core 同级目录（QT-18 ①-b）。"; exit 1; \
+	fi
+	@tmpdir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	git clone --quiet "$(AGENT_REPO)" "$$tmpdir/tellurion-agent" || { echo "::error::克隆 $(AGENT_REPO) 失败"; exit 1; }; \
+	cd "$$tmpdir/tellurion-agent" && \
+	go mod edit -replace tellurion="$(CURDIR)" && \
+	echo "  → go build ./..." && go build ./... && \
+	echo "  → go vet ./..."   && go vet ./...; \
+	ec=$$?; \
+	if [ $$ec -ne 0 ]; then \
+		echo "::error::agent-compat 红：当前 core 改动破坏了 agent 编译。附 agent 侧适配 PR，或在 PR 登记 known-break（见 QT-18 ③）后合入。"; \
+	else \
+		echo "✅ agent-compat 绿：当前 core 改动不破 agent 编译"; \
+	fi; \
+	exit $$ec
+
 help:
 	@echo ""
 	@echo "📦 Quant Trading - Build & Deploy System"
@@ -144,6 +176,7 @@ help:
 	@echo "Utilities:"
 	@echo "  test               Run Go tests"
 	@echo "  lint               Run golangci-lint"
+	@echo "  agent-compat       Build+vet tellurion-agent against THIS core workspace (QT-18 cross-repo compile guard / CI fallback)"
 	@echo "  clean              Clean up Docker resources"
 	@echo "  help               Show this help message"
 	@echo ""

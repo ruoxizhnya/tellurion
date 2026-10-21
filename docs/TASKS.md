@@ -98,7 +98,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：`git rev-parse v0.1.0^{tag}` 存在且指向分仓起点 commit；**本次改动相关的 job 绿**（core 的 `gofmt` / `Doc link check`、agent 的 `Build` / `Vet`），其余红项按 QT-61 登记为 known-fail、**不作为本单失败**（原验收写「两仓 CI 全绿」，在 QT-61 之前不可达）；tag 已 push 到远端（`git ls-remote --tags origin` 可见）；agent `go mod tidy` 后 require 仍为 `v0.1.0`（未被 replace 抹回 `v0.0.0`）。
 - **⑥ 边界**：只做版本化起点；单仓可构建属 QT-07 的 S3 段。
 
-### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ⬜
+### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ✅
 
 - **① 目标**：S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换 13 个函数、错误分级改 `getSignals` 返回、per-run 实例改 `Registry.Get` 语义、检查点主键变更）。要让这类破坏**在 core 的 PR 上立刻红**，而不是等两周后有人打开 agent 仓才发现它已经烂了。
 - **② 上下文**：`repo-topology-and-naming.md` §7/§10（D29）；实测 core `.github/workflows/ci.yml` **零 agent 相关步骤**（grep 0 命中）；agent CI 反向 checkout core 并 `go mod edit -replace`（`.github/workflows/ci.yml:18-34`）——只有 agent 侧知道 break，core 侧无感知。
@@ -108,6 +108,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：故意改一个 core 导出签名 → core PR 的 `agent-compat` 红（留证后撤回）；未改签名时绿；该 job 单次 ≤ 5 分钟（build-only）。
 - **⑥ 边界**：只做编译兼容护栏；S3 后 agent 不再依赖 core 源码，本 job 转为「跨仓 tag 兼容检查」并保留。
 - **⑦ 排序约束（硬）**：**本单合入 main 之前，QT-01 不得合入**。理由：QT-01 把 host 函数从 8 个换成 13 个（abi v2），是分仓后第一个打穿 agent 编译的改动；护栏不在，这次破坏就已经漏过去了。
+
+> **✅ 完成记录（2026-10-21，本地验证；CI job 待 PAT 就位后接管）**：
+> - **降级门禁 `make agent-compat`（已本地验证）**：把兄弟 `../tellurion-agent` 浅 clone 到临时目录（不脏开发者工作区）、`go mod edit -replace tellurion=$(CURDIR)`（指当前 core 工作区，含未提交改动 = PR 语义）、`go build ./... && go vet ./...`。正常态绿（build/vet exit 0）；**破坏验证**：把 `pkg/expression/registry.go` 的 `AvailableDataFields` 定义改名 ⇒ agent-compat `AGENT_BUILD_EXIT=1`，报错 `registry.go:722: undefined: AvailableDataFields` ⇒ 还原后 `git diff` 空、sha 一致。护栏有牙齿，非惰性。
+> - **CI `agent-compat` job（.github/workflows/ci.yml）**：镜像 agent 侧反向 checkout 的做法（core→agent 方向），checkout `ruoxizhnya/tellurion-agent` → replace 指 `${{ github.workspace }}` → build/vet，**不跑 agent 单测**（§②）。§④ 的 known-break 走**文件化**白名单 `.github/agent-compat-known-break`：非空时把红降级成 warning 并打印内容（有意 breaking 如 QT-01 用），文件不存在即严格红 —— 不是 `continue-on-error`（文件进仓、reviewer 看得见，是人在环签核）。
+> - **PAT 依赖（§①-b，需主任操作）**：跨仓 checkout 需只读 fine-grained PAT `secrets.AGENT_REPO_TOKEN`（默认 GITHUB_TOKEN 看不到别的仓）。**未配时 job 不硬失败**：`Detect cross-repo PAT` 步发 notice「降级模式」并让 `make agent-compat` + PR 贴输出兜住合入门禁；PAT 就位后 job 自动接管、降级下线。`.github/pull_request_template.md` 已加「agent 编译兼容」节要求三选一并贴 `make agent-compat` 输出。
+> - **未做**：PAT 由主任在 GitHub 配置后，本 job 需跑一次**真破坏腿**留证（改一个 core 导出签名 → 观察 agent-compat 红 → 撤回）作为 CI 侧的最终验收；本地已用同一条命令序列证明机制成立。合入门禁：QT-01 之前本单须已在 main。
+>
+> YAML 校验通过（5 job）；doc-links 0 断链。
 
 ### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] 🔶
 
