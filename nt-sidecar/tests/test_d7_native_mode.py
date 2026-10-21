@@ -129,6 +129,7 @@ def _spec(strategy: str, symbols, **overrides) -> RunSpec:
         "stock_pool": list(symbols),
         "start_date": START,
         "end_date": "2024-03-01",
+        "fill_timing": "same_close",  # QT-02 · required on the wire
     }
     payload.update(overrides)
     return RunSpec.from_json(payload)

@@ -73,6 +73,8 @@ def _valid_runspec(**overrides) -> RunSpec:
         "stock_pool": list(SYMBOLS),
         "start_date": START,
         "end_date": END,
+        # QT-02 · required on the wire; same_close is what this kernel does.
+        "fill_timing": "same_close",
     }
     payload.update(overrides)
     return RunSpec.from_json(payload)
@@ -165,6 +167,7 @@ class ServerTest(unittest.TestCase):
                 "start_date": START,
                 "end_date": END,
                 "kernel": "nautilus",
+                "fill_timing": "same_close",
             }
         ).encode()
         req = urllib.request.Request(

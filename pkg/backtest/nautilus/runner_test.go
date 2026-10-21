@@ -102,6 +102,7 @@ func TestRunner_MapsCompletedResult(t *testing.T) {
 	const completed = `{
 		"id": "nt-run-1",
 		"status": "completed",
+		"fill_timing": "same_close",
 		"strategy": "buy_and_hold",
 		"start_date": "2024-01-02",
 		"end_date": "2024-06-28",
@@ -145,7 +146,7 @@ func TestRunner_DefaultsKernelToGoWhenUnset(t *testing.T) {
 	// EffectiveKernel resolves an empty Kernel to "go" before the wire payload is
 	// built, so a caller reaching the registry with no kernel still sends an
 	// explicit value on the wire.
-	srv, cap := newStubSidecar(t, http.StatusOK, `{"id":"x","status":"completed","total_return":0}`)
+	srv, cap := newStubSidecar(t, http.StatusOK, `{"id":"x","status":"completed","fill_timing":"same_close","total_return":0}`)
 	runner := NewRunner(srv.URL, srv.Client())
 
 	req := sampleRequest()
@@ -312,7 +313,7 @@ func newStubSidecarHeaders(t *testing.T, status int, body string, headers map[st
 func TestRunResponse_DistinguishesNullFromZero(t *testing.T) {
 	var out runResponse
 	require.NoError(t, json.Unmarshal(
-		[]byte(`{"status":"completed","total_return":null,"sharpe_ratio":0}`), &out))
+		[]byte(`{"status":"completed","fill_timing":"same_close","total_return":null,"sharpe_ratio":0}`), &out))
 
 	assert.Nil(t, out.TotalReturn, "a wire null must stay absent, not become 0")
 	require.NotNil(t, out.SharpeRatio, "a real 0 must stay present")
@@ -325,7 +326,7 @@ func TestRunResponse_DistinguishesNullFromZero(t *testing.T) {
 // silent-wrong-value bug K13-R1-R1 A closes.)
 func TestRunner_CompletedWithoutTotalReturnSurfacesError(t *testing.T) {
 	srv, _ := newStubSidecar(t, http.StatusOK,
-		`{"id":"nt-run-1","status":"completed","total_return":null,"sharpe_ratio":null}`)
+		`{"id":"nt-run-1","status":"completed","fill_timing":"same_close","total_return":null,"sharpe_ratio":null}`)
 	runner := NewRunner(srv.URL, srv.Client())
 
 	resp, err := runner.RunBacktest(context.Background(), sampleRequest())
@@ -341,7 +342,7 @@ func TestRunner_CompletedWithoutTotalReturnSurfacesError(t *testing.T) {
 // only total_return is required for a completed run.
 func TestRunner_CompletedWithTotalReturnAllowsAbsentSecondaryMetrics(t *testing.T) {
 	srv, _ := newStubSidecar(t, http.StatusOK,
-		`{"id":"nt-run-1","status":"completed","total_return":0.0125,"sharpe_ratio":null}`)
+		`{"id":"nt-run-1","status":"completed","fill_timing":"same_close","total_return":0.0125,"sharpe_ratio":null}`)
 	runner := NewRunner(srv.URL, srv.Client())
 
 	resp, err := runner.RunBacktest(context.Background(), sampleRequest())
@@ -357,7 +358,7 @@ func TestRunner_OversizedResponseBodySurfacesError(t *testing.T) {
 	maxResponseBody = 128
 	defer func() { maxResponseBody = old }()
 
-	big := `{"id":"x","status":"completed","total_return":0,"padding":"` +
+	big := `{"id":"x","status":"completed","fill_timing":"same_close","total_return":0,"padding":"` +
 		strings.Repeat("x", 512) + `"}`
 	srv, _ := newStubSidecar(t, http.StatusOK, big)
 	runner := NewRunner(srv.URL, srv.Client())
@@ -443,7 +444,7 @@ func TestPhaseTimingsString(t *testing.T) {
 // The success path parses the sidecar-reported timing (Exec phase).
 func TestRunner_ParsesSidecarTiming(t *testing.T) {
 	srv, _ := newStubSidecar(t, http.StatusOK,
-		`{"id":"nt-run-1","status":"completed","total_return":0,"timing":{"queue_ms":1.5,"exec_ms":42.0,"total_ms":44.0}}`)
+		`{"id":"nt-run-1","status":"completed","fill_timing":"same_close","total_return":0,"timing":{"queue_ms":1.5,"exec_ms":42.0,"total_ms":44.0}}`)
 	runner := NewRunner(srv.URL, srv.Client())
 
 	resp, err := runner.RunBacktest(context.Background(), sampleRequest())
@@ -490,7 +491,7 @@ func TestRunObserver_OneObservationPerCall(t *testing.T) {
 		{
 			name:        "成功 completed → ok",
 			status:      http.StatusOK,
-			body:        `{"id":"x","status":"completed","total_return":0.01}`,
+			body:        `{"id":"x","status":"completed","fill_timing":"same_close","total_return":0.01}`,
 			wantOutcome: OutcomeOK,
 		},
 		{
@@ -526,13 +527,13 @@ func TestRunObserver_OneObservationPerCall(t *testing.T) {
 		{
 			name:        "缺 total_return 契约违背 → internal",
 			status:      http.StatusOK,
-			body:        `{"id":"x","status":"completed"}`,
+			body:        `{"id":"x","status":"completed","fill_timing":"same_close"}`,
 			wantOutcome: OutcomeInternal,
 		},
 		{
 			name:        "调用方 deadline → timeout",
 			status:      http.StatusOK,
-			body:        `{"id":"x","status":"completed","total_return":0}`,
+			body:        `{"id":"x","status":"completed","fill_timing":"same_close","total_return":0}`,
 			deadlineMS:  20,
 			wantOutcome: OutcomeTimeout,
 		},
@@ -573,7 +574,7 @@ func TestRunObserver_OneObservationPerCall(t *testing.T) {
 // A nil observer (the NewRunner default) must not panic and must not
 // change behaviour — observation is never load-bearing.
 func TestRunObserver_NilObserverIsNoop(t *testing.T) {
-	srv, _ := newStubSidecar(t, http.StatusOK, `{"id":"x","status":"completed","total_return":0}`)
+	srv, _ := newStubSidecar(t, http.StatusOK, `{"id":"x","status":"completed","fill_timing":"same_close","total_return":0}`)
 	runner := NewRunner(srv.URL, srv.Client()) // nil observer
 
 	resp, err := runner.RunBacktest(context.Background(), sampleRequest())
@@ -619,4 +620,74 @@ func TestRunObserver_LiveSidecarSmoke(t *testing.T) {
 		assert.NotEqual(t, OutcomeOK, got[0], "失败 round trip 不得记 ok")
 	}
 	t.Logf("live round trip: outcome=%s dur=%s err=%v", got[0], durs[0], err)
+}
+
+// ── QT-02 · 跨内核成交口径前置断言 ──────────────────────────────────
+
+func TestRunner_FillTimingMismatchRefusesToMapResult(t *testing.T) {
+	// 侧车自述的成交口径与本次请求的生效口径不一致 ⇒ 在**结果映射之前**拒掉。
+	// 三种形态各有各的修法，所以错误也必须可分别检索：
+	//   - 报了另一种口径 → 真不一致（Mismatch）；
+	//   - 没报（老实现/漏字段）→ 未知（Missing），不许当成「大概按收盘」；
+	//   - 报了野值 → 不认识（Unknown）。
+	cases := []struct {
+		name    string
+		reply   string
+		wantErr error
+	}{
+		{"侧车按 next_open 成交", "next_open", contracts.ErrFillTimingMismatch},
+		{"侧车没自述口径", "", contracts.ErrFillTimingMissing},
+		{"侧车报了野口径", "close", contracts.ErrFillTimingUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := newStubSidecar(t, http.StatusOK,
+				`{"id":"nt-1","status":"completed","total_return":0.01,"fill_timing":"`+tc.reply+`"}`)
+			runner := NewRunner(srv.URL, nil)
+
+			resp, err := runner.RunBacktest(context.Background(), sampleRequest())
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.wantErr, "错误必须可检索，否则 K15 排障只能靠读报文猜")
+			assert.Nil(t, resp, "被拒的 run 不得产出一份看起来可用的结果")
+			assert.Contains(t, err.Error(), KernelName, "报文必须点名是哪一侧的内核")
+		})
+	}
+}
+
+func TestRunner_ResponseCarriesServedCaliber(t *testing.T) {
+	// 一致时：响应如实带上侧车自述的口径，并按同一个生产者标出已知偏差。
+	// NT 腿也必须标 same_close_fill —— 偏差不属于哪个内核，属于哪种口径。
+	srv, _ := newStubSidecar(t, http.StatusOK,
+		`{"id":"nt-1","status":"completed","total_return":0.01,"fill_timing":"same_close"}`)
+	runner := NewRunner(srv.URL, nil)
+
+	resp, err := runner.RunBacktest(context.Background(), sampleRequest())
+	require.NoError(t, err)
+	assert.Equal(t, "same_close", resp.FillTiming)
+	assert.Equal(t, []string{"same_close_fill"}, resp.KnownBias)
+}
+
+func TestRunner_AlwaysSendsTheEffectiveCaliber(t *testing.T) {
+	// 请求没声明 ⇒ 线上仍必须带**生效值**（同收盘）。侧车把缺 fill_timing 当拒收，
+	// 两侧各自猜一个默认值就是两种成交口径，双跑从入口起已经不可比。
+	srv, cap := newStubSidecar(t, http.StatusOK,
+		`{"id":"nt-1","status":"completed","total_return":0,"fill_timing":"same_close"}`)
+	runner := NewRunner(srv.URL, nil)
+
+	req := sampleRequest()
+	req.FillTiming = ""
+	_, err := runner.RunBacktest(context.Background(), req)
+	require.NoError(t, err)
+
+	_, _, _, body := cap.snapshot()
+	assert.Equal(t, "same_close", body["fill_timing"], "生效口径没上线：侧车会按「没声明」拒收，或自己猜一个")
+
+	// 显式声明 next_open 时必须失败，而不是「照样跑完并说自己是 next_open」。
+	// 这里有两条腿：侧车自己在 from_json 里拒收（见
+	// nt-sidecar/tests/test_qt02_fill_timing.py），以及本测试用的 stub 只按收盘
+	// 成交时 Go 侧的回报比对 —— 后者防的是「侧车改了什么而没人发现」那一类。
+	req.FillTiming = "next_open"
+	_, err = runner.RunBacktest(context.Background(), req)
+	require.Error(t, err, "next_open 到了只按收盘成交的侧车必须失败，不能静默按收盘跑完")
+	assert.ErrorIs(t, err, contracts.ErrFillTimingMismatch)
 }

@@ -43,6 +43,15 @@ func defaultWRConfig(capital float64) wrConfig {
 	return wrConfig{CapitalBase: capital, LimitRate: 0.10, LotSize: 100, DMax: 0.10}
 }
 
+// goLegCaliber 是 Go 侧执行腿**实际**的成交口径，取值就是本文件把委托送到
+// Tracker 时用的那个价源：`price := bar.Close`（决策当日收盘成交 = same_close）。
+//
+// 它被写成一个常量而不是在断言里现编，是为了让「声明」与「代码事实」必须一起
+// 改：TestGoLegCaliberMatchesFillPriceSource 会去读源码，确认本腿的成交价确实
+// 取自 bar.Close。声明与事实分叉是这里最坏的组合 —— 前置断言会一直绿着，
+// 而两边其实在比两种不同的成交。
+const goLegCaliber = contracts.FillTimingSameClose
+
 // wrResult 是 Go 侧回放产物：净值曲线 + 成交明细（与 NT 侧 wire 同形，
 // 两侧同喂 metrics.GenerateBacktestResult）。
 type wrResult struct {
@@ -112,6 +121,8 @@ func wrReplay(
 				continue // 停牌日：该 symbol 无 bar，侧车实例同样不被驱动
 			}
 			startOfDay(sym, day)
+			// 成交价基准 = goLegCaliber 所声明的那件事（当日收盘）。
+			// 改这一行的价源必须同时改那个常量，见其注释。
 			price := bar.Close
 			dayStart := dayOf(bar.Date)
 

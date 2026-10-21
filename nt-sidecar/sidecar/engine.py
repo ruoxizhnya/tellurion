@@ -361,6 +361,12 @@ def _map_result(
         "id": result.run_config_id or run_config_id,
         "status": status,
         "strategy": run_spec.strategy,
+        # QT-02 · echo the caliber this run actually filled at (weight_replay
+        # submits at bar.close → SERVED_FILL_TIMING). The Go runner asserts it
+        # equals what the request declared, so a sidecar that ever changes its
+        # fill price without changing this field fails closed at the kernel
+        # boundary instead of producing an silently-incomparable K15 diff.
+        "fill_timing": run_spec.fill_timing,
         "start_date": run_spec.start_date,
         "end_date": run_spec.end_date,
         "initial_capital": run_spec.initial_capital,

@@ -31,6 +31,21 @@ DEFAULT_INITIAL_CAPITAL = 1_000_000.0
 #: (heavy) NautilusTrader stack; mirrored by ``weight_replay.DEFAULT_D_MAX``.
 DEFAULT_D_MAX = 0.10
 
+#: QT-02 · the calibers the platform knows about, mirrored from the Go leaf
+#: package ``pkg/backtest/contracts/filltiming.go``. The two literals are the
+#: wire identity: they go into ``run_spec_hash`` and into K15's pre-flight
+#: comparison, so a rename here and a rename there are the same breaking change.
+KNOWN_FILL_TIMINGS = ("next_open", "same_close")
+
+#: The only caliber this kernel actually delivers. ``weight_replay`` submits at
+#: ``bar.close``, which is the Go kernel's ``same_close``.
+#:
+#: A request for a *known but unimplemented* caliber is **rejected**, not
+#: silently served at the close. The alternative is a run that reports
+#: ``next_open`` while filling at the close — a lying provenance record, which
+#: is the exact failure mode QT-02 exists to make impossible.
+SERVED_FILL_TIMING = "same_close"
+
 
 @dataclass(frozen=True)
 class RunSpec:
@@ -41,6 +56,11 @@ class RunSpec:
     start_date: str
     end_date: str
     kernel: str = SERVED_KERNEL
+    #: QT-02 · the caliber the run filled at. Defaulted **on the dataclass** (an
+    #: in-process construction is written by code that already knows what it
+    #: does); the wire path has no default — ``from_json`` rejects a missing or
+    #: unknown value before a run can start.
+    fill_timing: str = SERVED_FILL_TIMING
     index_code: str = ""
     initial_capital: float = DEFAULT_INITIAL_CAPITAL
     risk_free_rate: float = 0.0
@@ -85,6 +105,8 @@ class RunSpec:
                 f"(only {SERVED_KERNEL!r})"
             )
 
+        fill_timing = _parse_fill_timing(payload)
+
         params = payload.get("engine_params")
         if params is None:
             params = {}
@@ -111,6 +133,7 @@ class RunSpec:
             start_date=start_date,
             end_date=end_date,
             kernel=kernel,
+            fill_timing=fill_timing,
             index_code=str(payload.get("index_code") or ""),
             initial_capital=capital,
             risk_free_rate=float(risk_free),
@@ -225,6 +248,42 @@ def _parse_signals(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
             {"symbol": symbol.strip(), "weight": weight_f, "as_of": text}
         )
     return tuple(rows)
+
+
+def _parse_fill_timing(payload: dict[str, Any]) -> str:
+    """QT-02 · the fill caliber, required on the wire and served strictly.
+
+    Three rejections, three different fixes — they are kept as distinct messages
+    so the reader knows which side to change:
+
+    * missing  → the caller never declared a caliber (Go fills this in from
+      ``EffectiveFillTiming``; a payload without it came from something that
+      bypassed the runner);
+    * unknown  → a typo or a caliber this build doesn't know (the Go side keeps
+      the same literal set);
+    * known but not served → this kernel would fill at the close while reporting
+      another caliber. That one is the dangerous case, so it is refused here
+      rather than being quietly satisfied.
+    """
+    raw = payload.get("fill_timing")
+    if raw is None or not str(raw).strip():
+        raise RunSpecError(
+            "run spec: 'fill_timing' is required, not defaulted by the kernel "
+            f"(known: {' | '.join(KNOWN_FILL_TIMINGS)})"
+        )
+    value = str(raw).strip()
+    if value not in KNOWN_FILL_TIMINGS:
+        raise RunSpecError(
+            f"run spec: 'fill_timing' {value!r} is not a known caliber "
+            f"(known: {' | '.join(KNOWN_FILL_TIMINGS)})"
+        )
+    if value != SERVED_FILL_TIMING:
+        raise RunSpecError(
+            f"run spec: 'fill_timing' {value!r} is not implemented by the nautilus kernel, "
+            f"which fills at {SERVED_FILL_TIMING!r} — rejected rather than filling at the "
+            "close while reporting otherwise (K15 would compare two different calibers)"
+        )
+    return value
 
 
 def _require_str(payload: dict[str, Any], key: str) -> str:

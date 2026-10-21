@@ -214,6 +214,8 @@ type runRequest struct {
 	Kernel         string                   `json:"kernel"`
 	EngineParams   map[string]any           `json:"engine_params,omitempty"`
 	Signals        []contracts.SignalWeight `json:"signals,omitempty"`
+	// FillTiming 无 omitempty（QT-02）：口径必须到达侧车，缺它侧车拒收。
+	FillTiming string `json:"fill_timing"`
 }
 
 // equityPoint is one day of the sidecar's synthesised mark-to-market series
@@ -249,9 +251,13 @@ type tradeWire struct {
 // explicit place where "not reported" is folded into the frozen DTO (which has
 // no null representation).
 type runResponse struct {
-	ID             string   `json:"id"`
-	Status         string   `json:"status"`
-	Strategy       string   `json:"strategy"`
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Strategy string `json:"strategy"`
+	// FillTiming 是侧车**实际按哪种口径成交**的自述（QT-02）。
+	// 读回报而不是信请求：请求说了不算，侧车可以把基准价换成别的价成交
+	// （Go 侧自己就刚修掉一处这样的覆盖）。
+	FillTiming     string   `json:"fill_timing"`
 	StartDate      string   `json:"start_date"`
 	EndDate        string   `json:"end_date"`
 	InitialCapital *float64 `json:"initial_capital"`
@@ -330,6 +336,10 @@ func (r *Runner) RunBacktest(ctx context.Context, req contracts.BacktestRequest)
 		Kernel:         req.EffectiveKernel(),
 		EngineParams:   req.EngineParams,
 		Signals:        req.Signals,
+		// QT-02：口径**总是**随请求发出（不用 omitempty）。空值到了侧车那头
+		// 会被当成「没声明」而拒收，而不是让它自己猜一个 —— 两侧各猜一次就
+		// 是两种成交口径，双跑从入口起已经不可比。
+		FillTiming: req.EffectiveFillTiming().String(),
 	})
 	if err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
@@ -430,6 +440,18 @@ func (r *Runner) RunBacktest(ctx context.Context, req contracts.BacktestRequest)
 		}
 	}
 
+	// QT-02 · 跨内核前置断言（§8.1 跨内核行）：两侧口径不一致就在这里拦掉，
+	// **不进入结果映射**。放在映射之前是因为「口径不符」不是结果层面的差异：
+	// 一旦让它产出一份 BacktestResponse，下游（K15 报告、验证器、比较端点）
+	// 拿到的是两份不同基准的数字，归因会在一场无法结束的争论上烧掉整轮双跑。
+	if err := contracts.CompareKernelCalibers(
+		contracts.KernelCaliber{Kernel: "request", FillTiming: req.EffectiveFillTiming().String()},
+		contracts.KernelCaliber{Kernel: KernelName, FillTiming: out.FillTiming},
+	); err != nil {
+		return nil, apperrors.Internal(fmt.Errorf(
+			"kernel %q: %w [%s]", KernelName, err, pt), "nautilus.RunBacktest")
+	}
+
 	return r.toResponse(req, out), nil
 }
 
@@ -514,6 +536,10 @@ func (r *Runner) toResponse(req contracts.BacktestRequest, out runResponse) *con
 		SharpeRatio:    deref(out.SharpeRatio),
 		SortinoRatio:   deref(out.SortinoRatio),
 		StockPool:      req.StockPool,
+		// QT-02：口径取侧车**回报**的值（上面那道断言已确认它与本次请求的
+		// 生效口径一致）；known_bias 与 Go 内核同一个生产者，两侧不许各拼一份。
+		FillTiming: out.FillTiming,
+		KnownBias:  contracts.FillTiming(out.FillTiming).KnownBiases(),
 	}
 	for _, p := range out.EquityCurve {
 		day, err := time.Parse(time.RFC3339, p.Date)

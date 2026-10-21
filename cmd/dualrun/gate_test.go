@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"tellurion/pkg/alert"
+	"tellurion/pkg/backtest/contracts"
 )
 
 // okReport 构造一份 K15 bh 实测值量级的报告（全部在阈值内）。
@@ -390,5 +393,56 @@ func TestGateAlerts_ProductionFireLogOnly(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("无 webhook 时日志腿必须点名 %q，got %q", want, out)
 		}
+	}
+}
+
+// ── QT-02 · 成交口径前置断言 ────────────────────────────────────────
+
+func TestCheckCaliberParity(t *testing.T) {
+	// 一致 → 放行；不一致 → 错误点名两侧内核与两个口径（读者要知道改哪一侧）。
+	if err := CheckCaliberParity(&contracts.BacktestResponse{FillTiming: "same_close"}); err != nil {
+		t.Fatalf("两侧同为收盘成交却被判口径不符: %v", err)
+	}
+
+	err := CheckCaliberParity(&contracts.BacktestResponse{FillTiming: "next_open"})
+	if !errors.Is(err, contracts.ErrFillTimingMismatch) {
+		t.Fatalf("got %v, want ErrFillTimingMismatch", err)
+	}
+	for _, want := range []string{"go/wrReplay", "nautilus", "same_close", "next_open"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("报文缺 %q: %v", want, err)
+		}
+	}
+
+	// 侧车没自述口径 = 未知，不是「大概按收盘」。
+	if err := CheckCaliberParity(&contracts.BacktestResponse{}); !errors.Is(err, contracts.ErrFillTimingMissing) {
+		t.Errorf("空口径被放行或误分类: %v", err)
+	}
+	// nil 响应必须失败而不是 panic（前置门在 main 的第一步就用它）。
+	if err := CheckCaliberParity(nil); err == nil {
+		t.Error("nil 响应被当成口径一致")
+	}
+}
+
+// TestGoLegCaliberMatchesFillPriceSource 是「声明与代码事实一起改」的机械形态。
+//
+// goLegCaliber 是给 K15 前置断言用的**自述**：本腿按什么价成交。它一旦与
+// wrreplay.go 里实际的价源分叉，断言就会一直绿着比对两种不同的成交 ——
+// 一份会撒谎的门禁比没有门禁更糟，所以这里去读源码而不是再写一个常量。
+func TestGoLegCaliberMatchesFillPriceSource(t *testing.T) {
+	raw, err := os.ReadFile("wrreplay.go")
+	if err != nil {
+		t.Fatalf("读 wrreplay.go 失败（这条腿需要源码互锁）: %v", err)
+	}
+	src := string(raw)
+
+	if got := goLegCaliber; got != contracts.FillTimingSameClose {
+		t.Fatalf("goLegCaliber = %q —— 声明变了必须连同本腿的价源一起改", got)
+	}
+	if strings.Contains(src, "price := bar.Open") {
+		t.Error("本腿已改成按开盘成交，但 goLegCaliber 仍声明 same_close —— 前置断言从此在骗人")
+	}
+	if !strings.Contains(src, "price := bar.Close") {
+		t.Error("wrreplay.go 的成交价来源不再是 bar.Close —— 请同步 goLegCaliber 与本条断言")
 	}
 }

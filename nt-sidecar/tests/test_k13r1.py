@@ -76,6 +76,7 @@ def _runspec(**overrides) -> RunSpec:
         "stock_pool": ["600000.SH"],
         "start_date": START,
         "end_date": END,
+        "fill_timing": "same_close",  # QT-02 · required on the wire
     }
     payload.update(overrides)
     return RunSpec.from_json(payload)

@@ -41,6 +41,7 @@ import (
 const ntSidecarCompleted = `{
 	"id": "nt-run-k13",
 	"status": "completed",
+	"fill_timing": "same_close",
 	"strategy": "buy_and_hold",
 	"start_date": "2024-01-02",
 	"end_date": "2024-06-28",

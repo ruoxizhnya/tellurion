@@ -196,3 +196,48 @@ func TestFillTiming_MismatchSentinelIsDistinctFromMissing(t *testing.T) {
 		t.Fatal("Unknown 与 Missing 互相可检索 —— 拼错与没给是同一条错误")
 	}
 }
+
+func TestCompareKernelCalibers(t *testing.T) {
+	same := KernelCaliber{Kernel: "go/wrReplay", FillTiming: "same_close"}
+	other := KernelCaliber{Kernel: "nautilus", FillTiming: "same_close"}
+
+	t.Run("一致时放行", func(t *testing.T) {
+		if err := CompareKernelCalibers(same, other); err != nil {
+			t.Fatalf("同口径被判成不符: %v", err)
+		}
+	})
+
+	t.Run("不一致时报文点名两侧内核与两个口径", func(t *testing.T) {
+		err := CompareKernelCalibers(same, KernelCaliber{Kernel: "nautilus", FillTiming: "next_open"})
+		if !errors.Is(err, ErrFillTimingMismatch) {
+			t.Fatalf("错误不可检索: %v", err)
+		}
+		for _, want := range []string{"go/wrReplay", "nautilus", "same_close", "next_open"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("报文缺 %q，读者不知道该改哪一侧: %v", want, err)
+			}
+		}
+	})
+
+	// 空值 / 野值不能被判成「与某个已知口径一致」，也不能被折成默认值：
+	// 未知就是未知，报出来的是 Missing / Unknown 而不是 Mismatch。
+	t.Run("未声明的一侧报 Missing 不是 Mismatch", func(t *testing.T) {
+		err := CompareKernelCalibers(same, KernelCaliber{Kernel: "nautilus", FillTiming: ""})
+		if !errors.Is(err, ErrFillTimingMissing) {
+			t.Fatalf("got %v, want ErrFillTimingMissing", err)
+		}
+		if errors.Is(err, ErrFillTimingMismatch) {
+			t.Errorf("缺声明被报成口径不符 —— 排障者会去改错的那一侧: %v", err)
+		}
+		if !strings.Contains(err.Error(), "nautilus") {
+			t.Errorf("报文没点名是右侧内核缺声明: %v", err)
+		}
+	})
+
+	t.Run("野值的一侧报 Unknown 不是 Mismatch", func(t *testing.T) {
+		err := CompareKernelCalibers(same, KernelCaliber{Kernel: "nautilus", FillTiming: "close"})
+		if !errors.Is(err, ErrFillTimingUnknown) {
+			t.Fatalf("got %v, want ErrFillTimingUnknown", err)
+		}
+	})
+}

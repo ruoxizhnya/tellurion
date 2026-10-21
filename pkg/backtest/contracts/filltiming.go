@@ -97,6 +97,40 @@ func ResolveFillTiming(raw string) (FillTiming, error) {
 	}
 }
 
+// KernelCaliber 是一个内核（或一条执行腿）「按什么口径成交」的自述。
+//
+// 带 Kernel 名不是为了好看：跨内核比对失败的报文必须一眼指出**哪一侧**要改。
+// 两个匿名字符串比出 next_open ≠ same_close 时，读者无从知道该去找 Go 还是侧车。
+type KernelCaliber struct {
+	Kernel     string // 内核 / 执行腿名（"go"、"nautilus"、"go/wrReplay"…）
+	FillTiming string // **实际成交**口径，不是「请求里想要的那个」
+}
+
+// CompareKernelCalibers 是两个内核成交前的**前置断言**（§8.1 跨内核行，K15）。
+//
+// 两侧都必须取自「实际成交」那一侧：Go 腿读自己代码里选定的价源，NT 腿读侧车
+// **回报里**声明的口径。读回报而不是信请求，是因为请求说了不算 —— Go 侧自己
+// 就刚修掉一处「执行服务把市单基准价覆盖成当日收盘」的缺陷（QT-02），同一类
+// 缺陷在别的实现里同样存在。
+//
+// 任一侧为空 = 未知 = 同样拒绝：不知道对方按什么成交就没有可比性可言，
+// 拿这种数字去归因是在错误的问题上烧掉一整轮双跑。
+func CompareKernelCalibers(a, b KernelCaliber) error {
+	left, err := ResolveFillTiming(a.FillTiming)
+	if err != nil {
+		return fmt.Errorf("%s kernel: %w", a.Kernel, err)
+	}
+	right, err := ResolveFillTiming(b.FillTiming)
+	if err != nil {
+		return fmt.Errorf("%s kernel: %w", b.Kernel, err)
+	}
+	if left == right {
+		return nil
+	}
+	return fmt.Errorf("%w: %s filled at %s but %s filled at %s — calibers differ, so no metric between them is comparable (align them before reading any diff)",
+		ErrFillTimingMismatch, a.Kernel, left, b.Kernel, right)
+}
+
 // EffectiveFillTiming 给出本次请求**实际生效**的口径：未声明回落
 // DefaultFillTiming，声明了原样透传（哪怕是不认识的值 —— 拒绝它不是这里的
 // 职责，Valid/ResolveFillTiming 那一侧才管，否则「拼错的值」会被静默换成

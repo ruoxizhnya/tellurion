@@ -46,6 +46,7 @@ import (
 const ntSidecarFullReceipt = `{
 	"id": "nt-us-run-d7",
 	"status": "completed",
+	"fill_timing": "same_close",
 	"strategy": "native_sma_cross",
 	"start_date": "2024-01-02",
 	"end_date": "2024-03-01",

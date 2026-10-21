@@ -87,8 +87,8 @@ func main() {
 	// 印花税与过户费走 DefaultTradingConfig（fees 包单一真相）。
 	commissionRate := 0.0003
 	kernelDesc := fmt.Sprintf(
-		"capital=%.0f commission=%.4f stamp/transfer=fees.Default(与 NT AShareFeeModel parity) slippage=0 D_max=0.10 lot=100 limit=±10%%",
-		*capital, commissionRate)
+		"capital=%.0f commission=%.4f stamp/transfer=fees.Default(与 NT AShareFeeModel parity) slippage=0 D_max=0.10 lot=100 limit=±10%% fill_timing=%s(两侧一致，成交前已断言)",
+		*capital, commissionRate, goLegCaliber)
 
 	// ── Go 侧 ×2（确定性腿）───────────────────────────────────────
 	cfg := defaultWRConfig(*capital)
@@ -111,12 +111,24 @@ func main() {
 		RiskFreeRate:   *rf,
 		Kernel:         nautilus.KernelName,
 		Signals:        signals,
+		// QT-02：双跑**显式声明**口径，不继承默认值。默认值是会变的
+		// （DefaultFillTiming 的切换纪律），而 K15 的容差表是在同一口径下
+		// 标定的 —— 让基准测量跟着默认值漂移，等于每天重标一次尺子。
+		FillTiming: goLegCaliber.String(),
 	}
 	if err := req.ValidateRunSpec(); err != nil {
 		must(err, "validate run spec")
 	}
 	ntResp1, err := runner.RunBacktest(ctx, req)
 	must(err, "nautilus run #1")
+	// QT-02 · K15 前置断言（§8.1 跨内核行）：**先比口径，再比数字**。
+	// 这一条必须在 buildReport / EvaluateGate 之前：口径不符时两侧的数字根本没有
+	// 可比性，放进阈值表里判出来的是一条无法归因的「超差」，读者会去查价源精度，
+	// 而真正的问题是两边压根不是同一种成交。
+	//
+	// Go 侧的值取 goLegCaliber（wrReplay 实际按 bar.Close 成交），NT 侧取
+	// **回报里的** fill_timing —— 不取 req.FillTiming，请求说了不算。
+	must(CheckCaliberParity(ntResp1), "fill_timing parity")
 	ntResp2, err := runner.RunBacktest(ctx, req)
 	must(err, "nautilus run #2")
 	// 同上：忽略响应 ID（侧车每次 run 生成新的 run_config_id）。

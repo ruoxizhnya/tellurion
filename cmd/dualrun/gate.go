@@ -37,7 +37,29 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"tellurion/pkg/backtest/contracts"
+	"tellurion/pkg/backtest/nautilus"
 )
+
+// CheckCaliberParity 是 K15 的**成交前**断言（QT-02 ③-⑤）。
+//
+// 为什么它在阈值门禁之前、而且不是一条 GateViolation：口径不符时两侧的数字
+// **根本没有可比性**。让它带着一条违例进报告，读者会按 K15 那套价源精度去归因
+// 一个并不存在的差异 —— 与「以为在测 NT 其实在测 Go」同类的错误，只是发生在
+// 价格时点维度。所以这里直接 error 出去，双跑不产出任何对账结论。
+//
+// Go 侧的值来自 goLegCaliber（本腿实际的价源），NT 侧来自侧车**回报里的**
+// fill_timing —— 回报而不是请求，请求说了不算。
+func CheckCaliberParity(nt *contracts.BacktestResponse) error {
+	if nt == nil {
+		return fmt.Errorf("dualrun: no nautilus response to compare calibers against")
+	}
+	return contracts.CompareKernelCalibers(
+		contracts.KernelCaliber{Kernel: "go/wrReplay", FillTiming: goLegCaliber.String()},
+		contracts.KernelCaliber{Kernel: nautilus.KernelName, FillTiming: nt.FillTiming},
+	)
+}
 
 // tolerance 是一个指标的容差。Kind 区分相对差/绝对差两种口径。
 type tolerance struct {

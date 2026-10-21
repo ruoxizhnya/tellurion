@@ -384,6 +384,7 @@ class MultiSymbolCapitalBudgetTest(unittest.TestCase):
                     "stock_pool": list(symbols),
                     "start_date": "2024-01-02",
                     "end_date": "2024-01-07",
+                    "fill_timing": "same_close",  # QT-02 · required on the wire
                 }
             )
             result = run_backtest(spec, catalog_path=str(tmp))
@@ -431,6 +432,7 @@ class ServedSampleChainTest(unittest.TestCase):
                     "stock_pool": [SYMBOL],
                     "start_date": "2024-01-02",
                     "end_date": "2024-01-07",
+                    "fill_timing": "same_close",  # QT-02 · required on the wire
                 }
             )
             result = run_backtest(spec, catalog_path=str(tmp))

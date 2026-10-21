@@ -55,6 +55,7 @@ class RunSpecSignalsTest(unittest.TestCase):
             "stock_pool": ["000001.SZ"],
             "start_date": "2024-01-02",
             "end_date": "2024-03-29",
+            "fill_timing": "same_close",  # QT-02 · required on the wire
             "signals": signals,
         }
 
