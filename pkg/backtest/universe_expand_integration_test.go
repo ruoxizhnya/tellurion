@@ -29,6 +29,15 @@ import (
 
 func universeDSN(t *testing.T) string {
 	t.Helper()
+	// QT-61：这两条用例要真库里有 csi300 成分快照（2024-10-31~2026-09-30）才谈得上判据。
+	// 它原先用硬编码 DSN 默认值去连 CI 提供的 postgres service（空库、无迁移），于是
+	// require.NoError 因表不存在直接红 —— 而「红」混在噪声里没人看（正是 QT-61 要消灭的）。
+	// 改成像其余 DB 测试那样显式 opt-in：默认 SKIP（在 CI 汇总里点名「未覆盖」，非静默忽略），
+	// 只有 TEST_UNIVERSE=1 且 DSN 指向已灌成分的库时才真正执行。
+	if os.Getenv("TEST_UNIVERSE") != "1" {
+		t.Skip("[test-universe] 未覆盖：csi300 universe 展开/破坏验证需真库灌成分快照。" +
+			"设 TEST_UNIVERSE=1 并把 DATABASE_URL/DATABASE_* 指向已灌 csi300 的库才执行（见 docs/TASKS.md QT-61）。")
+	}
 	port := 5432
 	if p, err := strconv.Atoi(os.Getenv("DATABASE_PORT")); err == nil && p > 0 {
 		port = p

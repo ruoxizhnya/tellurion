@@ -54,6 +54,22 @@ class FillReportFeeRegressionTest(unittest.TestCase):
     """
 
     def test_fills_report_commission_is_full_fee_schedule(self):
+        catalog = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "catalog"
+        )
+        # QT-61：这条端到端腿依赖 nt-sidecar/catalog —— 那是 tools/export_bars.py 的
+        # 生成物、不入库，而 `python` CI 任务刻意「不依赖任何外部服务」（无 PG 可导出）。
+        # 缺它时显式 skipTest 并点名原因，不是静默忽略、也不是 continue-on-error（QT-61 §④）：
+        # CI 汇总里能看到「这条被跳了、为什么」。纯费率数学仍由本文件的 test_fee_model_* 覆盖，
+        # 这里只跳过「fills 报告列 == 全项」这条需要真 catalog 的集成腿。在已 materialize
+        # catalog 的环境（开发者 export 后 / 有 PG 的流水线）本条照常执行，护栏不失牙。
+        if not os.path.isdir(catalog):
+            self.skipTest(
+                "catalog 未生成：nt-sidecar/catalog 是 tools/export_bars.py 的生成物、未入库，"
+                "python 任务无 PG 不生成它。跑 `python tools/export_bars.py --symbols ... "
+                "--out nt-sidecar/catalog` 后此端到端腿即恢复执行（QT-61）。"
+            )
+
         from sidecar.engine import run_backtest
         from sidecar.runspec import RunSpec
 
@@ -67,9 +83,6 @@ class FillReportFeeRegressionTest(unittest.TestCase):
                 {"symbol": "000001.SZ", "weight": 0.5, "as_of": "2024-01-02"},
                 {"symbol": "600000.SH", "weight": 0.5, "as_of": "2024-01-02"},
             ),
-        )
-        catalog = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "catalog"
         )
         payload = run_backtest(spec, catalog_path=catalog)
         self.assertEqual(payload["status"], "completed", payload["error"])

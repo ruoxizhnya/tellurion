@@ -122,6 +122,15 @@ jobs:
         env:
           TUSHARE_TOKEN: ""
 
+      # QT-61：把「默认跳过、且需要外部数据的用例面」在 CI 汇总里点名，让「绿」里
+      # 看不见的覆盖缺口变成一条可见的 notice —— 不是把它们变红（那是噪声），也不是
+      # 静默忽略（那会永久掩盖缺口）。这两条用例原先连 CI 空 postgres service 直接红。
+      - name: Report universe suite not covered (QT-61)
+        run: |
+          if [ "${TEST_UNIVERSE:-}" != "1" ]; then
+            echo "::notice title=QT-61 未覆盖面::pkg/backtest 的 csi300 universe 展开 + 破坏验证（TestResolveStockPool_UniverseCsi300Expands / _FailsLoudWhenConstituentsEmpty）默认跳过：需真库灌 csi300 成分快照（2024-10-31~2026-09-30）。设 TEST_UNIVERSE=1 指向已灌库即可真正执行。"
+          fi
+
   # frontend job 已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
   # 前端 lint / typecheck / test 的 CI 现在由 tellurion-ui 仓自己的
   # workflow 承担（见该仓 .github/workflows/ci.yml）。
@@ -153,6 +162,17 @@ jobs:
         run: python -B -m unittest discover -s tests -t .
         env:
           PYTHONDONTWRITEBYTECODE: "1"
+
+      # QT-61：`python` 任务刻意不依赖外部服务（无 PG），无法 materialize nt-sidecar/catalog，
+      # 故 fills 报告端到端腿在缺该生成物时显式 skip。这里把「跳过的是哪条、为什么」在 CI 汇总
+      # 点名 —— 缺口可见，不是静默忽略（QT-61 §④ 不许静默 skip / 不许 continue-on-error）。
+      # 注：align-gate 任务自己会 export catalog 并跑真双跑，这条腿在有 catalog 的环境照常执行。
+      - name: Report catalog-dependent suite skipped (QT-61)
+        if: always()
+        run: |
+          if [ ! -d nt-sidecar/catalog ]; then
+            echo "::notice title=QT-61 未覆盖面::nt-sidecar 的 fills 报告端到端腿（tests.test_k15r1_fees.FillReportFeeRegressionTest）因 catalog 生成物缺失而显式跳过；纯费率数学仍由同文件 test_fee_model_* 覆盖。跑 export_bars.py --out nt-sidecar/catalog 后自动恢复。"
+          fi
 
   align-gate:
     name: Dual-run alignment gate
