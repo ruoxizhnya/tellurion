@@ -685,6 +685,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    第二轮自审把两条测试重复的那句 `Contains` 去掉（一个判据一处断言）后**再跑一遍这条腿**：
 >    仍 **1 条红（EXIT=1）** —— 去重没把牙口一起去掉，报文出处的断言唯一落在主腿测试上。
 > 4. 摘掉 juchao 的 `adjunctUrl` 兜底腿 ⇒ 2 条红 ✅（兜底腿不是主腿，但也确有断言指着它）
+> 5. 把量级自检的**上界**放开（`y > 2100` → `y > 200000`）⇒ **原有全套用例全绿（EXIT=0）** ⚠️ 这是第三轮审查
+>    逮到的真覆盖面缺口：上界那条腿当时没人管（`epoch_seconds_*` 测的是下界 1970）。补两条 epoch **微秒**
+>    用例后重跑同一条腿 ⇒ **2 条红（EXIT=1）** ✅。还原 `sha256sum -c` OK。
+>    —— 三条「先绿后红」的腿（第 3、5 条）都是同一类：**新加的闸没有对应的绝对数值断言就等于没加**。
 >
 > **⑥ ③-③ 的登记（全仓同类形状）**：多行 grep `time.Parse…return time.Now()` 全仓**只有 `:725` 一处**，本单已收口。
 > `pkg/clock/interfaces.go:124`、`pkg/live/margin/margin_account.go:1016`、`cmd/analysis/handlers_compliance.go:85`
@@ -702,7 +706,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > ② ③-④ 的「真库落库日期」用**适配器边界的夹具断言代替**（源给的日期原样交到 `DataItem.TradeTime`），
 > 落库那一段是 `bulk_insert.normalizeDate` 的既有职责，本单未起 DB；下次全仓套件时顺手确认即可。
 >
-> **⑨ 第二轮自审订正（2026-10-21，逐句核对叙述与实现后发现的五处）**：
+> **⑨ 第二/三轮自审订正（2026-10-21，逐句核对叙述与实现后发现的六处）**：
 > 1. **事实错误**：测试注释与我上面 ③ 都写过「落库列是 DATE」—— 不实。`announcements.ann_time` 是
 >    **TIMESTAMPTZ**（`pkg/storage/postgres.go:815`），`top_list.trade_date` 才是 DATE。判据本身没错，
 >    理由要换成**这条链声明的语义**（`VisibleOnAnnouncementDay` + `FreqSpecEvent` ⇒ 公告日粒度），已改。
@@ -718,6 +722,15 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    而 `ProcessResult.Skipped` 只统计 ETL 之后被 normalizer 丢弃的行 ⇒ **公告链上这一类丢弃没有可见计数**。
 >    同族惯例也是这样（`fetchTopList`/`fetchSectorList` 对空 symbol/空名 `continue`），所以本单按 ③-②
 >    授权的「拒收该行」执行并在此登记；要给公告链加计数，得动 adapter 的返回面，那不属于「日期解析失败的处理」这一件事。
+> 6. **影响面取证（决定这单今天是「修坏」还是「防坏」）**：公告链今天**没有生产者作业、也没有读方** ——
+>    全仓 grep `DataTypeAnnounce` 的装配点只有 `cmd/data/registry_init.go:295` 那一条 `SetChain`，没有对应
+>    job_type；`announcements` 表零读方（core 无 SELECT / 无 handler，`tellurion-agent` 与 `tellurion-ui` 两侧
+>    `announcements`/`ann_time` 各 0 命中）⇒ 本修正今天**不改变任何落库行数**，属「接线前先修对」；
+>    这也解释了为什么拿不到「库里一堆今天日期的公告」这种历史脏行主证据 —— 那条链从没被作业跑过。
+>    龙虎榜那侧不同：`top_list` 今天 256 行是真数据（DBT-10 灌的），它受影响的路径已在 DBT-10 用
+>    带时刻形状补齐后关掉一半，本单关掉剩下那一半（读不懂当今天）。
+>    另：⑧ 的「真库落库日期」那条腿今天**确认拿不到** —— `docker ps` 无输出（引擎未运行）且仓内无 `.env`
+>    （无 DSN），不是忘了跑。
 
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜
 

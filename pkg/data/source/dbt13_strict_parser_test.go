@@ -95,6 +95,17 @@ func TestParseAnnouncementTime_ReadsTheShapeTheSourceSends(t *testing.T) {
 			wantDay:  dayUTC(2026, 8, 15),
 			wantRead: true,
 		},
+		// 量级自检的另一侧：秒测的是**下界**（1970），下面两条测的是**上界**。
+		// 上界这条在第二轮审查前是没人管的 —— 把 `y > 2100` 改成 `y > 200000` 当时的全套测试全绿。
+		"epoch_micros_falls_back_to_url": {
+			row:      juchaoRow("1", "T", float64(juchaoFixtureEpochMS*1000), "finalpage/2026-08-15/1.PDF"),
+			wantDay:  dayUTC(2026, 8, 15),
+			wantRead: true,
+		},
+		"epoch_micros_alone_is_not_read_as_year_58000": {
+			row:      juchaoRow("1", "T", float64(juchaoFixtureEpochMS*1000), ""),
+			wantRead: false,
+		},
 		"nothing_at_all": {
 			row:      juchaoRow("1", "T", nil, ""),
 			wantRead: false,
