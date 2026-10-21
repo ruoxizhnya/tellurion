@@ -221,7 +221,10 @@ jobs:
           NT_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
 
       - name: Start sidecar
-        run: python -m sidecar --host 127.0.0.1 --port 9100 --catalog nt-sidecar/catalog &
+        # 坑：本步 working-directory=nt-sidecar，若照抄 export 步的相对路径
+        # `--catalog nt-sidecar/catalog` 会被解析成 nt-sidecar/nt-sidecar/catalog（双段）。
+        # 用 $GITHUB_WORKSPACE 绝对路径，与 cwd 无关，也和上面那步的 --out 对齐。
+        run: python -m sidecar --host 127.0.0.1 --port 9100 --catalog "$GITHUB_WORKSPACE/nt-sidecar/catalog" &
         working-directory: nt-sidecar
 
       - name: Wait for sidecar healthz
