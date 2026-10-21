@@ -40,6 +40,9 @@
 | **编排服务** | `run` | backtest_jobs（~~strategy_state（断点）~~ ⚠️ 2026-10-21 H5 裁决不归 `run`，见下） | ✅ |
 | **内核** | `run`（结果面） | 回测结果表 `backtest_results`（`BacktestResult` / `Trade` 等） | ✅ **owner = core（2026-10-21 裁决，单一写者；orchestration 只经 API 读结果）**；其余数据只读写通过 port |
 | **内核（回测域）** | 无 schema 前缀（`public`） | `backtest_adjustment_anchors`（回测复权锚点） | ✅ **owner = core 回测域（2026-10-21 裁决）**；写者 `tellurion:pkg/backtest/adjustment_snapshot.go` |
+| **数据服务（因子域）** | 无 schema 前缀（`public`，现状） | `factor_hypothesis` / `factor_returns` / `ic_analysis` | ✅ **owner = tellurion-data（SPEC-R-02）**；DDL 文本在 core `pkg/storage/postgres.go`，写者 `tellurion:pkg/storage/factor_hypothesis.go` 与 `cache.go` |
+| **内核（strategy-runtime）** | `quant` | `quant.strategy_state` / `quant.external_signals` | ✅ **owner = core strategy-runtime 模块（H5 + SPEC-R-02）**；DDL 文本在 core `pkg/storage/postgres.go`（Migration 055 / 048），模块侧 `EnsureSchema` 仅幂等兜底 |
+| **内核（鉴权域）** | 无 schema 前缀（`public`） | `users`（含会话/角色） | ✅ **owner = core（ADR-017 鉴权域，SPEC-R-02）**；写者 `tellurion:pkg/auth/auth.go` |
 
 > ⚠️ **2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：`strategy_state` 归 **strategy-runtime 模块**（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`——本文「`strategy_state` 归编排服务 / 迁 `run`」的旧口径**作废**（含上表编排行、下方第 3 条与风险表对应行）；`backtest_jobs` 迁 `run` 不受影响。
 

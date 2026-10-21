@@ -15,8 +15,8 @@ verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026
 > [archive/TASKS-2026-10-16-archived.md](archive/TASKS-2026-10-16-archived.md)——
 > DATA-01 :311、DATA-02 :483、DATA-03 :513、DATA-05 :578、DATA-07 :696、DATA-11 :722、
 > DATA-12 :762、DATA-13 :788、DATA-08 :809、DATA-10 :842、DATA-09 :881、DATA-06 :914。
-> ⚠️ **DATA-04 是复用号**：活台账 [TASKS.md](TASKS.md) 的 DATA-04 是「空集合编码 `null`/`[]`」
-> 新单；本文「DATA-04」引述的均是已归档的「成交量单位统一」单（同文件 :553）。
+> ✅ **DATA-04 已消歧（2026-10-21，SPEC-R-03）**：活台账中的「空集合编码 `null`/`[]`」单已换号为
+> **DATA-14**；本文所有「DATA-04」引述的均是已归档的「成交量单位统一」单（同文件 :553），归档旧单不改。
 >
 > **Changelog v1.3 (Migration):**
 > - 添加标准元数据头部（Status, Owner, Related）
@@ -2028,7 +2028,7 @@ SELECT create_hypertable('factor_cache', 'date');
 
 ### 模块化内核新表（2026-10-08，目标形态）
 
-> 以下表为模块化内核的目标 schema，遵循单一事实源、禁止双写。**尚未实施**者见表（`quant.strategy_state` 结构可由 `EnsureSchema` 幂等兜底建，但未并入 `migrate()`、生产零调用，待另案）；`quant.external_signals` **已随 K8 实施**（2026-10-12，见下节），不再列入本表。
+> 以下表为模块化内核的目标 schema，遵循单一事实源、禁止双写。**尚未实施**者见表；`quant.strategy_state` **已随 SPEC-R-01 实施**（2026-10-21，Migration 055，DDL 文本 `storage.StrategyStateSchemaDDL`，已并入 `migrate()`）；`audit.message_log` 同样已收编（Migration 054，`storage.AuditSchemaDDL`）；`quant.external_signals` **已随 K8 实施**（2026-10-12，见下节），不再列入本表。
 
 | 表 | 归属模块 | 用途 |
 |---|---|---|
@@ -2038,8 +2038,8 @@ SELECT create_hypertable('factor_cache', 'date');
 | `quant.orders` | exec-engine | 订单生命周期 |
 | `quant.fills` | exec-engine | 成交回报 |
 | `quant.recon_report` | exec-engine | 对账差异报告 |
-| `quant.strategy_state` | strategy-runtime | L2/L3 流式策略状态（`SaveState`）——**尚未实施**（另案） |
-| `audit.message_log` | eventstore | 模块间消息（先记录后分发，BusTap 语义） |
+| `quant.strategy_state` | strategy-runtime | L2/L3 流式策略状态（`SaveState`）——**已实施**（SPEC-R-01，Migration 055） |
+| `audit.message_log` | eventstore | 模块间消息（先记录后分发，BusTap 语义）——**已收编**（SPEC-R-01，Migration 054） |
 
 ### 外部模型信号注入（K8，已实施 — 2026-10-12）
 

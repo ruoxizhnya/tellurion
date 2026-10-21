@@ -101,7 +101,7 @@
 - **M7** `tellurion-agent:docs/api-schema.md:42`、`tellurion-ui:docs/api-schema.md:37` — SSE 事件名 `close`/`error` 虚列（`handlers_explore.go:439-455` 只 emit `progress`/`complete`；ui 侧无 explore SSE 消费）— 补实现或删事件名 — tellurion-agent / tellurion-ui。
 - **M8** `tellurion-agent:docs/api-schema.md:29` — 运维面列根级 `/stats`，`main.go` 只注册 `/health`、`/metrics`（全仓仅 `/api/copilot/stats`）— 删或改指 copilot 族 — tellurion-agent。
 - **M9** `tellurion-kit:docs/api-schema.md:15-29` — 12 包表全部未落地（仓内仅 doc.go）却无「实现状态」标注，与 contracts 状态列、X 线占位 banner 口径不一致 — 加状态列 — tellurion-kit。
-- **M10** 10 份 api-schema.md — 空集合编码语义（DATA-04：`null` vs `[]`）全员缺位登记（互不矛盾但集体缺失；ui 的 `?? []` 防御亦未入消费面）— DATA-04 定形后各仓补一节 — 各仓（挂 core DATA-04 统一驱动）。
+- **M10** 10 份 api-schema.md — 空集合编码语义（DATA-14，原 DATA-04：`null` vs `[]`）全员缺位登记（互不矛盾但集体缺失；ui 的 `?? []` 防御亦未入消费面）— DATA-14 定形后各仓补一节 — 各仓（挂 core DATA-14 统一驱动）。
 
 ### 命名与路径自洽
 - **M11** `tellurion-contracts:docs/api-schema.md:28` — 「D29 §3.2 写成 BrokerPort」节号错，实为 `repo-topology-and-naming.md` §3.3(:122) — 改 §3.3 — tellurion-contracts。
@@ -151,9 +151,9 @@
 
 ## 6. 已知线索核实结论
 
-1. **「6 schema / 52 表」计数**：口径不实。实数见 §1 计数实况（postgres.go 5 schema/52 条 CREATE TABLE[51 常驻+1 备份]，加 audit schema 与 `audit.message_log`、`quant.strategy_state` 两张仓外表 → 全库 6 schema/53 常驻表；`signal_store.go` 另有重复建表语句）。
+1. **「6 schema / 52 表」计数**：口径不实。实数见 §1 计数实况（postgres.go 5 schema/52 条 CREATE TABLE[51 常驻+1 备份]，加 audit schema 与 `audit.message_log`、`quant.strategy_state` 两张仓外表 → 全库 6 schema/53 常驻表；`signal_store.go` 另有重复建表语句）。**SPEC-R-01 收编后**（2026-10-21）：两张仓外表已并入 `migrate()`（Migration 054/055），`signal_store.go` 重复建表改为 storage 变量别名，postgres.go 现为 54 条 CREATE TABLE（53 常驻 + 1 备份）。
 2. **DATA-13 悬空引用**：属实但非丢失——单已 ✅（2026-10-16）归档于 `tellurion:docs/archive/TASKS-2026-10-16-archived.md:788`，4 处活文档引用未带 archive 路径（M1，属指针卫生）。
-3. **DATA-04 空集合契约族**：各仓 api-schema 全员缺位登记（M10），无相互矛盾；待 DATA-04 定形后统一补节。
+3. **DATA-14 空集合契约族**：各仓 api-schema 全员缺位登记（M10），无相互矛盾；待 DATA-14（原 DATA-04）定形后统一补节。
 
 ---
 
@@ -173,7 +173,7 @@
 | tellurion-strategy | H5 | 立单待裁 |
 | tellurion-kit | M9 | 客观订正 |
 | tellurion-analytics | L6 | 客观订正 |
-| 各仓 | M10 | 挂 core DATA-04 统一驱动，暂不各自改 |
+| 各仓 | M10 | 挂 core DATA-14（原 DATA-04）统一驱动，暂不各自改 |
 
 **需用户裁决项（已全部裁决 2026-10-21，用户拍板；落地见 §8）**：H1 缺件口径=「豁免+声明」（连带结 L3）；H5 `strategy_state` 归属=「归 strategy-runtime」；M18 BacktestResult/Trade 写者=「core 单一写者（orchestration 只读）」；M21 `backtest_adjustment_anchors`=「划归 core 回测域」。上表「待裁」字样以 §8 裁决记录为准。
 **冻结 schema 面（走 H1 变更评审，勿直接改）**：M3 DDL 收编、M19/M20 冻结标注类（标注本身不改 schema，可直接补文案）。
@@ -195,9 +195,9 @@
 - M12 行号漂移：`BrokerPort` 实际命中在 `tellurion-broker:docs/ARCHITECTURE.md:48`（审查所引 `api-schema.md:62` 不实），按实况修。
 - L4（agent 表名待 QT-17 回填）系有意待定项，合理保留。
 
-**立单登记（3 单，`tellurion:docs/TASKS.md` §九）**：SPEC-R-01（M3：3 处模块内自建表是否收编进 `migrate()`，涉 schema 面走 H1 评审）、SPEC-R-02（L7：factor_hypothesis / factor_returns / ic_analysis / quant.external_signals / users 五张无主表认领；factor_mining_records 已由 data 认领）、SPEC-R-03（DATA-04 新旧同号歧义换号）。M10（空集合语义节）挂现役 DATA-04 定形后统一补节，各仓暂不预写。
+**立单登记（3 单，`tellurion:docs/TASKS.md` §九）**：SPEC-R-01（M3：3 处模块内自建表是否收编进 `migrate()`，涉 schema 面走 H1 评审）、SPEC-R-02（L7：factor_hypothesis / factor_returns / ic_analysis / quant.external_signals / users 五张无主表认领；factor_mining_records 已由 data 认领）、SPEC-R-03（DATA-04 新旧同号歧义换号，现役单 → **DATA-14**）。M10（空集合语义节）挂现役 DATA-14（原 DATA-04）定形后统一补节，各仓暂不预写。
 
-**提交纪律**：本批 12 仓修复按仓原子提交（core 先行）；上批遗留 7 文件（QT-08 指针 ×5 + DATA-04 迁移 ×2）先行独立归口提交，不与本批混提。
+**提交纪律**：本批 12 仓修复按仓原子提交（core 先行）；上批遗留 7 文件（QT-08 指针 ×5 + DATA-14 迁移 ×2，原 DATA-04）先行独立归口提交，不与本批混提。
 
 **全量对账补修（2026-10-21，49 条逐条对账后收尾）**：对账口径为报告 49 条逐条三态核对（✅已修 / ➖合理保留 / ❌未修），结论 46+ ✅、L4 ➖（有意待定项）。对账查出 3 处遗漏并已补修：
 1. **M24 ❌→✅**：`tellurion-data:docs/ARCHITECTURE.md:49` 箭头方向当时漏修（§7 落点表建表时亦漏列 M24，均已补）——按 REPO-MAP 箭头图例反转为「四方 ──(HTTP)──► data」并加图例注。
