@@ -336,21 +336,22 @@ jobs:
           cache: true
 
       # 把 agent 的 `replace tellurion` 指到本 runner 上 checkout 的 core（含本次 PR 的改动），
-      # 再 build+vet。有意 breaking（如 abi v2 / QT-01）走**文件化** known-break 白名单：
+      # 再 build+vet —— 编译逻辑走 tools/ci/agent_compat.sh，与本地降级路径**同一份**
+      # （两处各写一边迟早漂移）。有意 breaking（如 abi v2 / QT-01）走**文件化** known-break 白名单：
       # .github/agent-compat-known-break 存在且非空时把红降级成 warning 并打印其内容 —— 那是
       # 一道进仓、reviewer 看得见的人在环签核（须与 agent 适配 PR 同批），**不是 continue-on-error
       # 那种无视成败的掩盖**；白名单留置期间不得静默合入无适配的破坏。文件不存在即严格红。
       - name: Build + vet agent against this core
         if: steps.pat.outputs.present == 'true'
-        working-directory: agent
+        env:
+          AGENT_REPO: ${{ github.workspace }}/agent
         run: |
-          go mod edit -replace tellurion=${{ github.workspace }}
-          if go build ./... && go vet ./...; then
-            echo "✅ agent-compat 绿：当前 core 改动不破 agent 编译"
-          elif [ -s ../.github/agent-compat-known-break ]; then
+          # 脚本自带红/绿结论与 ::error:: 报文；本步只往上叠 CI 专属的白名单政策。
+          if sh "$GITHUB_WORKSPACE/tools/ci/agent_compat.sh"; then
+            exit 0
+          elif [ -s "$GITHUB_WORKSPACE/.github/agent-compat-known-break" ]; then
             echo "::warning title=QT-18 known-break 白名单命中::agent 编译失败，但 .github/agent-compat-known-break 非空 ⇒ 按登记放行；必须附 agent 侧适配 PR。合入后尽快清除该文件。"
-            sed 's/^/  known-break: /' ../.github/agent-compat-known-break
+            sed 's/^/  known-break: /' "$GITHUB_WORKSPACE/.github/agent-compat-known-break"
           else
-            echo "::error::agent-compat 红：当前 core 改动破坏了 agent 编译。要么附 agent 适配 PR，要么在 .github/agent-compat-known-break 登记带单号的 known-break（QT-18 ③）。"
             exit 1
           fi

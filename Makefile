@@ -115,33 +115,12 @@ lint:
 # （abi v2 换 host 函数、错误分级改 getSignals 返回…）。要让「core 绿、agent 静默烂」
 # 在 core 侧当场暴露，就得拿当前 core 工作区去编一遍 agent。
 #
-# 这是 CI agent-compat job 的本地/降级等价物（未配只读 PAT secrets.AGENT_REPO_TOKEN 时，
-# 合入门禁靠这条 + PR 里贴出的输出兜住；PAT 就位后 CI job 在 runner 上跑同样的两步）。
-#
-# 刻意 clone 到临时目录、不在 ../tellurion-agent 里原地改 go.mod：那会脏了开发者
-# 正在编辑的 agent 工作区。replace 指向 $(CURDIR)（当前 core 工作区，含未提交改动）,
-# 所以它验的是「我这次 core 改动会不会破 agent 编译」，正是 PR 想问的。只 build/vet，
-# 不跑 agent 单测（那些要 core 二进制/DB，成本不成比例，且不是本护栏的职责）。
-AGENT_REPO ?= ../tellurion-agent
+# 逻辑只在 tools/ci/agent_compat.sh 里有一份（CI 的 agent-compat job 调同一条脚本）。
+# 本机 Windows + Git Bash **没有 make**，所以降级门禁的正子是那条脚本：
+#     sh tools/ci/agent_compat.sh
+# 本目标只是给有 make 的环境留一个顺手入口。
 agent-compat:
-	@echo "🔗 agent-compat: 用当前 core 工作区编译 agent（QT-18 编译连体护栏）..."
-	@if [ ! -d "$(AGENT_REPO)" ]; then \
-		echo "::error::找不到兄弟 agent 仓 $(AGENT_REPO)。降级路径需本机把 tellurion-agent checkout 在 core 同级目录（QT-18 ①-b）。"; exit 1; \
-	fi
-	@tmpdir="$$(mktemp -d)"; \
-	trap 'rm -rf "$$tmpdir"' EXIT; \
-	git clone --quiet "$(AGENT_REPO)" "$$tmpdir/tellurion-agent" || { echo "::error::克隆 $(AGENT_REPO) 失败"; exit 1; }; \
-	cd "$$tmpdir/tellurion-agent" && \
-	go mod edit -replace tellurion="$(CURDIR)" && \
-	echo "  → go build ./..." && go build ./... && \
-	echo "  → go vet ./..."   && go vet ./...; \
-	ec=$$?; \
-	if [ $$ec -ne 0 ]; then \
-		echo "::error::agent-compat 红：当前 core 改动破坏了 agent 编译。附 agent 侧适配 PR，或在 PR 登记 known-break（见 QT-18 ③）后合入。"; \
-	else \
-		echo "✅ agent-compat 绿：当前 core 改动不破 agent 编译"; \
-	fi; \
-	exit $$ec
+	@sh tools/ci/agent_compat.sh
 
 help:
 	@echo ""
@@ -176,7 +155,7 @@ help:
 	@echo "Utilities:"
 	@echo "  test               Run Go tests"
 	@echo "  lint               Run golangci-lint"
-	@echo "  agent-compat       Build+vet tellurion-agent against THIS core workspace (QT-18 cross-repo compile guard / CI fallback)"
+	@echo "  agent-compat       Shorthand for tools/ci/agent_compat.sh (QT-18 cross-repo compile guard; run the script directly when make is unavailable, e.g. Git Bash on Windows)"
 	@echo "  clean              Clean up Docker resources"
 	@echo "  help               Show this help message"
 	@echo ""

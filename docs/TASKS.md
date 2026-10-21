@@ -838,3 +838,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **合入门禁（硬约束，不是建议）**：⓪ ~~QT-60 未完成前 QT-06 不得开工~~ → **已满足（QT-60 于 2026-10-20 完成）**，tag 现在可以打在新仓；新增 ⓪' **QT-61 的「gofmt + doc-links」两项绿之前，QT-06 的「两仓 CI 绿」验收不可达**——要么先做 QT-61，要么把 QT-06 验收改成「本次改动相关的 job 绿 + 其余 known-fail 登记」；① **QT-18 未合入 main 前，QT-01 不得合入**——第一个 breaking 就在 QT-01 的 abi v2，护栏不在就会漏；② QT-05 未合入前，QT-07 不得开工；③ QT-07/QT-09 未绿前，不得在任何仓新增跨仓 `replace`（D29 §9 C1）。
 - **新需求优先于存量未完成任务**；与旧任务重叠的可合并或直接删除，跨仓迁移的任务条目保留可追溯指针。
 - 归档文件的状态标记若与自身完成记录矛盾，**只在文件头加订正说明**，条目正文与标题的历史措辞不改写。
+>
+> **⚠️ 自审订正（2026-10-21 第二轮）——上面「降级门禁 `make agent-compat`（已本地验证）」这句被证伪了一半**：命令序列本身没问题，**`make` 在主力开发机上不存在**（Windows + Git Bash，`command -v make` 退出 1）。一条只在 Linux 才跑得动的合入门禁，等于没门禁 —— 而这正是 PAT 缺席时唯一兜底的那条。处置：
+> - 逻辑整体抽到 **`tools/ci/agent_compat.sh`**（POSIX sh，Git Bash 直接 `sh tools/ci/agent_compat.sh`）；`make agent-compat` 退化为它的一行 wrapper（`help` 里注明「没有 make 就直跑脚本」），PR 模板那条勾选项同步改成脚本命令。
+> - **CI 的 `Build + vet agent against this core` 步现在调同一份脚本**（原来是 workflow 里内联第二份 clone+replace+build/vet —— 两处各写一遍迟早漂移，CI 那份改了本地那份忘了，正是本单要防的失效模式）。白名单政策仍留在 workflow 里（那是 CI 专属的一层）。
+> - 脚本比原 Makefile 多两道 fail-loud：`go` 不在 PATH 直接报「先导出 SDK 目录」；`mktemp` 失败也报，不再让 `rm -rf ""` 那种静默吞掉失败。agent 侧取的是其 **HEAD**（未提交的 agent 改动不参与，与 CI 同款语义）——这条原先没写明，现写进脚本注释。
+> - **真跑取证**：本机 `sh tools/ci/agent_compat.sh` 对当前 core 工作区 **绿（退出 0）**；破坏腿 = 临时 clone 一份 agent 副本、加一个引用 `expression.SymbolThatDoesNotExistQT18` 的包并提交，`AGENT_REPO=` 指它 ⇒ 打印 `qt18break\break.go:5:25: undefined: expression.SymbolThatDoesNotExistQT18` + `::error::` + **退出 1**（护栏有牙齿）。
+> - **CI 步骤文本用桩脚本在沙箱跑过四种情形**（PAT 没配 ⇒ 这段在线上永不执行，只能这样先验）：编得过→0；编不过 + 白名单非空→0 且**恰好一条** `::warning`；编不过 + 无白名单→1；编不过 + **零字节**白名单文件→1（`[ -s ]` 保证空文件中和不了门禁）。
+> - **仍未做（不变，等主任）**：`secrets.AGENT_REPO_TOKEN` 没配 ⇒ 线上 `agent-compat` job 的四步里 checkout/setup-go/build 全 `skipped`、结论仍 `success` —— **它的绿不代表跨仓编译门跑过**，当前唯一真证据就是上面那条脚本。PAT 就位后按 §⑤ 补一次线上真破坏腿。
