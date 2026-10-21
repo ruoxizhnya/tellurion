@@ -280,6 +280,14 @@ jobs:
       - name: Check deploy consistency (compose ↔ k8s)
         run: python tools/check_deploy_consistency.py
 
+      # QT-08：十二仓自治自检（R1~R6）的汇总入口。CI 上只有 core 被 checkout，
+      # 其余兄弟仓缺席 ⇒ 脚本会核 core 自身（R1 无仓外 replace、R2 有 CI+测试、R3 缺口登记）
+      # 并显式列出「未在机器上 checkout」的仓；**全 12 仓的完整汇总在兄弟仓齐的机器上跑**
+      # （`python tools/check_repo_autonomy.py`）。它红了 = core 自己的自治不变量被破，或
+      # 某已知缺口的台账登记号消失了。
+      - name: Repo autonomy self-check (R1~R6)
+        run: python tools/check_repo_autonomy.py
+
   # ── QT-18：过渡期 core↔agent 编译连体护栏 ──────────────────────────
   # S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换
   # host 函数、错误分级改 getSignals 返回、per-run 实例改 Registry.Get 语义、检查点主键变更）。
