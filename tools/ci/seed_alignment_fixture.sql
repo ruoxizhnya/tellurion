@@ -117,7 +117,11 @@ SELECT
     (p.price * 1.004)::numeric(18,4)::float8 AS high,
     (p.price * 0.996)::numeric(18,4)::float8 AS low,
     (p.price)::numeric(18,4)::float8 AS close,
-    2000000 + 400000 * sin(0.37 * p.i) AS volume,
-    (p.price * (2000000 + 400000 * sin(0.37 * p.i)))::float8 AS turnover,
+    -- volume 必须是整数值：NT 翻译层 mapping.as_quantity 对非整数 volume 直接
+    -- fail-loud（"翻译层不悄悄取整"，见 sidecar/mapping.py）。真实日线 volume 是整数
+    -- 股数（tushare「手」在 pkg/data 同步时已按 sharesPerLot 换算，migration 052 对齐），
+    -- 所以合成夹具这里取整才是合法数据 —— 不是绕过判定，是让夹具与真实口径一致。
+    round(2000000 + 400000 * sin(0.37 * p.i))::float8 AS volume,
+    (p.price * round(2000000 + 400000 * sin(0.37 * p.i)))::float8 AS turnover,
     1 AS trade_days
 FROM px p;
