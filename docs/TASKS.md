@@ -617,6 +617,24 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：归属结论成文 + 指针登记；跨仓那半在其归属仓台账里写全六字段。
 - **⑥ 边界**：只做归属与契约指针；实现细节属 agent 仓。
 
+> **2026-10-21 自 `tellurion-ui:docs/TASKS.md` 迁入**（该单原标注「待迁 core」，归属 core 的 `cmd/data` + `pkg/storage`；六字段原样迁入、正文不改写，ui 仓只留指针）。
+
+### DATA-04 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）⬜ 待做
+
+- **① 目标**：集合型端点在**结果为空**时返回 `[]`（或 SPEC 明写可为 `null` 并让所有消费方按可空处理），二选一，不能一边声明数组一边给 `null`。
+- **② 上下文**（2026-10-14 curl 当场实测，不是读码推测）：
+  - `GET :8085/api/sync/jobs?status=pending` → `{"count":0,"jobs":null}`。
+  - 根因形状：Go 侧 `Jobs []*SyncJob` 为 nil 时 `encoding/json` 编出 `null`，`[]` 需要显式初始化；`docs/openapi.yaml` 与前端类型 `web/src/types/sync.ts:60`（`jobs: SyncJob[]`）都按**必有数组**写。
+  - 前端已止血（本轮 A-08：`stores/sync.ts` 的 `resp.jobs ?? []`，并有单测钉住真形状），但**止血不等于契约对了**：下一个客户端（agent 的 MCP 工具、curl 脚本、别的 SPA 页面）照类型写就会踩。本轮实测里同一个形状在 `schedules` 那条上也有对应处理（`resp.schedules ?? []`），说明这不是孤例而是**一族**。
+  - **第三个实测实例（2026-10-16，core DATA-11 自审时顺带查出，已登记为 core `DATA-13`）**：`GET :8085/api/ohlcv/600000.SH?start_date=2024-01-01&end_date=2024-12-31` ⇒ **200 `{"ohlcv":null}`**，同参换 `20240101/20241231` ⇒ 200 带真行。成因不是「集合端点忘了初始化」而是**日期格式被吞**：`pkg/data/cache.go:60` 的 `parseDate` 写着 `t, _ := time.Parse("20060102", s)`，注释自承「Returns zero time on error」⇒ ISO 写法塌成零值日期、查询范围 `[0001-01-01, 0001-01-01]`、结果 nil slice 编成 `null`。分工提醒，别各自收一半：**本单管形状**（空集合该是 `[]` 还是明写可空），**core DATA-13 管成因**（坏格式该 400 而不是装成没数据）；同一台服务上 `cmd/data/handlers_factor.go:223-229` 对同样的 `YYYYMMDD` 声明是**回 400** 的，可见两种做法已经并存。
+- **③ 要求**：把该族端点（至少 `GET /api/sync/jobs`、`GET /api/sync/schedules`）在空结果时序列化成 `[]`；或反过来在 SPEC/openapi 里把字段标成可空并同步所有已知消费方。**形状与取舍由 core 定**，前端不指挥。
+- **④ 约束与非目标**：不改前端已就位的 fail-closed（那是防御，不是本单的解）；不动 `ResultSpec`；不在本单里顺手改别的端点 —— 先盘点还有哪些集合端点会吐 `null`，把清单写进结案记录。
+- **⑤ 验收**：
+  - `curl` 拿一条**保证为空**的查询（例如 `?status=retrying`，实测库里 0 条）→ body 里该字段是 `[]`（或 SPEC 明写可空且消费方同步完）。
+  - 加一条 Go 侧断言：空结果路径序列化后含 `":[]"` 而不是 `":null"`（照 `pkg/storage/bulk_insert_ddl_test.go` 那种静态读源码/编解码的零 DB 依赖做法）。
+  - **破坏验证**：把 `?? []` 那类前端防御临时摘掉 ⇒ 队列面板那条 e2e（`a08-job-console.spec.ts` 的「空队列的真实回包走空态」）必须红，还原转绿 —— 证明那条 e2e 真在钉形状，不是常驻绿。
+- **⑥ 边界**：只处理"空集合的编码形状"这一件事；`latest_date` 静默缺席与 PIT 通道是 DATA-03，票池拆分是 DATA-02。
+
 ---
 
 ## 八、跨仓任务索引（不在本仓，勿双写）
