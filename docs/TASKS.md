@@ -617,17 +617,24 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - `fetchTopList`：缺失（`has no TRADE_DATE`）与读不懂（`is not a date this parser can read`）分别当场失败，
 >   与 DBT-10 的窗口闸（`outside the requested window`）三种报文互不相同。
 > - `juchao_adapter.go`：删掉自陈 placeholder 的那行，改 `parseAnnouncementTime` 两条腿 ——
->   ① `announcementTime`（epoch 毫秒，折成**交易所日历日**落 UTC 零点：直接 `.UTC()` 会退一天，
->   且落库列是 DATE，折成 UTC 零点后结果与跑作业的机器时区无关，与同族 `2026-09-24 00:00:00` 的口径一致）
+>   ① `announcementTime`（epoch 毫秒，折成**交易所日历日**落 UTC 零点：按瞬时取日会退一天，而 `adjunctUrl`
+>   明写 08-15。落库列 `announcements.ann_time` 是 **TIMESTAMPTZ**（`postgres.go:815`）不是 DATE，但这条链
+>   声明的语义是 `VisibleOnAnnouncementDay` + `FreqSpecEvent`（按**公告日**可见，`declarations.go` 的 juchao 行），
+>   日粒度就是它的口径；折成 UTC 零点后 UTC 与 +08 两侧读回都是同一天，也不依赖跑作业的机器时区）
 >   ② `adjunctUrl` 日期段兜底（工单 ③-② 明写的「用别的字段兜」）；两条都读不懂 ⇒ **拒收该行**。
 >   另加一道**量级自检**：折出的年份不在 2000~2100 内当读不懂 —— 源改口径给成秒/微秒时下场是「一行被拒收」，
 >   不是「一行 1970 年的公告」。
 >
 > **④ 测试**：`dbt13_adapter_date_fidelity_test.go`（只走现有入口 `Fetch` + httptest 替身，所以同一份断言能跑在改前改后）
-> 与 `dbt13_strict_parser_test.go`（解析层出口，含「永不返回今天」的总闸）。
-> 改前 **3 条真红**（`RefusesTradeDateItCannotRead` / `AnnouncementDateComesFromSourceNotToday` /
-> `RejectsWrongEpochScaleInsteadOfInventing1970`）；改后 `go test ./pkg/data/source/ -count=1` **EXIT=0**、
-> `go vet ./pkg/data/source/` **EXIT=0**、`gofmt -l` 空；消费方 `go test ./pkg/data/... ./cmd/data/ -count=1` **EXIT=0**。
+> 与 `dbt13_strict_parser_test.go`（解析层出口：认不出 ⇒ 零值 + `ok=false`，这一条就是「回落被写回来」的当场反应）。
+> 改前的红数**分两个时点说清**（第二轮自审复取的，不拿首跑数字冒充最终套件）：
+> 首跑当时 **3 条红**；**提交的那版**用 `git worktree add --detach <提交前一个 commit>` 只放测试文件进去复跑得
+> **4 条红**（EXIT=1）—— 多出来的那条是补强后新增的 `ThreeFailureModesReportDistinctly`
+> （改前它吃的是「窗口越界」报文，缺 `is not a date this parser can read`）。解析层那份引用新符号，
+> 按构造只能跑在改之后，它的牙口由破坏验证代证。
+> 改后：`go test ./pkg/data/source/ -count=1` **EXIT=0**、`go vet ./pkg/data/source/` **EXIT=0**、`gofmt -l` 空、
+> `go build ./...` **EXIT=0**、`go test ./internal/repoguard/ -count=1` **EXIT=0**（本仓纪律要求的守卫面）、
+> 消费方 `go test ./pkg/data/... ./cmd/data/ -count=1` **EXIT=0**。
 >
 > **⑤ 破坏验证四腿**（基线 `sha256sum` → 改坏 → 抓真退出码 → 还原 → `sha256sum -c` 两文件 OK）：
 > 1. 回落改回 `return time.Now().UTC(), true` ⇒ **5 条红，EXIT=1** ✅（工单 ⑤ 点名的那条）
@@ -636,6 +643,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    下游 `checkTopListWindow` 的零值兜底代劳报了文面相近的错。补强为「报文必须点名
 >    `is not a date this parser can read`」+ 三种失败报文两两不同，重跑该腿 **2 条红** ✅。
 >    —— §8.5.3-2「假护栏比没护栏更糟」在这里兑现了一次，不补这条，`⑤ 验收`里「报文不同、各自钉住」是空的。
+>    第二轮自审把两条测试重复的那句 `Contains` 去掉（一个判据一处断言）后**再跑一遍这条腿**：
+>    仍 **1 条红（EXIT=1）** —— 去重没把牙口一起去掉，报文出处的断言唯一落在主腿测试上。
 > 4. 摘掉 juchao 的 `adjunctUrl` 兜底腿 ⇒ 2 条红 ✅（兜底腿不是主腿，但也确有断言指着它）
 >
 > **⑥ ③-③ 的登记（全仓同类形状）**：多行 grep `time.Parse…return time.Now()` 全仓**只有 `:725` 一处**，本单已收口。
@@ -653,6 +662,23 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > —— 新增测试各自建 `httptest.Server` 与独立 adapter 实例，无跨用例共享可变状态，但这条**没有本地执行证据**；
 > ② ③-④ 的「真库落库日期」用**适配器边界的夹具断言代替**（源给的日期原样交到 `DataItem.TradeTime`），
 > 落库那一段是 `bulk_insert.normalizeDate` 的既有职责，本单未起 DB；下次全仓套件时顺手确认即可。
+>
+> **⑨ 第二轮自审订正（2026-10-21，逐句核对叙述与实现后发现的五处）**：
+> 1. **事实错误**：测试注释与我上面 ③ 都写过「落库列是 DATE」—— 不实。`announcements.ann_time` 是
+>    **TIMESTAMPTZ**（`pkg/storage/postgres.go:815`），`top_list.trade_date` 才是 DATE。判据本身没错，
+>    理由要换成**这条链声明的语义**（`VisibleOnAnnouncementDay` + `FreqSpecEvent` ⇒ 公告日粒度），已改。
+> 2. **装饰性断言**：解析层那条 `if !got.IsZero() { assert.Greater(math.Abs(got-now), 60) }` 只在
+>    **前一条断言已经失败之后**才执行（`assert.True(got.IsZero())` 不中断），所以它是永远不改变结论的第二把锁，
+>    还捎带一个 `math` 依赖 —— 删。真正的「回落写回来」反应由 `assert.True(got.IsZero())` 与
+>    `assert.False(ok)` 两条提供（破坏验证第 1 腿实测 5 条红，不靠它）。
+> 3. **重复断言**：`ThreeFailureModesReportDistinctly` 与主腿测试都 `Contains("is not a date this parser can read")`
+>    —— 一个判据留一处断言，去重后**重跑破坏验证第 3 腿确认牙口还在**（1 条红，EXIT=1）。
+> 4. **多余的表驱动机械**：`wantLabel` + `func() string{...}` 的回退只为给三条用例换措辞，
+>    用例名本身已经承担定位职责 —— 撤，注释收到表上方。
+> 5. **遗留登记（本单不收口，需要时另立单）**：juchao 的拒收发生在**适配器层**（`continue`），
+>    而 `ProcessResult.Skipped` 只统计 ETL 之后被 normalizer 丢弃的行 ⇒ **公告链上这一类丢弃没有可见计数**。
+>    同族惯例也是这样（`fetchTopList`/`fetchSectorList` 对空 symbol/空名 `continue`），所以本单按 ③-②
+>    授权的「拒收该行」执行并在此登记；要给公告链加计数，得动 adapter 的返回面，那不属于「日期解析失败的处理」这一件事。
 
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜
 

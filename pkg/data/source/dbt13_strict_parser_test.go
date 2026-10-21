@@ -3,11 +3,11 @@ package source
 // DBT-13 的解析层单测（改之后的新出口）。
 //
 // 判据的主体是「**永不返回今天**」：不可解析的输入必须换回 ok=false + 零值，
-// 而不是一个看起来合理的日期。每条拒绝用例都额外比一次与墙上时钟的距离 ——
-// 只要有人把回落写回来，这一条就先红。
+// 而不是一个看起来合理的日期 —— 零值这一条就是回落写回来的当场反应，
+// 链上「折成今天」的整类后果由 dbt13_adapter_date_fidelity_test.go 在
+// 适配器边界那侧钉住。
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -54,22 +54,21 @@ func TestParseEastmoneyDateStrict_RejectsUnknownShapesWithoutGuessingToday(t *te
 	} {
 		got, ok := parseEastmoneyDateStrict(in)
 		assert.False(t, ok, "%v：读不懂就必须说读不懂", in)
-		assert.True(t, got.IsZero(), "%v：读不懂时返回值必须是零值，不许是个日期", in)
-		if !got.IsZero() {
-			assert.Greater(t, math.Abs(got.Sub(time.Now()).Seconds()), 60.0,
-				"%v：给出的日期离今天这么近，就是回落又被写回来了", in)
-		}
+		assert.True(t, got.IsZero(),
+			"%v：读不懂时返回值必须是零值 —— 交出一个日期（尤其是一个离今天很近的日期）就是回落又回来了", in)
 	}
 }
 
 func TestParseAnnouncementTime_ReadsTheShapeTheSourceSends(t *testing.T) {
 	t.Parallel()
 
+	// 主腿是 announcementTime（源实际给的形状），兜底腿是 adjunctUrl 的日期段；
+	// 量级不对的那条腿要整条作废再走兜底，而不是折成 1970。
+	// 「等于今天」这一类后果不在这里断言 —— 那是适配器层夹具测试的职责。
 	cases := map[string]struct {
-		row       map[string]interface{}
-		wantDay   time.Time
-		wantRead  bool
-		wantLabel string
+		row      map[string]interface{}
+		wantDay  time.Time
+		wantRead bool
 	}{
 		"epoch_millis_with_url": {
 			row:      juchaoRow("1", "T", float64(juchaoFixtureEpochMS), "finalpage/2026-08-15/1.PDF"),
@@ -77,10 +76,9 @@ func TestParseAnnouncementTime_ReadsTheShapeTheSourceSends(t *testing.T) {
 			wantRead: true,
 		},
 		"epoch_millis_alone": {
-			row:       juchaoRow("1", "T", float64(juchaoFixtureEpochMS), ""),
-			wantDay:   dayUTC(2026, 8, 15),
-			wantRead:  true,
-			wantLabel: "公告日只靠 announcementTime 也要读得出来，兜底腿不是主腿",
+			row:      juchaoRow("1", "T", float64(juchaoFixtureEpochMS), ""),
+			wantDay:  dayUTC(2026, 8, 15),
+			wantRead: true,
 		},
 		"adjunct_url_only": {
 			row:      juchaoRow("1", "T", nil, "finalpage/2025-03-04/1.PDF"),
@@ -93,10 +91,9 @@ func TestParseAnnouncementTime_ReadsTheShapeTheSourceSends(t *testing.T) {
 			wantRead: true,
 		},
 		"epoch_seconds_falls_back_to_url": {
-			row:       juchaoRow("1", "T", float64(juchaoFixtureEpochMS/1000), "finalpage/2026-08-15/1.PDF"),
-			wantDay:   dayUTC(2026, 8, 15),
-			wantRead:  true,
-			wantLabel: "量级不对的那条腿要整条作废，再走兜底 —— 而不是折成 1970",
+			row:      juchaoRow("1", "T", float64(juchaoFixtureEpochMS/1000), "finalpage/2026-08-15/1.PDF"),
+			wantDay:  dayUTC(2026, 8, 15),
+			wantRead: true,
 		},
 		"nothing_at_all": {
 			row:      juchaoRow("1", "T", nil, ""),
@@ -116,21 +113,17 @@ func TestParseAnnouncementTime_ReadsTheShapeTheSourceSends(t *testing.T) {
 				assert.True(t, got.IsZero(), "%s：不许交出一个猜出来的日期", name)
 				return
 			}
-			require.True(t, ok, func() string {
-				if tc.wantLabel != "" {
-					return tc.wantLabel
-				}
-				return name + "：这是源给过的形状，读不懂就是解析退化"
-			}())
-			assert.Equal(t, tc.wantDay, got.UTC().Truncate(24*time.Hour), name)
-			assert.NotEqual(t, time.Now().UTC().Format("2006-01-02"),
-				got.UTC().Format("2006-01-02"), "%s：等于今天说明回落又回来了", name)
+			require.True(t, ok, "%s：这是源给过的形状，读不懂就是解析退化", name)
+			assert.Equal(t, tc.wantDay, got.UTC().Truncate(24*time.Hour))
 		})
 	}
 }
 
 // 交易所日历日，不是 UTC 瞬时。cninfo 的 1786723200000 是**北京时间的午夜**
-// （= 2026-08-14T16:00:00Z）；直接 .UTC() 会退一天，而 adjunctUrl 明写 08-15。
+// （= 2026-08-14T16:00:00Z）；按瞬时取日会退一天，而 adjunctUrl 明写 08-15。
+// 落库列 `announcements.ann_time` 是 TIMESTAMPTZ，但这条链声明的语义是
+// `VisibleOnAnnouncementDay` + `FreqSpecEvent`（按**公告日**可见），所以取
+// 「+08 看见的那一天、落 UTC 零点」：UTC 与 +08 两侧读回来都是 08-15。
 // 这条钉子防的就是「顺手把 FixedZone 改成 UTC」这种改动。
 func TestParseAnnouncementTime_KeepsExchangeCalendarDayNotUTCInstant(t *testing.T) {
 	t.Parallel()
@@ -138,6 +131,6 @@ func TestParseAnnouncementTime_KeepsExchangeCalendarDayNotUTCInstant(t *testing.
 	got, ok := parseAnnouncementTime(juchaoRow("1", "T", float64(juchaoFixtureEpochMS), ""))
 	require.True(t, ok)
 	assert.Equal(t, "2026-08-15", got.UTC().Format("2006-01-02"),
-		"退到 08-14 就是按 UTC 瞬时取日 —— 落库列是 DATE，日历日必须由交易所一侧决定")
+		"退到 08-14 就是按 UTC 瞬时取日 —— 与 adjunctUrl 明写的公告日差一天")
 	assert.True(t, got.Location() == time.UTC, "归一在 UTC 零点，落库结果才与跑作业的机器时区无关")
 }

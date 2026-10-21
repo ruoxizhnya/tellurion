@@ -60,6 +60,9 @@ func topListFetchErr(t *testing.T, tradeDate interface{}, omitKey bool, end time
 // 前两条把窗口上界放到「今天」：夹具日期读不懂时旧实现会折成今天，
 // 而今天落在窗口**内** ⇒ 只有源侧这道拦差能拦住它。窗口外那条反过来用
 // 一条读得懂、但晚于上界的行，确保报文的出处是窗口闸而不是解析闸。
+//
+// 「读不懂」那条的**报文出处**由 TestDBT13EastmoneyTopList_RefusesTradeDateItCannotRead
+// 独家钉住，这里只负责三者互不混淆 —— 一个判据一处断言，不重复。
 func TestDBT13EastmoneyTopList_ThreeFailureModesReportDistinctly(t *testing.T) {
 	t.Parallel()
 
@@ -72,13 +75,11 @@ func TestDBT13EastmoneyTopList_ThreeFailureModesReportDistinctly(t *testing.T) {
 		require.NotEmpty(t, got, "%s：这种形状必须失败，静默收下就是把脏行写进库", name)
 	}
 	assert.Contains(t, absent, "has no TRADE_DATE", "「源没给日期」由缺失那道闸报")
-	assert.Contains(t, unreadable, "is not a date this parser can read",
-		"读不懂必须由 parseEastmoneyDateStrict 的拦差报，不许蹭 checkTopListWindow 的零值兜底 —— "+
-			"两道闸报文相同时，删掉新加的那道也没人会红（2026-10-21 破坏验证实测踩到）")
 	assert.Contains(t, outWindow, "outside the requested window", "窗口外由 checkTopListWindow 报")
 
 	assert.NotEqual(t, absent, unreadable, "「没给」与「给了但读不懂」是两件事，报文不许共用")
 	assert.NotEqual(t, unreadable, outWindow, "「读不懂」不许被报成「窗口越界」")
+	assert.NotEqual(t, absent, outWindow, "「没给日期」与「窗口越界」也不许共用报文")
 }
 
 // 用**包含今天**的请求窗口，所以旧实现的「读不懂就当今天」不会被窗口守卫拦下 ——
