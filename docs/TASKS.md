@@ -587,7 +587,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > 前提已于 2026-10-20 复核：DBT-13（回落仍在 `eastmoney_sectors_adapter.go:725`、juchao 两处调用仍在 `:238/:241`）、DBT-14（schema 仍 `date-time`、实现仍只接 `2006-01-02`）、DBT-17（`capital_flow` 仍无读方）**均成立**。DBT-15 需真库读数、DBT-16 需外部产出方、DBT-18 跨仓——六字段**原样迁入**如下（正文不改写）。
 
-### DBT-13 · `parseEastmoneyDate` 解析失败静默回落「今天」[P1] ⬜
+### DBT-13 · `parseEastmoneyDate` 解析失败静默回落「今天」[P1] ✅（2026-10-21）
 
 - **① 目标**：eastmoney 族任何一行数据，落库日期要么是真值、要么当场失败——**不存在"读不懂就当今天"** 这条路径。
 - **② 上下文**（DBT-10 真源腿实测，2026-10-19）：`pkg/data/source/eastmoney_sectors_adapter.go` 的 `parseEastmoneyDate` 末尾 `return time.Now().UTC()`。它原先只认三种纯日期形状（其中 `"2006-01-02"` 还重复列了一次），而 datacenter 的 `RPT_DAILYBILLBOARD_DETAILS` 实际返回 **带时刻**的 `"2026-09-24 00:00:00"` ⇒ 龙虎榜**每一行**都掉进那个回落、落库日期全变成"今天"。DBT-10 已补齐带时刻两种形状并在 top_list 路径上加了「TRADE_DATE 缺失/空串当场失败」（`:506` 附近），但**回落本身仍在**，因为还有两个调用方共用它：`pkg/data/source/juchao_adapter.go:238`（传的是 `adjunctUrl`，注释自陈 placeholder）与 `:241`。把回落改成零值会连带改变巨潮那条链的行为——**不在 DBT-10 的文件边界里，故另立本单**。
@@ -595,6 +595,64 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改各 adapter 的业务语义与字段映射；不动 `ohlcv_daily_qfq` 存量数据；不顺手把 eastmoney 族的 filter/pagination 重构（DBT-10 已收口的部分不许回退）；不改 `internal/repoguard` 白名单形状。
 - **⑤ 验收**：`go test ./pkg/data/source/ -count=1` 绿；有一条断言能区分「窗口外日期」与「日期读不懂」两种失败（报文不同、测试各自钉住）；**破坏验证**：把回落改回 `time.Now()` ⇒ 至少一条测试红 ⇒ 还原（判据：文件 sha256 与改前相同）。
 - **⑥ 边界**：只做"日期解析失败的处理"这一件事；字段口径、单位换算另单。
+
+> **✅ 完成记录（2026-10-21，本地验证；`-race` 与真库两腿缺，见 ⑧）**
+>
+> **① 前提复核**：成立（回落本体 `eastmoney_sectors_adapter.go:725`、juchao 两处调用在 `:238/:241`）。
+> 但顺带订正 **DBT-10 的登记里两处不实**（`top_list_normalizer.go` 文件头，已就地改写）：
+> ① 「同一函数也服务 `limit_up_pool`」——grep 实测 `parseEastmoneyDate` 的调用方只有 `fetchTopList` 与 juchao 两处，
+> `fetchLimitUpPool` 是直接 `tradeDate := time.Now().UTC()`（`:596`），根本不经过这个函数；
+> ② 引用的 `:661-679` 早已漂到 `:707-726`。改为**按符号名引用**，不再写行号（行号就是这类漂移的来源）。
+>
+> **② 实测比登记更严重的一环（决定修法，不是扩范围）**：juchao 那条链不是「改成零值会连带改变那条链的行为」这么轻。
+> 2026-10-21 向真源发一条 `POST /new/hisAnnouncement/query`（600519，0 次凭据）取证：
+> `"announcementTime": 1786723200000` —— 是 epoch **毫秒**（= 北京时间的 2026-08-15 午夜），而 `adjunctUrl`
+> `finalpage/2026-08-15/1225475868.PDF` 的日期段与之一致。13 位数字进不了「8 位才算 `YYYYMMDD`」那条腿 ⇒
+> **每一条公告的日期都等于跑作业那天**。改前把新测试跑在旧代码上实测：三行夹具全部落 `2026-10-21 14:09:28`。
+>
+> **③ 落地**：
+> - `parseEastmoneyDate` → **`parseEastmoneyDateStrict(v) (time.Time, bool)`**，认不出 ⇒ 零值 + `ok=false`；
+>   布局表里 `"2006-01-02"` / `"2006-01-02 15:04:05"` 各被 DBT-10 重复列过一次，去重（可接受形状集不变）。
+>   工单原写「非严格版保持现行为不动」——三个调用点全部迁完后 lenient 版零调用方，**不留兼容壳**（直接删）。
+> - `fetchTopList`：缺失（`has no TRADE_DATE`）与读不懂（`is not a date this parser can read`）分别当场失败，
+>   与 DBT-10 的窗口闸（`outside the requested window`）三种报文互不相同。
+> - `juchao_adapter.go`：删掉自陈 placeholder 的那行，改 `parseAnnouncementTime` 两条腿 ——
+>   ① `announcementTime`（epoch 毫秒，折成**交易所日历日**落 UTC 零点：直接 `.UTC()` 会退一天，
+>   且落库列是 DATE，折成 UTC 零点后结果与跑作业的机器时区无关，与同族 `2026-09-24 00:00:00` 的口径一致）
+>   ② `adjunctUrl` 日期段兜底（工单 ③-② 明写的「用别的字段兜」）；两条都读不懂 ⇒ **拒收该行**。
+>   另加一道**量级自检**：折出的年份不在 2000~2100 内当读不懂 —— 源改口径给成秒/微秒时下场是「一行被拒收」，
+>   不是「一行 1970 年的公告」。
+>
+> **④ 测试**：`dbt13_adapter_date_fidelity_test.go`（只走现有入口 `Fetch` + httptest 替身，所以同一份断言能跑在改前改后）
+> 与 `dbt13_strict_parser_test.go`（解析层出口，含「永不返回今天」的总闸）。
+> 改前 **3 条真红**（`RefusesTradeDateItCannotRead` / `AnnouncementDateComesFromSourceNotToday` /
+> `RejectsWrongEpochScaleInsteadOfInventing1970`）；改后 `go test ./pkg/data/source/ -count=1` **EXIT=0**、
+> `go vet ./pkg/data/source/` **EXIT=0**、`gofmt -l` 空；消费方 `go test ./pkg/data/... ./cmd/data/ -count=1` **EXIT=0**。
+>
+> **⑤ 破坏验证四腿**（基线 `sha256sum` → 改坏 → 抓真退出码 → 还原 → `sha256sum -c` 两文件 OK）：
+> 1. 回落改回 `return time.Now().UTC(), true` ⇒ **5 条红，EXIT=1** ✅（工单 ⑤ 点名的那条）
+> 2. `FixedZone("CST",8h)` 改成 `.UTC()` ⇒ 3 条红 ✅（交易所日历日这条钉子有牙）
+> 3. 摘掉 `fetchTopList` 的 `!readable` 拦差 ⇒ **第一遍绿（EXIT=0）** ⚠️ 抓到我自己测试的牙口不足：
+>    下游 `checkTopListWindow` 的零值兜底代劳报了文面相近的错。补强为「报文必须点名
+>    `is not a date this parser can read`」+ 三种失败报文两两不同，重跑该腿 **2 条红** ✅。
+>    —— §8.5.3-2「假护栏比没护栏更糟」在这里兑现了一次，不补这条，`⑤ 验收`里「报文不同、各自钉住」是空的。
+> 4. 摘掉 juchao 的 `adjunctUrl` 兜底腿 ⇒ 2 条红 ✅（兜底腿不是主腿，但也确有断言指着它）
+>
+> **⑥ ③-③ 的登记（全仓同类形状）**：多行 grep `time.Parse…return time.Now()` 全仓**只有 `:725` 一处**，本单已收口。
+> `pkg/clock/interfaces.go:124`、`pkg/live/margin/margin_account.go:1016`、`cmd/analysis/handlers_compliance.go:85`
+> 是墙钟提供者，不是解析兜底。**留在原地的两处快照语义（如实登记，非缺陷、不在本单收口）**：
+> `fetchSectorList:134`（给了 `req.StartDate` 就用它）与 `fetchLimitUpPool:596`（直接墙上时钟）——
+> 这两个端点是**当日快照**、源不给逐行日期，所以「日期 = 跑作业那天」是语义设定；读这两张表要先知道这一点。
+>
+> **⑦ 文档同步**（变更触发按 `docs/README.md` §3）：`docs/SPEC.md` 的 `top_list` 行「回落本体仍在」已改为收口口径；
+> `AGENTS.md` §14 该行改判（划掉标题 + 写「已修」+ 保留两处快照语义作遗留口径）；
+> `top_list_normalizer.go` 文件头与 `TestTopListNormalizer_CannotCatchUpstreamBadDate` 的「洞在上游」叙述按实订正
+> —— 那道闸从此钉的是**责任归属**（日期真伪归源侧解析器），不是「洞」。
+>
+> **⑧ 缺的腿（不假装做过）**：① `-race` 本机不可跑（无 gcc/cgo；CI ubuntu-latest 有，见 `.github/workflows/ci.yml:94`）
+> —— 新增测试各自建 `httptest.Server` 与独立 adapter 实例，无跨用例共享可变状态，但这条**没有本地执行证据**；
+> ② ③-④ 的「真库落库日期」用**适配器边界的夹具断言代替**（源给的日期原样交到 `DataItem.TradeTime`），
+> 落库那一段是 `bulk_insert.normalizeDate` 的既有职责，本单未起 DB；下次全仓套件时顺手确认即可。
 
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜
 
