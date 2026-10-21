@@ -88,12 +88,12 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 
 | 仓 | X 单 | ADR-027 §2 里有位子吗 | §1 第 5 条（热路径） | **对账结论：今天做什么** | 升进程要不要另立 ADR |
 |---|---|---|---|---|---|
-| `tellurion-data` | QT-40 | ✅ §2.6.4 的 data-service | ✅ run 前一次预取，非逐 bar | **对齐**。附带一条本仓文档此前没写的义务：§2.6.2 定「采集 / 规范化 / 供给 / 派生 / 证据 / 同步」**六个限界上下文在本仓内按包强制隔离 + §6 门禁断言**，只有 Reduction 物理独立。本仓 `docs/ARCHITECTURE.md` 今天没有这段分层 | 不需要（拓扑内已有位子） |
+| `tellurion-data` | QT-40 | ✅ §2.6.4 的 data-service | ✅ run 前一次预取，非逐 bar | **对齐**。附带一条该仓文档此前没写的义务：§2.6.2 定「采集 / 规范化 / 供给 / 派生 / 证据 / 同步」**六个限界上下文在 data 仓内按包强制隔离 + §6 门禁断言**，只有 Reduction 物理独立。`tellurion-data:docs/ARCHITECTURE.md` 今天没有这段分层（实测 grep `限界上下文` 零命中） | 不需要（拓扑内已有位子） |
 | `tellurion-strategy` | QT-41 / QT-41b | ✅ §2.6.1 第四服务 | ✅ 只传定义（§2.6.1 判 per-day 传信号是「方向错了」） | **对齐**，但有两处范围缺口：见 R2、R3 | 不需要 |
-| `tellurion-risk` | QT-42 | ❌ **不在 5 服务内**。§2.1 判定 `riskManager` + `alertLoop` **必须与 engine 同进程**（「不是延期，是判定」）；§2.4 判 compliance「并入 ai-service 或留回测服务，不单列」 | 规则快照下发 ✅ / 逐笔裁决 ❌ 永不出进程 | **拆两半定案**：规则真相源 + `version_hash` + 快照下发 = 本仓（schema owner + API）；`RiskPolicy` 同步裁决留 core 进程内（QT-42 ③-③「`CheckOrder` 永不走 HTTP」与 §2.1 同向）。**进程不升** | **要**（拓扑 5→6 属改判，且 §7 明写「其余服务的独立化另立 ADR」） |
+| `tellurion-risk` | QT-42 | ❌ **不在 5 服务内**。§2.1 判定 `riskManager` + `alertLoop` **必须与 engine 同进程**（原文：「这不是『暂时不拆』，是**判定为不该拆**」）；§2.4 判 compliance「并入 ai-service 或留回测服务，不单列」 | 规则快照下发 ✅ / 逐笔裁决 ❌ 永不出进程 | **拆两半定案**：规则真相源 + `version_hash` + 快照下发 = `tellurion-risk`（schema owner + API）；`RiskPolicy` 同步裁决留 core 进程内（QT-42 ③-③「`CheckOrder` 永不走 HTTP」与 §2.1 同向）。**进程不升** | **要**（拓扑 5→6 属改判，且 §7 明写「其余服务的独立化另立 ADR」） |
 | `tellurion-analytics` | QT-43 | ❌ 不在 5 服务内（§2.4 未列，§5 第 7/8 步只拆策略与 ai） | ✅ 只读 run 结果、纯函数 | 五条判据全过（`service-extraction-plan` §5.1 自评「性价比最高」成立）。**进程不升**：core 的 `cmd/analysis`(:8085) 今天已是 API 网关 + 簇① 宿主，把 metrics/归因搬成第二个进程会与簇① 抢同一批消费方，而收益（独立发布）用「仓内独立包 + 版本依赖」同样能拿到 | 要 |
 | `tellurion-orchestration` | QT-44 | ❌ 不在 5 服务内 | ✅ 算力出口，非逐 bar | 同上。**进程不升**，且 ⑤ 验收要按 R5 拆成两段判据 | 要 |
-| `tellurion-broker` | QT-45 | ❌ 与 §2.1 **正面冲突**（`executionTrader` 判在同进程） | 下单路径 = 延迟敏感 | **本仓是 port 实现的物理归属，不是常驻服务**：柜台适配（XTP/Mock）+ 日终对账写在本仓，下单与裁决留在 core。§2.1 的判定**优先于**候选清单；QT-45 ④「延迟敏感项保持进程内」与此相容，因此本仓的结论是**「不做成服务」** | 不需要（结论就是不起进程） |
+| `tellurion-broker` | QT-45 | ❌ 与 §2.1 **正面冲突**（`executionTrader` 判在同进程） | 下单路径 = 延迟敏感 | **`tellurion-broker` 是 port 实现的物理归属，不是常驻服务**：柜台适配（XTP/Mock）+ 日终对账写在该仓，下单与裁决留在 core。§2.1 的判定**优先于**候选清单；QT-45 ④「延迟敏感项保持进程内」与此相容，因此该仓的结论是**「不做成服务」** | 不需要（结论就是不起进程） |
 
 **总口径（把「依次序实现六仓」与 ADR-027 §7「不同时拆多个服务，一次一个」调和）**：
 X 线的「依次序」= **边界收口成 port + 实现落仓**的顺序；**六个仓同时起容器是 §7 明写的「不做」**。
@@ -104,10 +104,10 @@ X 线的「依次序」= **边界收口成 port + 实现落仓**的顺序；**�
 
 | # | 事项 | 两边原文（可核对） | 处置 |
 |---|---|---|---|
-| R1 | **reduction-service 在 12 仓表里没有仓位** | §2.6.2 判它是「唯一物理拆出的数据上下文」（第五服务），§7 又禁止把 data 的 7 个上下文全拆服务；「代价 / 限制」那条把 compose 的 7 个容器列明为**回测 / data / ai / 策略 / reduction / PG / Redis**——**它数在拓扑里，仓清单里没有** | 本表 12 行没有它 → **待裁 U6**。倾向：先作为 `tellurion-data` 内的独立包（§2.6.2 的三条理由里「资源特征不同 / 失败隔离」拿不到，等真做文本降维时再升格）——**代价**：ADR-027 的五服务拓扑与 compose 名单在文档上缺一角，读到 §2.6.4 的人会去找一个不存在的仓 |
-| R2 | **编译服务归属已被改判，本表没跟上** | §2.6.4 把「编译工具链」写在 ai-service 那行；**D 裁决（2026-10-21）**定 `tellurion-strategy:cmd/compiler` 独立进程/容器、锁 toolchain 版本（`tellurion-strategy:docs/TASKS.md` QT-41b ②） | ADR-027 §2.6.1/§2.6.4 **已被 D 修订**。本表 #8 的职责行需补「含编译服务 `cmd/compiler`」→ 落 §3 已裁决 |
-| R3 | **QT-41 的范围里没有因子定义 / SeriesSpec** | §2.6.1 职责句：「策略定义 + **因子定义** + 序列注册表（SeriesSpec）的 CRUD / 版本 / parse 校验」（依据 ADR-028 §6）；QT-41 ③ 六条只讲 `strategies` / `strategy_artifacts` / resolve | **界线由本次对账定死**（否则 X1（data）与 X2（strategy）各搬一半）：**因子定义与 SeriesSpec 归 strategy，因子值归 data，求值在消费点**（§7「不做因子服务」）。data 侧 `GET /factors/{name}@{hash}` 读的是**已落库的值**，不是求值服务。QT-41 补条属 strategy 仓台账，本次只登记缺口 |
-| R4 | **compliance / alert 的归属两仓口径相反** | §2.4：compliance「并入 ai-service 或留回测服务，不单列」；`tellurion-risk:AGENTS.md` §1 把 `pkg/compliance` + `pkg/alert` 列进「今天的实现 → 本仓」，QT-42 ⑥ 再推给「后续切片」 | **待裁 U7**。倾向：alert 的**六个检测器**留 core 进程内（它们是 §2.1 簇① 的 `alertLoop`），**通道编排 + 报送**出仓到 risk；**代价**：risk 仓 AGENTS §1 那句「今天的实现」要改写，QT-42 ④「不与 compliance/alert 的既有实现重复造」才有判据 |
+| R1 | **reduction-service 在 12 仓表里没有仓位** | §2.6.2 判它是「唯一物理拆出的数据上下文」（第五服务），ADR-027 §7 又禁止把 data 的 7 个上下文全拆服务；「代价 / 限制」那条把 compose 的 7 个容器列明为**回测 / data / ai / 策略 / reduction / PG / Redis**——**它数在拓扑里，仓清单里没有** | 本篇 §1 那张十二仓表没有它 → **待裁 U6**。倾向：先作为 `tellurion-data` 内的独立包（§2.6.2 的三条理由里「资源特征不同 / 失败隔离」拿不到，等真做文本降维时再升格）——**代价**：ADR-027 的五服务拓扑与 compose 名单在文档上缺一角，读到 §2.6.4 的人会去找一个不存在的仓 |
+| R2 | **编译服务归属已被改判，本篇 §1 的十二仓表没跟上** | §2.6.4 把「编译工具链」写在 ai-service 那行；**D 裁决（2026-10-21）**定 `tellurion-strategy:cmd/compiler` 独立进程/容器、锁 toolchain 版本（`tellurion-strategy:docs/TASKS.md` QT-41b ②） | ADR-027 §2.6.1/§2.6.4 **已被 D 修订**。本表 #8 的职责行需补「含编译服务 `cmd/compiler`」→ 落 §3 已裁决 |
+| R3 | **QT-41 的范围里没有因子定义 / SeriesSpec** | §2.6.1 职责句：「策略定义 + **因子定义** + 序列注册表（SeriesSpec）的 CRUD / 版本 / parse 校验」（依据 ADR-028 §6）；QT-41 ③ 六条只讲 `strategies` / `strategy_artifacts` / resolve | **界线由本次对账定死**（否则 X1（data）与 X2（strategy）各搬一半）：**因子定义与 SeriesSpec 归 strategy，因子值归 data，求值在消费点**（ADR-027 §7「不做因子服务」）。data 侧 `GET /factors/{name}@{hash}` 读的是**已落库的值**，不是求值服务。QT-41 补条属 strategy 仓台账，本次只登记缺口 |
+| R4 | **compliance / alert 的归属两仓口径相反** | §2.4：compliance「并入 ai-service 或留回测服务，不单列」；`tellurion-risk:AGENTS.md` §1 把 `pkg/compliance` + `pkg/alert` 列进「今天的实现 → 本仓」（那句里的「本仓」= tellurion-risk），QT-42 ⑥ 再推给「后续切片」 | **待裁 U7**。倾向：alert 的**六个检测器**留 core 进程内（它们是 §2.1 簇① 的 `alertLoop`），**通道编排 + 报送**出仓到 risk；**代价**：risk 仓 AGENTS §1 那句「今天的实现」要改写，QT-42 ④「不与 compliance/alert 的既有实现重复造」才有判据 |
 | R5 | **`backtest_jobs` 的 owner 两处不一致** | §4 B 类表：owner = 「回测服务」；X1d / QT-44 ③-③：迁 `run` schema 归编排；core 2026-10-21 裁决 `backtest_results` owner = core（[`data-service-contract-and-ownership.md`](data-service-contract-and-ownership.md) §1「内核 \| `run`（结果面）」行） | **定案（本条即裁决，不改 ADR-027 正文）**：**任务面**（`backtest_jobs` / `walk_forward_reports` / `batch_runs` / `worker_registry`）归编排 `run`；**结果面**（`backtest_results`）归 core。§4 那句「回测服务」按 D29/D22 的仓划分读作「回测**域**」，不构成对 `backtest_jobs` 的 owner 主张 |
 | R6 | **`factor_hypothesis` 三方各说一处** | §4 B 类把它与 `experiments` 一起归 **ai-service**；SPEC-R-02（2026-10-21 ✅）归 **tellurion-data**（`tellurion-data:docs/db-schema.md` §1.3）；QT-17 ⑥ 又写「X 线服务的数据归属按 QT-40」把球踢回来 | **待裁 U8**。实测证据：core Migration 032 建的是**裸表名无 schema 前缀**（`pkg/storage/postgres.go:575`），写者 `pkg/storage/factor_hypothesis.go`，同文件 `:58` 注释自述「No test reads that table today」。倾向：它是**实验域**（因子的因果来源 = ADR-023 的实验日志），随 QT-17 迁 `ai.*`，data 仓 §1.3 的认领行撤掉；**代价**：SPEC-R-02 的结案表要出订正条 |
 
@@ -152,7 +152,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | **`docs/openapi.yaml`** | **归 core**（服务端点的唯一真相源，D7「现状不动」口径）；contracts 仓只收生成物 **`dto/`**（`oapi-codegen` 生成，**禁手改**，CI 重生成 diff 为空）。2026-10-20 补裁（refactor-plan-review M3）；agent↔core 新端点随 QT-50 ③-③ 入表 |
 | **`docs/SPEC.md`** | **归 core**（`ResultSpec` 等冻结规范文本）；S2 后其四契约节与 contracts 仓 `engine/` **互锁**——改一处必须同步另一仓（合规测试双向钉，见 `tellurion:docs/TASKS.md` 冻结 schema 变更评审硬规则）。2026-10-20 补裁（refactor-plan-review M3） |
 | **策略编译服务的落点** | **`tellurion-strategy:cmd/compiler`**（独立进程/容器、镜像锁 toolchain 版本，2026-10-21 **D 裁决**，见 `tellurion-strategy:docs/TASKS.md` QT-41b ②）。**修订** ADR-027 §2.6.1/§2.6.4「编译工具链在 ai-service」那句；不放 agent 仓（agent 只生成源码并调用编译服务），不新建第 13 个仓 |
-| **X 线六仓是否等于六个进程** | **不等于**（2026-10-21 M5 对账，见 §1.2）。拓扑内有位子的是 `data` / `strategy`；`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（§7「不同时拆多个服务」优先） |
+| **X 线六仓是否等于六个进程** | **不等于**（2026-10-21 M5 对账，见 §1.2）。拓扑内有位子的是 `data` / `strategy`；`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（ADR-027 §7「不同时拆多个服务」优先） |
 
 ---
 
@@ -171,7 +171,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | U4 | `eventstore` / `msgbus`（`audit` schema）是否出仓 | 留 core，无出仓计划 | 倾向**永不出仓**：事件存储是引擎与总线的底座，拆出去等于把热路径变成远程调用 | 若出仓，`audit.message_log` 的写入会被卷进网络抖动 |
 | U5 | `testenv` / `testutil`（测试脚手架） | 留 core | 倾向**留 core**（服务仓各自造，或多仓共享时再进 `kit`） | 进 `kit` 会让 `kit` 沾上测试依赖（`testing` 包） |
 | U6 | **reduction-service 的仓位**（M5 对账 R1） | ADR-027 §2.6.2 判它是**第五个服务**（唯一物理拆出的数据上下文），但 12 仓表里没有它 | 倾向**先作 `tellurion-data` 内的独立包**，做文本降维时再升格；**代价**：§2.6.2 的「资源特征不同 / 失败可隔离」拿不到，且 ADR-027 的五服务拓扑在文档上缺一角 | 若升格 = 第 13 个仓，要同步改 §0/§1 的「12 仓」口径与 ADR-027 §2.6.4 |
-| U7 | **compliance / alert 的归属**（M5 对账 R4） | `tellurion-risk:AGENTS.md` §1 已把它们列进本仓「今天的实现」；ADR-027 §2.4 判 compliance「并入 ai-service 或留回测服务，**不单列**」 | 倾向**拆开**：六个检测器留 core 进程内（§2.1 簇① 的 `alertLoop`），通道编排 + 报送出仓 risk；**代价**：risk 仓 AGENTS §1 那句要改写，QT-42 ④ 的「不重复造」才成立 | QT-42 的「聚合监控」半边（⑥ 推给后续切片）现在无法定验收——它取决于这一条 |
+| U7 | **compliance / alert 的归属**（M5 对账 R4） | `tellurion-risk:AGENTS.md` §1 已把它们列进该仓「今天的实现」；ADR-027 §2.4 判 compliance「并入 ai-service 或留回测服务，**不单列**」 | 倾向**拆开**：六个检测器留 core 进程内（§2.1 簇① 的 `alertLoop`），通道编排 + 报送出仓 risk；**代价**：risk 仓 AGENTS §1 那句要改写，QT-42 ④ 的「不重复造」才成立 | QT-42 的「聚合监控」半边（⑥ 推给后续切片）现在无法定验收——它取决于这一条 |
 | U8 | **`factor_hypothesis` 的 owner**（M5 对账 R6） | 三方相反：ADR-027 §4 B 类 = ai-service；SPEC-R-02（2026-10-21 ✅）= tellurion-data；QT-17 ⑥ = 「按 QT-40」 | 倾向**归 `ai.*`**（它是 ADR-023 的实验日志，不是仪器域数据）；**代价**：SPEC-R-02 结案表出订正条 + `tellurion-data:docs/db-schema.md` §1.3 撤认领行 | 影响 QT-40 X1d 的 schema 归属清单，与 QT-17 的 `ai.*` 表名单（二者会各自把它写进自己的迁移） |
 
 > **原 U1（已裁，不再讨论）**：`cmd/dualrun` 归 core 还是 orchestration —— 2026-10-20 裁决 **留 core**，理由与被否选项见 §3。

@@ -499,11 +499,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > ② **「接口对表」小节**（M8）：对应服务设计文档开工前补「接口对表」——逐个 port/endpoint 列**签名 + 错误语义 + 版本策略**，显式引用 `kernel-interface-map.md` / contracts 仓对应符号（模板：`data-service-contract-and-ownership.md` §4.1）；**未对表不开工**。跨进程 wire 面（HTTP endpoint/DTO/鉴权）按 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`，不另起炉灶。
 >
 > **两条前置的执行状态（2026-10-21 更新）**：
-> - **① M5 已结案** → 结论在 `repo-inventory.md` §1.2。要点：**六个仓不等于六个进程**——拓扑（ADR-027 §2.6.4，服务 3→5）里只有 `data` / `strategy` 有位子，`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（§7「不同时拆多个服务」优先）。对账另开出 **U6（reduction-service 仓位）/ U7（compliance·alert 归属）/ U8（`factor_hypothesis` owner）** 三条待裁，登记在 `repo-inventory.md` §3.1。
+> - **① M5 已结案** → 结论在 `repo-inventory.md` §1.2。要点：**六个仓不等于六个进程**——拓扑（ADR-027 §2.6.4，服务 3→5）里只有 `data` / `strategy` 有位子，`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（ADR-027 §7「不同时拆多个服务」优先）。对账另开出 **U6（reduction-service 仓位）/ U7（compliance·alert 归属）/ U8（`factor_hypothesis` owner）** 三条待裁，登记在 `repo-inventory.md` §3.1。
 > - **② M8 已落 QT-40（data）** → `data-service-contract-and-ownership.md` §4.1；**QT-41/42/43/44/45 五仓的接口对表仍未做**（设计文档里都没有那一节）。
-> - **对表不是纸面作业**：§4.1 实测出三条会直接误导 X1b 的前提偏差——`DatasetSnapshotInput` 今天**零生产者**、api-schema §2 的四个错误码**一个都不存在**、`pkg/storage/bulk_insert.go:17` 有第三份 `UnifiedDataPoint` 副本。QT-40 ② 那句「现状已实现约 80%」只对 connector 层成立。
+> - **对表不是纸面作业**：§4.1 实测出三条会直接误导 X1b 的前提偏差——`DatasetSnapshotInput` 今天**零生产者**、api-schema §2 的四个错误码**一个都不存在**、`pkg/storage/bulk_insert.go:17` 还躺着一份与 `source.UnifiedDataPoint` 同名同字段的副本（幂等坐标因此有两处定义）。QT-40 ② 那句「现状已实现约 80%」只对 connector 层成立。
 > - **X 线仍共有的硬依赖**：QT-05（S1 契约层落码）⬜ 未启动，而 contracts 仓今天零符号——服务仓的 module path 是单段短名、又禁止 `replace ../`，**拿不到协议类型就无法写任何 aggregator 实现**。所以 X 线的「依次序」实际是 `W0 收尾（QT-02/04/63）→ QT-05 → QT-07 → X1b…`，跳序的代价见各仓 `docs/TASKS.md` 施工序注。
-
 
 ### QT-40~45、QT-41b · X 线六服务 + 编译服务（正文已迁各服务仓，本仓留指针）[P1-P2]
 

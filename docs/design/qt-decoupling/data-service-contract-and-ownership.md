@@ -160,30 +160,30 @@
 |---|---|---|---|
 | 1 | **`DatasetSnapshotInput` 今天零生产者** | 全仓 grep `DatasetSnapshotInput{` / `DataVersion` 只命中定义处自身（`pkg/backtest/contracts/provenance.go:97-123`）与向量测试 | QT-40 ③-④ 交付的是**第一个生产者**，不是搬迁。X1a「协议冻结」之后，X1b 是真正的新增实现 |
 | 2 | **api-schema §2 那四个错误码在代码里一个都不存在** | `grep -rn "ErrNoTimeSemantics\|ErrUnknownDataType\|ErrVisibleAtMissing\|ErrSnapshotMismatch" --include=*.go pkg cmd` = 0 命中 | 它们是**待新建**；今天真正在拦东西的是 E 组那 **7 个**哨兵（`ErrDeclaration*` ×3 + `ErrUnsupported` / `ErrRateLimited` / `ErrUpstreamUnavailable` / `ErrAdapterNotRegistered`）。`tellurion-data:docs/api-schema.md` 是目标契约，不是现状 |
-| 3 | **协议类型今天分住两处，且第二处不在 S1 搬迁清单里** | `domain/market/`（5 个非测试文件）随 QT-05 整包迁（`tellurion-contracts:docs/API.md` §6 实测 227 符号「含 `market/` 子包」）；`pkg/data/source/`（`UnifiedDataPoint` / `ConnectorDeclaration` / `DataItem` / `DataSchema` / `FetchRequest`）**不在** QT-05 ③-① 的 `domain/`+`engine/`+`fees/` 名单里 | X1a 必须单独定 A 组后半的落点与**迁入时机**（见 A 组注 ②），否则要么把协议写死在服务里（跳序代价已被 `tellurion-data:docs/TASKS.md` 施工序 §注 点过一次），要么提前塞进 contracts 撞 ADR-0001 ③ |
+| 3 | **协议类型今天分住两处，且第二处不在 S1 搬迁清单里** | `domain/market/`（5 个非测试文件）随 QT-05 整包迁（`tellurion-contracts:docs/API.md` §6 实测 227 符号「含 `market/` 子包」）；`pkg/data/source/`（`UnifiedDataPoint` / `ConnectorDeclaration` / `DataItem` / `DataSchema` / `FetchRequest`）**不在** QT-05 ③-① 的 `domain/`+`engine/`+`fees/` 名单里 | X1a 必须单独定 A 组后半的落点与**迁入时机**（见 A 组注 ②），否则要么把协议写死在服务里（`tellurion-data:docs/TASKS.md` 施工序表前那条注已经点过这个代价：协议没冻结就写 aggregator = 把协议写死在一个服务里），要么提前塞进 contracts 撞 ADR-0001 ③ |
 
 #### A 组 · 值对象与协议类型
 
 | 符号 | 今天（签名） | 契约位（S1 后） | 错误语义 | 版本策略 |
 |---|---|---|---|---|
-| `market.TimeSemantics` | `type TimeSemantics string`，`Valid()` / `RequiresExpression()`（只 `VisibleCustom` 需表达式）/ `KnownTimeSemantics()`（`pkg/domain/market/visibility.go:61-118`） | `contracts/domain/market`（包名 `market`） | 非法枚举 ⇒ `ErrDeclarationInvalid`（注册期拒收，见 B 组） | **frozen**：取值集就是契约。加一个语义 = MINOR；改已有语义的 PIT 含义 = breaking，须先让 `pkg/data/source/registry_rev05_test.go` 那批逐源钉子红 |
-| `market.FrequencySpec` / `market.Frequency` | `Valid()` / `KnownFrequencySpecs()` / `IsIntraday()` / `IntradayMinutes()`（`pkg/domain/market/frequency.go:11-127`） | 同上 | 非法 ⇒ `ErrDeclarationInvalid` | **frozen**（同上）。聚合口径变更走 ADR，不走补丁 |
+| `market.TimeSemantics` | `type TimeSemantics string`，`Valid()` / `RequiresExpression()`（只 `VisibleCustom` 需表达式）/ `KnownTimeSemantics()`（`pkg/domain/market/visibility.go:61-117`） | `contracts/domain/market`（包名 `market`） | 非法枚举 ⇒ `ErrDeclarationInvalid`（注册期拒收，见 B 组） | **frozen**：取值集就是契约。加一个语义 = MINOR；改已有语义的 PIT 含义 = breaking，须先让 `pkg/data/source/registry_rev05_test.go` 那批逐源钉子红 |
+| `market.FrequencySpec` / `market.Frequency` | `Valid()` / `KnownFrequencySpecs()` / `IsIntraday()` / `IntradayMinutes()`（`pkg/domain/market/frequency.go:11-126`） | 同上 | 非法 ⇒ `ErrDeclarationInvalid` | **frozen**（同上）。聚合口径变更走 ADR，不走补丁 |
 | `market.OHLCV` | 实体在 `pkg/domain/market/types.go:11`（`Date` = bar 周期起点，1d = 交易日零点 UTC）；`domain.OHLCV` 是**根包别名**（`pkg/domain/types.go:52`，钉子 `market_alias_test.go:18`） | 同上 | — | **stable**：加列 MINOR；`Volume` 单位 = **股**（`kernel-interface-map.md` §一.1）是语义冻结，改单位 = breaking |
-| `source.ConnectorDeclaration` | `struct{DataType string; TimeSemantics market.TimeSemantics; VisibleExpr, VisibleField string; Frequency market.FrequencySpec}`（`pkg/data/source/contract.go:41-59`） | `contracts/dataprotocol`（**新建包**，注 ①） | 见 E 组三条 `ErrDeclaration*` | **frozen**：五个字段全部必填判定已写死（`validateDeclarations` 全文）。加字段 = MINOR，但**新字段必须可选**，否则下游 connector 集体编译期红 |
+| `source.ConnectorDeclaration` | `struct{DataType string; TimeSemantics market.TimeSemantics; VisibleExpr, VisibleField string; Frequency market.FrequencySpec}`（`pkg/data/source/contract.go:41-59`） | `contracts/dataprotocol`（**新建包**，注 ①） | 见 E 组三条 `ErrDeclaration*` | **frozen**：五个字段的必填判定已写死在 `validateDeclarations`（注意 `VisibleExpr` **不是无条件必填**——只在 `TimeSemantics == VisibleCustom` 时必填）。加字段 = MINOR，但**新字段必须可选**，否则下游 connector 集体编译期红 |
 | `source.VisibleFieldTradeTime` / `VisibleFieldAnnDate` | 两个保留锚点记号 `const string`（`:24`、`:38`） | 同上 | 记号名写进 `VisibleField` 时走 `validateReservedAnchorProjection` | **frozen**：记号一旦改名的代价 = 全部 connector 声明 + 全部已落库口径说明同时失效 |
 | `source.UnifiedDataPoint` | `struct{Symbol string; TradeTime time.Time; Source, DataType string; Data map[string]interface{}; IngestTime time.Time}` + `DeduplicateKey()` = `Symbol\|DataType\|TradeTime(RFC3339Nano,UTC)`（`pkg/data/source/unified.go:16-72`） | 同上（注 ②） | 缺 `Symbol`/`TradeTime`/`Data` ⇒ 被 `ValidatePoints` **静默丢弃并计数**（不是 error，`etl.go:168-186`） | **stable**：`Data` 是 JSONB 语义的逃生阀，加字段优先落 `Data` 不动结构体 |
-| `source.DataItem` / `DataSchema` / `SchemaField` / `FetchRequest` / `FetchResponse` | `pkg/data/source/adapter.go:88-170`（`SchemaField.Type` 取值集 `"string"\|"float"\|"int"\|"date"\|"datetime"`，`Unit` 取值集 `"yuan"\|"percent"\|"share"\|""`） | 同上 | `ErrUnsupported`（类型不服务） | **stable**；`SchemaField.Type` 取值集扩容 = MINOR，**改名 = breaking**（`validateVisibleAnchor` 按字面量判 date/datetime） |
+| `source.DataItem` / `DataSchema` / `SchemaField` / `FetchRequest` / `FetchResponse` | `pkg/data/source/adapter.go:88-166`（`FetchRequest`:88、`DataItem`:115、`FetchResponse`:126、`DataSchema`:155、`SchemaField`:160；`SchemaField.Type` 取值集 `"string"\|"float"\|"int"\|"date"\|"datetime"`，`Unit` 取值集 `"yuan"\|"percent"\|"share"\|""`） | 同上 | `ErrUnsupported`（类型不服务） | **stable**；`SchemaField.Type` 取值集扩容 = MINOR，**改名 = breaking**（`validateVisibleAnchor` 按字面量判 date/datetime） |
 
-> **注 ①（落点定名）**：新包定 **`github.com/ruoxizhnya/tellurion-contracts/dataprotocol`**，包名 `dataprotocol`。不用 `data/`（与 contracts §8 待裁 #1 的 `errors/`、`abi/` 之争同型：包名要能自证「这是协议不是实现」）；不叫 `dataset`（那是 X1b 的 aggregator 面，形状还没定）。
+> **注 ①（落点定名）**：新包定 **`github.com/ruoxizhnya/tellurion-contracts/dataprotocol`**，包名 `dataprotocol`。不用 `data/`（与 `tellurion-contracts:docs/API.md` §8 待裁 #1 的 `errors/`、`abi/` 之争同型：包名要能自证「这是协议不是实现」）；不叫 `dataset`（那是 X1b 的 aggregator 面，形状还没定）。
 > **注 ②（迁入时机，这次对账要拍的那一颗）**：`dataprotocol` 五个符号**今天只有 core 一个使用方**，按 `tellurion-contracts:docs/adr/0001-契约只增不破且零实现.md` ③「只有单个仓使用的类型属泄漏」**不许提前迁**。执行序：X1a 只在 contracts 落 **`domain/market`**（它本来就随 QT-05 整包迁）+ 本节的错误码族；`dataprotocol` 那一笔**挂在 X1b 的第一条 commit**——`tellurion-data` 一 import，两个使用方立刻成立，泄漏判据同时满足。
-> **注 ③（顺手要消灭的第三份真相）**：`pkg/storage/bulk_insert.go:17` 有一个**同名同字段的副本** `storage.UnifiedDataPoint`，注释自述理由是「storage 不能 import source（会成环）」。协议进 contracts 后这个理由消失（两者都 import contracts），**必须删副本、改引用**——留在原地就是三份 `DeduplicateKey` 语义，而幂等坐标正是 X1c/X1d 全部拒收判据的地基。
+> **注 ③（顺手要消灭的同名副本）**：`pkg/storage/bulk_insert.go:17` 有一个与 `source.UnifiedDataPoint` **同名同字段的副本** `storage.UnifiedDataPoint`，注释自述理由是「storage 不能 import source（会成环）」。实测口径要分清：`DeduplicateKey()` **只有一份实现**（`source/unified.go:70`，被 `unified.go:92` 与 `reconcile.go:97` 用），副本是裸结构体——所以今天的风险不是「幂等逻辑三处各写一遍」，而是**字段形状两处各改**：协议加一列（例如 `visible_at`），改了 source 那份、忘了 storage 那份，`BulkInsert` 的 `TableMapper` 列布局就会静默少写一列（`bulk_insert_ddl_test.go` 只核「目标表在 DDL 里」，核不到字段）。协议进 contracts 后成环理由消失（两者都 import contracts），**必须删副本、改引用**。
 
 #### B 组 · connector 契约（port，注册期闸门）
 
 | 成员 | 签名（今天） | 错误语义 | 版本策略 |
 |---|---|---|---|
-| `DataSourceAdapter` | `Name() string` · `Type() AdapterType` · `Enabled() bool` · `SupportedTypes() []string` · `Declarations() []ConnectorDeclaration` · `Schema(dataType string) (DataSchema, error)` · `Fetch(ctx, FetchRequest) (*FetchResponse, error)` · `HealthCheck(ctx) error` · `RateLimit() RateLimitConfig`（`pkg/data/source/adapter.go:172-220`，**9 个方法**） | `Fetch` 契约（REV-05）：`err == nil` 时返回**必须非 nil**，`(nil, nil)` 视为 adapter 失败并落备用链；限流 ⇒ `ErrRateLimited`；传输故障 ⇒ `ErrUpstreamUnavailable` | 方法集是**接口即闸门**：`Declarations()` 已在接口上，「忘声明」对新 connector 是编译错误（原文注释 `:188-194`）。增删方法 = breaking，走 MINOR→MAJOR |
-| `Registry.Register` | `func (r *Registry) Register(a DataSourceAdapter) error`（`registry.go:71`） | fail-closed：缺声明 ⇒ `ErrDeclarationMissing`；枚举非法 / `VisibleCustom` 缺 `VisibleExpr` / 重复声明 / 声明了 `SupportedTypes()` 之外的类型 ⇒ `ErrDeclarationInvalid`；锚点为空 / 锚点不在 schema / 锚点类型非 date|datetime / 保留锚点投影类型非法 ⇒ `ErrDeclarationMismatch` | 校验覆盖面只增不减（放宽 = breaking） |
+| `DataSourceAdapter` | `Name() string` · `Type() AdapterType` · `Enabled() bool` · `SupportedTypes() []string` · `Declarations() []ConnectorDeclaration` · `Schema(dataType string) (DataSchema, error)` · `Fetch(ctx, FetchRequest) (*FetchResponse, error)` · `HealthCheck(ctx) error` · `RateLimit() RateLimitConfig`（`pkg/data/source/adapter.go:172-220`，**9 个方法**） | `Fetch` 契约（REV-05）：`err == nil` 时返回**必须非 nil**，`(nil, nil)` 视为 adapter 失败并落备用链；限流 ⇒ `ErrRateLimited`；传输故障 ⇒ `ErrUpstreamUnavailable` | 方法集是**接口即闸门**：`Declarations()` 已在接口上，「忘声明」对新 connector 是编译错误（原文注释 `:188-194`）。增删方法是 **breaking**（删 = 所有实现红，加 = 所有实现红，因为接口不是可选实现）；0.x 期按 QT-19 ③ 允许 breaking，但要 bump 版本 + CHANGELOG 条目，不是随手改 |
+| `Registry.Register` | `func (r *Registry) Register(a DataSourceAdapter) error`（`registry.go:71`） | fail-closed：缺声明 ⇒ `ErrDeclarationMissing`；枚举非法 / `VisibleCustom` 缺 `VisibleExpr` / 重复声明 / 声明了 `SupportedTypes()` 之外的类型 ⇒ `ErrDeclarationInvalid`；锚点为空 / 锚点不在 schema / 锚点类型非 date\|datetime / 保留锚点投影类型非法 ⇒ `ErrDeclarationMismatch` | 校验覆盖面只增不减（放宽 = breaking） |
 | `Registry.Fetch` | `func (r *Registry) Fetch(ctx, req FetchRequest) (*FetchResponse, error)`（`:150`） | 链上全员失败 ⇒ 聚合错误；未登记名 ⇒ `ErrAdapterNotRegistered` | 备用链语义（优先级取第一）稳定；`Source` 列口径变更走 ADR |
 | `ETLPipeline.Process` | `func (p *ETLPipeline) Process(ctx, req FetchRequest, normalizer Normalizer) (*ProcessResult, error)`（`etl.go:95`）；`Normalizer = func(item DataItem, source, dataType string) UnifiedDataPoint`（`:161`，返回 `Data==nil` 即「丢弃该条」） | `nil Registry` / `nil normalizer` ⇒ 直接 error，不降级 | **ProcessResult 的计数语义是审计口径**（`Fetched`/`Persisted`/`Skipped`），改判定 = breaking |
 
@@ -195,10 +195,10 @@
 
 | 端点 | 目标签名 | 错误语义（HTTP ↔ 哨兵） | 幂等 / 版本策略 |
 |---|---|---|---|
-| `GET /datasets/resolve?universe=&index_code=&from=&to=&freq=&adjustment=&as_of=` | ⇒ `{dataset_hash, metadata}`，`metadata` 至少含六分量回显（`universe_hash`/`window`/`frequency`/`data_version`/`calendar_hash`/`adjustment_basis`） | 缺 `from`/`to`/`freq` ⇒ **400 参数缺失**（不是 `ErrUnsupported`——那条判的是「类型没登记」，两义会毁掉分诊）；`freq` 非法 ⇒ 400（`Frequency.Valid()`）；`universe` 与 `index_code` 同时给 ⇒ 400（口径二义，不许静默优先级）；票池解析为空 ⇒ **409 明确失败**，不返回空数据集（`kernel-interface-map.md` §一.1 的「缺数据 symbol 直接缺席，不补零值」在 HTTP 侧的同款） | **可重放**（只读）。`dataset_hash` 由 `contracts/engine` 的 `DatasetSnapshotInput.Hash()` 产出，**本端点不许自己实现 hash**（唯一定义处 = §2.1 注）。新增查询参数 = MINOR；**改任一参与 hash 的参数的语义 = breaking**（历史 hash 全部失去可比性） |
+| `GET /datasets/resolve?universe=&index_code=&from=&to=&freq=&adjustment=&as_of=` | ⇒ `{dataset_hash, metadata}`，`metadata` 至少含六分量回显（`universe_hash`/`window`/`frequency`/`data_version`/`calendar_hash`/`adjustment_basis`） | 缺 `from`/`to`/`freq` ⇒ **400 参数缺失**（不是 `ErrUnsupported`——那条判的是「类型没登记」，两义会毁掉分诊）；`freq` 非法 ⇒ 400（`Frequency.Valid()`）；`universe` 与 `index_code` 同时给 ⇒ 400（口径二义，不许静默优先级）；票池解析为空 ⇒ **409 明确失败**，不返回空数据集（同 `DataEngine.Snapshot` 的既有语义：「窗口内缺数据的 symbol 直接缺席 map，不补零值」——`tellurion:pkg/marketdata/interfaces.go:36`） | **可重放**（只读）。`dataset_hash` 由 `contracts/engine` 的 `DatasetSnapshotInput.Hash()` 产出，**本端点不许自己实现 hash**（唯一定义处 = §2.1 注）。新增查询参数 = MINOR；**改任一参与 hash 的参数的语义 = breaking**（历史 hash 全部失去可比性） |
 | `GET /datasets/{hash}` | ⇒ 数据集（按 `map[string][]OHLCV` 形态，run 前一次物化） | hash 不存在 ⇒ 404 + `ErrSnapshotMismatch` 家族区分开：「没这个 hash」≠「内容不符」；返回内容重算 hash ≠ 路径 hash ⇒ **500 + 告警**（`ErrSnapshotMismatch`，缓存串号） | **强幂等**：同一 hash 两次拉取**字节一致**（QT-40 ⑤ 第一条验收）。内容变 ⇒ 必然是新 hash，**原地改内容是绝对禁止项** |
-| `GET /factors/{name}@{hash}` | ⇒ 已落库的因子**值**序列 | 无名 ⇒ 404；有定义无值 ⇒ **明确失败**（不许补零）。样板 = `ErrNoFundamentalsDetail`（定义 `pkg/data/factor_equitydeep.go:46`，语义「查到了定义但没有行」⇒ 跳过并上报，见 `pkg/data/factor.go:454`） | 只读值。**因子求值不在本面**（§7「不做因子服务」）——见 G 组界线 L1 |
-| —（不提供） | **逐 bar / 逐笔端点一律不做** | — | `tellurion-data:docs/api-schema.md` §5 + QT-40 ④；违反即 §1 第 5 条硬闸门（10³~10⁶ 倍延迟 + 前视不可控） |
+| `GET /factors/{name}@{hash}` | ⇒ 已落库的因子**值**序列 | 无名 ⇒ 404；有定义无值 ⇒ **明确失败**（不许补零）。样板 = `ErrNoFundamentalsDetail`（定义 `pkg/data/factor_equitydeep.go:46`，语义「查到了定义但没有行」⇒ 跳过并上报，见 `pkg/data/factor.go:454`） | 只读值。**因子求值不在本面**（ADR-027 §7「不做因子服务」）——见 G 组界线 L1 |
+| —（不提供） | **逐 bar / 逐笔端点一律不做** | — | `tellurion-data:docs/api-schema.md` §5 + QT-40 ④；违反即 [`service-extraction-plan.md`](service-extraction-plan.md) §1 第 5 条硬闸门（10³~10⁶ 倍延迟 + 前视不可控） |
 
 #### D 组 · 今天已有、但**不该**照原样映射成 HTTP 的细粒度面
 
@@ -232,7 +232,7 @@
 
 | 面 | 规则 | 判据出处 |
 |---|---|---|
-| **contracts 符号** | 只认**版本号**（tag 或伪版本），不认源码路径。删/改签名或语义 = MAJOR；新增兼容能力 = MINOR；文档/无行为修正 = PATCH。0.x 期允许 breaking 但须 bump MINOR + CHANGELOG | `tellurion:docs/TASKS.md` QT-19 ③；落文档 = `tellurion-contracts:docs/TASKS.md` CT-02（⬜ 未完成，**X1a 之前必须先有**，否则第一个符号进来就没有版本纪律） |
+| **contracts 符号** | 只认**版本号**（tag 或伪版本），不认源码路径。`MAJOR` = 删/改签名或语义；`MINOR` = 新增兼容能力；`PATCH` = 文档/无行为修正。**0.x 期（现在到 1.0 前）允许 breaking，但必须 bump MINOR + 写 CHANGELOG**；「deprecated 至少保留一个 MINOR 周期」是 1.0 之后才启用的规则 | `tellurion:docs/TASKS.md` QT-19 ③ 五条原文；落文档 = `tellurion-contracts:docs/TASKS.md` CT-02。⚠️ **别把这条读成「X1a 之前先补 CT-02」**：core 总览把 QT-19 排在 QT-07（S2 打 tag）之后，QT-05 ⑥ 也明写版本策略不归 S1。版本口径的**唯一源** = contracts README 那张「版本规则 / 兼容矩阵」表 + QT-19 ③——本仓**只引不复述**，CT-02 还没落地时也一样（那正是最容易各自编一套的时候） |
 | **HTTP 端点** | 只增不删；废弃走 `deprecated` 响应头 + 一个 MINOR 周期；**字段语义变更（尤其 `visible_at`）算 breaking，必须走 ADR** | `tellurion-data:docs/api-schema.md` §4（本节把它升格为判据，不再只是一句声明） |
 | **canonical hash 分量** | `DatasetSnapshotInput` 的编码顺序在 `Hash()` 里逐行写死；**改集合或顺序 = 升域标签 v1 → v2，代价是全部历史 hash 作废** | QT-03 ④ + `pkg/backtest/contracts/provenance.go:127-136` 的「写这个结构体的规矩」 |
 
@@ -242,7 +242,7 @@
 
 | # | 界线 | 定案 |
 |---|---|---|
-| L1 | **因子定义 vs 因子值 vs 因子求值** | 定义 + SeriesSpec ⇒ **strategy**（ADR-027 §2.6.1 / ADR-028 §6，见 `repo-inventory.md` §1.2 R3）；**已落库的值** ⇒ data，经 `GET /factors/{name}@{hash}`；**求值 ⇒ 消费点 in-process**（§7「不做因子服务」）。data 侧任何包不许出现「算因子」的入口 |
+| L1 | **因子定义 vs 因子值 vs 因子求值** | 定义 + SeriesSpec ⇒ **strategy**（ADR-027 §2.6.1 / ADR-028 §6，见 `repo-inventory.md` §1.2 R3）；**已落库的值** ⇒ data，经 `GET /factors/{name}@{hash}`；**求值 ⇒ 消费点 in-process**（ADR-027 §7「不做因子服务」）。data 侧任何包不许出现「算因子」的入口 |
 | L2 | **`visible_at` 的锚点谁填** | connector **声明**（`ConnectorDeclaration.VisibleField`），归一化层**填实**，aggregator **强制过滤**（`visible_at <= as_of`）。三道都在数据服务内，core 只传 `as_of`——core 侧不许二次推导可见性（那是第二道防线的定义权外溢） |
 | L3 | **`adjustment_basis` 谁给** | **请求方（core）在 resolve 时把复权口径 + 锚点摘要作为参数传入**，data 只按参数取数并回算 hash。反例（禁止）：data 读 `backtest_adjustment_anchors` —— 该表 owner = core 回测域、写者 `pkg/backtest/adjustment_snapshot.go`（§1 归属表），data 去读就是跨 owner 摸表 + hash 口径两处各自算一遍 |
 
@@ -251,7 +251,7 @@
 | # | 事项 | 落哪 |
 |---|---|---|
 | T1 | `tellurion-data:docs/api-schema.md` §2 的 `ErrNoTimeSemantics` 改指 `ErrDeclarationMissing`、`ErrUnknownDataType` 改复用 `ErrUnsupported`；§3 的 hash 四分量（票池+窗口+频率+数据版本）**订正为引用六分量**（缺 `calendar_hash` / `adjustment_basis`，与本文 §2.1 那次订正同源）。⇒ **✅ 已随本次对表执行**（data 仓 `api-schema.md` §1/§2/§3/§5 + `dataflow.md` §3，2026-10-21） | data 仓文档 |
-| T2 | `dataprotocol` 包是否独立成包（与 contracts §8 待裁 #1「`errors/` / `abi/` 是否独立成包」同族问题）在 contracts `docs/API.md` §8 补一行登记 | contracts 仓，X1b 迁入前 |
+| T2 | `dataprotocol` 包是否独立成包（与 `tellurion-contracts:docs/API.md` §8 待裁 #1「`errors/` / `abi/` 是否独立成包」同族问题）在该 §8 补一行登记 | contracts 仓，X1b 迁入前 |
 | T3 | `/datasets/resolve` / `/datasets/{hash}` / `/factors/{name}@{hash}` 的正式 schema 进 core `docs/openapi.yaml`（QT-50 ③-③ 的统一入表）。⚠️ 实测（2026-10-21）：openapi 里**没有任何 `/datasets/*`**，但**已有 `/api/factors/{factor_name}`**（`docs/openapi.yaml:3103`）——与本仓目标的 `/factors/{name}@{hash}` **同族不同形**（一个按名取最新、一个按名+hash 取快照）。入表时必须定谁是真相，否则留下两个因子读面 = 因子值的两个口径，正是 §4.1 L1 要防的那种漂移 | core，X1b |
 | T4 | `tellurion-data:docs/ARCHITECTURE.md` 补 ADR-027 §2.6.2 的**六个限界上下文包级隔离**分层（`repo-inventory.md` §1.2 data 行的义务） | data 仓，X1b |
 | T5 | `ErrVisibleAtMissing` 上线与历史行不可回填的矛盾（E 组）要有一条迁移方案：加列 + 按 `TimeSemantics` 重算 + 重算不了的处理 | data 仓，X1b/X1d 设计 |
