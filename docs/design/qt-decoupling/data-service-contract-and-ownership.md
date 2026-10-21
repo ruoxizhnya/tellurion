@@ -69,7 +69,15 @@
 | 4 | **行情字段** | OHLC + Volume（**单位 = 股**）+ turnover + 复权因子 | ✅ `market.OHLCV` |
 | 5 | **公司行为** | 分红 / 送股 / 配股（复权口径） | 部分（BE-11 待深查） |
 | 6 | **质量标记** | 缺失 / 停牌 / ST / 退市 / 异常值 | `ValidatePoints` 雏形 |
-| 7 | **内容寻址** | `dataset_snapshot_hash`（票池 + 窗口 + 频率 + 数据版本） | ❌ **待补**（X0） |
+| 7 | **内容寻址** | `dataset_snapshot_hash` | ✅ **已冻结（QT-03，2026-10-21）** |
+
+> **`dataset_snapshot_hash` 的唯一定义在代码**：`pkg/backtest/contracts/provenance.go` 的
+> `DatasetSnapshotInput`（六分量：`universe_hash` / `window` / `frequency` /
+> `data_version` / `calendar_hash` / `adjustment_basis`）。
+> **本文件原先写的四项（票池 + 窗口 + 频率 + 数据版本）缺 `calendar_hash` 与
+> `adjustment_basis`，已订正为引用**（2026-10-21，QT-03 / N6-2）——缺日历那份会导致
+> 「供应商补了一个节假日 → 同 hash 不同结果」，正是 A4/B1 反复要防的事。
+> 除该结构体之外，任何文档都不再重述这六个分量。
 
 ### 2.2 最关键的一条：`visible_at` 是防前视的第二道防线
 

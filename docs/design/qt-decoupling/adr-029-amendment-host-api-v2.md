@@ -64,7 +64,7 @@
    - 单次 `set_state` value ≤ 64 KiB，且单实例 `State` 总字节 ≤ 4 MiB，超出 → trap；
    - 理由：`hostSetState` 会 `make([]byte)` 复制进宿主 Go 内存（`host_api.go:251`），**wasm 内存上限管不住宿主侧增长**，AI 生成代码可 OOM 整个进程。
 8. **`symbol_idx` 全 run 稳定**：来源 = `Scope.Universe` 排序后的下标，**不得**从每日 `Scope.MarketData` 的 keys 派生（该 map 每日重建且剔除停牌标的，见 `engine_daily.go:130-141`）；缺 bar 的标的保留索引，取数返回 `NaN`。
-9. **`Axis` 唯一来源** = `Engine.getTradingDays`（`engine.go:1257-1268`）返回的 `tradingDays`，**不得**由数据日期合成；且 `Axis` 必须纳入 `dataset_snapshot_hash`（X0）。
+9. **`Axis` 唯一来源** = `Engine.getTradingDays`（`engine.go:1257-1268`）返回的 `tradingDays`，**不得**由数据日期合成；且 `Axis` 必须纳入 `dataset_snapshot_hash` —— **已冻结（QT-03，2026-10-21）**：唯一定义在 `pkg/backtest/contracts/provenance.go` 的 `DatasetSnapshotInput`（`calendar_hash` 分量，**保序**，因为轴的顺序就是 T 的推进顺序）。本处不再重述分量清单。
 10. **state 必须带信封**：落库形态 `{state_schema_version, artifact_hash, abi_version, payload}`；恢复时三者与当前 artifact 不匹配即 fail-closed，不"尽力解释"、不静默重置。
 11. **state scratch 失效语义**：`get_state` 的返回指针在下一次 host 调用后失效；推荐实现为 **per-bar bump allocator**（每 bar 重置、不覆盖同 bar 内已返回的块，上限 256 KiB/bar），避免"取 k1 再取 k2 后 k1 已失效"的隐蔽错。
 12. **`symbol_idx` 的来源是 `Scope.RunUniverse`（run 级稳定）**，不是 `Scope.Universe`（当日可交易名单，逐日变化）。`Universe` 的语义降级为"今日可交易"，**禁止**用于索引派生。
