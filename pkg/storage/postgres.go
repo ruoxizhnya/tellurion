@@ -1180,6 +1180,13 @@ func migrationStatements() []string {
 		`CREATE INDEX IF NOT EXISTS idx_market_index_daily_code ON market.index_daily(code)`,
 	}...)
 
+	// Migration 054（SPEC-R-01）：audit.message_log 由 pkg/eventstore 的
+	// EnsureSchema 兜底建表，这里收编为 migrate() 的唯一真相。表结构零变更。
+	migrations = append(migrations, AuditSchemaDDL...)
+	// Migration 055（SPEC-R-01）：quant.strategy_state 由 pkg/strategy 的
+	// EnsureSchema 兜底建表，这里收编为 migrate() 的唯一真相。表结构零变更。
+	migrations = append(migrations, StrategyStateSchemaDDL...)
+
 	return migrations
 }
 
@@ -1259,12 +1266,50 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 	return nil
 }
 
+// AuditSchemaDDL 是 audit schema + audit.message_log 表 + 2 个索引的建表 DDL——
+// migrate() 的 Migration 054 执行的就是这组语句（SPEC-R-01）。
+//
+// 表结构逐字取自 contracts/kernel_modules.schema.sql（K0 冻结契约），零变更；
+// pkg/eventstore.SchemaDDL 是它的别名（同一底层数组），EnsureSchema 仅作
+// 「独立可安装 / 测试自证」的幂等兜底入口。
+var AuditSchemaDDL = []string{
+	`CREATE SCHEMA IF NOT EXISTS audit`,
+	`CREATE TABLE IF NOT EXISTS audit.message_log (
+		id         BIGSERIAL PRIMARY KEY,
+		ts         TIMESTAMPTZ NOT NULL,
+		topic      TEXT NOT NULL,
+		payload    JSONB NOT NULL,
+		publisher  TEXT NOT NULL,
+		run_id     TEXT
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_message_log_ts ON audit.message_log (ts)`,
+	`CREATE INDEX IF NOT EXISTS idx_message_log_topic_ts ON audit.message_log (topic, ts)`,
+}
+
+// StrategyStateSchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引的
+// 建表 DDL——migrate() 的 Migration 055 执行的就是这组语句（SPEC-R-01）。
+//
+// 表结构逐字取自 contracts/kernel_modules.schema.sql 第 184-197 行（K0 冻结），
+// 零变更；pkg/strategy.SchemaDDL 是它的别名（同一底层数组），EnsureSchema 仅作
+// 「独立可安装 / 测试自证」的幂等兜底入口。
+var StrategyStateSchemaDDL = []string{
+	`CREATE SCHEMA IF NOT EXISTS quant`,
+	`CREATE TABLE IF NOT EXISTS quant.strategy_state (
+		strategy_id TEXT NOT NULL,
+		run_id      TEXT NOT NULL,
+		ts          TIMESTAMPTZ NOT NULL,
+		state       BYTEA NOT NULL,
+		created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (strategy_id, run_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_strategy_state_run ON quant.strategy_state (run_id)`,
+}
+
 // ExternalSignalsSchemaDDL 是 quant.external_signals（schema + 表 + 消费索引）
 // 的建表 DDL——migrate() 的 Migration 048 执行的就是这组语句（K8 / K7 遗留①）。
 //
-// 与 pkg/strategy.SignalSchemaDDL 的关系：那边是 EnsureSchema（幂等兜底 /
-// 独立可安装入口）用的同源副本。两侧文本「归一化空白后逐条相等」由
-// pkg/strategy 的一致性测试钉住（破坏腿③：改一处不改另一处 → 测试红）。
+// 与 pkg/strategy.SignalSchemaDDL 的关系：那边是同一底层数组的别名（SPEC-R-01
+// 已去重），EnsureSchema 仅作「独立可安装 / 测试自证」的幂等兜底入口。
 // 顺序同 SignalSchemaDDL：schema 先于表，表先于索引。
 var ExternalSignalsSchemaDDL = []string{
 	`CREATE SCHEMA IF NOT EXISTS quant`,

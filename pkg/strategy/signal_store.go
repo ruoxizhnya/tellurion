@@ -5,11 +5,11 @@
 // 归属是 strategy-runtime 模块（蓝图 §5 矩阵 L3 行），不走 pkg/storage 应用层
 // store——「内核模块自带 store」先例（eventstore / PGStateStore 同源）。
 //
-// ─── 与 pkg/storage/postgres.go migrate() 的关系（K8 已合并） ──────
+// ─── 与 pkg/storage/postgres.go migrate() 的关系（SPEC-R-01 已去重） ──
 // 同 state_store.go：项目加表的唯一执行路径是 migrate() 内联数组。K8 已把
 // 本 DDL 逐字并入 migrate()（Migration 048，文本在 storage.ExternalSignals-
-// DDL），并保留 SignalSchemaDDL + EnsureSchema 作「独立可安装」幂等兜底入口。
-// 两侧文本的「归一化空白后逐条相等」由本包一致性测试钉住（K8 破坏腿③）。
+// SchemaDDL）。SPEC-R-01 把本包的副本改为该变量的别名（同一底层数组，
+// 单一文本真相），SignalSchemaDDL + EnsureSchema 仅作「独立可安装」幂等兜底。
 // 本文件 DDL 与 contracts/kernel_modules.schema.sql 追加节逐字一致，以契约文件为准。
 package strategy
 
@@ -20,47 +20,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"tellurion/pkg/domain"
+	"tellurion/pkg/storage"
 )
 
-// SignalSchemaDDL 是 quant.external_signals 表 + 索引的建表语句，逐字取自
-// contracts/kernel_modules.schema.sql 追加节（K7 冻结）。每条幂等
-// （IF NOT EXISTS）——EnsureSchema 会被反复调用（每个测试 setup、每次装配）。
+// SignalSchemaDDL 是 quant.external_signals 表 + 索引的建表语句，为
+// storage.ExternalSignalsSchemaDDL 的别名（同一底层数组）——文本唯一真相在
+// pkg/storage/postgres.go 的 migrate() 路径（Migration 048）。表结构逐字取自
+// contracts/kernel_modules.schema.sql 追加节（K7 冻结）。
 //
-// 顺序有意义：schema 先于表（quant 由 strategy_state 的 DDL 保证已建，但
-// 本表仍显式 CREATE SCHEMA 以防独立安装时缺失），表先于索引。
-var SignalSchemaDDL = []string{
-	// pkg/storage/postgres.go 现只建 ingest / research 两个 schema，quant 由
-	// strategy-runtime 各 store 自行补（与 state_store.go 的 SchemaDDL 同源）。
-	// 幂等，重复执行无害。
-	`CREATE SCHEMA IF NOT EXISTS quant`,
-
-	// 外部模型信号表（K7 契约冻结）。列清单：
-	//   model_id  —— 外部模型标识（source）；content_hash 坐标的 source 位。
-	//   symbol    —— 标的（key 位）。
-	//   direction —— long/short/close（TEXT，与 quant.orders.direction 同型）。
-	//   strength  —— 强度（不约束范围，Save 层拒 NaN/±Inf）。
-	//   as_of     —— 信号生效交易日；「按 as_of 拉取」防前视的锚点。
-	//   content_hash —— sha256 可执行字段（model_id/symbol/direction/strength/
-	//                as_of），UNIQUE：幂等去重 + 可追溯坐标。
-	//   factors   —— 诊断因子快照（JSONB，非身份，不入哈希）。
-	`CREATE TABLE IF NOT EXISTS quant.external_signals (
-		id           BIGSERIAL PRIMARY KEY,
-		model_id     TEXT NOT NULL,
-		symbol       TEXT NOT NULL,
-		direction    TEXT NOT NULL,
-		strength     DOUBLE PRECISION NOT NULL,
-		as_of        TIMESTAMPTZ NOT NULL,
-		content_hash TEXT NOT NULL,
-		factors      JSONB,
-		created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-		CONSTRAINT uq_external_signals_hash UNIQUE (content_hash)
-	)`,
-
-	// 消费侧（SignalStrategy.ListFor）的查询形态：
-	// WHERE model_id = $1 AND symbol = $2 AND as_of <= $3 ORDER BY as_of。
-	`CREATE INDEX IF NOT EXISTS idx_external_signals_lookup
-		ON quant.external_signals (model_id, symbol, as_of)`,
-}
+// 每条幂等（IF NOT EXISTS）——EnsureSchema 会被反复调用（每个测试 setup、
+// 每次装配）。顺序有意义：schema 先于表，表先于索引。
+var SignalSchemaDDL = storage.ExternalSignalsSchemaDDL
 
 // ensureTimeout / saveTimeout / loadTimeout：沿用 state_store.go 的同名常量
 // 语义（建表一次性上限、单次 DB 操作上限）。

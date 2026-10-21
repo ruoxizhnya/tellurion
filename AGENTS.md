@@ -35,9 +35,10 @@
 2. **不许在本仓重建已迁出的东西**：`web/`（前端）、`pkg/ai/**`（含 `validation` / `tools`）都不在这里。
    需要改它们就去对应仓。**在 core 新建 `web/` 或 `pkg/ai/` 一律视为边界错误。**
 3. **DDL 主路径**：建表走 `pkg/storage/postgres.go` 的 `migrationStatements()` 数组（`migrate()` 启动时按序执行）。
-   **例外（存量 3 处模块内自建表，如实登记）**：`pkg/eventstore/schema.go`（`audit.message_log`）、
-   `pkg/strategy/state_store.go`（`quant.strategy_state`）、`pkg/strategy/signal_store.go`（重复建 `quant.external_signals`），
-   各由模块 `EnsureSchema` 幂等兜底；是否收编进 `migrate()` 须走正式 schema 变更评审。
+   **唯一真相，无例外**（SPEC-R-01 收编）：`audit.message_log`（Migration 054）、`quant.strategy_state`（Migration 055）、
+   `quant.external_signals`（Migration 048）的 DDL 文本只在 `pkg/storage/postgres.go` 定义；
+   `pkg/eventstore` / `pkg/strategy` 侧的变量是 `storage.*SchemaDDL` 的**别名**，其 `EnsureSchema` 仅作
+   「独立可安装 / 测试自证」幂等兜底入口。新增 DDL 一律加到 `migrationStatements()`。
    `migrations/` 与 `docs/migrations/` 的 `.sql` **不执行**，只作历史证据。
 
 ---
@@ -213,7 +214,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
 │   ├── fees/                     # 费率模型（形状 → contracts，计算留 core）
-│   ├── storage/                  # PG 存储：**DDL 主真相 = migrationStatements()**（3 处模块内自建表除外）
+│   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**（SPEC-R-01 已收编全部模块表）
 │   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
 │   ├── domain/                   # 领域模型（→ tellurion-contracts，S1）
 │   ├── logging/ errors/ id/ decimal/ statistics/   # 横切（→ tellurion-kit，S1）

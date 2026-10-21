@@ -14,6 +14,7 @@ package strategy
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"tellurion/pkg/storage"
 	"tellurion/pkg/testenv"
 )
 
@@ -75,6 +77,23 @@ func TestPGStateStoreEnsureSchemaIsIdempotent(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		require.NoErrorf(t, store.EnsureSchema(ctx), "第 %d 次 EnsureSchema 失败（幂等性被破坏）", i)
 	}
+}
+
+// TestStateSchemaDDLIsAliasOfMigrate 钉住 SchemaDDL 是
+// storage.StrategyStateSchemaDDL 的别名（同一底层数组），而不是第二份文本。
+//
+// SPEC-R-01 把本表的建表落点收编进 migrate()（Migration 055）：只要有人把
+// 本包改回复制一份 DDL（哪怕当前内容恰好相同），本测试立刻红。
+func TestStateSchemaDDLIsAliasOfMigrate(t *testing.T) {
+	t.Parallel()
+
+	require.Len(t, SchemaDDL, len(storage.StrategyStateSchemaDDL),
+		"SchemaDDL 与 migrate() 的 Migration 055 长度不一致（不是同一数组）")
+	require.Equal(t,
+		reflect.ValueOf(storage.StrategyStateSchemaDDL).Pointer(),
+		reflect.ValueOf(SchemaDDL).Pointer(),
+		"SchemaDDL 必须是 storage.StrategyStateSchemaDDL 的别名"+
+			"（同一底层数组），不得复制文本（SPEC-R-01）")
 }
 
 // TestPGStateStoreConstructorRejectsNilPool 构造期就把话说清楚，别等到某次

@@ -239,6 +239,31 @@ func TestIntegration_NewPostgresStore_Connects(t *testing.T) {
 	require.NoError(t, store.Ping(ctx))
 }
 
+// TestIntegration_MigrateIsIdempotentForModuleTables 钉住 SPEC-R-01 的收编结果：
+// migrate() 连续执行两次不报错（全部 DDL 幂等），且三张从模块侧收编进来的表
+// 真实存在。
+//
+// 这里直接调 migrate() 而不是依赖 TestMain 的那一次：前者证明「重复执行安全」
+// （服务每次 Boot 都会跑、测试 setup 也会跑），后者只证明「第一次能建」。
+func TestIntegration_MigrateIsIdempotentForModuleTables(t *testing.T) {
+	store, ctx := newTestStore(t)
+
+	for i := 1; i <= 2; i++ {
+		require.NoErrorf(t, store.migrate(ctx), "第 %d 次 migrate() 失败（幂等性被破坏）", i)
+	}
+
+	for _, table := range []string{
+		"audit.message_log",
+		"quant.strategy_state",
+		"quant.external_signals",
+	} {
+		var oid *string
+		require.NoError(t, store.pool.QueryRow(ctx,
+			`SELECT to_regclass($1)::text`, table).Scan(&oid), "查询 %s 是否存在失败", table)
+		require.NotNil(t, oid, "migrate() 后表 %s 不存在——收编未生效", table)
+	}
+}
+
 func TestIntegration_NewPostgresStore_BadConnString(t *testing.T) {
 	// We don't go through dockertest for the negative path —
 	// the error must surface from a bad DSN, not from a

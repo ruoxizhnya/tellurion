@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/msgbus"
+	"tellurion/pkg/storage"
 	"tellurion/pkg/testenv"
 )
 
@@ -89,6 +91,24 @@ func TestEnsureSchemaIsIdempotent(t *testing.T) {
 		if err := store.EnsureSchema(ctx); err != nil {
 			t.Fatalf("第 %d 次 EnsureSchema 失败（幂等性被破坏）: %v", i, err)
 		}
+	}
+}
+
+// TestSchemaDDLIsAliasOfMigrate 钉住 SchemaDDL 是 storage.AuditSchemaDDL 的
+// 别名（同一底层数组），而不是第二份文本。
+//
+// SPEC-R-01 把 audit.message_log 的建表落点收编进 migrate()（Migration 054）：
+// 只要有人把本包改回复制一份 DDL（哪怕当前内容恰好相同），本测试立刻红。
+func TestSchemaDDLIsAliasOfMigrate(t *testing.T) {
+	t.Parallel()
+
+	if len(eventstore.SchemaDDL) != len(storage.AuditSchemaDDL) {
+		t.Fatalf("SchemaDDL 与 migrate() 的 Migration 054 长度不一致（不是同一数组）: %d vs %d",
+			len(eventstore.SchemaDDL), len(storage.AuditSchemaDDL))
+	}
+	if reflect.ValueOf(storage.AuditSchemaDDL).Pointer() != reflect.ValueOf(eventstore.SchemaDDL).Pointer() {
+		t.Fatalf("SchemaDDL 必须是 storage.AuditSchemaDDL 的别名（同一底层数组），" +
+			"不得复制文本（SPEC-R-01）")
 	}
 }
 

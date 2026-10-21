@@ -5,22 +5,17 @@
 // **strategy-runtime 模块**（蓝图 §5 归属矩阵），它不走 pkg/storage 的应用层
 // store——与 pkg/eventstore 是同一个先例：「内核模块自带 store」。
 //
-// ─── 与 pkg/storage/postgres.go migrate() 的关系（本切片不做合并） ──
+// ─── 与 pkg/storage/postgres.go migrate() 的关系（SPEC-R-01 已收编） ──
 //
 // 项目加表的唯一执行路径是 pkg/storage/postgres.go 的 migrate() 内联数组
 // （见该文件中长达 40 行的取舍说明：golang-migrate 从未被调用，migrations/
-// 只是历史记录）。按规矩这张表**最终**应该并进那个数组。
+// 只是历史记录）。SPEC-R-01 已把本包的建表 DDL 收编进 migrate()
+// （Migration 055，文本在 storage.StrategyStateSchemaDDL）；本包的 SchemaDDL
+// 是它的别名（同一底层数组），不再持有副本。
 //
-// 本切片的做法照抄 pkg/eventstore/schema.go 的先例：把 DDL 放在本包自己的
-// EnsureSchema() 里显式调用（kernel Boot 装配时调，测试 setup 时调），理由：
-//  1. **边界**：本切片的验收范围是 pkg/strategy 一个包。改 pkg/storage 的
-//     migrate() 数组会牵动全服务的启动路径，属于「切面外的扩散」。
-//  2. **自证**：测试要能独立把表建起来（CI 的 postgres 服务是空库），不依赖
-//     「服务先跑过一遍 migrate」这种隐式前提。
-//
-// **合并时机 = 后续切片**（届时把 SchemaDDL 的每条逐字追加进 migrate() 数组，
-// 并保留 EnsureSchema 作为「独立可安装」的入口；本文件 DDL 与
-// contracts/kernel_modules.schema.sql 第 184-197 行逐字一致，以契约文件为准）。
+// EnsureSchema 保留为「独立可安装 / 测试自证」的幂等兜底入口（kernel Boot
+// 装配时调，测试 setup 时调）：测试能独立把表建起来（CI 的 postgres 服务是
+// 空库），不依赖「服务先跑过一遍 migrate」这种隐式前提。
 //
 // ─── 裁决：contracts 里「历史版本」那句话与 PK/upsert 矛盾 ──────────
 // contracts 第 184-197 行的注释写「同一个 (策略, run) 只保留最新一份（upsert），
@@ -39,36 +34,20 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"tellurion/pkg/storage"
 )
 
 // SchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引的建表语句，
-// 逐字取自 contracts/kernel_modules.schema.sql 第 184-197 行（K0 冻结）。
+// 为 storage.StrategyStateSchemaDDL 的别名（同一底层数组）——表结构逐字取自
+// contracts/kernel_modules.schema.sql 第 184-197 行（K0 冻结），文本唯一真相
+// 在 pkg/storage/postgres.go 的 migrate() 路径（Migration 055）。
+//
 // 每条都必须幂等（IF NOT EXISTS）——EnsureSchema 会被反复调用（每个测试的
 // setup、每次 kernel 装配），不等价于 no-op 的语句迟早会炸在一次不该炸的
 // 启动上。
 //
 // 顺序有意义：schema 先于表，表先于索引。
-var SchemaDDL = []string{
-	// pkg/storage/postgres.go 现在只建 ingest / research 两个 schema，
-	// quant 得自己补（全仓库无第二处 CREATE SCHEMA quant）。
-	`CREATE SCHEMA IF NOT EXISTS quant`,
-
-	// 一个 run 可跑多个策略，状态按「策略 × run」定位；同一个 (策略, run)
-	// 只保留最新一份（upsert）。列清单是 K0 冻结契约，改列 = 改契约。
-	//   ts    —— **状态对应时刻**（回测 = VirtualClock 虚拟时间，
-	//            实盘 = 墙钟），续跑按它跳过已处理的 bar 前缀。
-	//   state —— SaveState() 的原始字节，不解释内容。
-	`CREATE TABLE IF NOT EXISTS quant.strategy_state (
-		strategy_id TEXT NOT NULL,
-		run_id      TEXT NOT NULL,
-		ts          TIMESTAMPTZ NOT NULL,
-		state       BYTEA NOT NULL,
-		created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-		PRIMARY KEY (strategy_id, run_id)
-	)`,
-
-	`CREATE INDEX IF NOT EXISTS idx_strategy_state_run ON quant.strategy_state (run_id)`,
-}
+var SchemaDDL = storage.StrategyStateSchemaDDL
 
 // ensureTimeout 建表是一次性动作，给它一个独立于单次 Save/Load 的上限。
 const ensureTimeout = 30 * time.Second
