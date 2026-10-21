@@ -110,17 +110,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **① 目标**：S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 的 host 函数由 8 个扩到 12 个、错误分级改 `getSignals` 返回、per-run 实例改 `Registry.Get` 语义、检查点主键变更）。要让这类破坏**在 core 的 PR 上立刻红**，而不是等两周后有人打开 agent 仓才发现它已经烂了。
 - **② 上下文**：`repo-topology-and-naming.md` §7/§10（D29）；实测 core `.github/workflows/ci.yml` **零 agent 相关步骤**（grep 0 命中）；agent CI 反向 checkout core 并 `go mod edit -replace`（`.github/workflows/ci.yml:18-34`）——只有 agent 侧知道 break，core 侧无感知。
 - **③ 要求**：① core CI 新增 `agent-compat` job：`actions/checkout` 拉 agent 仓（`repository: ruoxizhnya/tellurion-agent`）→ `go mod edit -replace tellurion=${{ github.workspace }}` → `go build ./...` + `go vet ./...`；
-  ①-b **前置（外部）**：GitHub Actions 默认 token 只能访问当前仓，跨仓 checkout 必须配 `secrets.AGENT_REPO_TOKEN`（fine-grained PAT，只读 agent 仓）。**没有 PAT 时走降级方案**：提供 `make agent-compat`（本地/开发者机器跑同样的 checkout+build），并在 PR 模板里要求贴出该命令的输出——**降级只是过渡，不能长期替代 CI**；② **只 build/vet，不跑 agent 测试**（agent 测试需要 core 二进制/数据库，成本不成比例）；③ job 红时：core PR 必须附带 agent 侧适配 PR 链接，或在 PR 描述登记「known-break + 单号 + 期限」，二者必须有其一；④ 若 break 是有意的（如 abi v2），在 job 里允许 `known-break` 白名单（文件化，不用注释掉的代码）。
+  ①-b ~~**前置（外部）**：跨仓 checkout 必须配 `secrets.AGENT_REPO_TOKEN`（fine-grained PAT）~~ **2026-10-21 订正：已取消**——agent 仓为 public，`actions/checkout` 用 `token: ''` 匿名克隆实测可读到远端 HEAD，无需 PAT、也不再需要「跳过 + 假绿」的降级模式（细节见下方完成记录）；② **只 build/vet，不跑 agent 测试**（agent 测试需要 core 二进制/数据库，成本不成比例）；③ job 红时：core PR 必须附带 agent 侧适配 PR 链接，或在 PR 描述登记「known-break + 单号 + 期限」，二者必须有其一；④ 若 break 是有意的（如 abi v2），在 job 里允许 `known-break` 白名单（文件化，不用注释掉的代码）。
 - **④ 约束与非目标**：不在 core CI 里跑 agent 的单测；不引入 monorepo 工具（Bazel/Nx）；不改 agent 代码；不替代 QT-09 的契约测试（本单只管**编译**兼容，不管**行为**兼容）。
 - **⑤ 验收**：故意改一个 core 导出签名 → core PR 的 `agent-compat` 红（留证后撤回）；未改签名时绿；该 job 单次 ≤ 5 分钟（build-only）。
 - **⑥ 边界**：只做编译兼容护栏；S3 后 agent 不再依赖 core 源码，本 job 转为「跨仓 tag 兼容检查」并保留。
 - **⑦ 排序约束（硬）**：**本单合入 main 之前，QT-01 不得合入**。理由：QT-01 把 host 函数从 8 个换成 13 个（abi v2），是分仓后第一个打穿 agent 编译的改动；护栏不在，这次破坏就已经漏过去了。
 
-> **✅ 完成记录（2026-10-21，本地验证；CI job 待 PAT 就位后接管）**：
+> **✅ 完成记录（2026-10-21，本地验证；CI job 经匿名 checkout 接管，无需 PAT）**：
 > - **降级门禁 `make agent-compat`（已本地验证）**：把兄弟 `../tellurion-agent` 浅 clone 到临时目录（不脏开发者工作区）、`go mod edit -replace tellurion=$(CURDIR)`（指当前 core 工作区，含未提交改动 = PR 语义）、`go build ./... && go vet ./...`。正常态绿（build/vet exit 0）；**破坏验证**：把 `pkg/expression/registry.go` 的 `AvailableDataFields` 定义改名 ⇒ agent-compat `AGENT_BUILD_EXIT=1`，报错 `registry.go:722: undefined: AvailableDataFields` ⇒ 还原后 `git diff` 空、sha 一致。护栏有牙齿，非惰性。
 > - **CI `agent-compat` job（.github/workflows/ci.yml）**：镜像 agent 侧反向 checkout 的做法（core→agent 方向），checkout `ruoxizhnya/tellurion-agent` → replace 指 `${{ github.workspace }}` → build/vet，**不跑 agent 单测**（§②）。§④ 的 known-break 走**文件化**白名单 `.github/agent-compat-known-break`：非空时把红降级成 warning 并打印内容（有意 breaking 如 QT-01 用），文件不存在即严格红 —— 不是 `continue-on-error`（文件进仓、reviewer 看得见，是人在环签核）。
-> - **PAT 依赖（§①-b，需主任操作）**：跨仓 checkout 需只读 fine-grained PAT `secrets.AGENT_REPO_TOKEN`（默认 GITHUB_TOKEN 看不到别的仓）。**未配时 job 不硬失败**：`Detect cross-repo PAT` 步发 notice「降级模式」并让 `make agent-compat` + PR 贴输出兜住合入门禁；PAT 就位后 job 自动接管、降级下线。`.github/pull_request_template.md` 已加「agent 编译兼容」节要求三选一并贴 `make agent-compat` 输出。
-> - **未做**：PAT 由主任在 GitHub 配置后，本 job 需跑一次**真破坏腿**留证（改一个 core 导出签名 → 观察 agent-compat 红 → 撤回）作为 CI 侧的最终验收；本地已用同一条命令序列证明机制成立。合入门禁：QT-01 之前本单须已在 main。
+> - **PAT 依赖（§①-b）——2026-10-21 取消**：原设计需只读 fine-grained PAT `secrets.AGENT_REPO_TOKEN`，未配时 job 走「降级 notice + checkout/setup-go/build 全 skipped」的假绿分支。**实测 agent 仓为 public**：`git -c credential.helper= ls-remote https://github.com/ruoxizhnya/tellurion-agent` 匿名可读到 HEAD ⇒ `actions/checkout` 改 `token: ''` 匿名克隆，`Detect cross-repo PAT` 步与三条 `if: present == 'true'` 条件全部删除，**跨仓编译门永远真跑**；若将来转私有则 fail-loud，届时再配 PAT，不恢复降级假绿。`.github/pull_request_template.md` 的「agent 编译兼容」节保留本地脚本自检要求（与 CI 同一份脚本）。
+> - **未做（2026-10-21 更新）**：PAT 依赖已取消（见上条），原「配 PAT 后跑真破坏腿」转为「**下一次 push 后**观察 `agent-compat` 首跑：正常态应绿；再按 §⑤ 临时改一个 core 导出签名 → 观察红 → 撤回」作为 CI 侧最终验收。本地已用同一条脚本证明机制成立。合入门禁：QT-01 之前本单须已在 main。
 >
 > YAML 校验通过（5 job）；doc-links 0 断链。
 >
@@ -129,8 +129,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **CI 的 `Build + vet agent against this core` 步现在调同一份脚本**（原来是 workflow 里内联第二份 clone+replace+build/vet —— 两处各写一遍迟早漂移，CI 那份改了本地那份忘了，正是本单要防的失效模式）。白名单政策仍留在 workflow 里（那是 CI 专属的一层）。
 > - 脚本比原 Makefile 多两道 fail-loud：`go` 不在 PATH 直接报「先导出 SDK 目录」；`mktemp` 失败也报，不再让 `rm -rf ""` 那种静默吞掉失败。agent 侧取的是其 **HEAD**（未提交的 agent 改动不参与，与 CI 同款语义）——这条原先没写明，现写进脚本注释。
 > - **真跑取证**：本机 `sh tools/ci/agent_compat.sh` 对当前 core 工作区 **绿（退出 0）**；破坏腿 = 临时 clone 一份 agent 副本、加一个引用 `expression.SymbolThatDoesNotExistQT18` 的包并提交，`AGENT_REPO=` 指它 ⇒ 打印 `qt18break\break.go:5:25: undefined: expression.SymbolThatDoesNotExistQT18` + `::error::` + **退出 1**（护栏有牙齿）。
-> - **CI 步骤文本用桩脚本在沙箱跑过四种情形**（PAT 没配 ⇒ 这段在线上永不执行，只能这样先验）：编得过→0；编不过 + 白名单非空→0 且**恰好一条** `::warning`；编不过 + 无白名单→1；编不过 + **零字节**白名单文件→1（`[ -s ]` 保证空文件中和不了门禁）。
-> - **仍未做（不变，等主任）**：`secrets.AGENT_REPO_TOKEN` 没配 ⇒ 线上 `agent-compat` job 的四步里 checkout/setup-go/build 全 `skipped`、结论仍 `success` —— **它的绿不代表跨仓编译门跑过**，当前唯一真证据就是上面那条脚本。PAT 就位后按 §⑤ 补一次线上真破坏腿。
+> - **CI 步骤文本用桩脚本在沙箱跑过四种情形**（当时 PAT 没配 ⇒ 这段在线上永不执行，只能这样先验；**2026-10-21 起匿名 checkout 已接管，这段在线上真跑**）：编得过→0；编不过 + 白名单非空→0 且**恰好一条** `::warning`；编不过 + 无白名单→1；编不过 + **零字节**白名单文件→1（`[ -s ]` 保证空文件中和不了门禁）。
+> - ~~**仍未做（不变，等主任）**：`secrets.AGENT_REPO_TOKEN` 没配 ⇒ 线上 `agent-compat` job 的四步里 checkout/setup-go/build 全 `skipped`、结论仍 `success`~~ **2026-10-21 已消解**：匿名 checkout 取代 PAT，三条 `if` 条件删除后本 job 四步不再可能全 skipped；它的绿重新代表跨仓编译门真跑过。§⑤ 的线上真破坏腿仍待下一次 push 后补证。
 >
 > **代码走查这一批改动时补五处（2026-10-21，同日第二轮审查）**：
 > - **CI 的 `Repo autonomy self-check` 步只剩 `--self-test`，真正那条 `python tools/check_repo_autonomy.py` 扫描没了** —— 于是这条 job 校验了校验器、却从不执行校验器。这是本批最重的一处：R1~R6 在线上静默失去执法者，而 job 仍然绿（自证腿当然会绿，它只测夹具）。已接回，顺序是先 `--self-test`（护栏自己坏了就先红）再全仓扫描。
@@ -214,6 +214,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **验收逐条**：契约表 ×§2.1 逐项对表（12 函数 + 8/4 分族 + 6 类上限绝对数值断言）✅；四类坏 artifact 全拒且 `errors.Is` 可检索 ✅；v1 仍能实例化 + 现有测试全绿（`go test ./... -count=1` 退出码 0）✅；host 注册表 × 契约表双向对账 ✅；`agent-compat`（本地等价物，= make 目标那串命令）绿 ⇒ 本单不破 agent 编译 ✅。**未做（不属本单）**：NT 侧对齐（待裁决 C）、`BarContext` v2 数据模型（QT-24）、SDK 模板与 params 按声明地址投递（QT-26）。
 >
 > **破坏验证（§8.5.3-2，8 条腿全红；临时改坏 → 跑测 → 还原，md5 逐字节校验一致）**：删宿主区低区下界 / 改 `get_bar` 的 wire 名字 / 改 `__host_params_ptr` 符号名 / 改 scope 取值 `market` / `MaxStateValueBytes` 64→65KiB / 跳过版本族互斥检查 / 取消注册 `get_date2` / 删 params 上限守卫——每一条都让对应测试变红。**其中一条当场逮到我自己的假护栏并订正**：`对表` 测试原先写成 `{HostFnGetBar, …}` 用 Go 常量引用函数名，于是把常量值从 `"get_bar"` 改成 `"get_bar_x"` 时**测试全绿**——契约、注册表、校验器一起平移，没人发现「artifact 绑的那个名字变了」。这是 §8.5.3-2 说的「分清护栏错与脚手架错」里最阴的一种：脚手架看起来像证据。现已改成**字面量**并补 `TestFrozenWireNames`（把 12 个函数名、3 个宿主区符号名、2 个 scope 取值、abi 文本全部钉成字符串字面量——判据是「改一个字符 = 一次 ABI 破坏，且编译期看不出来」）。
+>
+> **⚠️ 本单欠下的一条红（2026-10-21 追登，`8b8556a` 关掉）**：`d1d2942` 提交的 `abi_contract_table_test.go` **blob 以 `}\n\n` 结尾（EOF 多一个空行）**，CI `Build & Test` 的 `gofmt` 步因此连红**三个推送**（`73aa6f0` / `4dd83b0` / `7b7f966`，同一根因，逐条 `log-failed` 核过都只点这一个文件）。为什么本地没抓到：`gofmt -l .` 跑的是**工作区**，而工作区那份早被编辑器顺手修干净了——门禁看着绿，红的却是提交出去的内容。**教训入 AGENTS §8.5 规范 2**：`gofmt -l .` 不能单独当结论，推前要在干净 checkout（`git worktree add --detach`）里跑一遍。修复 = `8b8556a`（行为零变化，纯 EOF 空白）；线上复核 = run `39632653375` **completed/success**，5 个 job 全绿。**注意其中 `agent-compat` 的绿仍是降级**（`Checkout agent repo` / `setup-go` / `Build + vet` 三步 `skipped`，PAT 仍未配），跨仓编译门当前唯一真证据还是本地 `sh tools/ci/agent_compat.sh`。
 
 ### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ⬜
 

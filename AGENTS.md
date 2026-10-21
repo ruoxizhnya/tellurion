@@ -448,6 +448,14 @@ type Strategy interface {
     在 checkout 时把 LF 写成 CRLF。已加 `.gitattributes`（`* text=auto eol=lf`，
     **零 blob 变化**）让工作区在所有平台都是 LF，并清掉被 CRLF 噪声掩盖的
     **32 个**未格式化文件。现在整仓 `gofmt -l .` 可以当结论用，CI 也有门禁。
+    ⚠️ **但它有一条覆盖面限制（2026-10-21 实测代价）**：`gofmt -l .` 判的是**工作区**，
+    CI 判的是**提交出去的内容**，两者可以不同 —— 工作区被编辑器顺手修过、而那次修改
+    没提交，本地就永远绿。QT-01（`d1d2942`）的 blob 末尾多一个空行，本地 `gofmt -l .`
+    反复为空，CI 的 `gofmt` 步为此红了**三个推送**，到 `8b8556a` 才关掉。所以推前的
+    结论要在**干净 checkout** 里取：`git worktree add --detach <tmp> HEAD` 里跑
+    `gofmt -l .` + `go build ./...` + `go vet ./...` + `go test ./... -count=1`，用完
+    `git worktree remove --force`。工作区里混着别的会话未提交的改动时，只有干净
+    checkout 的绿才是可推的绿。
   - 必要时使用 TRAE-code-review skill 执行结构化审查
 - **审查记录**: 审查发现的问题要么当场修复，要么记录为新任务到 `docs/TASKS.md`
 
