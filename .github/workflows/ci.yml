@@ -308,18 +308,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4                       # core 进 workspace 根
 
-      # tellurion-agent 是 public 仓 ⇒ **匿名 checkout 即可**，不需要 secrets.AGENT_REPO_TOKEN
-      # （2026-10-21 实测：`git -c credential.helper= ls-remote https://github.com/ruoxizhnya/tellurion-agent`
-      # 可匿名读到 HEAD）。默认 GITHUB_TOKEN 只对当前仓有效，因此这里必须显式 `token: ''`
-      # 走匿名克隆。若 agent 仓将来转私有，本步会 fail-loud —— 届时再配只读 fine-grained PAT
-      # 并把 token 指回来，**不要**退回「跳过 + 假绿」的降级模式。
-      - name: Checkout agent repo
-        uses: actions/checkout@v4
-        with:
-          repository: ruoxizhnya/tellurion-agent
-          ref: main
-          token: ''
-          path: agent
+      # tellurion-agent 是 public 仓 ⇒ **匿名读即可**，不需要 secrets.AGENT_REPO_TOKEN，
+      # 也因此不再需要「未配 PAT 就 skip + 报 notice」的降级分支（那条分支的绿从来不代表
+      # 跨仓编译门跑过 —— 见 docs/TASKS.md QT-18 的降级空跑登记）。
+      #
+      # 机制订正（2026-10-21，run 39633866772 实测）：上一版写的 `token: ''` **不成立** ——
+      # actions/checkout@v4 把空串判成「未提供输入」，步直接红：`Input required and not
+      # supplied: token`。匿名能力本身是真的（本机 `git -c credential.helper= ls-remote`
+      # 与 `git clone --depth 1` 对 public 仓均退出 0），所以这里不绕 actions 的 token
+      # 语义，直接 plain `git clone`。若 agent 仓将来转私有，本步当场 fail-loud ——
+      # 届时配只读 fine-grained PAT 并把 token 指回来，**不要**退回「跳过 + 假绿」。
+      - name: Checkout agent repo (anonymous https)
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          rm -rf agent
+          git clone --quiet --depth 1 --single-branch --branch main \
+            https://github.com/ruoxizhnya/tellurion-agent agent
+          echo "agent HEAD = $(git -C agent rev-parse --short HEAD) @ $(git -C agent log -1 --format=%s | cut -c1-60)"
 
       - uses: actions/setup-go@v5
         with:
