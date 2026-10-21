@@ -629,6 +629,11 @@ func (e *Engine) newBacktestState(backtestID string, req BacktestRequest, stockP
 			EndDate:        endDate,
 			InitialCapital: initialCapital,
 			RiskFreeRate:   riskFreeRate,
+			// FillTiming 在这**唯一**一处把请求声明折成生效值（默认语义见
+			// contracts.EffectiveFillTiming）；日循环入口再严格校验它拿到的是
+			// 已知口径。野值在这里原样透传，好让入口报出「你声明的那个不认识」，
+			// 而不是在这里被静默换成默认。
+			FillTiming: req.EffectiveFillTiming().String(),
 		},
 		StartedAt: time.Now(),
 		Tracker: NewTracker(
@@ -671,6 +676,11 @@ func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, s
 		StockPool:       req.StockPool,
 		InitialCapital:  initialCapital,
 		UniverseMaxSize: result.UniverseMaxSize,
+		// QT-02：口径与偏差都取**实际跑的那次**（state.Params 由 newBacktestState
+		// 写入、日循环入口校验过），不取 req.FillTiming 原值 —— 后者可能是空串
+		// （没声明），把「没声明」写成「没口径」会和实际发生的收盘成交矛盾。
+		FillTiming: state.Params.FillTiming,
+		KnownBias:  FillTiming(state.Params.FillTiming).KnownBiases(),
 	}
 
 	// OBS-01：无效运行在响应里显式区别于「完成」—— Status=invalid 且带上
@@ -734,6 +744,11 @@ func (e *Engine) ResponseFromState(backtestID string) (BacktestResponse, bool) {
 		Trades:          result.Trades,
 		InvalidReasons:  result.InvalidReasons,
 		UniverseMaxSize: result.UniverseMaxSize,
+		// QT-02：与写路径同源（都读 params），读路径不许自己再推断一次口径。
+		// 历史 run 的 params 没有这个键 ⇒ 空 ⇒ JSON 里不出现 fill_timing ⇒
+		// 读方看到的是「未知」，而不是被补出来的 same_close。
+		FillTiming: params.FillTiming,
+		KnownBias:  FillTiming(params.FillTiming).KnownBiases(),
 	}, true
 }
 
@@ -762,9 +777,23 @@ func lookupStrategyGitHash(strategyName string) string {
 // runBacktestInternal contains the core backtest loop.
 func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) (*domain.BacktestResult, error) {
 	params := state.Params
+
+	// QT-02：成交口径是「这份结果能不能和别的比」的判据，引擎不猜。
+	// params.FillTiming 正常由请求解析点写入（newBacktestState ← EffectiveFillTiming）。
+	// 走到这里还是空值或野值，说明调用方绕过了那道解析（自己构造 params 的
+	// 内部路径、或 QT-02 之前落盘的历史快照被续跑）—— 当场失败，不回落默认：
+	// 悄悄按收盘成交一份「没声明口径」的回测，正是 §8.1 要把 ErrFillTimingMissing
+	// 立成必填的原因。
+	fillTiming, err := ResolveFillTiming(params.FillTiming)
+	if err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInvalidInput,
+			"fill_timing is required before the run can execute (known: next_open | same_close)", "RunBacktest")
+	}
+
 	logger := e.logger.With().
 		Str("backtest_id", state.ID).
 		Str("strategy", params.StrategyName).
+		Str("fill_timing", fillTiming.String()).
 		Time("start_date", params.StartDate).
 		Time("end_date", params.EndDate).
 		Logger()
@@ -838,6 +867,10 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// K17-R1：挂载失败运行诊断（本 run 私有，与派发器同生命周期）。
 	execAlgoDiag := newExecAlgoRunDiag()
 	fillDiag := newFillRunDiag() // REV-09：停牌跳过 / 流动性截断的 run 级计数
+
+	// QT-02 · next_open：T 日收盘决策的信号在 T+1 开盘成交，所以「待成交」
+	// 要跨一天活着。same_close 分支不读它（下面的 else 就是既有调用）。
+	var pendingSignals []domain.Signal
 
 	for i, date := range tradingDays {
 		select {
@@ -932,7 +965,30 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			e.signalObserver(date, signals)
 		}
 
-		e.processSignalsAndExecuteTrades(ctx, state, signals, marketDataCache, pricesCache, regime, date, algoDispatch, execAlgoDiag, suspended, fillDiag, logger)
+		// QT-02 · 两条口径在同一个调用点上分叉，其余环节共用：
+		//   - same_close（既有行为）：今天的信号 + 今天的收盘可成交价 + 只认今天
+		//     决策的信号 —— 与改动前逐字节相同；
+		//   - next_open（§8.1 终态）：**昨天收盘**决策的信号今天按开盘价成交，
+		//     新鲜度门随之挪到上一个回放日（fillPlan.minSignalDate），今天的
+		//     信号进待成交队列等明天。
+		// 估值与仓位仍读 pricesCache（当日收盘可成交价）—— 本单只改「哪一天、
+		// 什么价成交」。涨跌停/停牌拦截读的是成交那一天的 bar（下面的
+		// marketDataCache 就是今天），所以 REV-09 那套判定作用在实际成交日。
+		plan := sameClosePlan(pricesCache, date)
+		fillSignals := signals
+		if fillTiming == FillTimingNextOpen {
+			earliestDecision := date
+			if i > 0 {
+				earliestDecision = tradingDays[i-1]
+			}
+			fillSignals = pendingSignals
+			plan = fillPlan{
+				prices:        openPricesForSignals(fillSignals, marketDataCache, fillDiag),
+				minSignalDate: earliestDecision,
+			}
+			pendingSignals = signals
+		}
+		e.processSignalsAndExecuteTrades(ctx, state, fillSignals, marketDataCache, pricesCache, plan, regime, date, algoDispatch, execAlgoDiag, suspended, fillDiag, logger)
 
 		// K17：exec-algo 到点子单送撮合（在信号处理之后：新挂父单的首片
 		// SubmitAt = 信号当日，当日到点即发）。无活跃父单时零开销返回。
@@ -962,6 +1018,13 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	}
 
 	lastTradingDay := tradingDays[len(tradingDays)-1]
+
+	// QT-02 · next_open 的收尾账：区间最后一天收盘决策的信号，**没有明天**
+	// 可以按开盘成交了。这里是如实计数，不是把它们折到最后一天的收盘价上
+	// ——那会让一份 next_open 的结果里混进一笔 same_close 的成交。
+	if fillTiming == FillTimingNextOpen {
+		fillDiag.recordPendingAtRunEnd(pendingSignals)
+	}
 
 	// K17：会话结束裁决 —— 撤销未报完父单的剩余子单（显式裁决与理由见
 	// pkg/backtest/exec_algo.go 的 finalizeExecAlgo）。必须在日循环之后、

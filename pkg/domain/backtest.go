@@ -67,6 +67,15 @@ type BacktestParams struct {
 	InitialCapital float64   `json:"initial_capital"`
 	RiskFreeRate   float64   `json:"risk_free_rate"`
 	LookbackDays   int       `json:"lookback_days"`
+	// FillTiming 是本次运行**实际生效**的成交时点口径（QT-02 · contracts.
+	// FillTimingSameClose / …NextOpen）。这里是裸 string 而不是 contracts 的
+	// 命名类型：contracts import domain，反向依赖会成环。
+	//
+	// 取值由请求解析点写入（Engine.newBacktestState ← EffectiveFillTiming），
+	// 日循环入口再严格校验一次（ResolveFillTiming）—— 引擎永远不猜：
+	// 空值（含 QT-02 之前落盘的历史快照）不是「按收盘成交」而是「口径未知」，
+	// 未知就不该产出结果。
+	FillTiming string `json:"fill_timing,omitempty"`
 }
 
 type WalkForwardParams struct {

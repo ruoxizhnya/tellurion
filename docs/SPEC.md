@@ -3205,7 +3205,7 @@ Turnover，就是文档与实现静默漂移的标本）。
   （`cmd/analysis.buildResponseFromState` 是其薄包装）。API 读路径与多策略对比
   （compare）都从它取 status / reasons，不允许第三处硬编码。
 
-#### 字段集（27 项，冻结）
+#### 字段集（29 项，冻结）
 
 | JSON key | 类型 | 语义 |
 |---|---|---|
@@ -3231,8 +3231,37 @@ Turnover，就是文档与实现静默漂移的标本）。
 | `trades` | []Trade | 成交明细 |
 | `stock_pool` | []string | 本轮票池 |
 | `initial_capital` | float | 初始资金 |
+| `fill_timing` | string? | 产出本结果**实际生效**的成交时点口径：`next_open` / `same_close`；**缺席 = 未知**（QT-02 之前落盘的历史结果）。见下「成交时点与已知偏差」 |
 | `invalid_reasons` | []string | 仅 `invalid` 有；稳定 Code 列表 |
 | `universe_max_size` | int? | 票池规模峰值；`null` = 未评估（≠ 0） |
+| `known_bias` | []string? | 本结果自带的已知偏差 Code 列表（当前唯一取值 `same_close_fill`）；空 = 无已登记偏差 |
+
+##### 成交时点与已知偏差（QT-02，2026-10-21 加入；冻结文本 `tellurion:docs/design/qt-decoupling/p0-round2-review.md` §8.1）
+
+- **口径是可比性判据，不是装饰**：同一批信号「T 日收盘成交」与「T+1 开盘成交」是
+  两种基准。K15 双跑与历史基准对照**先比 `fill_timing` 再比数字**；两侧不一致报
+  `ErrFillTimingMismatch`（口径不符 ≠ 结果不一致，后者才需要归因）。
+- **必填发生在引擎入口，不在引擎里猜**：请求未声明 → `EffectiveFillTiming()` 回落
+  `DefaultFillTiming`（唯一默认点）；`domain.BacktestParams.fill_timing` 到日循环入口
+  仍是空值或野值 → `ErrFillTimingMissing` / `ErrFillTimingUnknown`，run 当场拒绝。
+- **`fill_timing` 缺席 = 未知，不等于 `same_close`**：引擎当年确实按收盘成交，但把
+  「没记」写成「记了 same_close」就是伪造留痕 —— 读方会把未标注的结果当成已标注的比。
+- **`same_close` 必须自标 `known_bias: same_close_fill`**（§8.1 兼容行）：收盘成交含
+  「用 T 日信息参与 T 日成交」的前视偏差。`next_open` 不带任何偏差标识 —— 它是终态
+  口径，且偏差名与口径名是两件事（同一口径在不同实现下偏差集合可以不同）。
+- **生产者只有一处**：`FillTiming.KnownBiases()`（`contracts/filltiming.go`）。写路径
+  `buildBacktestResponse`、读路径 `ResponseFromState` 都从 `state.Params` 取实际生效值，
+  不许各自再推断一次。
+- **成交基准价 = 引擎选定的价，一处来源**（QT-02 顺带修掉的缺陷）：
+  `executeViaExecutionService` 原先在有 DayBar 时执行 `quote.Close = DayBar.Close`，
+  把引擎按口径算出的成交价**静默替换成当日收盘价** —— 市单分支以 `quote.Close`
+  为基准，于是 next_open 的开盘价根本到不了撮合（实现了口径、线上一个字没变）。
+  现在 DayBar 只贡献 High/Low/Volume（滑点与冲击模型的输入），基准价恒为引擎选定值。
+  `same_close` 下两者本来同源，唯一可能移位的角落是「涨跌停日引擎改用整分位的
+  限价、而该日实际收盘与之不同」；干净数据里限价与收盘相等，且该方向在此被拦。
+- **本单只管信号驱动的建仓成交时点**：止损/止盈平仓、退市强平、区间末强平仍按当日
+  收盘可成交价；exec-algo 子单按 bar 到点撮合。这条边界写在这里，是为了让「切了口径
+  还有多少成交没切」可以当场查得到。
 
 #### 指标口径（封闭系统日收益，冻结；实现 `pkg/backtest/metrics`）
 

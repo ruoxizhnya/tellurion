@@ -235,6 +235,15 @@ type BacktestResponse struct {
 	StockPool       []string                `json:"stock_pool,omitempty"`
 	InitialCapital  float64                 `json:"initial_capital,omitempty"`
 
+	// FillTiming 是产出本结果**实际生效**的成交时点口径（QT-02 · §8.1）。
+	// 它是「这两份结果能不能互相比」的判据，不是装饰：K15 双跑与历史基准对照
+	// 都先比这一个值，再比数字。
+	//
+	// 空值 = 未知（QT-02 之前落盘的历史结果就是这形状）。这里刻意不把空说成
+	// same_close：引擎当年确实按收盘成交，但把「没记」写成「记了 same_close」
+	// 等于伪造留痕 —— 读方会把未标注的结果当成已标注的去比。
+	FillTiming string `json:"fill_timing,omitempty"`
+
 	// InvalidReasons 是「无效运行」裁定的 Code 列表（OBS-01）。
 	//
 	// 形状裁决：无效**不进** Error —— Error 只承载真实错误（取不到日历、
@@ -251,6 +260,18 @@ type BacktestResponse struct {
 	// 0 = 明确为空。把未知编码成 0 会让其它 BacktestResult 生产路径被误判
 	// 为「空票池」—— 见 domain.BacktestResult.UniverseMaxSize 的注记。
 	UniverseMaxSize *int `json:"universe_max_size,omitempty"`
+
+	// KnownBias 是本结果**自带**的已知偏差标识（§8.1 兼容行：same_close 可以
+	// 保留，但结果必须自己说清带了哪个偏差）。
+	//
+	// 它是稳定 Code 列表（当前只有 same_close_fill），不是给人读的散文 ——
+	// 与 invalid_reasons 同一范式：文案会改，Code 不能改。
+	//
+	// 为什么不是把 bias 塞进 fill_timing 一个字段：口径名与偏差名是两件事
+	// （next_open 也可能被别的单标上新偏差；同一口径在不同实现下偏差集合
+	// 可以不同）。两处各写一份就必然漂移，所以生产者统一走
+	// FillTiming.KnownBiases()，不许自己拼列表。
+	KnownBias []string `json:"known_bias,omitempty"`
 }
 
 // ResultSpec 冻结（K9）：BacktestResponse.Status 的三值语义集。

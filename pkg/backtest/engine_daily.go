@@ -275,12 +275,79 @@ func (e *Engine) processStockJob(
 	return res
 }
 
+// openPricesForSignals 把「成交那一天的开盘价」投影成 next_open 用的可成交价表
+// （QT-02 · §8.1：T 日收盘决策 → T+1 开盘成交，含滑点由 tracker 照旧负责）。
+//
+// 读的是 marketDataCache 的末根 bar，而末根恒是**当日**的：停牌 symbol 早在
+// REV-09 就被摘出这张表（fetchMarketDataForDay 不放它进来），所以这里取不到
+// 停牌前的旧开盘价 —— 那正是旧代码在 same_close 路径上踩过的虚假成交。
+//
+// 只按**有待成交信号的 symbol** 建表，不是按整个票池：一个没人下单的票池成员
+// 缺开盘价不是事件，把它计进诊断会让「这次 run 拒了几笔委托」这个数说谎。
+// 开盘价缺失（脏 bar：Open ≤ 0）⇒ 不进表 ⇒ executeSignalTrade 拿到 0 价直接
+// 放弃这笔委托（既有语义），这里记一次拒绝。**不退回收盘价成交**：同一份
+// 留痕里混两种口径，比少一笔成交坏得多。
+func openPricesForSignals(
+	signals []domain.Signal,
+	marketDataCache map[string][]domain.OHLCV,
+	diag *fillRunDiag,
+) map[string]float64 {
+	opens := make(map[string]float64, len(signals))
+	for _, sig := range signals {
+		if _, done := opens[sig.Symbol]; done {
+			continue // 同 symbol 多条信号只取一次价（也不重复计数）
+		}
+		// 停牌兜底腿：suspended 的 symbol 已在 processSignalsAndExecuteTrades
+		// 里被跳过，这里取不到当日 bar，自然走「无可用价 ⇒ 拒单」。
+		bars := marketDataCache[sig.Symbol]
+		if len(bars) == 0 {
+			diag.recordNoOpenPrice()
+			opens[sig.Symbol] = 0
+			continue
+		}
+		if open := bars[len(bars)-1].Open; open > 0 {
+			opens[sig.Symbol] = open
+			continue
+		}
+		diag.recordNoOpenPrice()
+		opens[sig.Symbol] = 0
+	}
+	return opens
+}
+
+// fillPlan 是「这一批委托按哪一口径成交」的两个派生量（QT-02）。
+//
+// 为什么打包成一个值而不是两个参数：它们**必须同源**。成交价表与「多老的信号
+// 还允许成交」是同一件事的两面 —— next_open 用成交日的开盘价，那它放行的信号
+// 就必然是上一个回放日决策的；两者若由调用方各传一次，就能凑出「按昨天的信号
+// + 今天的收盘价成交」这种两条口径都不像的混合体。
+type fillPlan struct {
+	// prices 是成交可用价表。same_close = 当日收盘可成交价（既有形状，与
+	// pricesCache 是同一张表）；next_open = 成交日开盘价。
+	// 查不到价 ⇒ 该笔委托被拒（executeSignalTrade 的 price <= 0 出口），
+	// 不退回别的价成交。
+	prices map[string]float64
+
+	// minSignalDate 是**允许成交的最老**信号日期。
+	//   - same_close：= 回放的这一天（既有语义：昨天及更早的信号不成交）；
+	//   - next_open：= 上一个回放日。决策日与成交日相差一个 bar 是这一口径
+	//     的定义本身，若仍按「必须等于今天」过滤，昨天的订单会在撮合前被
+	//     全部丢掉 —— 那正是本单第一版实现踩出来的缺口。
+	minSignalDate time.Time
+}
+
+// sameClosePlan 将当日收盘可成交价与当日新鲜度打包（既有行为）。
+func sameClosePlan(pricesCache map[string]float64, date time.Time) fillPlan {
+	return fillPlan{prices: pricesCache, minSignalDate: date}
+}
+
 func (e *Engine) processSignalsAndExecuteTrades(
 	ctx context.Context,
 	state *BacktestState,
 	signals []domain.Signal,
 	marketDataCache map[string][]domain.OHLCV,
 	pricesCache map[string]float64,
+	plan fillPlan,
 	regime *domain.MarketRegime,
 	date time.Time,
 	algo *execalgo.Dispatcher,
@@ -306,7 +373,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 				Msg("Signal skipped: symbol suspended (no bar for today)")
 			continue
 		}
-		if !sig.Date.Before(date) {
+		if !sig.Date.Before(plan.minSignalDate) {
 			validSignals = append(validSignals, sig)
 		}
 	}
@@ -319,7 +386,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 	positionSizes, err := e.calculatePositionsBatch(ctx, validSignals, portfolio, regime, pricesCache, marketDataCache)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Batch position sizing failed, falling back to per-signal")
-		e.processSignalsFallback(ctx, state, validSignals, marketDataCache, pricesCache, regime, date, algo, execAlgoDiag, suspended, fillDiag, logger)
+		e.processSignalsFallback(ctx, state, validSignals, marketDataCache, pricesCache, plan, regime, date, algo, execAlgoDiag, suspended, fillDiag, logger)
 		return
 	}
 
@@ -380,7 +447,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 		}
 
 		if effectiveTarget > 0 {
-			e.executeSignalTrade(ctx, state, algo, execAlgoDiag, fillDiag, signal, effectiveTarget, pricesCache, date, execOpts, tp, logger)
+			e.executeSignalTrade(ctx, state, algo, execAlgoDiag, fillDiag, signal, effectiveTarget, plan.prices, date, execOpts, tp, logger)
 		}
 	}
 }
@@ -391,6 +458,7 @@ func (e *Engine) processSignalsFallback(
 	signals []domain.Signal,
 	marketDataCache map[string][]domain.OHLCV,
 	pricesCache map[string]float64,
+	plan fillPlan,
 	regime *domain.MarketRegime,
 	date time.Time,
 	algo *execalgo.Dispatcher,
@@ -447,7 +515,7 @@ func (e *Engine) processSignalsFallback(
 		}
 
 		if effectiveTarget > 0 {
-			e.executeSignalTrade(ctx, state, algo, execAlgoDiag, fillDiag, signal, effectiveTarget, pricesCache, date, execOpts, tp, logger)
+			e.executeSignalTrade(ctx, state, algo, execAlgoDiag, fillDiag, signal, effectiveTarget, plan.prices, date, execOpts, tp, logger)
 		}
 	}
 }
@@ -562,13 +630,16 @@ func (e *Engine) executeSignalTrade(
 	fillDiag *fillRunDiag,
 	signal domain.Signal,
 	effectiveTarget float64,
-	pricesCache map[string]float64,
+	// fillPrices 是按本次 FillTiming 选定的成交可用价表（QT-02）：same_close =
+	// 当日收盘可成交价（既有形状），next_open = 成交日开盘价。查不到价 ⇒
+	// 这笔委托被拒（price <= 0 的既有出口），不退回别的价成交。
+	fillPrices map[string]float64,
 	date time.Time,
 	execOpts *OrderExecutionOpts,
 	tp *domain.TargetPosition,
 	logger zerolog.Logger,
 ) {
-	price := pricesCache[signal.Symbol]
+	price := fillPrices[signal.Symbol]
 	if price <= 0 {
 		return
 	}
@@ -749,11 +820,18 @@ func (e *Engine) executeViaExecutionService(
 	}
 
 	// If we have OHLCV data, use it for more accurate execution
+	//
+	// ⚠️ **不覆盖 quote.Close**（QT-02 修的正是这一条）。这行原来写的是
+	// `quote.Close = execOpts.DayBar.Close`，于是引擎按 FillTiming 选定的成交价
+	// 在这里被当日的**收盘价**静默替换掉：ExecuteOrder 的市单分支以
+	// quote.Close 为基准价，next_open 传进来的开盘价根本到不了撮合 ——
+	// 「实现了口径」而线上一个字都没变，是典型的假实现。
+	// quote.Close 在这里的语义是「这笔成交的基准价」，不是「今天的收盘价」；
+	// 当日区间（High/Low）与成交量照常进 quote，供滑点/冲击模型用。
 	if execOpts != nil && execOpts.DayBar != nil {
 		quote.Open = execOpts.DayBar.Open
 		quote.High = execOpts.DayBar.High
 		quote.Low = execOpts.DayBar.Low
-		quote.Close = execOpts.DayBar.Close
 		quote.Volume = execOpts.DayBar.Volume
 	}
 

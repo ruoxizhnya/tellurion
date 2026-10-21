@@ -48,8 +48,13 @@ var frozenResultSpecFields = []string{
 	"trades",
 	"stock_pool",
 	"initial_capital",
+	// QT-02（2026-10-21）：成交时点口径随结果返回 —— 缺席 = 未知，
+	// 不等于 same_close。变更评审记录见 docs/TASKS.md 的 QT-02 结案段。
+	"fill_timing",
 	"invalid_reasons",
 	"universe_max_size",
+	// QT-02：结果自带的已知偏差 Code（same_close ⇒ same_close_fill）。
+	"known_bias",
 }
 
 // frozenStatusValues 是 status 的冻结语义值集。

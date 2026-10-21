@@ -3932,6 +3932,15 @@ components:
           description: >-
             Engine-specific parameters (K9). Unknown keys are rejected with 400,
             not ignored ("rejected, not ignored"). The go kernel accepts none.
+        fill_timing:
+          type: string
+          enum: [next_open, same_close]
+          description: >-
+            Fill caliber (QT-02). Omitted = DefaultFillTiming (currently
+            "same_close"; the switch to next_open is gated on the archived
+            two-caliber difference report). Declaring a value this kernel does
+            not implement is rejected with 400, never silently defaulted —
+            the caliber decides whether two results are comparable at all.
 
     CreateJobRequest:
       type: object
@@ -4013,6 +4022,21 @@ components:
             type: string
         initial_capital:
           type: number
+        fill_timing:
+          type: string
+          description: >-
+            The caliber that actually produced this result (QT-02). ABSENT =
+            unknown (results written before QT-02) — it deliberately does not
+            say "same_close", because reporting an unrecorded caliber as a
+            recorded one would fabricate provenance.
+        known_bias:
+          type: array
+          items:
+            type: string
+          description: >-
+            Stable codes for biases this result carries by construction; today
+            the only one is "same_close_fill" (set whenever fill_timing is
+            same_close, per p0-round2-review 8.1).
         portfolio_values:
           type: array
           items:

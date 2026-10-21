@@ -124,6 +124,8 @@ func TestProcessSignalsAndExecuteTrades_SkipsSuspendedSignal(t *testing.T) {
 		context.Background(), state,
 		[]domain.Signal{{Symbol: "STALE.SH", Direction: domain.DirectionLong, Date: rev09Day2}},
 		map[string][]domain.OHLCV{}, map[string]float64{"STALE.SH": 10},
+		// QT-02：same_close 的成交计划 = 当日收盘可成交价 + 当日新鲜度（既有语义）。
+		sameClosePlan(map[string]float64{"STALE.SH": 10}, rev09Day2),
 		nil, rev09Day2, nil, newExecAlgoRunDiag(),
 		map[string]bool{"STALE.SH": true}, diag, zerolog.Nop(),
 	)

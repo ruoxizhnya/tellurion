@@ -59,6 +59,30 @@ const (
 	StatusFailed    = contracts.StatusFailed
 )
 
+// FillTiming（QT-02 成交时点口径）re-export 自 contracts —— 枚举、默认值、
+// 偏差 Code 与三个哨兵都只有 contracts 那一份定义，包内不许再写字面量。
+// domain.BacktestParams 承载的是 string（contracts→domain 的依赖方向锁死了
+// 这一点），跨界中点由这里的 ResolveFillTiming 收紧成命名类型。
+type FillTiming = contracts.FillTiming
+
+const (
+	FillTimingNextOpen     = contracts.FillTimingNextOpen
+	FillTimingSameClose    = contracts.FillTimingSameClose
+	DefaultFillTiming      = contracts.DefaultFillTiming
+	KnownBiasSameCloseFill = contracts.KnownBiasSameCloseFill
+)
+
+var (
+	ErrFillTimingMissing  = contracts.ErrFillTimingMissing
+	ErrFillTimingUnknown  = contracts.ErrFillTimingUnknown
+	ErrFillTimingMismatch = contracts.ErrFillTimingMismatch
+)
+
+// ResolveFillTiming re-exports contracts.ResolveFillTiming (no func aliases in Go).
+func ResolveFillTiming(raw string) (FillTiming, error) {
+	return contracts.ResolveFillTiming(raw)
+}
+
 // CheckValidity (OBS-01) 是 contracts.CheckValidity 的薄包装 —— Go 没有函数
 // 别名，包内调用点（engine.go）与包内测试统一走这个名字。
 func CheckValidity(res *domain.BacktestResult) []InvalidReason {

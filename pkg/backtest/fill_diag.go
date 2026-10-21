@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"tellurion/pkg/domain"
 )
 
 // defaultLiquidityFactor 是未配置时的流动性系数：当日成交量的 10%。
@@ -31,6 +32,14 @@ type fillRunDiag struct {
 	truncations    int            // 流动性截断次数
 	truncatedQty   float64        // 累计被截掉的股数
 	truncSample    string         // 首个截断现场（诊断点名）
+
+	// QT-02 · next_open 专属两类计数（same_close 恒为 0）：
+	//   - noOpenPriceSkips：成交日拿不到可用开盘价（脏 bar / 缺字段）而被拒的
+	//     委托数。拒而不是退回收盘价成交 —— 同一份留痕里混两种口径比少一笔
+	//     成交更坏。
+	//   - pendingAtRunEnd：区间最后一天收盘决策、没有次日可成交的信号数。
+	noOpenPriceSkips int
+	pendingAtRunEnd  int
 }
 
 func newFillRunDiag() *fillRunDiag {
@@ -61,9 +70,25 @@ func (d *fillRunDiag) recordTruncation(symbol string, requested, filled float64)
 	}
 }
 
+// recordNoOpenPrice 记一次「next_open 口径下成交日没有可用开盘价 ⇒ 该委托被拒」。
+func (d *fillRunDiag) recordNoOpenPrice() {
+	if d == nil {
+		return
+	}
+	d.noOpenPriceSkips++
+}
+
+// recordPendingAtRunEnd 记一次「区间结束时仍未成交的 next_open 信号」。
+func (d *fillRunDiag) recordPendingAtRunEnd(pending []domain.Signal) {
+	if d == nil {
+		return
+	}
+	d.pendingAtRunEnd += len(pending)
+}
+
 // logSummary 在回测收尾时打一行汇总（无拦截则不打扰日志）。
 func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
-	if d == nil || (d.suspendedTotal == 0 && d.truncations == 0) {
+	if d == nil || (d.suspendedTotal == 0 && d.truncations == 0 && d.noOpenPriceSkips == 0 && d.pendingAtRunEnd == 0) {
 		return
 	}
 	logger.Info().
@@ -71,8 +96,10 @@ func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
 		Int("suspended_symbols", len(d.suspendedDays)).
 		Int("liquidity_truncations", d.truncations).
 		Float64("truncated_qty_total", d.truncatedQty).
+		Int("next_open_no_fill_price", d.noOpenPriceSkips).
+		Int("next_open_unfilled_at_run_end", d.pendingAtRunEnd).
 		Str("first_truncation", d.truncSample).
-		Msg("Fill realism (REV-09): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor")
+		Msg("Fill realism (REV-09 / QT-02): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor, next_open rejects recorded")
 }
 
 // liquidityFactor 返回配置的流动性系数：
