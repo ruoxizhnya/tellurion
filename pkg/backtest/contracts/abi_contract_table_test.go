@@ -176,4 +176,3 @@ func TestHostAbiVersionFromName(t *testing.T) {
 		assert.Equal(t, tc.want, got)
 	}
 }
-
