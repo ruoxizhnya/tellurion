@@ -47,7 +47,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
 | W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
-| **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；QT-41b ⛔ 阻塞于待裁决 D。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
+| **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
@@ -396,8 +396,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：一条真实回测能从 artifact 加载 → 逐 bar 执行 → 产出信号 → 成交，且 `emit_target2` 的 sizing 与 policy cap 正确。
 - **② 上下文**：`implementation-plan-mvp.md` G2/G3；`pkg/sandbox/wasm` 整包仍在 repoguard 未接线白名单。
-- **③ 要求**：① `SignalProvider` 的 WASM 实现（`OnBarSession` → `Signals`，走 QT-14 的 per-run 实例）；② `EmittedSignal → domain.Signal` 映射（Action→Direction、Strength、SymbolIdx→Symbol 经 `RunUniverse`）；③ `emit_target2` → 目标权重→手数（`floor(|w|×equity/price/lot)×lot`），policy cap 优先并计 `sizing_clamped_total`；④ 结果标 `sizing_source`；⑤ 五道门（Resolve/Fetch/Verify/Compile/Mount）按 `strategy-asset-service-api.md` §4——其中 **Compile 门依赖待裁决 D（编译服务归属）**，未裁决前只对表语义、不实现编译链路（实现属 QT-41b）。
-- **④ 约束与非目标**：内循环零网络（resolve/fetch 只在 run 前一次）；不实现编译服务（**QT-41b**，且其开工依赖裁决 D）；不绕过 `ValidateImports`。
+- **③ 要求**：① `SignalProvider` 的 WASM 实现（`OnBarSession` → `Signals`，走 QT-14 的 per-run 实例）；② `EmittedSignal → domain.Signal` 映射（Action→Direction、Strength、SymbolIdx→Symbol 经 `RunUniverse`）；③ `emit_target2` → 目标权重→手数（`floor(|w|×equity/price/lot)×lot`），policy cap 优先并计 `sizing_clamped_total`；④ 结果标 `sizing_source`；⑤ 五道门（Resolve/Fetch/Verify/Compile/Mount）按 `strategy-asset-service-api.md` §4——其中 **Compile 门的归属已裁（2026-10-21 D：`tellurion-strategy:cmd/compiler`）**，实现属 QT-41b，本单不实现编译链路（原写「依赖待裁决 D，未裁决前只对表语义」已过期）。
+- **④ 约束与非目标**：内循环零网络（resolve/fetch 只在 run 前一次）；不实现编译服务（**QT-41b**，其归属已于 2026-10-21 D 裁决落 `tellurion-strategy:cmd/compiler`）；不绕过 `ValidateImports`。
 - **⑤ 验收**：手工 artifact（无需服务）能跑通一次真实回测；分层加仓在 Go/WASM 下逐位一致；混用 `emit_signal`/`emit_target2` 被 trap。
 - **⑥ 边界**：只做接线与转换；M0 的验收是 QT-30。
 
@@ -495,18 +495,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ## 五、X 线 · 服务拆分（可选部署形态，进程内 port 先行）
 
 > **X 线公共前置（M5/M8，QT-40~45 与 QT-41b 开工前必读，两项都不满足不开工）**：
-> ① **建仓/升格前先与 ADR-027 §2 对账**（M5）：六候选是**能力边界清单，不是最终服务拓扑**（`service-extraction-plan.md` 自述「与 ADR-027 §2 的 5→7 未逐一对账」）；升格建仓前必须与 027 §2 服务口径逐一对账（可能触发 data A/B 二分、reduction-service、分析并入他服务等改判），对账结论落 `repo-inventory.md`；「12 仓」是**上限/当前规划**，不是承诺终态。
-> ② **「接口对表」小节**（M8）：对应服务设计文档开工前补「接口对表」——逐个 port/endpoint 列**签名 + 错误语义 + 版本策略**，显式引用 `kernel-interface-map.md` / contracts 仓对应符号（模板：`data-service-contract-and-ownership.md` 的 `UnifiedDataPoint` 节）；**未对表不开工**。跨进程 wire 面（HTTP endpoint/DTO/鉴权）按 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`，不另起炉灶。
+> ① **建仓/升格前先与 ADR-027 §2 对账**（M5）：六候选是**能力边界清单，不是最终服务拓扑**（`service-extraction-plan.md` 自述「与 ADR-027 §2 未逐一对账」）；升格建仓前必须与 027 §2 服务口径逐一对账（可能触发 data A/B 二分、reduction-service、分析并入他服务等改判），对账结论落 `repo-inventory.md`；「12 仓」是**上限/当前规划**，不是承诺终态。
+> ② **「接口对表」小节**（M8）：对应服务设计文档开工前补「接口对表」——逐个 port/endpoint 列**签名 + 错误语义 + 版本策略**，显式引用 `kernel-interface-map.md` / contracts 仓对应符号（模板：`data-service-contract-and-ownership.md` §4.1）；**未对表不开工**。跨进程 wire 面（HTTP endpoint/DTO/鉴权）按 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`，不另起炉灶。
+>
+> **两条前置的执行状态（2026-10-21 更新）**：
+> - **① M5 已结案** → 结论在 `repo-inventory.md` §1.2。要点：**六个仓不等于六个进程**——拓扑（ADR-027 §2.6.4，服务 3→5）里只有 `data` / `strategy` 有位子，`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（§7「不同时拆多个服务」优先）。对账另开出 **U6（reduction-service 仓位）/ U7（compliance·alert 归属）/ U8（`factor_hypothesis` owner）** 三条待裁，登记在 `repo-inventory.md` §3.1。
+> - **② M8 已落 QT-40（data）** → `data-service-contract-and-ownership.md` §4.1；**QT-41/42/43/44/45 五仓的接口对表仍未做**（设计文档里都没有那一节）。
+> - **对表不是纸面作业**：§4.1 实测出三条会直接误导 X1b 的前提偏差——`DatasetSnapshotInput` 今天**零生产者**、api-schema §2 的四个错误码**一个都不存在**、`pkg/storage/bulk_insert.go:17` 有第三份 `UnifiedDataPoint` 副本。QT-40 ② 那句「现状已实现约 80%」只对 connector 层成立。
+> - **X 线仍共有的硬依赖**：QT-05（S1 契约层落码）⬜ 未启动，而 contracts 仓今天零符号——服务仓的 module path 是单段短名、又禁止 `replace ../`，**拿不到协议类型就无法写任何 aggregator 实现**。所以 X 线的「依次序」实际是 `W0 收尾（QT-02/04/63）→ QT-05 → QT-07 → X1b…`，跳序的代价见各仓 `docs/TASKS.md` 施工序注。
+
 
 ### QT-40~45、QT-41b · X 线六服务 + 编译服务（正文已迁各服务仓，本仓留指针）[P1-P2]
 
-> **任务台账批量重分布（2026-10-21）**：以下 7 张单的六字段正文已**逐字迁入**各服务仓 `docs/TASKS.md` 为正式条目（「占位仓不写正式任务单」旧约定同时作废），本仓不再镜像正文；执行与验收在彼处。**上方 M5/M8 公共前置不变，各仓开工前必读**。QT-41b 在 strategy 仓保留 ⛔（阻塞于待裁决 D：编译服务归属）。
+> **任务台账批量重分布（2026-10-21）**：以下 7 张单的六字段正文已**逐字迁入**各服务仓 `docs/TASKS.md` 为正式条目（「占位仓不写正式任务单」旧约定同时作废），本仓不再镜像正文；执行与验收在彼处。**上方 M5/M8 公共前置不变，各仓开工前必读**。QT-41b 的 ⛔ 已解除（待裁决 D 于 2026-10-21 裁 `tellurion-strategy:cmd/compiler`）。
 
 | 单号 | 主题 | 正文在哪 |
 |---|---|---|
 | QT-40 | X1 数据服务（统一协议 + aggregator + `dataset_snapshot_hash`） | `tellurion-data:docs/TASKS.md` |
 | QT-41 | X2 策略资产服务（定义/版本/artifact/resolve） | `tellurion-strategy:docs/TASKS.md` |
-| QT-41b | X2 策略编译服务（Go 子集 → artifact 管线）⛔（阻塞于待裁决 D） | `tellurion-strategy:docs/TASKS.md` |
+| QT-41b | X2 策略编译服务（Go 子集 → artifact 管线）——**D 已裁决（2026-10-21），⛔ 解除** | `tellurion-strategy:docs/TASKS.md` |
 | QT-42 | X3 风控服务（规则真相源 + 进程内 RiskPolicy） | `tellurion-risk:docs/TASKS.md` |
 | QT-43 | X4 分析服务（基准 / 归因 / 敏感性 / 蒙特卡洛） | `tellurion-analytics:docs/TASKS.md` |
 | QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
