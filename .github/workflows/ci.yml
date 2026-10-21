@@ -293,6 +293,7 @@ jobs:
       - name: Repo autonomy self-check (R1~R6)
         run: |
           python tools/check_repo_autonomy.py --self-test
+          python tools/check_repo_autonomy.py
 
   # ── QT-18：过渡期 core↔agent 编译连体护栏 ──────────────────────────
   # S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换
@@ -309,7 +310,9 @@ jobs:
 
       # 跨仓 checkout 需要只读 PAT —— GitHub 默认 GITHUB_TOKEN 看不到别的仓。
       # 未配 secrets.AGENT_REPO_TOKEN 时不硬失败，而是把「护栏此刻处于降级」如实摆出来：
-      # 合入门禁临时由本地 `make agent-compat` + PR 贴输出兜住（QT-18 ①-b）。PAT 就位后
+      # 合入门禁临时由本地 `sh tools/ci/agent_compat.sh` + PR 贴输出兜住（QT-18 ①-b）。
+      # 入口是脚本不是 make 目标：主力开发机是 Windows + Git Bash，`command -v make` 退出 1，
+      # 一条只在 Linux 才跑得动的降级门禁等于没门禁。PAT 就位后
       # 本 job 自动接管、降级下线。**降级是过渡，不是长期替代 CI** —— 别把它当绿灯。
       - name: Detect cross-repo PAT
         id: pat
@@ -320,7 +323,7 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=QT-18 降级模式::未配只读 PAT secrets.AGENT_REPO_TOKEN，跨仓 checkout 跳过。合入前请用 make agent-compat 本地跑（同一条 clone+replace+build/vet），并把输出贴进 PR 描述。PAT 就位后本 job 自动接管。"
+            echo "::notice title=QT-18 降级模式::未配只读 PAT secrets.AGENT_REPO_TOKEN，跨仓 checkout 跳过。合入前请用 sh tools/ci/agent_compat.sh 本地跑（CI 这一步调的就是同一条脚本，Windows + Git Bash 可直接跑），并把输出贴进 PR 描述。PAT 就位后本 job 自动接管。"
           fi
 
       - name: Checkout agent repo

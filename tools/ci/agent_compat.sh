@@ -32,10 +32,15 @@ trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
 git clone --quiet "$AGENT_REPO" "${tmpdir}/tellurion-agent" || fail "克隆 ${AGENT_REPO} 失败"
 
+# replace 必须先落地，才允许往下编。go mod edit 失败若继续 build，编的是 agent go.mod
+# 里原有的 `replace tellurion => ../tellurion`——那是临时目录下不存在的路径，红是红了，
+# 但报的是「core 破了 agent 编译」，把护栏自身坏了误导成被守护的东西坏了。
+( cd "${tmpdir}/tellurion-agent" && go mod edit -replace tellurion="${CORE}" ) \
+    || fail "go mod edit 失败（agent 的 go.mod 读不出 / replace 形状变了？）—— 本次没有编到当前 core，结论无效"
+
 printf '  core:   %s\n  agent:  %s (HEAD)\n  → go build ./...\n' "$CORE" "$AGENT_REPO"
 (
     cd "${tmpdir}/tellurion-agent" || exit 1
-    go mod edit -replace tellurion="${CORE}"
     go build ./... && { printf '  → go vet ./...\n'; go vet ./...; }
 )
 ec=$?

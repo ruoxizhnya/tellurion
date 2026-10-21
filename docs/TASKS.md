@@ -122,6 +122,21 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **未做**：PAT 由主任在 GitHub 配置后，本 job 需跑一次**真破坏腿**留证（改一个 core 导出签名 → 观察 agent-compat 红 → 撤回）作为 CI 侧的最终验收；本地已用同一条命令序列证明机制成立。合入门禁：QT-01 之前本单须已在 main。
 >
 > YAML 校验通过（5 job）；doc-links 0 断链。
+>
+> **⚠️ 自审订正（2026-10-21 第二轮）——上面「降级门禁 `make agent-compat`（已本地验证）」这句被证伪了一半**：命令序列本身没问题，**`make` 在主力开发机上不存在**（Windows + Git Bash，`command -v make` 退出 1）。一条只在 Linux 才跑得动的合入门禁，等于没门禁 —— 而这正是 PAT 缺席时唯一兜底的那条。处置：
+> - 逻辑整体抽到 **`tools/ci/agent_compat.sh`**（POSIX sh，Git Bash 直接 `sh tools/ci/agent_compat.sh`）；`make agent-compat` 退化为它的一行 wrapper（`help` 里注明「没有 make 就直跑脚本」），PR 模板那条勾选项同步改成脚本命令。
+> - **CI 的 `Build + vet agent against this core` 步现在调同一份脚本**（原来是 workflow 里内联第二份 clone+replace+build/vet —— 两处各写一遍迟早漂移，CI 那份改了本地那份忘了，正是本单要防的失效模式）。白名单政策仍留在 workflow 里（那是 CI 专属的一层）。
+> - 脚本比原 Makefile 多两道 fail-loud：`go` 不在 PATH 直接报「先导出 SDK 目录」；`mktemp` 失败也报，不再让 `rm -rf ""` 那种静默吞掉失败。agent 侧取的是其 **HEAD**（未提交的 agent 改动不参与，与 CI 同款语义）——这条原先没写明，现写进脚本注释。
+> - **真跑取证**：本机 `sh tools/ci/agent_compat.sh` 对当前 core 工作区 **绿（退出 0）**；破坏腿 = 临时 clone 一份 agent 副本、加一个引用 `expression.SymbolThatDoesNotExistQT18` 的包并提交，`AGENT_REPO=` 指它 ⇒ 打印 `qt18break\break.go:5:25: undefined: expression.SymbolThatDoesNotExistQT18` + `::error::` + **退出 1**（护栏有牙齿）。
+> - **CI 步骤文本用桩脚本在沙箱跑过四种情形**（PAT 没配 ⇒ 这段在线上永不执行，只能这样先验）：编得过→0；编不过 + 白名单非空→0 且**恰好一条** `::warning`；编不过 + 无白名单→1；编不过 + **零字节**白名单文件→1（`[ -s ]` 保证空文件中和不了门禁）。
+> - **仍未做（不变，等主任）**：`secrets.AGENT_REPO_TOKEN` 没配 ⇒ 线上 `agent-compat` job 的四步里 checkout/setup-go/build 全 `skipped`、结论仍 `success` —— **它的绿不代表跨仓编译门跑过**，当前唯一真证据就是上面那条脚本。PAT 就位后按 §⑤ 补一次线上真破坏腿。
+>
+> **代码走查这一批改动时补五处（2026-10-21，同日第二轮审查）**：
+> - **CI 的 `Repo autonomy self-check` 步只剩 `--self-test`，真正那条 `python tools/check_repo_autonomy.py` 扫描没了** —— 于是这条 job 校验了校验器、却从不执行校验器。这是本批最重的一处：R1~R6 在线上静默失去执法者，而 job 仍然绿（自证腿当然会绿，它只测夹具）。已接回，顺序是先 `--self-test`（护栏自己坏了就先红）再全仓扫描。
+> - **QT-18 这份订正块落错了节**：它被追加到文件末尾「维护本文件」的规则表之后 ⇒ 既读起来像一条维护规则，块内「上面『降级门禁 `make agent-compat`』」又成了指向几百行之外的悬空引用。正文一字未改，搬回 QT-18 进度记录之后。
+> - **ci.yml 里两处残留还写着 `make agent-compat`**，含 `Detect cross-repo PAT` 那条 `::notice::` 的**运行时报文**——那正是降级时开发者在 GitHub UI 上读到的一行指引，指向一个主力机上不存在的命令。同一约定写在四处只改两处，是本单反复收口的失效模式（PR 模板 / Makefile / `help` 都改了，CI 的注释与报文没改）。两处一起改成 `sh tools/ci/agent_compat.sh`。
+> - **`go mod edit` 失败不再继续 build**：原写法 edit 失败后仍会 `go build`，编的是 agent go.mod 里那条 `replace tellurion => ../tellurion`（临时目录下不存在的路径）——红是红了，但报「core 破了 agent 编译」，**把护栏自身坏了误导成被守护对象坏了**。现在 edit 单独一步，失败即 `::error::…本次没有编到当前 core，结论无效` 退出。
+> - **独立复现了他们「破坏验证 3 条 FAIL」的叙述**（把 ①② 两处旧逻辑还原进 `tempfile` 副本跑 `--self-test`，不碰仓内文件）：`[FAIL] R1 不误伤未入库的本机 go.work`、`[FAIL] R5 各仓钉同一版 → 不红`、`[FAIL] R5 钉版与待定混布 → 点名但不硬红`，**退出 1** —— 自证腿有牙齿，两处修不是化妆。另真跑取证：`sh tools/ci/agent_compat.sh` 退出 0、`python tools/check_repo_autonomy.py --self-test` 8 腿退出 0、全量 12 仓扫描退出 0（2 已登记缺口 + 2 豁免，均显式列出）。
 
 ### QT-08 · 十二仓自治三件套（AGENTS / CI / TASKS）+ 自检脚本 [P1] ✅
 
@@ -157,6 +172,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 顺带三处小账：`check_r5(present)` 原先为切红/note 被**调用两遍**（两次结果可以不一致）⇒ 调一遍再切；输出横幅产品名写成 `Qoder` ⇒ 改回 `Quant Lab`；`import sys` 是死导入 ⇒ 删。
 > **新增 `--self-test`（8 条夹具腿，已接进 core CI 的同一步）**：这条 job 是 R1~R6 唯一执法者，而它自己没人核（§8.5.3-2「假护栏比没护栏更糟」）。腿覆盖 R1 抓单行 / 抓 `replace ( ... )` 块形式 / **不误伤** fork 替换（目标是模块版本而非路径），R1 不误伤未入库 go.work + 抓到入库 go.work（真 `git init` 临时夹具），R5 同版不红 / 异版红 / 钉与待定混布只点名。夹具全在 `tempfile` 里，不碰真仓；`git` 缺席时**显式 SKIP** 而不是假通过。
 > **破坏验证**：把上面 ①②两处还原成原来的错法跑副本 ⇒ 自证 **3 条 FAIL、退出 1**（不是空转）；改回后 `--self-test` 退出 0，全量 12 仓扫描仍退出 0。
+> **审查轮补一处可见性（同日）**：`--self-test` 在**无 git 的机器**上原先只打一行 `[SKIP]` 然后**退出 0** —— 线上「自证跑过了」与「自证没跑」长得一模一样，正是 QT-18 那条降级空跑的同类失效。现补一条 `::warning` 标注把它摆进 GitHub UI；退出码仍 0（无 git 是环境限制，判红是假红），8 条腿里 5 条依赖 git 夹具这点也写进报文，免得读数的人以为全绿。
 > **剩余三项按实测关闭**（原「剩余」三条写于脚本交付前，今天逐条拿证据复核）：③ `docs` 仓 CI/TASKS —— 第四批已建（main 上 6 次 run 全 success）；④ core `AGENTS.md` 的分仓规则节 —— 已落为 **§0 分仓拓扑：我在哪**（12 仓表 + 本仓三条硬规则），第四批第 ① 项的产物；⑤ 各仓 CI 首次绿的线上确认 —— 2026-10-21 `gh api` 实测 contracts/kit/data/strategy/risk/analytics/orchestration/broker 八仓 main 最新 run **全部 success**（run 号 7/7/9/8/8/8/9/8），`docs` 同绿 ⇒ 本单 ⑤ 验收「12 仓绿 + 显式列缺口」成立。
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~**R6**（R6 = 三份功能边界契约存在且非空），**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
@@ -844,11 +860,3 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **合入门禁（硬约束，不是建议）**：⓪ ~~QT-60 未完成前 QT-06 不得开工~~ → **已满足（QT-60 于 2026-10-20 完成）**，tag 现在可以打在新仓；新增 ⓪' **QT-61 的「gofmt + doc-links」两项绿之前，QT-06 的「两仓 CI 绿」验收不可达**——要么先做 QT-61，要么把 QT-06 验收改成「本次改动相关的 job 绿 + 其余 known-fail 登记」；① **QT-18 未合入 main 前，QT-01 不得合入**——第一个 breaking 就在 QT-01 的 abi v2，护栏不在就会漏；② QT-05 未合入前，QT-07 不得开工；③ QT-07/QT-09 未绿前，不得在任何仓新增跨仓 `replace`（D29 §9 C1）。
 - **新需求优先于存量未完成任务**；与旧任务重叠的可合并或直接删除，跨仓迁移的任务条目保留可追溯指针。
 - 归档文件的状态标记若与自身完成记录矛盾，**只在文件头加订正说明**，条目正文与标题的历史措辞不改写。
->
-> **⚠️ 自审订正（2026-10-21 第二轮）——上面「降级门禁 `make agent-compat`（已本地验证）」这句被证伪了一半**：命令序列本身没问题，**`make` 在主力开发机上不存在**（Windows + Git Bash，`command -v make` 退出 1）。一条只在 Linux 才跑得动的合入门禁，等于没门禁 —— 而这正是 PAT 缺席时唯一兜底的那条。处置：
-> - 逻辑整体抽到 **`tools/ci/agent_compat.sh`**（POSIX sh，Git Bash 直接 `sh tools/ci/agent_compat.sh`）；`make agent-compat` 退化为它的一行 wrapper（`help` 里注明「没有 make 就直跑脚本」），PR 模板那条勾选项同步改成脚本命令。
-> - **CI 的 `Build + vet agent against this core` 步现在调同一份脚本**（原来是 workflow 里内联第二份 clone+replace+build/vet —— 两处各写一遍迟早漂移，CI 那份改了本地那份忘了，正是本单要防的失效模式）。白名单政策仍留在 workflow 里（那是 CI 专属的一层）。
-> - 脚本比原 Makefile 多两道 fail-loud：`go` 不在 PATH 直接报「先导出 SDK 目录」；`mktemp` 失败也报，不再让 `rm -rf ""` 那种静默吞掉失败。agent 侧取的是其 **HEAD**（未提交的 agent 改动不参与，与 CI 同款语义）——这条原先没写明，现写进脚本注释。
-> - **真跑取证**：本机 `sh tools/ci/agent_compat.sh` 对当前 core 工作区 **绿（退出 0）**；破坏腿 = 临时 clone 一份 agent 副本、加一个引用 `expression.SymbolThatDoesNotExistQT18` 的包并提交，`AGENT_REPO=` 指它 ⇒ 打印 `qt18break\break.go:5:25: undefined: expression.SymbolThatDoesNotExistQT18` + `::error::` + **退出 1**（护栏有牙齿）。
-> - **CI 步骤文本用桩脚本在沙箱跑过四种情形**（PAT 没配 ⇒ 这段在线上永不执行，只能这样先验）：编得过→0；编不过 + 白名单非空→0 且**恰好一条** `::warning`；编不过 + 无白名单→1；编不过 + **零字节**白名单文件→1（`[ -s ]` 保证空文件中和不了门禁）。
-> - **仍未做（不变，等主任）**：`secrets.AGENT_REPO_TOKEN` 没配 ⇒ 线上 `agent-compat` job 的四步里 checkout/setup-go/build 全 `skipped`、结论仍 `success` —— **它的绿不代表跨仓编译门跑过**，当前唯一真证据就是上面那条脚本。PAT 就位后按 §⑤ 补一次线上真破坏腿。
