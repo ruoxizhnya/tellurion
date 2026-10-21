@@ -219,7 +219,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **⚠️ 本单欠下的一条红（2026-10-21 追登，`8b8556a` 关掉）**：`d1d2942` 提交的 `abi_contract_table_test.go` **blob 以 `}\n\n` 结尾（EOF 多一个空行）**，CI `Build & Test` 的 `gofmt` 步因此连红**三个推送**（`73aa6f0` / `4dd83b0` / `7b7f966`，同一根因，逐条 `log-failed` 核过都只点这一个文件）。为什么本地没抓到：`gofmt -l .` 跑的是**工作区**，而工作区那份早被编辑器顺手修干净了——门禁看着绿，红的却是提交出去的内容。**教训入 AGENTS §8.5 规范 2**：`gofmt -l .` 不能单独当结论，推前要在干净 checkout（`git worktree add --detach`）里跑一遍。修复 = `8b8556a`（行为零变化，纯 EOF 空白）；线上复核 = run `39632653375` **completed/success**，5 个 job 全绿。**注意该 run 里 `agent-compat` 的绿仍是降级**（`Checkout agent repo` / `setup-go` / `Build + vet` 三步 `skipped`，当时 PAT 未配）——**2026-10-21 改为匿名 checkout 后降级分支消失，但「绿代表门真跑过」这句要分两段**：`dc87626` 的 `token: ''` 让 job 直接红（run `39633866772`），直到 `e8f4847` 改走 plain `git clone` 才算数——**自 run `39634815299` 起，`Build + vet agent against this core` 是 `success` 而非 `skipped`**，日志里能看到共享脚本自己的 `core:` / `agent:` / `→ go build` / `→ go vet` 四行（详见 QT-18 完成记录的机制订正）。
 
-### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ⬜
+### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] 🔶
 
 - **① 目标**：`SignalSpec.FillTiming` 成为必填契约；默认从 `same_close` 切到 `next_open` 有**可解释的差异报告**作依据。
 - **② 上下文**：`p0-round2-review.md` §8.1（冻结文本）；现状 `engine_daily.go:181-205`（当日切片含当日 close）、`:263-270`（`res.price=末根 close`）、`:571`（`price := pricesCache[symbol]`）⇒ T 日收盘决策 + T 日收盘成交。全设计集此前无一处定义成交时点。
@@ -227,6 +227,28 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：**先出报告再切默认**——本单要**实现 `next_open` 的取价分支**（否则出不了报告），但 `FillTiming` 的默认值在报告归档前不动，即「现有 run 的行为零变化」；不改滑点/费率/撮合内部（部分成交、涨跌停判定）；不允许为"保持历史基准不变"而选口径。
 - **⑤ 验收**：缺字段 → run 拒绝且错误可读；报告归档在 `docs/test-cases/` 或设计集内并被引用；切换后基准结果与报告数值一致（同环境重跑 ±0）。
 - **⑥ 边界**：只做"时点选择"；撮合真实性属 QT-52。
+
+> **🔶 进度（2026-10-21）**：**契约 + 引擎分支 + 跨内核断言 + 差异报告四件事都在身上；只剩 `DefaultFillTiming` 的翻转**（④ 的纪律是「先出报告再切默认」，报告今天归档了，翻转是紧随其后的独立 commit），故本单暂 🔶。
+>
+> **落点**：契约 = `pkg/backtest/contracts/filltiming.go`（`FillTiming` 枚举、三个哨兵错误、`KnownBiases()` 作为偏差名的**唯一生产者**、`CompareKernelCalibers` 的报文点名两侧内核与两个口径）；DTO = `BacktestRequest.fill_timing`（`omitempty`，存量请求序列化逐字节不变）+ `BacktestResponse.{fill_timing, known_bias}`（ResultSpec 27→29 项）；引擎 = `engine.go` 日循环的 `fillPlan` / `sameClosePlan` / `pendingSignals`，取价在 `engine_daily.go:openPricesForSignals`，诊断计数在 `fill_diag.go`（`next_open_no_fill_price` / `next_open_unfilled_at_run_end`）；跨内核 = `nautilus/runner.go` 的**成交前**口径断言 + `nt-sidecar` 在回报里带 `fill_timing`（请求说了不算）；K15 = `cmd/dualrun/gate.go:CheckCaliberParity`，Go 腿在 `wrreplay.go` 显式钉 `same_close`。测试：`contracts/filltiming_test.go`、`qt02_fill_timing_test.go`（合成 bar 逐笔断言「决策 D 收盘 → D+1 开盘成交」的两口径价格与日期）、`cmd/dualrun/gate_test.go`、`nt-sidecar/tests/test_qt02_fill_timing.py`（8 条，含最重要的一条：本侧车**拒收** next_open 而不是假装实现了它）。报告 = `docs/test-cases/QT02_FILL_TIMING_REPORT.md`，生成器 = `pkg/backtest/qt02_fill_timing_report_test.go`（build tag `qt02report`，连库不迁移）。
+>
+> **③-⑥ · schema 变更评审记录**（按「维护本文件」节硬规则的固定顺序）：
+> - **先触发合规测试红**：`go test ./pkg/backtest/contracts/ -run TestResultSpec -count=1`，在干净 worktree（`git worktree add --detach`）里把 `docs/SPEC.md` 字段表的 `fill_timing` / `known_bias` 两行删掉 → **退出码 1**，报文 `docs/SPEC.md 字段表缺 "known_bias" —— 改字段集必须同步文档并走变更评审`（互锁腿真实存在，不是文档里的一句话）。worktree 用完 `git worktree remove --force`，仓内文件未被触碰。
+> - **SPEC 同步的节号**：`docs/SPEC.md` →「ResultSpec 冻结（K9）：BacktestResponse canonical schema」→「字段集（29 项，冻结）」新增两行；其下新增子节「成交时点与已知偏差（QT-02…）」，含可比性判据、必填位置、缺席=未知、`known_bias` 标注、生产者唯一、`DayBar.Close` 缺陷、**限价单只切天不切价**这条边界。`docs/openapi.yaml` 同步：`BacktestRequest.fill_timing`（enum `[next_open, same_close]`）与 `BacktestResponse.{fill_timing, known_bias}`。
+> - **顺序偏离如实登记**：硬规则要求「红 → SPEC → **评审记录** → 才许合入」。本次代码（`f615e8e` / `9ffff72` / `676eab1`）先合、本记录后落，晚了一个 commit；前两步是真实执行过的（上面那条退出码就是第一步的复核证据），第三步的延迟记在这里而不是抹掉。默认值翻转那一步走在本记录之后。
+>
+> **③-② 实现里两条必须写明的东西**（都不是「顺手」，是不做就成了假实现）：
+> - **同日新鲜度过滤**：原日循环 `if !sig.Date.Before(date)` 把「昨日决策」整批丢掉，next_open 于是**静默 0 成交**且没有任何错误。改成 `fillPlan.minSignalDate`（next_open 下取上一 replay 日）；这条本身就是破坏验证的腿。
+> - **`quote.Close = execOpts.DayBar.Close` 覆盖**：`executeViaExecutionService` 在有 DayBar 时把引擎按口径选定的价**换成当日收盘**，市单分支以 `quote.Close` 为基准 ⇒ 开盘价根本到不了撮合，「实现了口径、线上一个字没变」。删掉覆盖后 DayBar 只贡献 Open/High/Low/Volume。破坏验证：把那一行原样注入 → `go test ./pkg/backtest/ -run TestQT02 -count=1` **退出码 1**（`TestQT02_NextOpen_FillsOnNextDayAtOpen`：12.1121 vs 12.16215），还原后 sha256 逐字节一致（`2760f5bdf08cd0e3`）、重跑绿。
+>
+> **③-④ 报告测出来的东西**（24 票 × 2024-01-02..2025-12-31 × 5 个只用价量的内置策略，真库真策略）：
+> - 成交基准价：**same_close 88.1%** 落在成交日收盘 ×(1±滑点)、**next_open 83.1%** 落在成交日开盘，交叉污染 0.01% / 0.35%。
+> - 成交日归属（先按价格分好类再问日期）：next_open 落在开盘端的成交 **100.0%** 在前一交易日有该标的信号；same_close 落在收盘端的 **99.9%** 当日有信号。
+> - **§8.1 那句「差异 ≈ 日收益平移一个 bar」在收益层是假的**：把 next_open 的日收益往后挪一格再比，MAE 一律变大（momentum 0.000796 → 0.003173 等 5 条全反）。报告把这列留在原地当反例，拦住后来人拿相关性当证据。
+> - **一条本单不修、但被本单逮到的东西**：`td_sequential` 有 468 个「同日同标的重复信号」天，同参同环境同进程复跑两次 → **13281 笔 / −55.33% vs 13067 笔 / −72.50%**。重复信号走进 `map[symbol]` 覆盖、最后一条生效取决于未排序遍历顺序（QT-04 的 ②上下文），所以 **±0 只在无重复信号的策略上成立**：报告里 momentum（重复天数 0）的逐位一致是被执行过的断言，而那批高频策略的数值是一次抽样。这是 QT-04 的实测代价，不由本单裁。
+>
+> **⑤ 验收逐条**：缺字段 → run 拒绝且错误可读 ✅（引擎入口 `ResolveFillTiming` 报 Missing/Unknown 两种报文，绝不回落默认；侧车三种报文互不相同）；报告归档并被引用 ✅（`docs/test-cases/QT02_FILL_TIMING_REPORT.md`，SPEC 的成交时点子节引它）；同环境重跑 ±0 ✅（对被断言的组合），覆盖面条件写在报告「同参重跑的稳定性」；**未做**：`DefaultFillTiming` 翻转（紧随本记录的 commit，翻转后按 ⑤ 再核一次「切换后基准 = 报告 next_open 列」）。
+> **④ 约束遵守**：报告归档前默认值未动（`DefaultFillTiming = FillTimingSameClose` 在整个 C1~C4 期间原样），现有 run 行为零变化由「请求侧 `omitempty` + 存量序列化逐字节不变」的既有测试与一条去掉 `omitempty` 就红的破坏腿共同钉住；未改滑点/费率/撮合内部。
 
 ### QT-03 · 可复现留痕体系（`run_spec_hash` / `dataset_snapshot_hash` / `artifact_hash`）[P0] 🔶
 
