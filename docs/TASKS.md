@@ -1,7 +1,7 @@
 ---
 status: active
-last-verified: 2026-10-20
-verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。
+last-verified: 2026-10-21
+verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。
 ---
 
 # TASKS — 未完成项（第 4 代）
@@ -28,8 +28,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W0 | QT-02 | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
 | W0 | QT-03 🔶 | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它。**定义 + 向量测试 + 文档收口已完成（2026-10-21）**；落库半边因「`run_artifacts` 已有落点」前提被证伪而拆出 → **QT-63** |
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
-| **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31） |
-| **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置 |
+| **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
+| **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
 | **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引） |
 | W1 | QT-11 | per-run 策略实例 | P0 | K15 对拍前置；无文件冲突 |
 | W1 | QT-12 | run 级缓存下沉 + 资源准入 | P0 | 同一笔内存账，必须一起做 |
@@ -47,7 +47,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
 | W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
-| **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；QT-41b ⛔ 阻塞于待裁决 D |
+| **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；QT-41b ⛔ 阻塞于待裁决 D。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
@@ -233,25 +233,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：报告存在且含可复现命令；每个重复样例都能定位到源码行；结论落到 `p0-round2-review.md` §8.3 的表格里（勾选分支）。
 - **⑥ 边界**：只决定"重复怎么办"；排序本身是 QT-21。
 
-### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] ⬜
+### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] ⬜ · **已迁（2026-10-21，本仓留指针）**
 
-> **形态已裁决（2026-10-20，用户选 Plan B → 落地形态见 ADR-D31）**：两仓已存在（各含最终 module path 的 `go.mod` + `AGENTS.md` + `doc.go` 占位），所以**代码直接写进新仓**，core/agent 用 `require <伪版本>` 取用，**全程不出现 `replace`**。原 Plan A（先在 core 内建 `contracts/` `kit/` 子 module，S2 再搬）作废——它会搬两次，且与 core 顶层 `contracts/` 数据目录撞名。
-
-- **① 目标**：契约（含值对象）与横切工具**物理上住进两个独立仓**，依赖方向由编译器 + `go.sum` 强制；core 与 agent 通过**版本依赖**引用它们。
-- **② 上下文**：`repo-topology-and-naming.md` §5/§7-S1（D29）+ ADR-D31；实测：`pkg/domain` 17 文件 3983 行，被 **core 306 文件、agent 48 文件**使用，自身仅依赖 `domain/market` 与 `fees`（2 处）；`pkg/backtest/contracts` 6 文件 2113 行，仅依赖 `domain` + `fees`，被 50 处（含 agent 5 处）使用；ADR-031 四契约（`RunSpec`/`SignalSpec`/`ResultSpec`/`EngineRunner`）就在这个包里。两仓现状：`github.com/ruoxizhnya/tellurion-{contracts,kit}`、`go 1.25`、**public**（`GET /repos/...` = 200）；`tellurion-contracts@main` 实测可 `go get` 到 `v0.0.0-20261020112435-a55208cc2412`（Go 1.25.0）。
-- **③ 要求**：
-  ① `tellurion-contracts`：`domain/`（17 文件，`package domain`）、`engine/`（6 文件，**保持 `package contracts`**）、`fees/`（**只放数据形状**：费率/滑点/成本模型的定义与枚举）；
-  ② `tellurion-kit`：迁 12 个包 + 新增 **`db`**（仅 connection/migrate/DSN 解析，**零表结构**，K 裁决落地）；
-  ③ core 侧：`go get github.com/ruoxizhnya/tellurion-contracts@<sha>`、`@...-kit@<sha>` 写入 `require` 与 `go.sum`；再一次性 sed 全替 `tellurion/pkg/domain` → `github.com/ruoxizhnya/tellurion-contracts/domain`（306 文件）与 `tellurion/pkg/backtest/contracts` → `.../contracts/engine`（50 处）；
-  ④ **禁止 `replace`**：core / agent 的 `go.mod` 里不得出现 `=>`。本地要同时改三个仓时用 **`go.work`**（仓根，`use ( . ../tellurion-contracts ../tellurion-kit )`），**加入 `.gitignore`、不入库**——实测：有 `go.work` 时直接读本地目录、无 `go.sum` 也能构建；没有时按 `go.sum` 走真实版本（**这正是 CI 与 Docker 的路径**）；
-  ⑤ **agent 侧同步**：agent 仓根 `go.work` 写 `use ( . ../tellurion ../tellurion-contracts ../tellurion-kit )`（它仍 replace core，到 S3 才删）；**`require` 同样不传递**，agent 必须自己 `require` 两个仓——漏一条它立刻编不过；
-  ⑥ **core 顶层 `contracts/` 的 5 个数据文件留在原地**：`field_dictionary.yaml` + 4 个 `*.schema.{json,sql}` 是**运行时按 cwd 相对路径自动发现**的部署资产（`cmd/data/setup.go:223-225` 依次试 `./contracts/`、`../contracts/`、`../../contracts/`），不是 Go 包。跟 module 搬走 = 部署后字典**静默加载失败**（编译期查不出）。本单**只搬 Go 代码**；
-  ⑦ 新增 `tools/check_contract_pin.py` + `make contracts-pin-check`：core / agent 的 contracts/kit pin **必须是该仓 `main` 的祖先**（禁止指向未合入的提交），并打印 `repo@sha → 提交日期` 供评审；
-  ⑧ 包名策略：`contracts/engine/` 内保持 `package contracts`、`contracts/domain/` 内 `package domain`；调用点前缀一行不改，只在 import 处处理 alias。若改成 `package engine`，本仓 50 处 + agent 5 处都要改前缀；
-  ⑨ 输出「**core-only 类型清单**」：`screen`/`sector`/`supply_chain`/`macro`/`mining` 在 agent 侧各 0 命中，属 core 专用；S1 仍整包迁，清单留给 S2 后回收（D29 §5.2）。
-- **④ 约束与非目标**：**不改任何业务逻辑**；不搬 `sandbox/wasm`（必须与引擎同进程）；不搬 `fees` 的计算部分；**不动那 5 个数据契约文件**；不在本单打 tag（S2 = QT-07）；**不为省事给 core/agent 加 replace**；一次只搬一个包，每搬一次跑 `go build ./...` + `go vet ./...`。
-- **⑤ 验收**：`go list -m all` 显示 3 个 module，且 contracts/kit 两行**带真实伪版本**（不是 `=> ./...`）；`go build ./...` + `go test ./...` 绿；旧路径 grep 零命中；`git grep -E '=> *\.\./tellurion-(contracts|kit)'` 在 core / agent 均零命中；在两仓内 import `tellurion/...` **编译失败**；`kit` 业务词零命中；agent 与 core 均能 build；`make contracts-pin-check` 绿；**删掉 `go.work` 后 `go build ./...` 仍绿**（证明走的是 `go.sum` 而非本地目录）；`equitydeep` 字典在 `cmd/data` 与部署镜像里都能加载（回归）。
-- **⑥ 边界**：只做代码搬迁与依赖切换；tag、版本策略、跨仓护栏属 QT-07 / QT-09 / QT-19。
+> **正文已整体迁至 `tellurion-contracts:docs/TASKS.md`「一、本仓任务」`QT-05`**（六字段 + 形态裁决注记逐字保留；任务台账批量重分布：S1 双仓落点，主单落 contracts 仓）。**kit 腿**拆分为 `tellurion-kit:docs/TASKS.md` 的 **QT-05-B**（③-② 的执行单，判据以主单为准）。
+> **本仓侧改动**（主单 ③-③/④/⑥/⑦/⑨ 的 core 部分：`go get` 依赖切换与 sed 全替、禁 `replace` + `go.work` 纪律、5 个数据契约文件不动、`tools/check_contract_pin.py`、core-only 类型清单）随主单执行、在本仓落码。
+> 执行与验收在彼处，此处不镜像；改动请去彼处改，勿在此回填正文。执行顺序（W0 全绿后的 S1）见本文件「执行顺序总览」。
 
 ---
 
@@ -429,19 +415,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > 依据 ADR-D29 §7-S2/S3、§8 建仓 checklist。**拆的是已经冻结的东西**——W0 未绿就拆 = 契约每天发版。
 
-### QT-17 · agent 数据自持（D10：`ai.*` schema 建表与迁移）[P1] ⬜
+### QT-17 · agent 数据自持（D10：`ai.*` schema 建表与迁移）[P1] ⬜ · **已迁（2026-10-21，本仓留指针）**
 
-- **① 目标**：agent 不再通过 core 的 `*PostgresStore` 读写实验域数据；`ai.*` 的 DDL 与 migrate 由 agent 仓持有——**这是 S3 删 replace 的数据前置**（storage 依赖没有别的出路）。
-- **② 上下文**：ADR-D10（实验域数据归 agent）；实测 agent 用到 storage 的 16 个符号 / 14 个文件：连接层 `PostgresStore`(12) `NewPostgresStore`(3) `BuildDSN` `DatabaseConfig`；实验域 `Experiment`(5) `ExperimentMetrics`(6) `ExperimentUpdate`(4) `ExperimentStatus*`；研究域 `ResearchProfile`(10) `ResearchQuestion` `ResearchConclusion`；**仪器域** `TradingCalendar` `ListingWindow`(4)。`kit/db` 由 QT-05 提供。
-- **③ 要求**：
-  ① agent 仓建 `ai` schema 的 DDL（表名以 core `pkg/storage/experiments.go` / `research.go` / `postgres.go` 的现有定义为准，逐表核对后迁移，**不凭类型名臆造表名**）与自己的 migrate 入口；
-  ② agent 用 `kit/db` 建自己的 store，替换 12 处 `PostgresStore` 用法；
-  ③ **仪器域不迁**：`TradingCalendar` / `ListingWindow` 属 core，agent 改走 core 的**只读 port**（D10 §87「只读视图」通道）——**本单需同时补进 D24 的合法动作清单**（现六类里没有「交易日历/上市窗口查询」）——这是对**已裁决文档的增补**，开工前需用户确认第 7 类动作；**获确认后该动作的 endpoint + DTO + 鉴权随 QT-50 ③-③/④ 统一落 `docs/openapi.yaml` 并纳入路由表对拍**（勿另起手写 DTO，refactor-plan-review H2）；
-  ④ 双写期：旧表与 `ai.*` 同时写 → 行数/校验和对拍 → 切读 → 停写；core 侧 `experiments.go` / `research.go` 定义标 deprecated 并登记删除期限；
-  ⑤ 护栏：agent 禁止 import `pkg/storage`（AST）。
-- **④ 约束与非目标**：**不删 core 旧表**（保留只读一个周期）；不迁行情/回测结果/因子定义（仪器域）；不改 core 的实验 handler；不在本单做 HTTP 化（QT-50）。
-- **⑤ 验收**：agent `grep -r "pkg/storage"` = 0；`ai.*` 行数与旧表对拍一致（报告归档）；停写后 core 旧表不再增长；core 侧 deprecated 标记存在；日历/上市窗口经 port 取到且值一致。
-- **⑥ 边界**：只做实验/研究域的数据归属；`ai.*` 之外的 schema 不动；X 线服务的数据归属按 QT-40。
+> **正文已整体迁至 `tellurion-agent:docs/TASKS.md`「QT-17」**（六字段逐字保留；任务台账批量重分布）。本单本就是 agent 仓的活（`ai.*` schema 与 store 落 agent），执行与验收在彼处，此处不镜像；改动请去彼处改，勿在此回填正文。
+> **本仓侧衔接两处**（随主单执行）：③-③ 的仪器域只读 port（`TradingCalendar`/`ListingWindow`）由 core 提供，其 endpoint + DTO + 鉴权随 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`；④ 的 core 侧 `experiments.go`/`research.go` 标 deprecated 并登记删除期限。S3 删 replace 的数据前置语义不变（`kit/db` 由 QT-05 提供）。
 
 ### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] ⬜
 
@@ -494,69 +471,19 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > ① **建仓/升格前先与 ADR-027 §2 对账**（M5）：六候选是**能力边界清单，不是最终服务拓扑**（`service-extraction-plan.md` 自述「与 ADR-027 §2 的 5→7 未逐一对账」）；升格建仓前必须与 027 §2 服务口径逐一对账（可能触发 data A/B 二分、reduction-service、分析并入他服务等改判），对账结论落 `repo-inventory.md`；「12 仓」是**上限/当前规划**，不是承诺终态。
 > ② **「接口对表」小节**（M8）：对应服务设计文档开工前补「接口对表」——逐个 port/endpoint 列**签名 + 错误语义 + 版本策略**，显式引用 `kernel-interface-map.md` / contracts 仓对应符号（模板：`data-service-contract-and-ownership.md` 的 `UnifiedDataPoint` 节）；**未对表不开工**。跨进程 wire 面（HTTP endpoint/DTO/鉴权）按 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`，不另起炉灶。
 
-### QT-40 · X1 数据服务（统一协议 + aggregator + `dataset_snapshot_hash`）[P1] ⬜
+### QT-40~45、QT-41b · X 线六服务 + 编译服务（正文已迁各服务仓，本仓留指针）[P1-P2]
 
-- **① 目标**：数据协议冻结进 contracts；aggregator 能给出可复现的 `dataset_snapshot_hash`；connector 全部走声明式契约。
-- **② 上下文**：`data-service-contract-and-ownership.md`（D19）X1a~X1d；现状已实现约 80%（12 connector + `ConnectorDeclaration` + `ETLPipeline`/`Normalizer`/`ValidatePoints`/`Deduplicate`；PG 已有 ingest/market/quant/research）。
-- **③ 要求**：① 协议类型（`UnifiedDataPoint`/`OHLCV`/`FrequencySpec`/`TimeSemantics`）进 QT-05 的 contracts；② `ErrVisibleAtMissing` 等错误码；③ aggregator 面（PIT 过滤 + 频率聚合 + 票池解析 + 快照 hash + 缓存）；④ `dataset_snapshot_hash` 按 QT-03 的唯一定义实现（含 `calendar_hash`/`adjustment_basis`）；⑤ 12 connector 全走 Declaration + 共享 Normalizer。
-- **④ 约束与非目标**：不重写现有 connector；不在内核内保留第二写者；不做跨库拆分。
-- **⑤ 验收**：同一 hash 两次拉取返回一致；漏声明 `visible_at` 的源被拒收；改日历/复权口径 → hash 变。
-- **⑥ 边界**：只做数据面；策略/风控/分析各自的 schema 见后续单。
+> **任务台账批量重分布（2026-10-21）**：以下 7 张单的六字段正文已**逐字迁入**各服务仓 `docs/TASKS.md` 为正式条目（「占位仓不写正式任务单」旧约定同时作废），本仓不再镜像正文；执行与验收在彼处。**上方 M5/M8 公共前置不变，各仓开工前必读**。QT-41b 在 strategy 仓保留 ⛔（阻塞于待裁决 D：编译服务归属）。
 
-### QT-41 · X2 策略资产服务（定义/版本/artifact/resolve）[P1] ⬜
-
-- **① 目标**：策略真相源在服务侧，引擎只持可驱逐只读副本；`id@artifact_hash` 可离线复现。
-- **② 上下文**：`strategy-asset-service-api.md` + `strategy-source-of-truth-and-cache.md`（D13/D14）+ QT-03 的 hash 体系；**未决 A（BYTEA vs 对象存储）——下文 ③-① 的 BYTEA 落地是「假设，需裁决后生效」**（阻塞单：本单，裁决见设计集 README 待裁决表 A 行；未裁决前不开工 ③-①）。
-- **③ 要求**：① `strategies` 加列（carrier/abi_version/scope/capability/entry/`active_version_hash`/`active_artifact_hash`）+ `strategy_artifacts` + blobs（**假设，需裁决 A 生效后落地**：blob 载体按 BYTEA 假设写，A 若改判对象存储则本项重写）；② 写侧 7 端点、读侧 2 端点（resolve/artifact）；③ 缓存按 `artifact_hash`（永不失效）+ latest 的失效策略——**TTL vs 事件失效二选一属未决 F，未裁决前本项按「假设，需裁决后生效」处理，不得静默二选一**（阻塞单：本单，裁决见 README 待裁决表 F 行）；④ promote 不覆盖 artifact 行；⑤ 14 个内置策略登记为 `carrier=builtin`。
-- **④ 约束与非目标**：策略服务**不算信号**；不改执行路径的"先查 artifact 再回退内置"在 QT-26 已定的顺序；不做对象存储（除非 A 改判）；**A/F 未裁决的假设项不许按假设值直接上 main**（裁决落地前相关子项保持 ⛔）。
-- **⑤ 验收**：服务停机后已缓存 hash 的回测照跑且结果一致；同源码两工具链 → 两 artifact 可分别追溯；`id@version_hash` 解析结果回写实际 `artifact_hash`。
-- **⑥ 边界**：只做资产与解析；编译服务是独立单 **QT-41b**（本单 ①~⑤ 不含编译链路）。
-
-### QT-41b · X2 策略编译服务（Go 子集 → artifact 管线）[P1] ⛔（阻塞于待裁决 D：编译服务归属）
-
-- **① 目标**：策略源码到 `artifact_hash` 产物的编译链路成文并落地（编译 → 校验 → 登记 artifact），AI 生成闭环（QT-32）与人工 promote 共用同一条管线。
-- **② 上下文**：`strategy-asset-service-api.md` §4 五道门中的 Compile 门；`implementation-plan-mvp.md` §6-M2（AI 生成闭环含编译环节）；原 QT-41 ⑥ 曾以「QT-41b」悬空引用（refactor-plan-review H3），本单即其正式落点。**归属未定**：编译服务归策略资产服务（X2）还是独立能力，属待裁决 D（见设计集 README 待裁决表）；未裁决前本单 ⛔ 不开工。
-- **③ 要求**：① Compile 门语义成文（toolchain 版本固定、env-only 白名单、产物 `-target=wasm-unknown`）；② 编译产物经 QT-03 的 `artifact_hash` 登记进 QT-41 的 `strategy_artifacts`；③ 同源码两工具链 → 两 artifact 可分别追溯（与 QT-41 ⑤ 对齐）；④ 编译失败的错误语义进 contracts 哨兵错误族；⑤ 与 QT-26 ③-⑤ 五道门的 Resolve/Fetch/Verify/Mount 分界逐项对表。
-- **④ 约束与非目标**：不实现第二个编排者（ADR-023）；不放宽 `ValidateImports`；不在本单做 promote 闸门（那是 QT-32）。
-- **⑤ 验收**：一份 Go 子集策略源码经本管线产出 artifact 且 `artifact_hash` 可离线复现；编译失败可检索；五道门对表文档归档。
-- **⑥ 边界**：只做编译链路；资产存储/解析是 QT-41；AI 生成闭环是 QT-32。
-
-### QT-42 · X3 风控服务（规则真相源 + 进程内 RiskPolicy）[P2] ⬜
-
-- **① 目标**：风控规则可版本化、可审计；回测与实盘调用**同一** RiskPolicy；结果能记 `risk_rules_hash`。
-- **② 上下文**：`risk-service-design.md`（D20）；`risk.rule_defs`/`rule_revisions`/`rule_snapshots` 待建；`risk_events` 表未落地（`OrderIntent` 注释已指向）。
-- **③ 要求**：① 规则表 + `version_hash`（复用 factor 样板）+ 快照下发 `/api/risk/snapshots/{hash}`；② 进程内 `RiskPolicy` 接口化（现状 `RiskManager` 已无状态，可直接适配）；③ `CheckOrder` **永不走 HTTP**；④ 熔断指令走异步；⑤ 结果记 `risk_rules_hash`（QT-03 分量）。
-- **④ 约束与非目标**：不把逐笔裁决搬出进程；不与 compliance/alert 的既有实现重复造；不改 `RiskManagerConfig` 的默认值。
-- **⑤ 验收**：锁定 hash 的规则快照可复现；换规则 → `run_spec_hash` 变；双跑对拍一致。
-- **⑥ 边界**：只做规则与裁决面；聚合监控/报送属同单的后续切片。
-
-### QT-43 · X4 分析服务（基准 / 归因 / 敏感性 / 蒙特卡洛）[P1] ⬜
-
-- **① 目标**：补齐 BE-05/BE-06 的真实缺口，且分析只读 run 结果、零 import 引擎。
-- **② 上下文**：`analytics-service-design.md`（D21）；回测族 grep benchmark/attribution 仅一行注释；MC/bootstrap 全无；`mc_runs.seed` 必填。
-- **③ 要求**：① 搬现有 metrics/compare/correlation/export；② 新增基准对比 + Brinson/因子归因；③ 参数敏感性（网格）+ 蒙特卡洛/bootstrap（seed 留痕）；④ 只按 `run_id` 拉结果；⑤ `analysis.*` schema 唯一 owner。
-- **④ 约束与非目标**：纯函数 + 只读；不 import `pkg/backtest`；不在分析层做交易决策。
-- **⑤ 验收**：同一 run + 同一 seed 两次分析结果一致；归因分项和 ≈ 总收益（容差写明）；缺 seed 直接拒绝。
-- **⑥ 边界**：只做分析与指标；报表呈现归 UI 仓。
-
-### QT-44 · X5 编排 / worker 服务（job/batch/walkforward 上移）[P2] ⬜
-
-- **① 目标**：批量扫描的算力出口独立成服务；`backtest_jobs` / `strategy_state` 归属迁出内核；三 hash 落 `run_artifacts`。
-- **② 上下文**：`orchestration-service-design.md`（D22）+ BE-03；`BatchEngine` 已按 `contracts.EngineRunner` 注入，摘出成本低。
-- **③ 要求**：① `job`/`batch`/`walkforward` 从 `pkg/backtest` 上移；② worker 池调度 + 断点续跑协调；③ `run` schema（`backtest_jobs`/`walk_forward_reports`/`run_artifacts`/`strategy_state`）；④ `/api/runs/{id}/provenance` 端点；⑤ 内核通过 port 读写这些表。
-- **② 前置（U3，2026-10-20 审查补登记）**：`strategy_state` 迁 `run` 之前，core 必须先有 **`RunStateStore` port**（`Save(ctx, runID, state)` / `Load(ctx, runID)`），否则**内核失去状态持久化、X5 一动就编不过**。这个 port 以前谁都没登记，只在 `orchestration-service-design.md` 里被当成"内核走 port"一句带过。
-- **④ 约束与非目标**：不在内核保留编排逻辑；不改 `EngineRunner` 契约；不做 K8s；**不搬 `cmd/dualrun`**——它 2026-10-20 已裁决留 core（要同进程链接两个内核，且是引擎的验收门，见 `repo-inventory.md` §3）。
-- **⑤ 验收**：`pkg/backtest` 里 `job|batch|walkforward` 零命中；同一 batch 在编排服务与旧路径结果一致；provenance 端点返回三 hash。
-- **⑥ 边界**：只做编排与结果归属。
-
-### QT-45 · X6 交易通道网关（XTPTrader / MockTrader 两实现）[P2] ⬜
-
-- **① 目标**：交易通道收敛为 port 两实现，归一化 DTO 进 contracts；通道级校验与风控校验分界清晰。
-- **② 上下文**：`broker-gateway-design.md`（D23）；`xtp.go:387` 通道校验与风控校验混用需拆。
-- **③ 要求**：① `BrokerPort` + 两实现；② 归一化 DTO 进 contracts；③ 拆开通道规则校验与 RiskPolicy 裁决；④ paper/实盘共用同一调用面。
-- **④ 约束与非目标**：延迟敏感项保持进程内；不接新柜台；不改实盘下单语义。
-- **⑤ 验收**：MockTrader 全链路测试；通道拒绝与风控拒绝的错误码可区分；DTO 有契约测试。
-- **⑥ 边界**：只做交易通道；数据源 connector 在 QT-40。
+| 单号 | 主题 | 正文在哪 |
+|---|---|---|
+| QT-40 | X1 数据服务（统一协议 + aggregator + `dataset_snapshot_hash`） | `tellurion-data:docs/TASKS.md` |
+| QT-41 | X2 策略资产服务（定义/版本/artifact/resolve） | `tellurion-strategy:docs/TASKS.md` |
+| QT-41b | X2 策略编译服务（Go 子集 → artifact 管线）⛔（阻塞于待裁决 D） | `tellurion-strategy:docs/TASKS.md` |
+| QT-42 | X3 风控服务（规则真相源 + 进程内 RiskPolicy） | `tellurion-risk:docs/TASKS.md` |
+| QT-43 | X4 分析服务（基准 / 归因 / 敏感性 / 蒙特卡洛） | `tellurion-analytics:docs/TASKS.md` |
+| QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
+| QT-45 | X6 交易通道网关（XTPTrader / MockTrader 两实现） | `tellurion-broker:docs/TASKS.md` |
 
 ---
 
@@ -620,6 +547,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **align-gate 层 2（`01a71e1`）**：`Start sidecar` 步 cwd=nt-sidecar 却传相对 `--catalog nt-sidecar/catalog` ⇒ 解析成双段 `nt-sidecar/nt-sidecar/catalog`。改绝对 `$GITHUB_WORKSPACE` 路径。两层都清后 `Dual-run alignment gate`（bh + quarterly）第一次真跑并绿。
 > - **ui 层**：那条被登记为「4.9s 疑似 flaky」的用例，加 timeout 后**跑到了断言才暴露真因是 locale 依赖**（断言硬编码 `2026/10/15`，CI=en-US 渲染 `10/15/2026`）⇒ 改用组件同一 `toLocaleString` 现算期望（`1075c28`）。timeout 余量仍保留（双管其下：既给 naive-UI 挂载加预算，又修了真断言）。
 > - 均 §④：不 continue-on-error、不删测试、不改业务语义（formatTime / as_quantity 判定不动）。**`agent-compat` job 在首跑里以「降级 notice」通过（未配 `secrets.AGENT_REPO_TOKEN`）—— PAT 就位后需再跑一次真破坏腿留证。**
+>
+> **按腿拆分登记（2026-10-21 任务台账批量重分布）**：本节是 QT-61 完整四腿收口的**唯一权威版**；agent 腿（OBS-08 幻影清单收敛）与 ui 腿（SchedulePanel timeout + locale 真因）的简短收口记录已分别登记在 `tellurion-agent:docs/TASKS.md` 与 `tellurion-ui:docs/TASKS.md`（各含本腿 commit 留痕），两处均指回本节，不双写叙事。
 
 ---
 
@@ -827,9 +756,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ## 八、跨仓任务索引（不在本仓，勿双写）
 
 > 仓名以 `repo-inventory.md` §2 的「旧→新」为准；**QT-60 已于 2026-10-20 完成，实际仓名就是新名**（旧仓仍在，未归档）。
-> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；DBT-18 属这一族（`mining.Proposer` 契约指针在 core）；**refactor 修复传播单** ⬜（agent↔core HTTP wire 契约消费对齐 + C1 三值 `status`/`invalid_reasons` 消费口径——正文登记在该仓 `docs/TASKS.md`，本仓不镜像）。
-> - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` ⬜（2026-10-19 复核仍在册，该仓另有 4 处 ⬜）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅；**refactor 修复传播单** ⬜（三值 `status` 消费 + `invalid_reasons` 的 `data_gap_skipped`/`session_terminated` 展示口径，C1——正文在该仓 `docs/TASKS.md`）。
-> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；**随仓接口规格载体**（contracts `docs/API.md` / kit `docs/SCOPE.md`，M6）与**版本策略/兼容矩阵 + GOPRIVATE 前提**（L4/L5）见 QT-07 ③-S2-c / QT-19，正文立单在两仓自己的 `docs/TASKS.md`。
+> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；DBT-18 属这一族（`mining.Proposer` 契约指针在 core）；**refactor 修复传播单** ⬜（agent↔core HTTP wire 契约消费对齐 + C1 三值 `status`/`invalid_reasons` 消费口径——正文登记在该仓 `docs/TASKS.md`，本仓不镜像）；**QT-17** ⬜（2026-10-21 自本仓迁入该仓 `docs/TASKS.md` 为正式六字段单；本仓 S2~S3 节留同号指针）；QT-61 agent 腿 ✅ 收口记录（指回本仓 QT-61 权威版）。
+> - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` ⬜（2026-10-19 复核仍在册，该仓另有 4 处 ⬜）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅；**refactor 修复传播单** ⬜（三值 `status` 消费 + `invalid_reasons` 的 `data_gap_skipped`/`session_terminated` 展示口径，C1——正文在该仓 `docs/TASKS.md`）；QT-61 ui 腿 ✅ 收口记录（指回本仓 QT-61 权威版）。
+> - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**QT-05** 主单 ⬜（2026-10-21 自本仓迁入 `tellurion-contracts:docs/TASKS.md`；kit 腿拆 **QT-05-B** ⬜ 落 `tellurion-kit:docs/TASKS.md`；本仓 S1 节留同号指针）；**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；**随仓接口规格载体**（contracts `docs/API.md` / kit `docs/SCOPE.md`，M6，即 CT-01 / KT-01）与**版本策略/兼容矩阵 + GOPRIVATE 前提**（L4/L5，即 CT-02 / KT-02）见 QT-07 ③-S2-c / QT-19，正文立单在两仓自己的 `docs/TASKS.md`。
+> - **X 线 6 个服务仓**（`tellurion-data` / `tellurion-strategy` / `tellurion-risk` / `tellurion-analytics` / `tellurion-orchestration` / `tellurion-broker`）：**QT-40~45 + QT-41b**（2026-10-21 自本仓「五、X 线」逐字展开迁入各仓 `docs/TASKS.md` 为正式六字段单；本仓留指针表，见「五、X 线」）。M5/M8 公共前置仍以本仓「五、X 线」开头两条为准。
 > - **`tellurion-agent` 仓**：**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏。
 > - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。**ADR-D 升格单** ⬜（M9：D24/D25/D29/D30 已裁决且直接驱动施工（QT-05/07/60），须按 `tellurion-docs:docs/adr/` 流程升格为正式 ADR；升格完成前设计集 README 的升格路径注记保留——正文立单在该仓 `docs/TASKS.md`）。
 
