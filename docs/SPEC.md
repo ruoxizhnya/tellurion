@@ -3244,6 +3244,17 @@ Turnover，就是文档与实现静默漂移的标本）。
 - **必填发生在引擎入口，不在引擎里猜**：请求未声明 → `EffectiveFillTiming()` 回落
   `DefaultFillTiming`（唯一默认点）；`domain.BacktestParams.fill_timing` 到日循环入口
   仍是空值或野值 → `ErrFillTimingMissing` / `ErrFillTimingUnknown`，run 当场拒绝。
+- **`DefaultFillTiming` = `next_open`（2026-10-21 按 QT-02 ④ 切换）**：纪律是
+  「先出报告再切默认」，依据是 `docs/test-cases/QT02_FILL_TIMING_REPORT.md`。
+  切换的实际后果，逐条写明而不是含糊：
+  - 历史基准里未声明口径的 run，重跑会得到 next_open 的数（差随换仓频率放大：报告
+    这次抽样里确定性策略的最小 0.43 个百分点，高频的 `td_sequential` 到 27.8；
+    后者的绝对值本身是一次抽样，重复信号见 QT-04）；这不是回归，是口径归位。
+  - **`kernel=nautilus` 且不写口径 ⇒ 400 `INVALID_INPUT`**（NT 腿只实现收盘成交）。
+    报 400 而不是 500：调用方自己可修 —— 显式写 `fill_timing=same_close` 或换 go 内核；
+    报文点名两种修法。`cmd/dualrun` 不受影响，它的 Go 腿显式钉 `same_close`。
+  - 不写口径 = 与显式 `next_open` **逐位相同**，这条是生成器当场断言的
+    （`TestQT02FillTimingDifferenceReport` 的默认值对照腿），不是文档里的一句话。
 - **`fill_timing` 缺席 = 未知，不等于 `same_close`**：引擎当年确实按收盘成交，但把
   「没记」写成「记了 same_close」就是伪造留痕 —— 读方会把未标注的结果当成已标注的比。
 - **`same_close` 必须自标 `known_bias: same_close_fill`**（§8.1 兼容行）：收盘成交含

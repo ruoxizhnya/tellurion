@@ -448,8 +448,14 @@ func (r *Runner) RunBacktest(ctx context.Context, req contracts.BacktestRequest)
 		contracts.KernelCaliber{Kernel: "request", FillTiming: req.EffectiveFillTiming().String()},
 		contracts.KernelCaliber{Kernel: KernelName, FillTiming: out.FillTiming},
 	); err != nil {
-		return nil, apperrors.Internal(fmt.Errorf(
-			"kernel %q: %w [%s]", KernelName, err, pt), "nautilus.RunBacktest")
+		// INVALID_INPUT 而不是 INTERNAL：QT-02 把默认口径翻到 next_open 之后，
+		// 这条会对**每一个不写口径的 nautilus 请求**触发（本内核只实现收盘成交）。
+		// 调用方自己能修（写 fill_timing=same_close 或换 go 内核），报 500 是把它
+		// 当成服务端故障。哨兵错误仍在 cause 链里，errors.Is 检索不变。
+		return nil, apperrors.Wrap(fmt.Errorf(
+			"kernel %q: %w — this kernel only fills at the close; declare fill_timing=%s or use the go kernel [%s]",
+			KernelName, err, contracts.FillTimingSameClose, pt),
+			apperrors.ErrCodeInvalidInput, "fill_timing caliber mismatch with the nautilus kernel", "nautilus.RunBacktest")
 	}
 
 	return r.toResponse(req, out), nil

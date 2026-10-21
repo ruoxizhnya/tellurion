@@ -243,6 +243,10 @@ func runExecAlgoProbe(t *testing.T, eng *Engine, stratName string, spy *recordin
 		EndDate:        "2026-03-21",
 		InitialCapital: 1_000_000,
 		RiskFreeRate:   0.03,
+		// 显式钉 same_close：本探针测的是拆单片序/父单号/冲击占比，与成交口径无关。
+		// QT-02 之后默认值已是 next_open（父单晚一天提交 → 子单号里的日期整体后移），
+		// 所以这里把前置条件写出来，而不是把断言改成「日期可能是 D 或 D+1」。
+		FillTiming: string(FillTimingSameClose),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "completed", resp.Status, "回测应正常完成: %s", resp.Error)

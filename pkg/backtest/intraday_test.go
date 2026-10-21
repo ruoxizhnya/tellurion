@@ -465,6 +465,10 @@ func TestEngine_IntradayAwareStrategy_Backtest(t *testing.T) {
 		EndDate:        "2024-01-04",
 		InitialCapital: 1000000,
 		RiskFreeRate:   0.03,
+		// 钉 same_close：本用例断言「首笔成交在 01-02、价 = 当日收盘含滑点」，
+		// 测的是日内特征能否被策略读到。QT-02 后默认已是 next_open（01-02 的决策
+		// 要到 01-03 开盘才成交），留空就会把被断言的那件事改掉。
+		FillTiming: string(FillTimingSameClose),
 	})
 	require.NoError(t, err)
 	require.Equal(t, StatusCompleted, resp.Status, "invalid_reasons=%v", resp.InvalidReasons)

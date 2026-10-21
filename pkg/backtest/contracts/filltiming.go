@@ -35,11 +35,17 @@ const (
 
 // DefaultFillTiming 是请求**未声明**时回落的口径。
 //
-// ⚠️ 这是 QT-02 ④ 的切换纪律所在：两口径差异报告（docs/test-cases/
-// QT02_FILL_TIMING_REPORT.md）归档之前不得改成 next_open —— 那会让全部
-// 历史基准在一次提交里同时失去解释。改这一行 = 一次基准变更，须同时更新
-// docs/SPEC.md 的 ResultSpec 节与该报告结论的引用处。
-const DefaultFillTiming = FillTimingSameClose
+// 2026-10-21 按 QT-02 ④ 的纪律翻到 next_open：差异报告
+// （docs/test-cases/QT02_FILL_TIMING_REPORT.md）先归档、默认值后切换，
+// 顺序反过来就让全部历史基准在一次提交里同时失去解释。差随换仓频率放大
+// （逐策略数值以报告为准，别在这里重抄 —— 有重复信号的策略每次重生成都会换一组数），
+// 报告同时写明「§8.1 那句日收益平移一个 bar 只在成交层成立」。
+//
+// 改这一行 = 一次基准变更：须同时更新 docs/SPEC.md 的 ResultSpec 节、
+// 该报告结论的引用处，以及所有依赖旧默认值的测试夹具。代价要如实读——
+// 未声明口径的 nautilus 请求现在会撞上侧车的 next_open 拒收（侧车只实现
+// 收盘成交），这是设定的 fail-closed，不是回归：要 NT 结果就显式写口径。
+const DefaultFillTiming = FillTimingNextOpen
 
 // KnownBiasSameCloseFill 标注「本结果按收盘成交，含 T 日信息参与成交的偏差」。
 // §8.1 兼容行：same_close 保留可以，但结果必须自己说清带了哪个已知偏差。

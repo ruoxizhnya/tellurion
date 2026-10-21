@@ -219,7 +219,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **⚠️ 本单欠下的一条红（2026-10-21 追登，`8b8556a` 关掉）**：`d1d2942` 提交的 `abi_contract_table_test.go` **blob 以 `}\n\n` 结尾（EOF 多一个空行）**，CI `Build & Test` 的 `gofmt` 步因此连红**三个推送**（`73aa6f0` / `4dd83b0` / `7b7f966`，同一根因，逐条 `log-failed` 核过都只点这一个文件）。为什么本地没抓到：`gofmt -l .` 跑的是**工作区**，而工作区那份早被编辑器顺手修干净了——门禁看着绿，红的却是提交出去的内容。**教训入 AGENTS §8.5 规范 2**：`gofmt -l .` 不能单独当结论，推前要在干净 checkout（`git worktree add --detach`）里跑一遍。修复 = `8b8556a`（行为零变化，纯 EOF 空白）；线上复核 = run `39632653375` **completed/success**，5 个 job 全绿。**注意该 run 里 `agent-compat` 的绿仍是降级**（`Checkout agent repo` / `setup-go` / `Build + vet` 三步 `skipped`，当时 PAT 未配）——**2026-10-21 改为匿名 checkout 后降级分支消失，但「绿代表门真跑过」这句要分两段**：`dc87626` 的 `token: ''` 让 job 直接红（run `39633866772`），直到 `e8f4847` 改走 plain `git clone` 才算数——**自 run `39634815299` 起，`Build + vet agent against this core` 是 `success` 而非 `skipped`**，日志里能看到共享脚本自己的 `core:` / `agent:` / `→ go build` / `→ go vet` 四行（详见 QT-18 完成记录的机制订正）。
 
-### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] 🔶
+### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ✅（2026-10-21）
 
 - **① 目标**：`SignalSpec.FillTiming` 成为必填契约；默认从 `same_close` 切到 `next_open` 有**可解释的差异报告**作依据。
 - **② 上下文**：`p0-round2-review.md` §8.1（冻结文本）；现状 `engine_daily.go:181-205`（当日切片含当日 close）、`:263-270`（`res.price=末根 close`）、`:571`（`price := pricesCache[symbol]`）⇒ T 日收盘决策 + T 日收盘成交。全设计集此前无一处定义成交时点。
@@ -228,7 +228,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：缺字段 → run 拒绝且错误可读；报告归档在 `docs/test-cases/` 或设计集内并被引用；切换后基准结果与报告数值一致（同环境重跑 ±0）。
 - **⑥ 边界**：只做"时点选择"；撮合真实性属 QT-52。
 
-> **🔶 进度（2026-10-21）**：**契约 + 引擎分支 + 跨内核断言 + 差异报告四件事都在身上；只剩 `DefaultFillTiming` 的翻转**（④ 的纪律是「先出报告再切默认」，报告今天归档了，翻转是紧随其后的独立 commit），故本单暂 🔶。
+> **✅ 完成记录（2026-10-21）**：契约 + 引擎分支 + 跨内核断言 + 差异报告 + **默认值翻转**全部落地。顺序按 ④ 的纪律走：报告先归档（`ee93174`），默认值后翻（紧随其后的 commit）—— 顺序反过来就等于让全部历史基准在一次提交里同时失去解释。
 >
 > **落点**：契约 = `pkg/backtest/contracts/filltiming.go`（`FillTiming` 枚举、三个哨兵错误、`KnownBiases()` 作为偏差名的**唯一生产者**、`CompareKernelCalibers` 的报文点名两侧内核与两个口径）；DTO = `BacktestRequest.fill_timing`（`omitempty`，存量请求序列化逐字节不变）+ `BacktestResponse.{fill_timing, known_bias}`（ResultSpec 27→29 项）；引擎 = `engine.go` 日循环的 `fillPlan` / `sameClosePlan` / `pendingSignals`，取价在 `engine_daily.go:openPricesForSignals`，诊断计数在 `fill_diag.go`（`next_open_no_fill_price` / `next_open_unfilled_at_run_end`）；跨内核 = `nautilus/runner.go` 的**成交前**口径断言 + `nt-sidecar` 在回报里带 `fill_timing`（请求说了不算）；K15 = `cmd/dualrun/gate.go:CheckCaliberParity`，Go 腿在 `wrreplay.go` 显式钉 `same_close`。测试：`contracts/filltiming_test.go`、`qt02_fill_timing_test.go`（合成 bar 逐笔断言「决策 D 收盘 → D+1 开盘成交」的两口径价格与日期）、`cmd/dualrun/gate_test.go`、`nt-sidecar/tests/test_qt02_fill_timing.py`（8 条，含最重要的一条：本侧车**拒收** next_open 而不是假装实现了它）。报告 = `docs/test-cases/QT02_FILL_TIMING_REPORT.md`，生成器 = `pkg/backtest/qt02_fill_timing_report_test.go`（build tag `qt02report`，连库不迁移）。
 >
@@ -245,10 +245,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - 成交基准价：**same_close 88.1%** 落在成交日收盘 ×(1±滑点)、**next_open 83.1%** 落在成交日开盘，交叉污染 0.01% / 0.35%。
 > - 成交日归属（先按价格分好类再问日期）：next_open 落在开盘端的成交 **100.0%** 在前一交易日有该标的信号；same_close 落在收盘端的 **99.9%** 当日有信号。
 > - **§8.1 那句「差异 ≈ 日收益平移一个 bar」在收益层是假的**：把 next_open 的日收益往后挪一格再比，MAE 一律变大（momentum 0.000796 → 0.003173 等 5 条全反）。报告把这列留在原地当反例，拦住后来人拿相关性当证据。
-> - **一条本单不修、但被本单逮到的东西**：`td_sequential` 有 468 个「同日同标的重复信号」天，同参同环境同进程复跑两次 → **13281 笔 / −55.33% vs 13067 笔 / −72.50%**。重复信号走进 `map[symbol]` 覆盖、最后一条生效取决于未排序遍历顺序（QT-04 的 ②上下文），所以 **±0 只在无重复信号的策略上成立**：报告里 momentum（重复天数 0）的逐位一致是被执行过的断言，而那批高频策略的数值是一次抽样。这是 QT-04 的实测代价，不由本单裁。
+> - **一条本单不修、但被本单逮到的东西**：`td_sequential` 有 468 个「同日同标的重复信号」天（这个数是确定的），同参同环境同进程复跑两次 → 笔数与总收益都变（报告那行本次抽样为 **13334 笔 / −68.44% vs 13127 笔 / −65.76%**；**这组数每次重生成都会换**，因为漂移正是它测的东西）。重复信号走进 `map[symbol]` 覆盖、最后一条生效取决于未排序遍历顺序（QT-04 的 ②上下文），所以 **±0 只在无重复信号的策略上成立**：报告里 momentum（重复天数 0）的逐位一致是被执行过的断言，而那批高频策略的数值是一次抽样。这是 QT-04 的实测代价，不由本单裁。
 >
-> **⑤ 验收逐条**：缺字段 → run 拒绝且错误可读 ✅（引擎入口 `ResolveFillTiming` 报 Missing/Unknown 两种报文，绝不回落默认；侧车三种报文互不相同）；报告归档并被引用 ✅（`docs/test-cases/QT02_FILL_TIMING_REPORT.md`，SPEC 的成交时点子节引它）；同环境重跑 ±0 ✅（对被断言的组合），覆盖面条件写在报告「同参重跑的稳定性」；**未做**：`DefaultFillTiming` 翻转（紧随本记录的 commit，翻转后按 ⑤ 再核一次「切换后基准 = 报告 next_open 列」）。
-> **④ 约束遵守**：报告归档前默认值未动（`DefaultFillTiming = FillTimingSameClose` 在整个 C1~C4 期间原样），现有 run 行为零变化由「请求侧 `omitempty` + 存量序列化逐字节不变」的既有测试与一条去掉 `omitempty` 就红的破坏腿共同钉住；未改滑点/费率/撮合内部。
+> **默认值翻转（① 的另一半）与它的实际代价**：`DefaultFillTiming = FillTimingNextOpen`，机械钉子是 `TestFillTiming_DefaultIsNextOpenSinceReportSwitch`（写成字符串字面量 `"next_open"`，拿常量比就是假护栏）+ 生成器里的**默认口径对照腿**：不写口径的 run 与显式 `next_open` 逐位相同（momentum：702 笔 / −0.072394），这条当场断言，不是文档里的一句话。翻转的可见后果按实登记：`kernel=nautilus` 且不写口径现在 **400 INVALID_INPUT**（NT 腿只实现收盘成交；原先报 500 是把调用方可修的问题说成服务端故障，报文现在点名两种修法）；`cmd/dualrun` 不受影响（Go 腿显式钉 `same_close`）。被翻转波及的测试夹具全部改成**显式声明口径**而不是放宽断言：`nautilus/runner_test.go` 的 sampleRequest、`cmd/analysis` 三个 POST 报文、`exec_algo_*_e2e_test.go` 与 `intraday_test.go` 的探针 —— 它们的被测对象是映射/路由/拆单/日内特征，不是成交口径；留空会让默认值替它们决定前置条件。
+>
+> **两条新钉子的破坏验证**（都在 `git worktree add --detach` 的干净 checkout 里做，还原后 `sha256` 逐字节一致）：① 把 `DefaultFillTiming` 改回 `FillTimingSameClose` → `TestFillTiming_DefaultIsNextOpenSinceReportSwitch`、`TestFillTiming_EffectiveFillsDefaultWithoutMutatingRequest`、`TestRunner_AlwaysSendsTheEffectiveCaliber` 三红（`go test` 退出码 1，sha `35caea2a…` 还原一致）；同时 `exec_algo_*` / `intraday` / `cmd/analysis` 那批钉了口径的夹具**全绿** —— 这就是它们该有的行为：前置条件已经显式写出来，默认值不该替它们决定被测的那件事。② 把口径不符的错误码从 `ErrCodeInvalidInput` 改回 `ErrCodeInternal` → `TestRunner_FillTimingMismatchRefusesToMapResult` 的三条子用例连父用例共 4 红（sha `df9234fd…` 还原一致）。报告生成器那条默认对照腿在 build tag `qt02report` 后面，跑一次会重写归档报告，故**不参与破坏腿**（避免拿一次新抽样覆盖已归档的数）。
+>
+> **⑤ 验收逐条**：缺字段 → run 拒绝且错误可读 ✅（引擎入口 `ResolveFillTiming` 报 Missing/Unknown 两种报文，绝不回落默认；侧车三种报文互不相同）；报告归档并被引用 ✅（`docs/test-cases/QT02_FILL_TIMING_REPORT.md`，SPEC 的成交时点子节与 openapi 都引它）；同环境重跑 ±0 ✅（momentum 与被断言组合逐位；默认口径 = 显式 next_open 逐位），覆盖面条件写在报告「同参重跑的稳定性」——有重复信号的策略同参复跑会漂，那批数值是一次抽样。
+> **④ 约束遵守**：报告归档（`ee93174`）之前默认值未动（C1~C4 全程 `same_close`），「现有 run 行为零变化」由存量序列化逐字节不变的既有测试与一条去掉 `omitempty` 就红的破坏腿钉住；未改滑点/费率/撮合内部（部分成交、涨跌停判定）；没有为「保住历史基准」而选口径 —— 报告量的差最大到 27.8 个百分点（高频策略，一次抽样），仍然按 §8.1 翻到 next_open。
 
 ### QT-03 · 可复现留痕体系（`run_spec_hash` / `dataset_snapshot_hash` / `artifact_hash`）[P0] 🔶
 

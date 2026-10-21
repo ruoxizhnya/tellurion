@@ -34,12 +34,19 @@ func TestFillTiming_FrozenCaliberNamesAreLiterals(t *testing.T) {
 	}
 }
 
-func TestFillTiming_DefaultIsSameCloseUntilReportSwitch(t *testing.T) {
-	// QT-02 ④：先出报告再切默认。这条断言是那条纪律的机械形态 ——
-	// 改默认值必须同时改这里（= 一次显式的基准变更，带报告依据）。
-	if string(DefaultFillTiming) != "same_close" {
-		t.Errorf("DefaultFillTiming = %q, want %q —— 切换默认前必须先看 docs/test-cases/QT02_FILL_TIMING_REPORT.md 并同步 SPEC",
-			DefaultFillTiming, "same_close")
+func TestFillTiming_DefaultIsNextOpenSinceReportSwitch(t *testing.T) {
+	// QT-02 ④ 的纪律是「先出报告再切默认」；报告归档在
+	// docs/test-cases/QT02_FILL_TIMING_REPORT.md（2026-10-21），默认值随后翻到终态口径。
+	// 这条断言用**字符串字面量**写：改默认值必须同时改这里 = 一次显式的基准变更，
+	// 而且要带着报告依据。写成 `!= DefaultFillTiming` 就是假护栏（两边一起平移，永不红）。
+	if string(DefaultFillTiming) != "next_open" {
+		t.Errorf("DefaultFillTiming = %q, want %q —— 回退这一行要有新的差异报告作依据，并同步 SPEC 与所有依赖默认值的夹具",
+			DefaultFillTiming, "next_open")
+	}
+	// next_open 是终态口径：它不带 known_bias。把偏差名绑在默认值上，
+	// 等于让「默认」这件事偷偷决定一个结果的偏差标注。
+	if got := DefaultFillTiming.KnownBiases(); len(got) != 0 {
+		t.Errorf("默认口径 next_open 的已知偏差 = %v, want 空", got)
 	}
 }
 
@@ -95,8 +102,8 @@ func TestFillTiming_ResolveNeverSilentlyDefaults(t *testing.T) {
 
 func TestFillTiming_EffectiveFillsDefaultWithoutMutatingRequest(t *testing.T) {
 	req := BacktestRequest{Strategy: "momentum"}
-	if got := req.EffectiveFillTiming(); got != FillTimingSameClose {
-		t.Errorf("未声明时生效口径 = %q, want %q", got, FillTimingSameClose)
+	if got := req.EffectiveFillTiming(); got != FillTimingNextOpen {
+		t.Errorf("未声明时生效口径 = %q, want %q", got, FillTimingNextOpen)
 	}
 	if req.FillTiming != "" {
 		t.Errorf("EffectiveFillTiming 把默认值回填进了请求字段 (%q) —— 存量请求序列化会变", req.FillTiming)

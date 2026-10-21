@@ -280,6 +280,11 @@ func qt02Measure(t *testing.T, eng *Engine, strategy, caliber string, universe [
 		Status:      resp.Status,
 		Reasons:     resp.InvalidReasons,
 	}
+	// 口径取**回报里的那个**，不是请求里写的那个：请求留空时生效值由默认点决定，
+	// 报告要按实际成交口径归组（这也是 §8.1「请求说了不算」在同一份脚手架上的自用）。
+	if resp.FillTiming != "" {
+		row.Caliber = resp.FillTiming
+	}
 	row.AnnualReturn = resp.AnnualReturn
 	row.MaxDrawdown = resp.MaxDrawdown
 	row.Sharpe = resp.SharpeRatio
@@ -625,6 +630,40 @@ func TestQT02FillTimingDifferenceReport(t *testing.T) {
 			base.Strategy, base.Caliber, base.TotalTrades, base.TurnoverSum, base.TotalReturn)
 	}
 
+	// ⑤ 的后半句「切换后基准结果与报告数值一致」：默认值翻到 next_open 之后，
+	// **不写口径**的 run 必须与报告里 next_open 那一列逐位相同。这一条同时拦住两种
+	// 静默漂移：默认值改了但取价分支没跟上，以及分支对了但默认点回落到别处。
+	// 对照组用 momentum（同日同标的重复信号 0 天）：有重复信号的策略同参复跑本身会漂
+	// （见下面「同参重跑的稳定性」），拿它们做逐位断言量到的是 map 顺序，不是默认值。
+	{
+		want := rows[1]
+		if want.Strategy != rows[0].Strategy || want.Caliber != string(contracts.FillTimingNextOpen) {
+			t.Fatalf("行序假设不成立（每个策略的第 2 行应是 next_open）：%s/%s", want.Strategy, want.Caliber)
+		}
+		byDefault := qt02Measure(t, qt02EngineFor(t, store), want.Strategy, "", universe, bars)
+		if byDefault.Caliber != want.Caliber {
+			t.Errorf("请求不写 fill_timing 时生效口径 = %q, want %q（DefaultFillTiming 没翻过去）",
+				byDefault.Caliber, want.Caliber)
+		}
+		cells := []struct {
+			name             string
+			fromDefault, set any
+		}{
+			{"total_trades", byDefault.TotalTrades, want.TotalTrades},
+			{"turnover_sum", byDefault.TurnoverSum, want.TurnoverSum},
+			{"total_return", byDefault.TotalReturn, want.TotalReturn},
+			{"max_drawdown", byDefault.MaxDrawdown, want.MaxDrawdown},
+			{"signals", byDefault.Signals, want.Signals},
+		}
+		for _, c := range cells {
+			if c.fromDefault != c.set {
+				t.Errorf("默认口径与显式 next_open 不逐位一致：%s 默认=%v 显式=%v", c.name, c.fromDefault, c.set)
+			}
+		}
+		t.Logf("默认口径 = next_open 的逐位一致已验证：%s trades=%d total_return=%.6f",
+			byDefault.Strategy, byDefault.TotalTrades, byDefault.TotalReturn)
+	}
+
 	// 同参重跑的**稳定性覆盖面**：对每一个「同日同标的重复信号 > 0」的策略各复跑一次。
 	//
 	// 这不是额外要求，是 ⑤ 那条「同环境重跑 ±0」的真实边界：重复信号走进 map[symbol]
@@ -886,6 +925,12 @@ func qt02Markdown(rows []qt02Row, universe []string, bars qt02Bars, stabs []qt02
 	}
 
 	b.WriteString("\n## 切换影响（如实登记）\n\n")
+	fmt.Fprintf(&b, "- **默认值已按 ④ 的纪律翻到 `%s`**（报告归档之后才动，顺序反过来就等于让全部历史基准"+
+		"在一次提交里同时失去解释）。翻转的机械判据是上面那条**默认口径 = next_open 的逐位一致**：不写口径的 "+
+		"run 必须与本报告 next_open 那一行逐位相同，这条由本生成器当场断言（`TestQT02FillTimingDifferenceReport`），"+
+		"不是文档里的一句话。可见后果：`kernel=nautilus` 且不写口径现在报 400（本侧只实现收盘成交），"+
+		"报文点名两种修法 —— 显式 `fill_timing=same_close` 或换 go 内核；`cmd/dualrun` 不受影响（Go 腿显式钉收盘口径）。\n",
+		string(contracts.DefaultFillTiming))
 	b.WriteString("- **区间最后一天的决策没有成交日**：next_open 下这部分信号不成交（表「测量」最后一列），" +
 		"引擎把它计进 run 级诊断 `next_open_unfilled_at_run_end`，不退回收盘价补上。\n")
 	b.WriteString("- **T+1 停牌或开盘价不可用 = 拒单，不顺延回收盘**：计入 `next_open_no_fill_price`。" +

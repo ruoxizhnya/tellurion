@@ -3936,9 +3936,10 @@ components:
           type: string
           enum: [next_open, same_close]
           description: >-
-            Fill caliber (QT-02). Omitted = DefaultFillTiming (currently
-            "same_close"; the switch to next_open is gated on the archived
-            two-caliber difference report). Declaring a value this kernel does
+            Fill caliber (QT-02). Omitted = DefaultFillTiming, which is
+            "next_open" since 2026-10-21 (switched after the two-caliber
+            difference report was archived — see docs/test-cases/
+            QT02_FILL_TIMING_REPORT.md). Declaring a value this kernel does
             not implement is rejected with 400, never silently defaulted —
             the caliber decides whether two results are comparable at all.
 

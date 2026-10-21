@@ -36,6 +36,9 @@ func runExecAlgoAttachProbe(t *testing.T, eng *Engine, stratName string, spy *re
 		EndDate:        "2026-03-21",
 		InitialCapital: 1_000_000,
 		RiskFreeRate:   0.03,
+		// 钉 same_close：这里测的是「挂错算法名不中断整场」，与成交口径无关
+		// （QT-02 后默认 next_open，父单提交日会整体后移一天）。
+		FillTiming: string(FillTimingSameClose),
 	})
 	require.NoError(t, err, "挂载失败不中断整场（单信号失败不中断既有约定）")
 	return resp, spy.orders()

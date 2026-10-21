@@ -110,7 +110,9 @@ func TestBacktestPost_MarketUSRoutesToNautilusSidecar(t *testing.T) {
 
 	w := postBacktestKernel(t, r,
 		`{"strategy":"native_sma_cross","stock_pool":["AAPL","MSFT"],`+
-			`"start_date":"2024-01-02","end_date":"2024-03-01","market":"US"}`)
+			`"start_date":"2024-01-02","end_date":"2024-03-01","market":"US","fill_timing":"same_close"}`)
+	// fill_timing 显式钉 same_close：market=US 路由到 nautilus，而该内核只实现收盘成交；
+	// 请求留空在 QT-02 默认值翻转后等于要 next_open ⇒ 比对会先拒，路由这条腿就测不到了。
 
 	require.Equal(t, http.StatusOK, w.Code, "market=US 必须走通, body=%s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "nt-us-run-d7", "响应必须是侧车产物")
@@ -211,9 +213,11 @@ func TestBacktestPost_ShellSchemaIsSharedAcrossKernels(t *testing.T) {
 		map[string]string{"CN": contracts.DefaultKernel, "US": nautilus.KernelName})
 
 	// 国外线（nautilus）：回执必须带上侧车的数据面。
+	// fill_timing 显式钉 same_close —— 本内核只实现收盘成交，请求留空在
+	// QT-02 默认值翻转后等于要 next_open，比对会先拒（400），外壳一致性就测不到了。
 	foreign := postBacktestKernel(t, r,
 		`{"strategy":"native_sma_cross","stock_pool":["AAPL","MSFT"],`+
-			`"start_date":"2024-01-02","end_date":"2024-03-01","market":"US"}`)
+			`"start_date":"2024-01-02","end_date":"2024-03-01","market":"US","fill_timing":"same_close"}`)
 	require.Equal(t, http.StatusOK, foreign.Code, "body=%s", foreign.Body.String())
 
 	var ntResp contracts.BacktestResponse

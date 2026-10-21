@@ -123,6 +123,10 @@ func runK18(t *testing.T, eng *Engine, symbol, stratName string, spy *recordingE
 		EndDate:        "2026-03-21",
 		InitialCapital: 1_000_000,
 		RiskFreeRate:   0.03,
+		// 钉 same_close：本探针断言「止损日当天就有平仓成交」，父单的提交日
+		// 一旦按 next_open 后移，触发日与拆单窗口的相对位置就变了 —— 那测的就
+		// 不是撤销路径，而是成交口径（QT-02 之后默认已翻到 next_open）。
+		FillTiming: string(FillTimingSameClose),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "completed", resp.Status, "回测应正常完成: %s", resp.Error)

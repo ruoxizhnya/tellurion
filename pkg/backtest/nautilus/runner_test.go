@@ -93,6 +93,11 @@ func sampleRequest() contracts.BacktestRequest {
 		EndDate:        "2024-06-28",
 		InitialCapital: 1_000_000,
 		Kernel:         KernelName,
+		// 显式钉 same_close：本文件所有桩侧车都自述 same_close（NT 腿只实现收盘成交），
+		// 而 QT-02 之后请求留空 = 生效口径 next_open ⇒ 成交前比对会先把 run 拒掉，
+		// 那些用例要测的映射/错误分类根本到不了场。
+		// 「留空时线上带的是生效值」这条由 TestRunner_AlwaysSendsTheEffectiveCaliber 单独钉。
+		FillTiming: string(contracts.FillTimingSameClose),
 	}
 }
 
@@ -650,6 +655,13 @@ func TestRunner_FillTimingMismatchRefusesToMapResult(t *testing.T) {
 			assert.ErrorIs(t, err, tc.wantErr, "错误必须可检索，否则 K15 排障只能靠读报文猜")
 			assert.Nil(t, resp, "被拒的 run 不得产出一份看起来可用的结果")
 			assert.Contains(t, err.Error(), KernelName, "报文必须点名是哪一侧的内核")
+			// 口径不符是**调用方自己能修**的输入问题，不是服务端故障：默认值翻到
+			// next_open 之后，每个不写口径的 nautilus 请求都走这条路，报 500 会让
+			// 它被当成侧车挂了去排障。HTTP 侧因此是 400 而不是 500。
+			assert.Equal(t, apperrors.ErrCodeInvalidInput, appErrorCode(t, err),
+				"口径不符必须报 INVALID_INPUT，报文要点名可执行的修法")
+			assert.Contains(t, err.Error(), string(contracts.FillTimingSameClose),
+				"报文要给出修法（显式声明本内核支持的口径）")
 		})
 	}
 }
@@ -668,10 +680,12 @@ func TestRunner_ResponseCarriesServedCaliber(t *testing.T) {
 }
 
 func TestRunner_AlwaysSendsTheEffectiveCaliber(t *testing.T) {
-	// 请求没声明 ⇒ 线上仍必须带**生效值**（同收盘）。侧车把缺 fill_timing 当拒收，
+	// 请求没声明 ⇒ 线上必须带**生效值**，而 QT-02 之后那个生效值是默认口径 next_open。
 	// 两侧各自猜一个默认值就是两种成交口径，双跑从入口起已经不可比。
+	// 断言写字符串字面量：拿 contracts.DefaultFillTiming 去比，改了默认值时两边一起平移，
+	// 这条就变成假护栏（QT-01 收过口的同一类错）。
 	srv, cap := newStubSidecar(t, http.StatusOK,
-		`{"id":"nt-1","status":"completed","total_return":0,"fill_timing":"same_close"}`)
+		`{"id":"nt-1","status":"completed","total_return":0,"fill_timing":"next_open"}`)
 	runner := NewRunner(srv.URL, nil)
 
 	req := sampleRequest()
@@ -680,14 +694,16 @@ func TestRunner_AlwaysSendsTheEffectiveCaliber(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, _, body := cap.snapshot()
-	assert.Equal(t, "same_close", body["fill_timing"], "生效口径没上线：侧车会按「没声明」拒收，或自己猜一个")
+	assert.Equal(t, "next_open", body["fill_timing"], "生效口径没上线：侧车会按「没声明」拒收，或自己猜一个")
 
-	// 显式声明 next_open 时必须失败，而不是「照样跑完并说自己是 next_open」。
-	// 这里有两条腿：侧车自己在 from_json 里拒收（见
-	// nt-sidecar/tests/test_qt02_fill_timing.py），以及本测试用的 stub 只按收盘
-	// 成交时 Go 侧的回报比对 —— 后者防的是「侧车改了什么而没人发现」那一类。
-	req.FillTiming = "next_open"
-	_, err = runner.RunBacktest(context.Background(), req)
+	// 默认口径撞上只按收盘成交的侧车时必须失败，而不是「照样跑完并说自己是 next_open」。
+	// 这条就是 2026-10-21 翻转默认值给 nautilus 内核带来的**如实后果**：请求不写口径
+	// 现在等于要 next_open，而 NT 腿没实现它 ⇒ 当场拒，不静默降级成收盘成交
+	// （那正是 §8.1 要治的「请求说了不算」）。要 NT 结果就显式写 fill_timing=same_close。
+	// 真侧车那一侧的拒收在 nt-sidecar/tests/test_qt02_fill_timing.py。
+	srvClose, _ := newStubSidecar(t, http.StatusOK,
+		`{"id":"nt-1","status":"completed","total_return":0,"fill_timing":"same_close"}`)
+	_, err = NewRunner(srvClose.URL, nil).RunBacktest(context.Background(), req)
 	require.Error(t, err, "next_open 到了只按收盘成交的侧车必须失败，不能静默按收盘跑完")
 	assert.ErrorIs(t, err, contracts.ErrFillTimingMismatch)
 }

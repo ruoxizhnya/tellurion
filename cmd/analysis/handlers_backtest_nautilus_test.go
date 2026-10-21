@@ -100,7 +100,10 @@ func stubSidecar(t *testing.T) *httptest.Server {
 	return srv
 }
 
-const nautilusPostBody = `{"strategy":"buy_and_hold","stock_pool":["600000.SH","000001.SZ"],"start_date":"2024-01-02","end_date":"2024-06-28","kernel":"nautilus"}`
+// nautilusPostBody 显式写 fill_timing=same_close：QT-02 之后请求留空 = 生效口径
+// next_open，而本内核只实现收盘成交 ⇒ 成交前比对会先拒（400），本文件要测的
+// 路由/落库/响应装配就都到不了场。口径本身由 pkg/backtest/nautilus/runner_test.go 钉。
+const nautilusPostBody = `{"strategy":"buy_and_hold","stock_pool":["600000.SH","000001.SZ"],"start_date":"2024-01-02","end_date":"2024-06-28","kernel":"nautilus","fill_timing":"same_close"}`
 
 // 腿 1（正证据 · 同步）：kernel=nautilus → 走侧车，200 带侧车产物且落库。
 func TestBacktestPost_NautilusKernelRunsAndPersists(t *testing.T) {
@@ -167,7 +170,7 @@ func TestBacktestPost_NautilusRejectsUnknownEngineParams(t *testing.T) {
 	r, _, goKernel := newNautilusRouter(t, srv.URL)
 
 	w := postBacktestKernel(t, r,
-		`{"strategy":"buy_and_hold","stock_pool":["600000.SH"],"start_date":"2024-01-02","end_date":"2024-06-28","kernel":"nautilus","engine_params":{"slippage":1}}`)
+		`{"strategy":"buy_and_hold","stock_pool":["600000.SH"],"start_date":"2024-01-02","end_date":"2024-06-28","kernel":"nautilus","fill_timing":"same_close","engine_params":{"slippage":1}}`)
 
 	require.Equal(t, http.StatusBadRequest, w.Code, "未知名 engine_params 必须 400, body=%s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "slippage")
