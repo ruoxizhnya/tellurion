@@ -41,7 +41,7 @@
 | R3 | **有行为入口** | 仓根有 `AGENTS.md`：构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针 |
 | R4 | **有任务台账** | 本仓 `docs/TASKS.md` 只放本仓可完成的单；跨仓事项只留指针 |
 | R5 | **契约是版本依赖** | 依赖 `tellurion-contracts vX.Y.Z`；升级 = 改 require + 跑测试，**不需要读契约仓源码** |
-| R6 | **功能边界有契约**（2026-10-20 新增） | 仓内存在 `docs/db-schema.md` / `docs/api-schema.md` / `docs/dataflow.md` 三份且非空；`db-schema.md` 必须明确"本仓拥有哪些表 / 为什么不拥有表"；三份互相引用且被 `docs/README.md` 索引 |
+| R6 | **功能边界有契约**（2026-10-20 新增） | 仓内存在 `docs/db-schema.md` / `docs/api-schema.md` / `docs/dataflow.md` 三份且非空；`db-schema.md` 必须明确"本仓拥有哪些表 / 为什么不拥有表"；三份互相引用且被 `docs/README.md` 索引。**豁免（2026-10-21 裁决：豁免+声明）**：`tellurion`（core）与 `tellurion-docs` 不补三件薄规格与 `docs/adr/0001-*` 边界裁决单，API / DB / 流程真相直接由 `docs/openapi.yaml` / `pkg/storage/postgres.go` / `docs/SPEC.md` 承载，声明见 `tellurion-docs:docs/REPO-MAP.md` |
 
 > R1 对 `tellurion`（core）本仓天然成立；对 `agent` **目前不成立**（实测见 §6），这是它至今"移出去了但没真在上面工作"的直接原因。
 

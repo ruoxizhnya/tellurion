@@ -37,13 +37,16 @@
 | **风控服务** | `risk` | risk_rules / risk_limits / risk_events / 熔断开关 / compliance 报送 / alerts | ✅ |
 | **分析服务** | `analysis` | 报表 / 基准 / 归因结果 / 敏感性扫描 | ✅ |
 | **实验（agent）** | `ai` | experiments / research_* / factor_genes / strategy_genes | ✅（ADR-D10） |
-| **编排服务** | `run` | backtest_jobs / backtest_results / strategy_state（断点） | ✅ |
-| **内核** | **无业务表** | 只读写通过 port | — |
+| **编排服务** | `run` | backtest_jobs（~~strategy_state（断点）~~ ⚠️ 2026-10-21 H5 裁决不归 `run`，见下） | ✅ |
+| **内核** | `run`（结果面） | 回测结果表 `backtest_results`（`BacktestResult` / `Trade` 等） | ✅ **owner = core（2026-10-21 裁决，单一写者；orchestration 只经 API 读结果）**；其余数据只读写通过 port |
+| **内核（回测域）** | 无 schema 前缀（`public`） | `backtest_adjustment_anchors`（回测复权锚点） | ✅ **owner = core 回测域（2026-10-21 裁决）**；写者 `tellurion:pkg/backtest/adjustment_snapshot.go` |
+
+> ⚠️ **2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：`strategy_state` 归 **strategy-runtime 模块**（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`——本文「`strategy_state` 归编排服务 / 迁 `run`」的旧口径**作废**（含上表编排行、下方第 3 条与风险表对应行）；`backtest_jobs` 迁 `run` 不受影响。
 
 三条纪律（参考库 §七）：
 1. **每张表只归一个服务写**，其他服务只读（走接口/视图，不直接摸表）；
 2. 跨服务**禁止共写同一张表**——出现第二写者 = 边界已腐化；
-3. 现状要修正的一点：`strategy_state`（断点续跑）与 `backtest_jobs` 目前在内核侧，**应归编排服务**（X5），内核通过 port 读写——这样"内核无持久化状态"才成立。
+3. 现状要修正的一点：~~`strategy_state`（断点续跑）与~~ `backtest_jobs` 目前在内核侧，**应归编排服务**（X5），内核通过 port 读写——这样"内核无持久化状态"才成立。**（⚠️ 2026-10-21 订正（H5 裁决）：`strategy_state` 不迁——归 strategy-runtime 模块，core 写 `quant.strategy_state`，"内核无持久化状态"对它是既定例外。）**
 
 > 本地栈一个 PG 实例是**对的**（避免分布式事务、运维简单）。将来真要拆库，是"按 schema 搬走"，不是重写。
 
@@ -155,4 +158,4 @@
 | 各 connector 语义归一口径漂移 | 归一化收口到共享 Normalizer；`ConnectorDeclaration` fail-closed |
 | `visible_at` 被漏填导致数据泄漏 | 协议必填 + `ErrVisibleAtMissing` 拒收 + aggregator 强制过滤 |
 | 同一 schema 出现第二写者 | 护栏：扫描跨服务 schema 写语句，命中即红 |
-| `strategy_state` / `backtest_jobs` 留在内核导致"内核有状态" | 迁到编排服务（X5），内核走 port |
+| ~~`strategy_state` /~~ `backtest_jobs` 留在内核导致"内核有状态" | ~~迁到编排服务（X5），内核走 port~~ ⚠️ 2026-10-21 H5 裁决：`strategy_state` 不迁（归 strategy-runtime 模块，core 写 `quant.strategy_state`）；`backtest_jobs` 迁 `run` 不变 |

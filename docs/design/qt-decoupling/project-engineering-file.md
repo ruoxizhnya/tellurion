@@ -14,7 +14,7 @@
 | 语言 | Go 1.25（go.mod 声明 go 1.25.0） | 已核实（仓库 go.mod） |
 | HTTP | gin v1.10.0 | 已核实（agent go.mod） |
 | 配置 | viper v1.18.2 | 已核实 |
-| DB / 缓存 | PostgreSQL（52 表，6 schema）/ Redis | 已核实（storage migrate 注释、config） |
+| DB / 缓存 | PostgreSQL（6 schema / 53 常驻表，含 2 张仓外自建表）/ Redis | 已核实（2026-10-21 实测 grep：postgres.go 52 条 CREATE TABLE 含 1 备份表 → 51 常驻，+ 仓外自建 `audit.message_log` / `quant.strategy_state`；`signal_store.go` 另重复建 `quant.external_signals`） |
 | 侧车 | Python nt-sidecar + NautilusTrader（HTTP /v1/backtest） | 已核实 |
 | 前端 | Vue 3 + Vite + Naive UI（独立仓，纯 HTTP） | 已核实 |
 | 跨仓绑定 | **现状**：agent `require core v0.0.0` + `replace => ../tellurion`（CI 用 `go mod edit -replace` 改写）；**目标**：`require contracts/kit` 的 tag，禁 replace（ADR-D29） | 已核实（2026-10-20 复核） |
@@ -85,7 +85,7 @@
 │  StrategyRuntime: 内置插件 │ .so 热加载 │ WASM(L3a, 前视隔离)              │
 │  RiskPolicy: 前置裁决（止损/止盈/regime/VaR/手数）— 可替换规则实现          │
 │  MarketData(D1 规范层) · Factor(D3 定义/D4 登记) · Mining(D8 沙箱→治理→登记)│
-│  Storage: PostgresStore(52 表, 唯一 DDL 真相) · RedisCache                 │
+│  Storage: PostgresStore(53 表, 主 DDL 真相) · RedisCache                   │
 └──────────────────────────────┬───────────────────────────────────────────┘
                                ▼
               PostgreSQL :5432（6 schema）      Redis :6379
@@ -94,7 +94,7 @@
 分层纪律（对照参考库 §7）：
 - 按**业务能力**划分模块，不按技术分层；
 - 依赖**单向**：应用层 → 契约层 → 能力层，**禁止反向**；
-- **数据归属唯一**：所有写路径经 `storage.PostgresStore`（唯一 DDL 真相），能力层不各自建表；
+- **数据归属唯一**：所有写路径经 `storage.PostgresStore`（主 DDL 真相；存量 3 处模块内自建表除外），能力层不各自建表；
 - 跨模块调用**只走 port**，禁止摸别的模块内部结构体/表。
 - **仓边界（ADR-D29）**：`kit` → `contracts`（含 `domain`）→ `core`；`agent → kit + contracts`（编译期）+ HTTP（运行期）。跨仓只认 tag，`replace`/`go.work` 不入库。
 
@@ -232,6 +232,10 @@ X0 三 hash 记入结果 → X1 数据服务（数据归属最重，其他都依
 - 理由：**这套设计代码已实现 80%**（实测 `pkg/data/source/`：12 个 connector + `ConnectorDeclaration` 必填 TimeSemantics/FrequencySpec + fail-closed 拒收 + `ETLPipeline`/`Normalizer`/`ValidatePoints`/`Deduplicate`；PG 已分 ingest/market/quant/research）。本轮是**冻结成跨服务契约**（进 contracts），不是重新设计。
 - 代价/后果：需补 `dataset_snapshot_hash`（X0）与 `ErrVisibleAtMissing` 等错误码；`strategy_state` 归属迁移。
 - 状态：**提议**，产物 `data-service-contract-and-ownership.md`，关联 ADR-D2/D7/D18
+
+> ⚠️ **2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：本条决策 1 与「代价/后果」中「`strategy_state`/`backtest_jobs` 应从内核迁到编排服务（X5）」的 `strategy_state` 部分**作废**——`strategy_state` 归 **strategy-runtime 模块**（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`，不迁、编排非写者；`backtest_jobs` 迁 `run` 不受影响。原文保留以追溯决策链。
+>
+> ⚠️ **2026-10-21 订正（M18/M21 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：本条决策 1 的「**内核无业务表**」口径**不再成立（裁决例外）**——回测结果面（`BacktestResult`/`Trade` 等）**core 单一写者**（M18 裁决，orchestration 只读），`backtest_adjustment_anchors` **划归 core 回测域**（M21 裁决，现实写者 `pkg/backtest/adjustment_snapshot.go`，表在 `pkg/storage/postgres.go:316`）。连同上条注记中留存 core 的 `strategy_state`，内核持有业务表已有明确例外清单；DDL 归属以 `pkg/storage/postgres.go` 内联 DDL 为真相。原文保留以追溯决策链。
 
 #### X1 细化分期
 X1a 协议冻结进 contracts → X1b aggregator 面（PIT/频率/票池/快照 hash）→ X1c connector 收口（12 个全走 Declaration + 共享 Normalizer）→ X1d schema 归属迁移 → X0 快照 hash 记入结果。

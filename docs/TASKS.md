@@ -621,19 +621,21 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ### DATA-04 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）⬜ 待做
 
+> ⚠️ **编号提醒（2026-10-21）**：`docs/archive/TASKS-2026-10-16-archived.md:553` 另有旧 DATA-04（成交量单位统一，✅ 2026-10-14），同号不同单；消歧换号见 SPEC-R-03。
+
 - **① 目标**：集合型端点在**结果为空**时返回 `[]`（或 SPEC 明写可为 `null` 并让所有消费方按可空处理），二选一，不能一边声明数组一边给 `null`。
 - **② 上下文**（2026-10-14 curl 当场实测，不是读码推测）：
   - `GET :8085/api/sync/jobs?status=pending` → `{"count":0,"jobs":null}`。
   - 根因形状：Go 侧 `Jobs []*SyncJob` 为 nil 时 `encoding/json` 编出 `null`，`[]` 需要显式初始化；`docs/openapi.yaml` 与前端类型 `web/src/types/sync.ts:60`（`jobs: SyncJob[]`）都按**必有数组**写。
   - 前端已止血（本轮 A-08：`stores/sync.ts` 的 `resp.jobs ?? []`，并有单测钉住真形状），但**止血不等于契约对了**：下一个客户端（agent 的 MCP 工具、curl 脚本、别的 SPA 页面）照类型写就会踩。本轮实测里同一个形状在 `schedules` 那条上也有对应处理（`resp.schedules ?? []`），说明这不是孤例而是**一族**。
-  - **第三个实测实例（2026-10-16，core DATA-11 自审时顺带查出，已登记为 core `DATA-13`）**：`GET :8085/api/ohlcv/600000.SH?start_date=2024-01-01&end_date=2024-12-31` ⇒ **200 `{"ohlcv":null}`**，同参换 `20240101/20241231` ⇒ 200 带真行。成因不是「集合端点忘了初始化」而是**日期格式被吞**：`pkg/data/cache.go:60` 的 `parseDate` 写着 `t, _ := time.Parse("20060102", s)`，注释自承「Returns zero time on error」⇒ ISO 写法塌成零值日期、查询范围 `[0001-01-01, 0001-01-01]`、结果 nil slice 编成 `null`。分工提醒，别各自收一半：**本单管形状**（空集合该是 `[]` 还是明写可空），**core DATA-13 管成因**（坏格式该 400 而不是装成没数据）；同一台服务上 `cmd/data/handlers_factor.go:223-229` 对同样的 `YYYYMMDD` 声明是**回 400** 的，可见两种做法已经并存。
+  - **第三个实测实例（2026-10-16，core DATA-11 自审时顺带查出，已登记为 core `DATA-13`，✅ 2026-10-16，`docs/archive/TASKS-2026-10-16-archived.md:788`）**：`GET :8085/api/ohlcv/600000.SH?start_date=2024-01-01&end_date=2024-12-31` ⇒ **200 `{"ohlcv":null}`**，同参换 `20240101/20241231` ⇒ 200 带真行。成因不是「集合端点忘了初始化」而是**日期格式被吞**：`pkg/data/cache.go:60` 的 `parseDate` 写着 `t, _ := time.Parse("20060102", s)`，注释自承「Returns zero time on error」⇒ ISO 写法塌成零值日期、查询范围 `[0001-01-01, 0001-01-01]`、结果 nil slice 编成 `null`。分工提醒，别各自收一半：**本单管形状**（空集合该是 `[]` 还是明写可空），**core DATA-13 管成因**（坏格式该 400 而不是装成没数据）；同一台服务上 `cmd/data/handlers_factor.go:223-229` 对同样的 `YYYYMMDD` 声明是**回 400** 的，可见两种做法已经并存。
 - **③ 要求**：把该族端点（至少 `GET /api/sync/jobs`、`GET /api/sync/schedules`）在空结果时序列化成 `[]`；或反过来在 SPEC/openapi 里把字段标成可空并同步所有已知消费方。**形状与取舍由 core 定**，前端不指挥。
 - **④ 约束与非目标**：不改前端已就位的 fail-closed（那是防御，不是本单的解）；不动 `ResultSpec`；不在本单里顺手改别的端点 —— 先盘点还有哪些集合端点会吐 `null`，把清单写进结案记录。
 - **⑤ 验收**：
   - `curl` 拿一条**保证为空**的查询（例如 `?status=retrying`，实测库里 0 条）→ body 里该字段是 `[]`（或 SPEC 明写可空且消费方同步完）。
   - 加一条 Go 侧断言：空结果路径序列化后含 `":[]"` 而不是 `":null"`（照 `pkg/storage/bulk_insert_ddl_test.go` 那种静态读源码/编解码的零 DB 依赖做法）。
   - **破坏验证**：把 `?? []` 那类前端防御临时摘掉 ⇒ 队列面板那条 e2e（`a08-job-console.spec.ts` 的「空队列的真实回包走空态」）必须红，还原转绿 —— 证明那条 e2e 真在钉形状，不是常驻绿。
-- **⑥ 边界**：只处理"空集合的编码形状"这一件事；`latest_date` 静默缺席与 PIT 通道是 DATA-03，票池拆分是 DATA-02。
+- **⑥ 边界**：只处理"空集合的编码形状"这一件事；`latest_date` 静默缺席与 PIT 通道是 DATA-03、票池拆分是 DATA-02（两单均已归档 `docs/archive/TASKS-2026-10-16-archived.md`）。
 
 ---
 
@@ -645,6 +647,39 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**仓已存在（2026-10-20 建，占位）**；**代码在 S1 直接落进这两仓**（ADR-D31，不用 replace），打 tag 见 QT-07；**随仓接口规格载体**（contracts `docs/API.md` / kit `docs/SCOPE.md`，M6）与**版本策略/兼容矩阵 + GOPRIVATE 前提**（L4/L5）见 QT-07 ③-S2-c / QT-19，正文立单在两仓自己的 `docs/TASKS.md`。
 > - **`tellurion-agent` 仓**：**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏。
 > - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。**ADR-D 升格单** ⬜（M9：D24/D25/D29/D30 已裁决且直接驱动施工（QT-05/07/60），须按 `tellurion-docs:docs/adr/` 流程升格为正式 ADR；升格完成前设计集 README 的升格路径注记保留——正文立单在该仓 `docs/TASKS.md`）。
+
+---
+
+## 九、spec 审查遗留（2026-10-21）
+
+> 来源：系统规格专项审查（`docs/design/system-spec-review-2026-10-21.md`）修复阶段立单——审查发现本身已全部修复或裁决落地，以下 3 条是修复中判定「需另行处置」的遗留。M10（10 份 api-schema 补「空集合编码语义」节）不单独立单，挂在现役 **DATA-04** 定形后统一补节。
+
+### SPEC-R-01 · 3 处模块内自建表是否收编进 `migrate()`（DDL 真相口径收口）[P2] ⬜
+
+- **① 目标**：裁定并落地 DDL 落点口径——把 `pkg/eventstore/schema.go`、`pkg/strategy/state_store.go`、`pkg/strategy/signal_store.go` 三处模块内自建表收编进 `pkg/storage/postgres.go` 的 `migrate()`，或成文认可「主路径 + 登记例外」为正式口径。
+- **② 上下文**（spec 审查 M3）：`pkg/eventstore/schema.go:40`（audit schema + `audit.message_log`）、`pkg/strategy/state_store.go:54`（`quant.strategy_state`）、`pkg/strategy/signal_store.go:35`（重复建 `quant.external_signals`）均在 postgres.go 之外建表，「唯一 DDL 真相」声明不实；AGENTS.md 已按「DDL 主路径 + 例外登记」措辞修订（2026-10-21），但收编与否未裁。`signal_store.go` 的重复建表另有幂等隐患。
+- **③ 要求**：① 裁定「收编」或「例外登记」；② 若收编，把三条建表语句并入 `migrate()`（`external_signals` 去重为一处）；③ 若例外登记，在 `docs/SPEC.md` 与 AGENTS.md 维持例外清单并保证三处建表幂等。**schema 变更评审项**：内联 DDL 落点合并（表结构字段零变更）；**需同步更新的 SPEC 节号**：`docs/SPEC.md` 存储/DDL 真相声明段（执行时按实定位回填）。执行顺序：合规测试红 → 更新 SPEC 文本 → 正式变更评审记录 → 合入。
+- **④ 约束与非目标**：不改任何表结构字段；不改 BootOrder 与模块契约签名；去重 `external_signals` 不得改变其行为；`strategy_state` 归属已裁（strategy-runtime，H5 裁决）不重开。
+- **⑤ 验收**：裁决成文（ODR 或本单结案记录）；若收编，`migrate()` 幂等测试覆盖三表，且 grep 证实 postgres.go 之外无生产态 `CREATE TABLE` 残留（测试文件除外）。
+- **⑥ 边界**：只做 DDL 落点归一；表归属认领是 SPEC-R-02。
+
+### SPEC-R-02 · 五张无主表的 owner 认领（L7 收尾）[P2] ⬜
+
+- **① 目标**：`factor_hypothesis`、`factor_returns`、`ic_analysis`、`quant.external_signals`、`users` 五张表在各仓归属表中无认领行——逐张定唯一 owner 并补进归属表。
+- **② 上下文**（spec 审查 L7，2026-10-21 实测）：全库 6 schema/53 常驻表中上述五表无主（`factor_mining_records` 已由 `tellurion-data:docs/db-schema.md` 补认领，L5 已修）；同源的「52 表/6 schema」口径不实已订正为 53 常驻表。
+- **③ 要求**：按实际写者与 ADR-D19 归属原则逐表定 owner（候选：`factor_*`/`ic_analysis` 归数据因子域、`users` 属 ADR-017 鉴权域、`quant.external_signals` 随 signal_store 归属一并定，均须核实写者后拍板），补录 `tellurion:docs/design/qt-decoupling/project-engineering-file.md` 归属段与对应仓 `docs/db-schema.md`，并在对应仓 `docs/TASKS.md` 留双向指针指回本单。
+- **④ 约束与非目标**：只做认领登记，不迁表、不改 schema；不重开 H5/M18/M21 已裁归属；DDL 收编归 SPEC-R-01。
+- **⑤ 验收**：五表各有唯一 owner 行且与实际写者一致（DDL 以 `pkg/storage/postgres.go` 为准）；各仓归属表 grep 无「无主」残留；双向指针齐。
+- **⑥ 边界**：只做归属认领；因子名注册表等协议面不涉及。
+
+### SPEC-R-03 · 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 [P3] ⬜
+
+- **① 目标**：消除「DATA-04」一号两指：现役 DATA-04（空集合 `null` vs `[]`，2026-10-21 自 `tellurion-ui` 迁入）与 `docs/archive/TASKS-2026-10-16-archived.md:553` 旧 DATA-04（成交量单位统一，✅ 2026-10-14）撞号。
+- **② 上下文**（spec 审查 M1 修复时发现，已核实 archive:553）：引用只写「DATA-04」时无法区分两单；M10 联动注记与 `tellurion-ui:docs/TASKS.md` 迁移指针均指向现役单，需要唯一可引用的号。
+- **③ 要求**：现役单换新号（顺延 **DATA-14**，归档最大号为 DATA-13），同步更新全部引用（本文件、`tellurion-ui:docs/TASKS.md` 迁移指针、spec 审查报告 M10/§8 行文）；归档旧单一字不改。
+- **④ 约束与非目标**：`docs/archive/` 不动（历史不改写铁律）；只改号与引用，不改单的正文内容；空集合契约语义本身归现役单正文。
+- **⑤ 验收**：现役活文档 grep「DATA-04」仅指向归档旧单（带 archive 路径），现役单以新号唯一可引用；迁移指针双向可追溯。
+- **⑥ 边界**：只做编号消歧；不动其他单号。
 
 ---
 

@@ -67,7 +67,7 @@ type BrokerGateway interface {
 
 | 数据 | 归属 | 说明 |
 |---|---|---|
-| 订单/成交/持仓快照 | **实盘运行域**（`run` 或独立 `exec` schema，**待定**——倾向 `run`，与任务/状态同属运行态） | 网关不持有业务表，只透传柜台状态 |
+| 订单/成交/持仓快照 | **现状 core `quant`**（`quant.orders` / `fills` / `positions` / `portfolio_snapshot`）；**最终归属待裁（U2）**——`run` 已排除（任务域不含订单），将来拆 `exec` schema 须先立 ADR，见 `repo-inventory.md` §3.1 | 网关不持有业务表，只透传柜台状态 |
 | 通道配置（账户、连接参数） | 网关自有配置（加密存储，**不进库明文**——安全红线） | 密钥走环境/密钥管理 |
 | 对账留痕 | X3 风控服务（`risk` schema） | 网关只供 `QueryFills` 数据 |
 

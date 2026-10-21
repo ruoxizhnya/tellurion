@@ -123,12 +123,12 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 > 单仓文档里写"待裁"的条目，读的人无法判断该找谁拍。所以凡是"归属没定"的，一律登记在这里，并在单仓文档里只留一行指针。
 > 这张表在 2026-10-20 审查时建立——之前 `cmd/dualrun` 的归属只写在 `tellurion-orchestration` 的 AGENTS 里，等于没人知道去哪看。
 >
-> **当前 4 条**：U1 已于 2026-10-20 裁决（`cmd/dualrun` 留 core，见 §3）。**编号不回收**——U1 留空号，避免各仓文档里的 `U3` 指针失效。
+> **当前 4 条**：U1 已于 2026-10-20 裁决（`cmd/dualrun` 留 core，见 §3）；U3 已于 2026-10-21 裁决作废（`strategy_state` 不迁 `run`，见下）。**编号不回收**——U1 留空号，避免各仓文档里的 `U3` 指针失效。
 
 | # | 待裁事项 | 现状 | 备选与倾向 | 影响 |
 |---|---|---|---|---|
 | U2 | 订单 / 成交 / 持仓 的最终归属 | **core 的 `quant`**（`quant.orders` / `fills` / `positions` / `portfolio_snapshot`） | 将来拆 `exec` schema 时**先立 ADR**；在此之前 broker 只透传，不做本地真相 | 2026-10-20 审查发现 broker 文档写"run 或 exec（待裁，倾向 run）"——**已纠正**：`run` 是任务域，不含订单 |
-| U3 | `strategy_state` 迁 `run` 之后，core 侧的持久化义务 | 设计已定"迁 `run`"，core 走 port | core 需要新增 `RunStateStore` port（Save/Load），实现由 orchestration 提供 | **尚未登记为工单**；不补这条，X5 一动 core 就编不过 |
+| U3 | `strategy_state` 迁 `run` 之后，core 侧的持久化义务 | **✅ 已裁（2026-10-21 H5）**：`strategy_state` 不迁 `run`——归 strategy-runtime 模块（K0 冻结契约），core 继续写 `quant.strategy_state` | ~~core 需要新增 `RunStateStore` port（Save/Load），实现由 orchestration 提供~~ **作废** | **U3 作废**：无 port 欠账，`X5a` 不再以它为前置（见 `tellurion:docs/design/system-spec-review-2026-10-21.md` H5） |
 | U4 | `eventstore` / `msgbus`（`audit` schema）是否出仓 | 留 core，无出仓计划 | 倾向**永不出仓**：事件存储是引擎与总线的底座，拆出去等于把热路径变成远程调用 | 若出仓，`audit.message_log` 的写入会被卷进网络抖动 |
 | U5 | `testenv` / `testutil`（测试脚手架） | 留 core | 倾向**留 core**（服务仓各自造，或多仓共享时再进 `kit`） | 进 `kit` 会让 `kit` 沾上测试依赖（`testing` 包） |
 

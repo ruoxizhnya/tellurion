@@ -34,7 +34,10 @@
    要让别的仓复用能力 → 把**形状**放进 `tellurion-contracts`；不要新建 core client，也不要为了"复用"把业务包导出。
 2. **不许在本仓重建已迁出的东西**：`web/`（前端）、`pkg/ai/**`（含 `validation` / `tools`）都不在这里。
    需要改它们就去对应仓。**在 core 新建 `web/` 或 `pkg/ai/` 一律视为边界错误。**
-3. **DDL 唯一路径**：`pkg/storage/postgres.go` 的 `migrationStatements()` 数组（`migrate()` 启动时按序执行）。
+3. **DDL 主路径**：建表走 `pkg/storage/postgres.go` 的 `migrationStatements()` 数组（`migrate()` 启动时按序执行）。
+   **例外（存量 3 处模块内自建表，如实登记）**：`pkg/eventstore/schema.go`（`audit.message_log`）、
+   `pkg/strategy/state_store.go`（`quant.strategy_state`）、`pkg/strategy/signal_store.go`（重复建 `quant.external_signals`），
+   各由模块 `EnsureSchema` 幂等兜底；是否收编进 `migrate()` 须走正式 schema 变更评审。
    `migrations/` 与 `docs/migrations/` 的 `.sql` **不执行**，只作历史证据。
 
 ---
@@ -210,7 +213,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
 │   ├── fees/                     # 费率模型（形状 → contracts，计算留 core）
-│   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**
+│   ├── storage/                  # PG 存储：**DDL 主真相 = migrationStatements()**（3 处模块内自建表除外）
 │   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
 │   ├── domain/                   # 领域模型（→ tellurion-contracts，S1）
 │   ├── logging/ errors/ id/ decimal/ statistics/   # 横切（→ tellurion-kit，S1）
@@ -720,7 +723,7 @@ AGENTS.md 是活文档。以下情况主动更新：
 | **PRODUCT.md（`tellurion-docs:docs/PRODUCT.md`）** | **顶层产品定义** — 一间单人自托管实验室（三角色：实验室主任 / AI 实验员 / 验证器）、三层模型（AI 编排 L3 / 能力 L2 / 数据 L1）、数据归属与不重复存储、证据服务、校准目标 | **任何任务开始前**；判断"这属于哪一层"时 |
 | VISION.md（`tellurion-docs:docs/VISION.md`） | 设计原则（Accuracy First, Hot-Swap 等）、领域模型 | 开始新功能、质疑方法时 |
 | [SPEC.md](docs/SPEC.md) | 技术规格、API 定义、数据模型、Strategy 接口 | 实现端点、编写策略时 |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 服务拓扑、DB schema（**内联 DDL 为唯一真相**，张数以 grep 源码为准，见下方口径）、缓存设计 | 理解系统布局、调试时 |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 服务拓扑、DB schema（**内联 DDL 为主真相**，另有 3 处模块内自建表见其 §3；张数以 grep 源码为准，见下方口径）、缓存设计 | 理解系统布局、调试时 |
 | [qt-decoupling 设计集](docs/design/qt-decoupling/README.md) | **解耦与模块化重构（ADR-D1~D30）** — 端口化模块化单体、**四 module 拓扑（kit / contracts(含 domain) / core / agent）**、策略资产服务/运行时两分、X 线服务拆分预案、**P0 基线（第一轮 20 项 + 第二轮 N1~N9）**、**分仓拓扑（D29，仓=模块/服务、S0~S3 阶梯）**、**仓清单与命名（D30：项目定名 tellurion、owner 不变、应用短名/库全名、12 仓表）**；配套 [全系统构件图](docs/design/qt-component-diagram/) | 做跨模块解耦 / 契约 / 服务边界 / 回测正确性 / **建仓改名**任务前；**开工先读 `repo-inventory.md` 的仓名表 + `p0-round2-review.md` §4 的 wave 顺序 + `repo-topology-and-naming.md` 的 S0~S3 阶梯**；引用任何 ADR-D 编号前先查其 README 索引 |
 | **ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`）** | **架构决策：AI 实验员 + 人类监督者实验室** — 三层模型、EquityDeep 降为数据底座、验证器链（5 确定性 + 1 因果）、拒绝多 agent 投票、**校准优于准确率** | 判断某个组件该放哪一层时 |
 | **ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`）** | **执行载体：表达式而非代码** — 意图类型 → 确定性默认表达式；LLM 生成的 Go 代码只是 artifact；不做 `plugin.Open` | 碰策略生成 / 执行链路时 |

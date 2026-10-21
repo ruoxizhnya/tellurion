@@ -238,6 +238,8 @@
 
 **复查口径**（全量 grep 后无残留）：`degraded` 仅剩修复文本自身的否定措辞；`quant-trading-contracts` 旧仓名 0 命中；`tellurion → tellurion` 自指错误已修；QT-41b 悬空引用已消除。
 
+> ⚠️ **2026-10-21 订正（system-spec-review L13）**：上行「`degraded` 仅剩修复文本自身的否定措辞」与实况不符——`p0-round2-review.md` 的历史原文仍留 `ok`/`degraded` 字样（:177 设计裁决、:181 验收，均带 2026-10-20 订正横幅，按「历史记录不改写」惯例保留原文）。正确口径：`degraded`/`ok` 仅存于**带订正横幅的历史注记**，属合规；复查结论其余三项不受影响。
+
 **遗留项处置（2026-10-20 三条收尾，随本注记清零）**：
 
 1. **旧仓 `quant-trading` 工作树**：5 个修复草稿（`docs/TASKS.md` + `qt-decoupling/` 四篇）已全部移植到 tellurion* 各仓后 `git restore` 丢弃，恢复至最后提交态；未跟踪的本报告原件保留于 `quant-trading:docs/design/qt-decoupling/refactor-plan-review-2026-10-20.md` 作为历史出处，权威版本以 `tellurion:docs/design/qt-decoupling/refactor-plan-review-2026-10-20.md`（本文件）为准。

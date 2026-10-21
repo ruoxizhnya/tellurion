@@ -119,7 +119,7 @@
 |---|---|---|
 | 1 | kit 变"垃圾桶"，业务概念渗入 | 准入两条判据 + AST 护栏扫描 kit 内禁词（backtest/strategy/order/factor…） |
 | 2 | schema 迁移丢数据 | 双写 + 行数/校验和对拍后再切 |
-| 3 | agent 自建 store 后与 core 的 migrate 冲突（52 表 vs ai 表） | DDL 归属按 schema 隔离，各自 migrate 自己的 schema |
+| 3 | agent 自建 store 后与 core 的 migrate 冲突（53 常驻表 vs ai 表——51 migrate 常驻 + 2 仓外自建，口径同 `project-engineering-file.md`） | DDL 归属按 schema 隔离，各自 migrate 自己的 schema |
 | 4 | 一次性搬运 import 面太大 | 按包逐个搬（每搬一个跑一次 `go build ./...` + repoguard 全绿） |
 
 

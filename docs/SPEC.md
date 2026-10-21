@@ -10,6 +10,14 @@ verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026
 > **Owner:** 龙少 (Longshao) — AI Assistant
 > **Related:** [PRODUCT.md](PRODUCT.md) (top-level), [VISION.md](VISION.md) (design), [ARCHITECTURE.md](ARCHITECTURE.md) (layout), [TEST.md](TEST.md) (quality)
 >
+> **任务号指针（DATA-xx，2026-10-21 补）**：本文引用的 DATA-xx 工单（DATA-01/02/03/05/06/07/08/09/10/11/12/13）
+> 均已 ✅ 完成并按「完成即归档」入
+> [archive/TASKS-2026-10-16-archived.md](archive/TASKS-2026-10-16-archived.md)——
+> DATA-01 :311、DATA-02 :483、DATA-03 :513、DATA-05 :578、DATA-07 :696、DATA-11 :722、
+> DATA-12 :762、DATA-13 :788、DATA-08 :809、DATA-10 :842、DATA-09 :881、DATA-06 :914。
+> ⚠️ **DATA-04 是复用号**：活台账 [TASKS.md](TASKS.md) 的 DATA-04 是「空集合编码 `null`/`[]`」
+> 新单；本文「DATA-04」引述的均是已归档的「成交量单位统一」单（同文件 :553）。
+>
 > **Changelog v1.3 (Migration):**
 > - 添加标准元数据头部（Status, Owner, Related）
 > - 标注未实现服务 (Risk/Execution) 为 "Planned"
@@ -278,7 +286,7 @@ type Stock struct {
 
 ### OHLCV (Candlestick Data)
 
-> **规范层 schema（ADR-031 / D1）**：字段全集、时间语义与聚合口径见
+> **规范层 schema（数据因子蓝图 D1，tellurion-docs:docs/design/data-factor-unification.md）**：字段全集、时间语义与聚合口径见
 > [规范层 Schema（Canonical Layer）](#规范层-schemacanonical-layer) 节
 > （防漂移测试钉住字段表）。相对旧定义的变更：**频率是记录自带字段**
 > （Frequency，不靠来源表隐式区分）；每条 bar **自带可见时间点**
@@ -303,7 +311,7 @@ type OHLCV struct {
 
 ### Fundamental Data
 
-> **规范层 schema（ADR-031 / D1）**：数值字段一律 `*float64`——
+> **规范层 schema（数据因子蓝图 D1）**：数值字段一律 `*float64`——
 > **缺失（nil）与等于 0 是两件不同的事**（PE=0 会被读成"白送的股票"）。
 > 字段全集与时间语义（Date=可用日 / AnnDate=披露日即可见时间点）见
 > [规范层 Schema（Canonical Layer）](#规范层-schemacanonical-layer) 节。
@@ -2329,7 +2337,7 @@ GET  /market/index                 - Get market index data (DATA-07, 见下方�
 GET  /ohlcv/:symbol                - Get OHLCV data for symbol
      ?start_date=20240101
      &end_date=20241231
-     日期**只认 YYYYMMDD**（DATA-13：`2024-01-01` 这类写法 ⇒ 400
+     日期**只认 YYYYMMDD**（DATA-13，归档 docs/archive/TASKS-2026-10-16-archived.md：`2024-01-01` 这类写法 ⇒ 400
      `invalid start_date format, use YYYYMMDD`，不再被 parseDate 吞成
      零值日期后回 200 `{"ohlcv":null}` —— 把「格式不认」显示成「这段时间没有行情」）
 POST /api/v1/ohlcv/bulk            - Bulk OHLCV query
@@ -2695,7 +2703,7 @@ prefix only** — the no-prefix mirrors are gone (see "Removed" below).
 ```
 GET  /api/ohlcv/:symbol           - Get OHLCV data for symbol
      ?start_date=20240101&end_date=20241231
-                                     日期只认 YYYYMMDD（DATA-13；网关把数据服务的
+                                     日期只认 YYYYMMDD（DATA-13，归档 docs/archive/TASKS-2026-10-16-archived.md；网关把数据服务的
                                      400 原状态码原文透出，不 launder）
 POST /api/screen                  - Screen stocks by criteria
 GET  /api/stocks/count            - Stock count + status split + latest quote date
@@ -2860,7 +2868,7 @@ GET  /api/datasource/health       - Health check of all registered adapters
 ```
 GET  /api/factor/returns/:factor  - Get factor returns time series
      ?start_date=20240101&end_date=20241231
-                                     （日期只认 YYYYMMDD，坏格式 400；DATA-13 一并核过）
+                                     （日期只认 YYYYMMDD，坏格式 400；DATA-13〔归档 docs/archive/TASKS-2026-10-16-archived.md〕一并核过）
 GET  /api/factor/ic/:factor       - Get factor IC time series
 POST /api/factor/compute-returns  - Compute factor returns for given universe
 POST /api/factor/compute-ic       - Compute IC for factor × returns cross-section

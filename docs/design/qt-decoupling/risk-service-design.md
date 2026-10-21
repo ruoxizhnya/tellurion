@@ -36,6 +36,8 @@
 | `ReconciliationDispatcher` / `SignalDispatcher` / `DualRunBreach` | `pkg/alert/reconcile.go` | 本服务（对账/双跑偏离告警） |
 | `audit_logs` 表 | `pkg/storage/postgres.go` | 迁 `risk` schema |
 
+> ⚠️ **2026-10-21 勘误（system-spec-review 残留B）**：上行「`audit_logs` → 迁 `risk` schema」误导——现 `audit_logs`（`pkg/storage/postgres.go:335`，public schema）是 ADR-017 鉴权访问审计（`pkg/auth` 写入，见 `pkg/auth/auth.go:492` `RecordAudit`），**留 core 不迁**；`risk.audit_logs` 应为**新建表**，与现表无迁移关系（见 §3 勘误）。
+
 ## 3. 数据归属（schema = `risk`，DDL 唯一 owner）
 
 | 表 | 内容 | 现状 |
@@ -47,6 +49,8 @@
 | `risk.risk_events` | 裁决事件留痕（`OrderIntent` 注释已指向 `quant.risk_events`，**表未建**） | 待建，迁 `risk` |
 | `risk.circuit_orders` | 熔断指令下发记录（幂等） | 待建 |
 | `risk.audit_logs` | 操作审计 | 从现 `audit_logs` 迁入 |
+
+> ⚠️ **2026-10-21 勘误（system-spec-review 残留B）**：上行「从现 `audit_logs` 迁入」不成立——现 `audit_logs` 是 ADR-017 鉴权访问审计（`pkg/auth` 写入），语义与风控操作审计不同、留 core；`risk.audit_logs` 应为**新建表**（风控规则审批/操作留痕），与现表无迁移关系。
 
 **红线**：`risk` schema 只有风控服务能写；内核与实盘只经 port 读快照、写事件经端口回传（或由服务侧异步收集）。
 

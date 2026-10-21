@@ -40,9 +40,9 @@
 | `run.run_artifacts` | 每次 run 的三 hash 留痕（`strategy_ref` / `dataset_snapshot_hash` / `risk_rules_hash`）+ 明细 artefact 指针 | **待建（X0 载体）** |
 | `run.worker_registry` | worker 注册与心跳 | 待建（多 worker 时） |
 
-**归属修正**（ADR-D19 已登记）：`backtest_jobs` / `strategy_state` 目前在内核侧持久化，**迁到 `run`**，内核走 port——否则"内核无持久化状态"不成立。
+**归属修正**（ADR-D19 已登记）：~~`backtest_jobs` / `strategy_state`~~ `backtest_jobs` 目前在内核侧持久化，**迁到 `run`**，内核走 port——否则"内核无持久化状态"不成立。**（⚠️ 2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）：`strategy_state` 不迁 `run`——归 strategy-runtime 模块（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`。）**
 
-**内核侧新增 port**（供断点状态等）：
+**内核侧新增 port**（~~供断点状态等~~ 仅 job 队列；断点状态不经本仓，见下注）：
 
 ```go
 // contracts
@@ -56,6 +56,8 @@ type JobQueue interface {              // 现 JobStore 接口外置
     Get / List / Delete
 }
 ```
+
+> ⚠️ **2026-10-21 订正（H5 裁决）**：`RunStateStore` 以「`strategy_state` 迁 `run`」为前提，随裁决**作废**——`strategy_state` 归 strategy-runtime 模块（K0 冻结契约），core 继续写 `quant.strategy_state`，不经本仓 port；`JobQueue` 不受影响。
 
 ## 4. API 面
 
@@ -93,7 +95,7 @@ GET  /api/runs/{id}/provenance     三 hash + 引擎名 + seed
 ```
 
 - 编排**调**内核（`EngineRunner.RunBacktest`），内核不感知编排存在；
-- 内核的断点续跑状态经 `RunStateStore` port 读写（实现可先同库，将来可换）；
+- ~~内核的断点续跑状态经 `RunStateStore` port 读写（实现可先同库，将来可换）；~~ **（⚠️ 2026-10-21 H5 裁决作废：断点续跑状态 `strategy_state` 归 strategy-runtime 模块、core 写 `quant.strategy_state`，不经本仓 port；上图 `RunStateStore` 同此。）**
 - worker 扩容判据：队列积压 + CPU 常态化打满 → 加 worker 进程（每个 worker 内嵌内核装配，同参），**不是**把内核拆服务。
 
 ## 6. 双引擎在这里天然生效

@@ -15,9 +15,9 @@ verified-by: 文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.m
 
 ## 1. 服务拓扑
 
-微服务架构，Analysis Service 作为 API 网关协调 Data Service 与 Strategy
+微服务架构，Analysis Service 作为 API 网关协调 Data Service 与 AI
 Service。**PG 与 Redis 不在容器内**——各服务经 `host.docker.internal` 连
-宿主机实例（compose 只编排 4 个 Go 服务；前端已拆仓，见下）。
+宿主机实例（compose 只编排 3 个 Go 服务；前端已拆仓，见下）。
 
 ```
 Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
@@ -61,9 +61,9 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 
 ---
 
-## 3. 数据库 schema —— 唯一真相在 `migrate()`
+## 3. 数据库 schema —— 主真相在 `migrate()`
 
-**加表 / 加列的唯一路径**：`pkg/storage/postgres.go` 的 `migrate()`（数组构
+**加表 / 加列的主路径**：`pkg/storage/postgres.go` 的 `migrate()`（数组构
 造在 `migrationStatements()`，每条幂等，编号续最大）。`migrations/` 与
 `docs/migrations/` 下的 `.sql` **不被执行**（golang-migrate 封装
 `MigrationManager` 已于 2026-09-18 删除），只作历史镜像——新增迁移按 K8 先例
@@ -86,6 +86,13 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 - `ingest.raw`：类 A 原始响应归档（唯一键 `content_hash`）
 - `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
 - `research.*`：研究投影（conclusion / question / profile）
+- `market.*`：指数行情独立分区（`market.index_daily`，Migration 057，migrate 内建——指数不与个股混表）
+- `audit.*`：内核事件存储（`audit.message_log`，`pkg/eventstore/schema.go` 的 `EnsureSchema` 幂等建，未并入 migrate）
+
+> **migrate 之外的模块内自建表（3 处，存量如实登记）**：`pkg/eventstore/schema.go`
+> 的 `audit.message_log`、`pkg/strategy/state_store.go` 的 `quant.strategy_state`、
+> `pkg/strategy/signal_store.go` 的 `quant.external_signals`（与 migrate 内建表重复）。
+> 是否收编进 `migrate()` 须走正式 schema 变更评审。
 
 > ⚠️ **已知过时（登记，未修）**：[SPEC.md](SPEC.md) 的「TimescaleDB Schema」节
 > 手抄 DDL 已与代码脱节（`ohlcv_daily` 实为 `ohlcv_daily_qfq`；`factor_cache`
@@ -127,10 +134,10 @@ tellurion/
 │   ├── data/         # 数据管道（tushare 客户端、因子、产业链导入）
 │   ├── domain/       # 领域模型（market 子包为行情类型权威）
 │   ├── kernel/       # 模块化内核（clock/msgbus/eventstore，K1–K12 线）
-│   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，ADR-031 D1）
+│   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
 │   ├── live/         # 实盘/纸交易引擎
 │   ├── risk/         # 风控（in-process 并入 analysis）
-│   ├── storage/      # PG/Redis 存储——DDL 唯一真相在 postgres.go
+│   ├── storage/      # PG/Redis 存储——DDL 主真相在 postgres.go（3 处模块内自建表除外，见 §3）
 │   ├── strategy/     # 策略框架 + 插件 + 表达式 + SignalProvider/信号面
 │   └── validation/   # 验证器链（五维纯计算）
 ├── web/              # Vue 3 前端——⚠️ 已拆仓至 tellurion-ui（2026-10-09），本目录历史遗留
@@ -154,7 +161,12 @@ tellurion/
 
 ---
 
-## 7. 规范层数据流（ADR-031 / D1，2026-10-14）
+## 7. 规范层数据流（数据因子蓝图 D1，2026-10-14）
+
+> **D 编号读法**：本文「数据因子蓝图 Dn」指 `tellurion-docs:docs/design/data-factor-unification.md`
+> （ADR-031 附件）的决议序列 D1–D9，与 ADR-031 本体
+> （`tellurion-docs:docs/adr/adr-031-kernel-pluggable-nt-ready.md`）的 D1–D5
+> （四契约 / NT 侧车 / NT-ready / 决策门 / Go 约束）**同名异指**，勿混。
 
 **不变量**：全系统数据取用只认一套规范层 schema——三类字段（OHLCV /
 Fundamental / FactorOutput），每条记录**自带频率与可见时间点**；
@@ -200,7 +212,7 @@ connector 之外无人感知底层表。字段表 / 频率词表 / 聚合口径 
   1d 路由与遗留 `storage.GetOHLCV` 逐字段对拍（真实 PG 自灌自证，
   DB 不可达 Skip 不 Fail）——改的是取数通道，不是数据。
 
-**上游闸门（ADR-031 / D2，2026-10-14）**：规范层「记录自带可见时间点」
+**上游闸门（数据因子蓝图 D2，2026-10-14）**：规范层「记录自带可见时间点」
 不靠消费方自觉，而是注册期的结构性闸门——connector 注册
 （`pkg/data/source.Registry.Register`）时必须声明**时间语义 + 频率口径**，
 缺失 / 非法 / 与数据形态矛盾一律 fail-closed 拒收（`validateDeclarations`
@@ -211,7 +223,7 @@ connector 之外无人感知底层表。字段表 / 频率词表 / 聚合口径 
 拥挤度 = `after_close`（收盘后可见，盘中用当日值即偷看）。文档真相见
 SPEC.md「connector 注册契约」节。
 
-**新数据源接入样板（ADR-031 / D5，2026-10-15）**：「挂新数据 → 可挖因子」
+**新数据源接入样板（数据因子蓝图 D5，2026-10-15）**：「挂新数据 → 可挖因子」
 全链路的第一个真实实现（市场活跃度 = Tushare `daily_basic` 换手率族）：
 
 ```
@@ -229,7 +241,7 @@ PIT 执法点有二：① 声明侧 `after_close`（`TestDailyBasicDeclaration_M
 `trade_date <= end`（晚于计算日的行结构上不可见）。名册协议变更
 （D3 之后第一个新增名册名）与端到端步骤留档见 SPEC.md「新数据源样板」节。
 
-**多频率进策略视野（ADR-031 / D6，2026-10-15）**：回测只吃日线的现状
+**多频率进策略视野（数据因子蓝图 D6，2026-10-15）**：回测只吃日线的现状
 延伸到「日频决策 + 引用当日内分钟特征」，通道是**启动前快照 + 契约注入**，
 不是运行时查询：
 
@@ -254,7 +266,7 @@ provider 实现无 provider/router/pool 句柄（反射断言）。日频决策�
 纯日线策略对整条接线零敏感（回归测试逐点对拍）。契约 / 特征目录 /
 闸门口径的文档真相见 SPEC.md「多频率策略视野」节。
 
-## 8. 因子定义库数据流（ADR-031 / D3，2026-10-14）
+## 8. 因子定义库数据流（数据因子蓝图 D3，2026-10-14）
 
 **不变量**：因子定义只认「库里公式」——一份种子定义
 （`pkg/domain/factor_def_seed.go`，编译期常量）+ 一张持久表
@@ -319,7 +331,7 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 
 ---
 
-## 9. AI 因子挖掘流水线数据流（ADR-031 / D8，2026-10-15）
+## 9. AI 因子挖掘流水线数据流（数据因子蓝图 D8，2026-10-15）
 
 **不变量**：挖掘产物是**公式文本不是代码**——`pkg/mining` 的 `Proposer` /
 `Evaluator` 把挖掘算法本体（LLM/MCTS/基因池）关在接口之外；公式经沙箱验证、
@@ -380,5 +392,5 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 
 ---
 
-_Last updated: 2026-10-17（REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
+_Last updated: 2026-10-21（system-spec-review 订正：compose 服务计数 4→3、§3 补 market/audit schema 分区并如实登记 3 处模块内自建表、D 编号引用改指数据因子蓝图（ADR-031 本体 D1–D5 另有其义）；REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
 _维护规则：服务/端口/schema 分区变更时更新本文件（AGENTS.md Rule 1）；表数不手抄，只给 grep 口径。_
