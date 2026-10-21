@@ -215,7 +215,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **破坏验证（§8.5.3-2，8 条腿全红；临时改坏 → 跑测 → 还原，md5 逐字节校验一致）**：删宿主区低区下界 / 改 `get_bar` 的 wire 名字 / 改 `__host_params_ptr` 符号名 / 改 scope 取值 `market` / `MaxStateValueBytes` 64→65KiB / 跳过版本族互斥检查 / 取消注册 `get_date2` / 删 params 上限守卫——每一条都让对应测试变红。**其中一条当场逮到我自己的假护栏并订正**：`对表` 测试原先写成 `{HostFnGetBar, …}` 用 Go 常量引用函数名，于是把常量值从 `"get_bar"` 改成 `"get_bar_x"` 时**测试全绿**——契约、注册表、校验器一起平移，没人发现「artifact 绑的那个名字变了」。这是 §8.5.3-2 说的「分清护栏错与脚手架错」里最阴的一种：脚手架看起来像证据。现已改成**字面量**并补 `TestFrozenWireNames`（把 12 个函数名、3 个宿主区符号名、2 个 scope 取值、abi 文本全部钉成字符串字面量——判据是「改一个字符 = 一次 ABI 破坏，且编译期看不出来」）。
 >
-> **⚠️ 本单欠下的一条红（2026-10-21 追登，`8b8556a` 关掉）**：`d1d2942` 提交的 `abi_contract_table_test.go` **blob 以 `}\n\n` 结尾（EOF 多一个空行）**，CI `Build & Test` 的 `gofmt` 步因此连红**三个推送**（`73aa6f0` / `4dd83b0` / `7b7f966`，同一根因，逐条 `log-failed` 核过都只点这一个文件）。为什么本地没抓到：`gofmt -l .` 跑的是**工作区**，而工作区那份早被编辑器顺手修干净了——门禁看着绿，红的却是提交出去的内容。**教训入 AGENTS §8.5 规范 2**：`gofmt -l .` 不能单独当结论，推前要在干净 checkout（`git worktree add --detach`）里跑一遍。修复 = `8b8556a`（行为零变化，纯 EOF 空白）；线上复核 = run `39632653375` **completed/success**，5 个 job 全绿。**注意其中 `agent-compat` 的绿仍是降级**（`Checkout agent repo` / `setup-go` / `Build + vet` 三步 `skipped`，PAT 仍未配），跨仓编译门当前唯一真证据还是本地 `sh tools/ci/agent_compat.sh`。
+> **⚠️ 本单欠下的一条红（2026-10-21 追登，`8b8556a` 关掉）**：`d1d2942` 提交的 `abi_contract_table_test.go` **blob 以 `}\n\n` 结尾（EOF 多一个空行）**，CI `Build & Test` 的 `gofmt` 步因此连红**三个推送**（`73aa6f0` / `4dd83b0` / `7b7f966`，同一根因，逐条 `log-failed` 核过都只点这一个文件）。为什么本地没抓到：`gofmt -l .` 跑的是**工作区**，而工作区那份早被编辑器顺手修干净了——门禁看着绿，红的却是提交出去的内容。**教训入 AGENTS §8.5 规范 2**：`gofmt -l .` 不能单独当结论，推前要在干净 checkout（`git worktree add --detach`）里跑一遍。修复 = `8b8556a`（行为零变化，纯 EOF 空白）；线上复核 = run `39632653375` **completed/success**，5 个 job 全绿。**注意该 run 里 `agent-compat` 的绿仍是降级**（`Checkout agent repo` / `setup-go` / `Build + vet` 三步 `skipped`，当时 PAT 未配）——**2026-10-21 已改为匿名 checkout，此后它的绿重新代表跨仓编译门真跑过**（见 QT-18 完成记录）。
 
 ### QT-02 · `FillTiming` 冻结 + 两口径差异报告 [P0] ⬜
 
@@ -571,7 +571,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **align-gate 层 1（`5998926`）**：合成种子把 `volume` 灌成小数 ⇒ NT `as_quantity` fail-loud ⇒ export 崩。取整修夹具。
 > - **align-gate 层 2（`01a71e1`）**：`Start sidecar` 步 cwd=nt-sidecar 却传相对 `--catalog nt-sidecar/catalog` ⇒ 解析成双段 `nt-sidecar/nt-sidecar/catalog`。改绝对 `$GITHUB_WORKSPACE` 路径。两层都清后 `Dual-run alignment gate`（bh + quarterly）第一次真跑并绿。
 > - **ui 层**：那条被登记为「4.9s 疑似 flaky」的用例，加 timeout 后**跑到了断言才暴露真因是 locale 依赖**（断言硬编码 `2026/10/15`，CI=en-US 渲染 `10/15/2026`）⇒ 改用组件同一 `toLocaleString` 现算期望（`1075c28`）。timeout 余量仍保留（双管其下：既给 naive-UI 挂载加预算，又修了真断言）。
-> - 均 §④：不 continue-on-error、不删测试、不改业务语义（formatTime / as_quantity 判定不动）。**`agent-compat` job 在首跑里以「降级 notice」通过（未配 `secrets.AGENT_REPO_TOKEN`）—— PAT 就位后需再跑一次真破坏腿留证。**
+> - 均 §④：不 continue-on-error、不删测试、不改业务语义（formatTime / as_quantity 判定不动）。**`agent-compat` job 在首跑里以「降级 notice」通过（当时未配 `secrets.AGENT_REPO_TOKEN`）—— 2026-10-21 已改匿名 checkout 取消 PAT 依赖，下一次 push 的首跑将真编 agent；真破坏腿留证仍待补（见 QT-18）。**
 >
 > **按腿拆分登记（2026-10-21 任务台账批量重分布）**：本节是 QT-61 完整四腿收口的**唯一权威版**；agent 腿（OBS-08 幻影清单收敛）与 ui 腿（SchedulePanel timeout + locale 真因）的简短收口记录已分别登记在 `tellurion-agent:docs/TASKS.md` 与 `tellurion-ui:docs/TASKS.md`（各含本腿 commit 留痕），两处均指回本节，不双写叙事。
 
