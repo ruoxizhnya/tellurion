@@ -21,8 +21,11 @@ package guard
 import (
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 )
@@ -140,14 +143,67 @@ func TestResultSpec_SpecDocCoversFrozenFieldSet(t *testing.T) {
 	if !strings.Contains(doc, "ResultSpec 冻结") {
 		t.Fatal("docs/SPEC.md 缺「ResultSpec 冻结」节 —— 契约文本必须在文档里")
 	}
+
+	// 字段集只认**该节字段表格首格**里的反引号名，不认全文。
+	//
+	// 为什么不能全文 Contains（2026-10-23 实测出的空转）：`fill_timing` 在
+	// ResultSpec 节里出现 3 次——表格 1 次 + 「成交时点与已知偏差」小节散文
+	// 2 次。把表里那一行删掉，全文 Contains 仍然绿，于是这条腿对它声称守住
+	// 的东西（「字段表缺 %q」）其实一点牙没有。表格首格允许 `a` / `b` 合并写
+	// （start_date/end_date、win_trades/lose_trades、started_at/completed_at
+	// 三对就是这么写的），所以按首格内所有反引号名收，不按整格相等。
+	fields := specResultSpecFieldNames(doc)
+	var missing []string
 	for _, key := range frozenResultSpecFields {
-		if !strings.Contains(doc, "`"+key+"`") {
-			t.Errorf("docs/SPEC.md 字段表缺 %q —— 改字段集必须同步文档并走变更评审", key)
+		if !fields[key] {
+			missing = append(missing, key)
 		}
 	}
+	assert.Empty(t, missing,
+		"docs/SPEC.md「ResultSpec 冻结」节的**字段表**缺这些冻结字段（只认同节表格首格，"+
+			"散文里提到不算）—— 改字段集必须同步这张表并走变更评审：%v（表里现有 %d 项）",
+		missing, len(fields))
+
+	// status 三值仍按整节文本核：它们是语义取值，不是字段行。
+	section := resultSpecSection(doc)
 	for _, v := range frozenStatusValues {
-		if !strings.Contains(doc, "`"+v+"`") {
-			t.Errorf("docs/SPEC.md 缺 status 取值 %q", v)
+		if !strings.Contains(section, "`"+v+"`") {
+			t.Errorf("docs/SPEC.md 的 ResultSpec 节缺 status 取值 %q", v)
 		}
 	}
 }
+
+// resultSpecSection 取「### ResultSpec 冻结」到下一个二级标题之间的文本。
+// 找不到节则返回整个文档 —— 上面已先断言节标题存在，这里不再重复失败一次。
+func resultSpecSection(doc string) string {
+	start := strings.Index(doc, "ResultSpec 冻结")
+	if start < 0 {
+		return doc
+	}
+	rest := doc[start:]
+	if next := strings.Index(rest, "\n## "); next > 0 {
+		return rest[:next]
+	}
+	return rest
+}
+
+// specResultSpecFieldNames 收集 ResultSpec 节里表格首格出现的所有反引号名。
+func specResultSpecFieldNames(doc string) map[string]bool {
+	names := map[string]bool{}
+	for _, line := range strings.Split(resultSpecSection(doc), "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) == 0 {
+			continue
+		}
+		for _, m := range jsonTagPattern.FindAllStringSubmatch(cells[0], -1) {
+			names[m[1]] = true
+		}
+	}
+	return names
+}
+
+// jsonTagPattern 抓反引号里的 snake_case 字段名（`fill_timing` → fill_timing）。
+var jsonTagPattern = regexp.MustCompile("`([a-z][a-z0-9_]*)`")
