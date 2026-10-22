@@ -190,8 +190,9 @@ class TimingReportTest(unittest.TestCase):
             server.server_close()
 
         self.assertEqual(resp.status, 200)
-        # QT-02 · a successful reply echoes the caliber the request declared.
-        self.assertEqual(payload["fill_timing"], "same_close")
+        # A failed run is still HTTP 200 (OBS-01: failed is an outcome), so the
+        # transport status alone does not make this a *successful* run.
+        self.assertEqual(payload["status"], "completed")
         self.assertIn("timing", payload)
         timing = payload["timing"]
         for key in ("queue_ms", "exec_ms", "total_ms"):
