@@ -148,7 +148,7 @@
 
 **顺序纪律**：先有契约（`contracts`），后有服务实现——与 ADR-D7 一致。
 
-### 4.1 接口对表（M8 硬前置，✅ 2026-10-21 对完）
+### 4.1 接口对表（M8 硬前置，✅ 2026-10-21 对完；G 组待办 T1~T5 收尾于 2026-10-22 —— T1/T2/T4/T5 已落，T3 的「谁是真相」已裁、入表仍属 X1b）
 
 > **这张表是 QT-40 的施工图纸**：逐个 port / endpoint 列 **签名 + 错误语义 + 版本策略**，缺一列就是没对完表。
 > 各表的列口径统一三件：**今天** = 源码实测（`file:line`，可复核，不是文档转述）；**契约位** = S1（QT-05）之后 contracts 仓的落点；**版本策略 / 幂等** = 变更时走 MAJOR / MINOR 还是必须走 ADR。C 组多一列**目标签名**——那一列是 X1b 要实现的形状，今天不存在。
@@ -175,7 +175,7 @@
 | `source.DataItem` / `DataSchema` / `SchemaField` / `FetchRequest` / `FetchResponse` | `pkg/data/source/adapter.go:88-166`（`FetchRequest`:88、`DataItem`:115、`FetchResponse`:126、`DataSchema`:155、`SchemaField`:160；`SchemaField.Type` 取值集 `"string"\|"float"\|"int"\|"date"\|"datetime"`，`Unit` 取值集 `"yuan"\|"percent"\|"share"\|""`） | 同上 | `ErrUnsupported`（类型不服务） | **stable**；`SchemaField.Type` 取值集扩容 = MINOR，**改名 = breaking**（`validateVisibleAnchor` 按字面量判 date/datetime） |
 
 > **注 ①（落点定名）**：新包定 **`github.com/ruoxizhnya/tellurion-contracts/dataprotocol`**，包名 `dataprotocol`。不用 `data/`（与 `tellurion-contracts:docs/API.md` §8 待裁 #1 的 `errors/`、`abi/` 之争同型：包名要能自证「这是协议不是实现」）；不叫 `dataset`（那是 X1b 的 aggregator 面，形状还没定）。
-> **注 ②（迁入时机，这次对账要拍的那一颗）**：`dataprotocol` 五个符号**今天只有 core 一个使用方**，按 `tellurion-contracts:docs/adr/0001-契约只增不破且零实现.md` ③「只有单个仓使用的类型属泄漏」**不许提前迁**。执行序：X1a 只在 contracts 落 **`domain/market`**（它本来就随 QT-05 整包迁）+ 本节的错误码族；`dataprotocol` 那一笔**挂在 X1b 的第一条 commit**——`tellurion-data` 一 import，两个使用方立刻成立，泄漏判据同时满足。
+> **注 ②（迁入时机，这次对账要拍的那一颗）**：`dataprotocol` 五个符号**今天只有 core 一个使用方**，按 `tellurion-contracts:docs/adr/0001-契约只增不破且零实现.md` **①**「本仓只放被 ≥2 个仓使用的类型」（该仓 `AGENTS.md` §3 写作「只有单个仓使用的类型属泄漏」）**不许提前迁**——⚠️ 条款号 2026-10-22 订正：原文引的是 **③**，而 ③ 管的是 `Config`/`Options`/`Impl` 命名，与使用方数量无关（`tellurion-data:docs/api-schema.md` §4 的同一条引用一并订正）。执行序：X1a 只在 contracts 落 **`domain/market`**（它本来就随 QT-05 整包迁）+ 本节的错误码族；`dataprotocol` 那一笔**挂在 X1b 的第一条 commit**——`tellurion-data` 一 import，两个使用方立刻成立，泄漏判据同时满足。**但这条"不许"并非唯一读法**：同一份 ADR 的「代价」节明写 S1 整包迁时**接受** core-only 类型临时进来（`screen` / `sector` / `supply_chain` / `macro` / `mining`），输出「core-only 类型清单」后 S2 回收。于是「新建包要不要走同一条容忍」是真岔路，两个选项都自洽 ⇒ 已登记为 `tellurion-contracts:docs/API.md` §8 待裁 **#4**（对表 T2），X1a 前挑定并写回本节，**别两侧各按一条施工**。
 > **注 ③（顺手要消灭的同名副本）**：`pkg/storage/bulk_insert.go:17` 有一个与 `source.UnifiedDataPoint` **同名同字段的副本** `storage.UnifiedDataPoint`，注释自述理由是「storage 不能 import source（会成环）」。实测口径要分清：`DeduplicateKey()` **只有一份实现**（`source/unified.go:70`，被 `unified.go:92` 与 `reconcile.go:97` 用），副本是裸结构体——所以今天的风险不是「幂等逻辑三处各写一遍」，而是**字段形状两处各改**：协议加一列（例如 `visible_at`），改了 source 那份、忘了 storage 那份，`BulkInsert` 的 `TableMapper` 列布局就会静默少写一列（`bulk_insert_ddl_test.go` 只核「目标表在 DDL 里」，核不到字段）。协议进 contracts 后成环理由消失（两者都 import contracts），**必须删副本、改引用**。
 
 #### B 组 · connector 契约（port，注册期闸门）
@@ -222,7 +222,7 @@
 | `ErrDeclarationInvalid` | ✅ `:67` | `Register` | 枚举非法 / `VisibleCustom` 缺 `VisibleExpr` / 重复 / 越界类型 ⇒ 拒注册 |
 | `ErrDeclarationMismatch` | ✅ `:68` | `Register` | 声明与数据形态矛盾（锚点缺 / 不在 schema / 类型非 date\|datetime）⇒ 拒注册。**这条是「声明了但等于没声明」的唯一执法点** |
 | `ErrUnknownDataType` | ❌ 待新建 | 现有近似物 = `ErrUnsupported`（`adapter.go:73`） | 建议：**复用 `ErrUnsupported`**，`ErrUnknownDataType` 只作请求侧（resolve 参数）的 400 语义；造第二个同义哨兵会让 `errors.Is` 分诊表两义 |
-| `ErrVisibleAtMissing` | ❌ 待新建 | 今天**没有**这一层：`ValidatePoints` 只判 `Symbol`/`TradeTime`/`Data` 非空（`etl.go:168`），**不判可见时间** | X1b 的新增执法点，位置在归一化之后、入库之前 ⇒ **拒收该批次**，`api-schema.md` §2 明写「不许用 mtime 兜底」。代价：现有已落库数据**没有一列承载 `visible_at`**，这条门一旦上线，历史行不可回填 ⇒ 必须与 §5 X1d 的 schema 迁移同批设计（加列 + 由 `TimeSemantics` 规则重算，不能猜） |
+| `ErrVisibleAtMissing` | ❌ 待新建 | 今天**没有**这一层：`ValidatePoints` 只判 `Symbol`/`TradeTime`/`Data` 非空（`etl.go:168`），**不判可见时间** | X1b 的新增执法点，位置在归一化之后、入库之前 ⇒ **拒收该批次**，`api-schema.md` §2 明写「不许用 mtime 兜底」。代价：现有已落库数据**没有一列承载 `visible_at`**，这条门一旦上线，历史行不可回填 ⇒ 必须与 §5 X1d 的 schema 迁移同批设计（加列 + 由 `TimeSemantics` 规则重算，不能猜）。**方案已成文**（2026-10-22，T5）= `tellurion-data:docs/db-schema.md` §6：门钉到 `ValidatePoints`（加判据 = 从「计数丢弃」变「整批拒收」，是行为变更）；范围裁成三个集合而非"所有表"；`market_activity` / `quant.macro_series` 两表**不走 BulkInsert**，挂在 `ValidatePoints` 上的门拦不到它们。⚠️ 该节逮到的一条同族假护栏：`stock_fundamentals.available_date` 是生成列 `COALESCE(ann_date, trade_date)`（`pkg/storage/postgres.go` 的 ALTER），`trade_date NOT NULL` ⇒ 它**永远非 NULL**，所以「`available_date IS NOT NULL` 才放行」在这张表上恒真、把披露日未知的行全放过 —— 判据必须写成 `ann_date IS NOT NULL` |
 | `ErrSnapshotMismatch` | ❌ 待新建 | 无（`/datasets/{hash}` 还不存在） | `/datasets/{hash}` 重算 hash 不符 ⇒ 500 + 告警（缓存串号 / 内容被改） |
 | `ErrUnsupported` / `ErrRateLimited` / `ErrUpstreamUnavailable` / `ErrAdapterNotRegistered` | ✅ `adapter.go:73-82`、`registry.go:21` | connector / Registry | 传输层语义，**不进 aggregator 对外面**（对外只露数据集，不露上游健康态；`HealthCheck` 是内部面） |
 
@@ -251,10 +251,20 @@
 | # | 事项 | 落哪 |
 |---|---|---|
 | T1 | `tellurion-data:docs/api-schema.md` §2 的 `ErrNoTimeSemantics` 改指 `ErrDeclarationMissing`、`ErrUnknownDataType` 改复用 `ErrUnsupported`；§3 的 hash 四分量（票池+窗口+频率+数据版本）**订正为引用六分量**（缺 `calendar_hash` / `adjustment_basis`，与本文 §2.1 那次订正同源）。⇒ **✅ 已随本次对表执行**（data 仓 `api-schema.md` §1/§2/§3/§5 + `dataflow.md` §3，2026-10-21） | data 仓文档 |
-| T2 | `dataprotocol` 包是否独立成包（与 `tellurion-contracts:docs/API.md` §8 待裁 #1「`errors/` / `abi/` 是否独立成包」同族问题）在该 §8 补一行登记 | contracts 仓，X1b 迁入前 |
-| T3 | `/datasets/resolve` / `/datasets/{hash}` / `/factors/{name}@{hash}` 的正式 schema 进 core `docs/openapi.yaml`（QT-50 ③-③ 的统一入表）。⚠️ 实测（2026-10-21）：openapi 里**没有任何 `/datasets/*`**，但**已有 `/api/factors/{factor_name}`**（`docs/openapi.yaml:3103`）——与本仓目标的 `/factors/{name}@{hash}` **同族不同形**（一个按名取最新、一个按名+hash 取快照）。入表时必须定谁是真相，否则留下两个因子读面 = 因子值的两个口径，正是 §4.1 L1 要防的那种漂移 | core，X1b |
-| T4 | `tellurion-data:docs/ARCHITECTURE.md` 补 ADR-027 §2.6.2 的**六个限界上下文包级隔离**分层（`repo-inventory.md` §1.2 data 行的义务） | data 仓，X1b |
-| T5 | `ErrVisibleAtMissing` 上线与历史行不可回填的矛盾（E 组）要有一条迁移方案：加列 + 按 `TimeSemantics` 重算 + 重算不了的处理 | data 仓，X1b/X1d 设计 |
+| T2 | `dataprotocol` 包是否独立成包（与 `tellurion-contracts:docs/API.md` §8 待裁 #1「`errors/` / `abi/` 是否独立成包」同族问题）在该 §8 补一行登记 | contracts 仓，X1b 迁入前。⇒ **✅ 已登记**（2026-10-22 对表收尾：`tellurion-contracts:docs/API.md` §8 新增 **#4**，把落点定名 / 两条都自洽的迁入时机读法 / 三处 X1a 前要先定形状的实测（`UnifiedDataPoint` 两份同名副本、无 `DataType` 类型、无 `Aggregator` 接口）写清；本注 ② 的**条款号误引**同时订正） |
+| T3 | `/datasets/resolve` / `/datasets/{hash}` / `/factors/{name}@{hash}` 的正式 schema 进 core `docs/openapi.yaml`（QT-50 ③-③ 的统一入表）。⚠️ 实测（2026-10-21）：openapi 里**没有任何 `/datasets/*`**，但**已有 `/api/factors/{factor_name}`**（`docs/openapi.yaml:3103`）——与本仓目标的 `/factors/{name}@{hash}` **同族不同形**（一个按名取最新、一个按名+hash 取快照）。入表时必须定谁是真相，否则留下两个因子读面 = 因子值的两个口径，正是 §4.1 L1 要防的那种漂移 | core，X1b。⇒ **🔶 「谁是真相」已裁（2026-10-22），入表本身仍属 X1b 交付物**，见下面 **T3 定案** |
+| T4 | `tellurion-data:docs/ARCHITECTURE.md` 补 ADR-027 §2.6.2 的**六个限界上下文包级隔离**分层（`repo-inventory.md` §1.2 data 行的义务） | data 仓，X1b。⇒ **✅ 已落**（2026-10-22：该文件新增 **§2.1**，六上下文逐个给目标包 + 今天代码在 core 的位置 + Reduction **故意不分配包**（那是 `repo-inventory.md` 待裁 U6，服务仓文档无权替它裁决）+ ADR-027 §6 三类门禁断言的本仓可执行版 + 两条实测没闭合的口子（`pkg/data/source` 一包装两上下文；`Board`/`PITAlignment`/证据读面的语言与物理位置不一致）） |
+| T5 | `ErrVisibleAtMissing` 上线与历史行不可回填的矛盾（E 组）要有一条迁移方案：加列 + 按 `TimeSemantics` 重算 + 重算不了的处理 | data 仓，X1b/X1d 设计。⇒ **✅ 已成文**（2026-10-22：该仓 `docs/db-schema.md` 新增 **§6** —— 门钉到 `ValidatePoints`（`pkg/data/source/etl.go:168`，加判据是**从"计数丢弃"改成"整批拒收"**的行为变更）；范围裁成**三个集合**而不是"所有表"（A 加列 12 张 / B 承认现成 `as_of` 2 张 / C 明确门外）；重算规则按四类语义逐个给式子；不可回填分**三档 + 明禁第四档**；上线次序 D1→D4 带两条顺序红线） |
+
+**T3 定案（2026-10-22，QT-40 对表收尾时拍）**
+
+| # | 问题 | 定案 |
+|---|---|---|
+| ① | 两个因子读面谁是真相 | **`GET /factors/{name}@{hash}` 是真相**（参与 `dataset_snapshot_hash`、可按快照重放）。`GET /api/factors/{factor_name}` **保留但收窄为 citation 点查**（一次一行，给前端展示五元组 `{source, dataset, key, as_of, content_hash}`），**不参与 hash、不进回测取数路径**，并在 openapi 的 `description` 里把这条用途红线写进去。判据：两者回答的其实不是同一个问题（「这一行的坐标」vs「这一版数据集里该因子的全部值」），所以 L1 要防的不是"存在两个读面"，而是**"拿点查当取数面"**——收口动作是给点查划用途，不是删它。若 X1b 实现后发现两者形状可合（点查 = `@{hash}` 的一个特例），再并成一条并废弃点查 |
+| ② | 本次要不要就把三条端点写进 openapi | **不写**。`/datasets/*` 三条今天**零实现**（`tellurion-data:docs/api-schema.md` 顶部明写「本文件是目标契约，不是现状说明书」），现在入表 = 契约里出现不存在的端点，而 `dto/` 是 openapi 的**生成物**（`repo-inventory.md` §3：contracts 只收生成物、CI 重生成 diff 必须为空）⇒ 生成出来的 client 会指向 404。**入表与实现同批（X1b）** |
+| ③ | 顺手逮到的既有契约缺项（**与 ② 不是同一类，别混进同一次提交**） | `/api/factors/{factor_name}` 是**已存在**端点，但 `docs/openapi.yaml:3103` 只登记 `factor_name` 一个参数，而实现**要求两个必填 query**：缺 `symbol` 或 `date` 直接 400（`cmd/data/handlers_factor.go:78-94`），网关也只搬这两个（`cmd/analysis/handlers_proxy.go:146-158`：`?symbol=&date=` 原样转发，其余参数留在门面）。⇒ **按契约生成的客户端必然拿 400**。且 `200` 只有 `description: Factor cache row`、**无 schema** ⇒ citation 五元组的字段名根本不在契约里。这两处是**文档欠账**，改 openapi 一条 commit 就够，不等 X1b |
+
+**T5 顺带裁出的一条口径分叉（登记，不在本轮改写已 Accepted 的 ADR）**：`tellurion-data:docs/adr/0001` 决策 ① 写的是 aggregator 按 **`visible_at <= current_bar_time`** 过滤，本节 L2 写的是按 **`visible_at <= as_of`** —— 两条各自成立但指的是**两次不同的比较**（消费点逐 bar vs resolve 物化上界）。定案：**data 侧只声明并落列，比较可以发生在消费点，但任何一侧都不许重算 `visible_at`**；措辞合并放该 ADR 的后继条目里，别原地改写。
 
 
 ---
