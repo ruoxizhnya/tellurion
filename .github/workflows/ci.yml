@@ -308,7 +308,8 @@ jobs:
       # R5（check_repo_autonomy.py）只比对 AGENTS 里的版本声明是否一致；这里核
       # **go.mod 里的实际 pin 是不是目标仓 main 的祖先** —— 伪版本可以指向未评审
       # 的旁支，go build 发现不了。core-only checkout 下若真有 pin，脚本会匿名
-      # clone contracts/kit（两仓 public）；当前 main 上尚无 pin ⇒ 不触网，显式打印 0 pin。
+      # clone contracts/kit（两仓 public）；core 自 QT-05 B1 起已 pin contracts ⇒
+      # 本步会匿名 clone 一次（无 pin 的仓显式打印 0 pin）；S2 切 tag 后自动核 tag。
       # 先跑 --self-test：先证明护栏拦得住旁支 pin/tag/replace，再让它对真仓下结论。
       - name: Contract pin ancestry (R5)
         run: |
