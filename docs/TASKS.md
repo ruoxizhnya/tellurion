@@ -579,7 +579,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：`pkg/backtest` 对 `pkg/live` 的 import 为 0（或仅剩接口适配层且有护栏）；同一策略回测结果在改动 live 前后逐位一致。
 - **⑥ 边界**：只做执行语义边界；通道网关是 QT-45。
 
-### QT-52 · 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价）[P1] ⬜
+### QT-52 · 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价）[P1] ✅（2026-10-22）
 
 - **① 目标**：把"逐位一致"的基准本身先核实清楚——六类摩擦到底是"已完备"还是"只触及"。
 - **② 上下文**：BE-11 一直是"待查"（只做了文件命中统计：停牌 6 / 成交量 6 / 复权 5 / 分红送股 5 / 涨跌停 2）；BE-07 的 `auction` 仍在未接线白名单。
@@ -587,6 +587,28 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：本单**只核实与结论**，不改代码；不顺手补实现（按结论另立单）。
 - **⑤ 验收**：六类各一条结论 + 证据；`docs/design/qt-decoupling/backtest-engine-review.md` 的 BE-11 行被结论替换；对"缺失"项给出优先级建议。
 - **⑥ 边界**：只做事实核实；实现另立。
+
+> **✅ 完成记录（2026-10-22，只读；未改任何生产代码）**
+>
+> **① 交付物**：`docs/design/qt-decoupling/market-friction-audit.md`。BE-11 行已由「仅统计到文件命中」替换为结论 + 指针（`backtest-engine-review.md` §0/§4/§8 三处同步）。
+>
+> **② 六类结论（逐类读实现，证据行号在报告内）**：
+> - **停牌 = 部分**：见 `engine_daily.go:202-205`（末根 bar 日期判定）、`:129-137`（摘出 marketDataCache、保留最后价）、`:365-375`/`:471-475`（信号兜底）、`:940-950`（止损顺延）、`:300-307`（next_open 无开盘价拒单）、`fill_diag.go:49-59`（计数）。缺口：与「上游缺行」共用判据；`domain.Stock.Status` 的 `"suspended"` 取值**零生产者**（grep 实测）。
+> - **成交量约束 = 部分**：`engine_daily.go:653-667` 按 `Volume × liquidityFactor` 截断 + 诊断；`tracker/tracker.go:346-358` 第二道；冲击成本用 Volume 作 ADV（`execution/execution.go:131-137`）。缺口：`Volume > 0` 才截断 ⇒ **零成交量一字板可全额成交**；无日内分布。
+> - **复权 = 完备（限前复权）**：`pkg/data/tushare.go:322-372` 自算 qfq；`adjustment_snapshot.go` 的 REV-18 基准冻结 + digest + 漂移 fail-loud；`engine_daily.go:988-1001` 刻意不二次改账。边界：无原始价口径。
+> - **分红送股 = 部分**：事件加载（`engine_daily.go:35-66`）与记录（`:1002-1040`）在；`tracker.ProcessDividend/ProcessSplit`（`tracker.go:822-880`）存在但 qfq 路径不调用；`domain.ActionEngine`（`corporate_action.go:399-578`）**零生产调用方**（实测）。
+> - **涨跌停 = 部分**：见下条专答。缺口：新股规则自陈有误（`pricelimit.go:66-73`/`:108-113`）；ST 名称缺失时回落 10%（`engine_daily.go:150-158` + `pricelimit.go:118-144`）。
+> - **集合竞价 = 缺失**：`pkg/backtest/auction` 能力完整但**零生产导入**，仍在 `internal/repoguard/package_wiring_test.go:75` 白名单。
+>
+> **③ 专答「涨跌停只有 2 处」**：文件命中统计的假象。档位（`marketdata/board.go:75-110` + `pricelimit.go`）、判定（`engine_daily.go:207-263`）、拦截（`:393-412` / `:476-485` 两条路径）分三层，**结构覆盖完整**（板块 × ST × 日期分段 × 新股）；不完整的是**参数**（新股）与**元数据**（ST 名称）。两处都静默放行，方向为高估。
+>
+> **④ `auction` 接线方案（报告 §6 单列）**：定位是可成交性/价格发现器，不是第二个 `ExecutionService`；最小接线只做「`next_open` + 开盘贴涨跌停」三态判定（按开盘价成交 / 按 `Volume × liquidityFactor` 部分成交 / 拒单），计数进 `fillRunDiag`，默认关、不改接口、不改现有基准。
+>
+> **⑤ 优先级建议**：P1 ST 元数据缺失 fail-loud 或取保守档；P1 零成交量日不截断；P2 auction 最小接线；P2 新股规则；P3 分红现金/配股/原始价、日内量分布。
+>
+> **⑥ 护栏**：`internal/repoguard/market_friction_audit_test.go` 钉住「六类结论行仍在 + BE-11 不再退回『仅统计到文件命中』」。破坏验证：删任一类结论行 / 把 BE-11 改回旧文案 ⇒ 红；还原 ⇒ 绿。
+>
+> **⑦ 边界遵守**：只读核实。§④ 的「不改代码、不顺手补实现」逐条成立 —— 本 commit 对 `pkg/` 零改动；P1 项按台账另立单。
 
 ---
 
