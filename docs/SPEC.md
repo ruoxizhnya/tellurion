@@ -1,7 +1,7 @@
 ---
 status: evergreen
-last-verified: 2026-10-22
-verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026-09-22）；其余段落沿用 2026-09-16 代码审查；QT-05 B3 契约迁移路径对拍（2026-10-22）
+last-verified: 2026-10-23
+verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026-09-22）；其余段落沿用 2026-09-16 代码审查；QT-05 B3 契约迁移路径对拍（2026-10-23）
 ---
 
 # Quant Trading System - System Specification

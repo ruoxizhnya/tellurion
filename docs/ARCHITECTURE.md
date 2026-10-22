@@ -1,7 +1,7 @@
 ---
 status: evergreen
-last-verified: 2026-10-22
-verified-by: 文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-22）
+last-verified: 2026-10-23
+verified-by: 文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-23）
 ---
 
 # Quant Lab — 架构总览
@@ -142,7 +142,7 @@ tellurion/
 ├── web/              # Vue 3 前端——⚠️ 已拆仓至 tellurion-ui（2026-10-09），本目录历史遗留
 ├── docs/             # 文档（SPEC/ADR/ODR/TASKS/migrations 镜像）
 ├── contracts/        # ⚠️ 运行时数据契约资产（field_dictionary.yaml + schema），**不是 Go 包**；四契约本体在 tellurion-contracts
-├── e2e/              # Go 守卫/集成测试；`e2e/guard/` 放两把跨仓 SPEC 互锁守卫（读本仓 docs/SPEC.md）。Playwright E2E 已拆仓，真相源在 tellurion-ui/e2e
+├── e2e/              # Go 守卫/集成测试；`e2e/guard/` 放两把跨仓 SPEC 互锁守卫（读本仓 docs/SPEC.md）。Playwright E2E 已拆仓，真相源在 tellurion-ui/e2e；AUD-61 测试债工单亦迁至该仓 docs/TASKS.md
 └── tools/            # 运维脚本（不被 CI 执行）
 ```
 
