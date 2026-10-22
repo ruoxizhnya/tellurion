@@ -341,6 +341,91 @@ func TestHostRegionExports_NamesAreFrozen(t *testing.T) {
 	assert.Equal(t, []string{ExportHostParamsPtr, ExportHostScratchPtr, ExportHostScratchSize}, HostRegionExports())
 }
 
+// ─── 模块静态数据 × 宿主区（QT-62）───────────────────────────────
+
+// TestHostRegionDeclaration_CheckAgainstStaticData 钉「高地址重叠」这条新判据。
+//
+// QT-01 的下界只能拦住 < 4096；数据段一旦越过 4096，声明可以完全合法却仍然
+// 踩在模块自己的变量上。下面每一条都用**绝对地址**写，不从常量反推。
+func TestHostRegionDeclaration_CheckAgainstStaticData(t *testing.T) {
+	decl := HostRegionDeclaration{ParamsPtr: 4096, ScratchPtr: 32768, ScratchSize: MaxStateValueBytes}
+
+	tests := []struct {
+		name       string
+		image      StaticDataImage
+		wantErrIs  error
+		wantPhrase string
+	}{
+		{
+			name:  "no static data at all",
+			image: StaticDataImage{},
+		},
+		{
+			name:  "segment before params (below the floor) does not overlap",
+			image: StaticDataImage{Segments: []StaticDataSegment{{Offset: 1024, Length: 256}}},
+		},
+		{
+			// 半开区间：段尾正好等于 params 起点不算重叠。
+			name:  "segment ending exactly at the params start",
+			image: StaticDataImage{Segments: []StaticDataSegment{{Offset: 3072, Length: 1024}}},
+		},
+		{
+			name:  "zero-length segment inside params is not an overlap",
+			image: StaticDataImage{Segments: []StaticDataSegment{{Offset: 5000, Length: 0}}},
+		},
+		{
+			// 立项证据：32768 ≥ 下界，声明本身完全合法，但数据段就在那儿。
+			name:       "segment at the scratch pointer",
+			image:      StaticDataImage{Segments: []StaticDataSegment{{Offset: 32768, Length: 128}}},
+			wantErrIs:  ErrHostRegionOverlapsData,
+			wantPhrase: ExportHostScratchPtr,
+		},
+		{
+			// 段尾落进 params 区间：起点在 0 也不算安全。
+			name:       "segment tail crossing into params",
+			image:      StaticDataImage{Segments: []StaticDataSegment{{Offset: 4000, Length: 200}}},
+			wantErrIs:  ErrHostRegionOverlapsData,
+			wantPhrase: ExportHostParamsPtr,
+		},
+		{
+			// 段覆盖整个 scratch 区间（起点更低、尾巴更长）。
+			name:       "segment spanning the whole scratch region",
+			image:      StaticDataImage{Segments: []StaticDataSegment{{Offset: 32760, Length: 70000}}},
+			wantErrIs:  ErrHostRegionOverlapsData,
+			wantPhrase: ExportHostScratchPtr,
+		},
+		{
+			name:       "unprovable image is fail-closed",
+			image:      StaticDataImage{Unprovable: "data segment #0 is passive (bulk memory)"},
+			wantErrIs:  ErrHostRegionDataUnprovable,
+			wantPhrase: "passive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := decl.CheckAgainstStaticData(tc.image)
+			if tc.wantErrIs == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.wantErrIs)
+			assert.Contains(t, err.Error(), tc.wantPhrase)
+		})
+	}
+}
+
+// TestHostRegionDeclaration_CheckAgainstStaticDataNoWraparound 是算术腿：
+// 段的 offset+length 在 uint64 里算，0xFFFFFFF8 + 64 仍是「远离宿主区的大地址」，
+// 不得绕回低区从而**误报**重叠 —— 误报会让合法 artifact 被拒，和漏报一样坏。
+func TestHostRegionDeclaration_CheckAgainstStaticDataNoWraparound(t *testing.T) {
+	decl := HostRegionDeclaration{ParamsPtr: 4096, ScratchPtr: 32768, ScratchSize: MaxStateValueBytes}
+	require.NoError(t, decl.CheckAgainstStaticData(StaticDataImage{
+		Segments: []StaticDataSegment{{Offset: 0xFFFFFFF8, Length: 64}},
+	}))
+}
+
 // ─── emit 源混用 ──────────────────────────────────────────────
 
 func TestCheckEmitSources(t *testing.T) {

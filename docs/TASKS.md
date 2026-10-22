@@ -646,7 +646,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
-### QT-62 · 宿主区声明无法核对模块自身数据段（QT-01 残余缺口）[P1] ⬜
+### QT-62 · 宿主区声明无法核对模块自身数据段（QT-01 残余缺口）[P1] ✅（2026-10-22）
 
 - **① 目标**：让「`__host_params_ptr` / `__host_scratch_ptr` 落在模块自己的静态数据上」这件事在**任何地址**上都能被判住，而不只在低区（< 4096）。
 - **② 上下文**：QT-01 ⑤ 的第二类坏 artifact（ptr 落在模块数据段）今天只在 ptr 落进低区时由 `MinHostParamsPtr` 下界拦住的（`contracts.HostRegionDeclaration.Validate`）。wazero v1.12 的 `CompiledModule` **不暴露 Data section**（实测接口只有 Name/ImportedFunctions/ExportedFunctions/ImportedMemories/ExportedMemories/CustomSections/Close），宿主区在 instantiate 之后能读到的只有 global 值与 `Memory().Size()`。⇒ 若模块数据段本身越过 4096（TinyGo 稍大的程序就会），而 SDK 模板把宿主区声明到数据段中间，host 侧看不出重叠，直到运行期把策略变量改成 params 字节——**静默错**，正是 N5 立项要防的形态。
@@ -656,6 +656,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改已冻结的契约（三个符号名、i32 类型、下限、对齐都不动）；不新增第四个导出符号（那是一次新的 ABI 破坏）；不动 `BarContext`（QT-24）。
 - **⑤ 验收**：构造一个「数据段在 32768、`__host_scratch_ptr` 也声明在 32768」的 v2 模块 ⇒ 被拒且错误可检索（今天这条**过不了**，是本单的立项证据）；现有 QT-01 的全部测试不退化；破坏验证两腿（把数据段挪走 ⇒ 放行）。
 - **⑥ 边界**：只解决「重叠能不能被证明」；params 按声明地址投递属 QT-26，SDK 模板属 QT-27。
+
+> **✅ 完成记录（2026-10-22，worktree `../tellurion-a7-core`）**
+>
+> **① 先定权威再动手（③ 的前置）**：模块自己的静态数据 = artifact **Data section（id=11）活动段**的并集；宿主区 = 三个导出 global 的声明。两者都由 artifact 自己说，**没有第三方仲裁先后** ⇒ 相交即拒绝，不重排地址、不缩区间。定则写进 `adr-029-amendment-host-api-v2.md` §8 与 `pkg/backtest/contracts/abi.go` 的节头。
+>
+> **② 选型 = 方案 ①（静态腿）**：wazero v1.12 的 `CompiledModule` 不暴露 Data section，只能自己解字节。行为腿（哨兵回读）依赖测试策略真的跑到那段代码，测的是「这一次有没有踩到」；静态腿测「这个 artifact 有没有可能踩到」，在加载门即可判、且不执行不可信代码。行为腿保留为将来的补充证据，不是本单判据。
+>
+> **③ 实现（三处，均可独立测）**：
+> - `pkg/sandbox/wasm/data_segments.go`：`ParseStaticDataImage` 解 header + Data section。只认 mode 0/2（mode 1 被动段 ⇒ `Unprovable`）；offset 只认单个非负 `i32.const`（`global.get` / 多指令 / 负值 ⇒ `Unprovable`）；字节流读不下去才返回 error。`DataCount`（id=12）**不据其单独下结论**（有它不代表有被动段，凭它拒收会误杀 bulk-memory 产物）。
+> - `pkg/backtest/contracts/abi.go`：`StaticDataSegment` / `StaticDataImage` / `HostRegionDeclaration.CheckAgainstStaticData` + 两个新哨兵 `ErrHostRegionOverlapsData` / `ErrHostRegionDataUnprovable`。零长段先摘掉（半开区间下会被误判相交）；地址算术用 `uint64`（不绕回、不误报）。
+> - `pkg/sandbox/wasm/abi_check.go` + `on_bar_session.go`：`ValidateLoadedArtifact` 增加 `dataImage` 参数，判定顺序 = `ReadHostRegion → Validate(memory) → CheckAgainstStaticData`；v2 才解析数据段，v1 走原 legacy 分支（`DiagLegacyHostLayout`）。
+>
+> **④ ⑤ 验收证据**：`TestNewOnBarSession_V2ScratchPtrInsideHighDataSegment` —— 数据段 `[32768,32896)` + `__host_scratch_ptr=32768` ⇒ `ErrHostRegionOverlapsData`，报文含符号名与 `32768`（**这条在旧实现里过不了**，即立项证据）；对照腿：数据段挪到 1024 ⇒ 放行；params 落在 4096 数据段上 ⇒ 同样被拒（4096 不被下界拦）。解析器另有正/负腿：活动段区间逐字对上、无 Data section ⇒ 空图、mode 2/memory 0 可解、被动段/global.get/负偏移/多指令 ⇒ `Unprovable`、坏 magic/短 header/段长越界/截断 ⇒ error。`TestNewOnBarSession_V1KeepsLegacyLayoutDespiteData` 保证 v1 不被新门打死。
+>
+> **⑥ 破坏验证（做过的腿）**：把 `decl.CheckAgainstStaticData(...)` 短路成 `&& false` ⇒ 立项腿与「不可证明传播」腿**两红**（报文分别点「必须被拒」「必须 fail-closed」）；还原后 `go test ./pkg/sandbox/... ./pkg/backtest/... -count=1` 全绿、`go vet` 绿。QT-01 全部用例不退化。
+>
+> **⑦ 边界遵守**：三个符号名 / i32 类型 / 下界 / 对齐 / 冻结上限一字未动；未新增第四个导出；未动 `BarContext`；未改 `Initialize` 的 params 投递地址（QT-26）。全过程在独立 worktree `../tellurion-a7-core`。
+>
+> **⑧ 文档**：`docs/design/qt-decoupling/host-region-overlap.md`（权威定则 + 实现 + 证据 + 残余风险），design 集 README 与 adr-029 §8 已挂指针。
 
 ---
 

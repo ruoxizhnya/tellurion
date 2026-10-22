@@ -547,6 +547,75 @@ func ValidateParamsWrite(paramsLen int, d HostRegionDeclaration) error {
 	return nil
 }
 
+// ─── 模块静态数据 × 宿主区（QT-62 的地址空间权威）───────────────
+//
+// **权威定则**（QT-62 ③ 的前置，先定再判）：
+//   - 模块自己的静态数据 = artifact 的 Data section（id=11）里**活动段**的并集；
+//   - 宿主区 = 模块通过三个导出 global 声明的三段区间。
+//
+// 两者都由 artifact 自己声明，没有第三方可以仲裁"谁先谁后"。所以重叠时
+// **不重排地址、不缩区间**——直接拒绝该 artifact。这是 N5「host 只写声明过的
+// 地址」的另一半：只声明还不够，声明的地址不能已经是模块自己的变量。
+//
+// 为什么必须从字节码解而不是问运行时：wazero v1.12 的 CompiledModule 不暴露
+// Data section（实测接口只有 Name / ImportedFunctions / ExportedFunctions /
+// ImportedMemories / ExportedMemories / CustomSections / Close），instantiate
+// 之后能读到的只有 global 值与 Memory().Size()。低区下界（MinHostParamsPtr）
+// 只是「TinyGo 当前布局在 4096 以下不放东西」的巧合，数据段一旦越过 4096
+// 就看不出来了 —— 那正是本单的立项证据。
+
+// StaticDataSegment 是模块 Data section 里一个**活动段**的常量区间。
+type StaticDataSegment struct {
+	Offset uint32
+	Length uint32
+}
+
+// StaticDataImage 是从 artifact 字节解出的静态数据布局。
+//
+// Unprovable 非空表示存在**无法证明不重叠**的段（被动段 / 非常量 offset /
+// 非零 memory index）。这不是"没有数据"，而是"这张图不完整"——调用方必须
+// 按 fail-closed 处理，不许当成一张空图放行（那等于把"读不懂"当"没风险"）。
+type StaticDataImage struct {
+	Segments   []StaticDataSegment
+	Unprovable string
+}
+
+// CheckAgainstStaticData 判定宿主区是否踩到模块自己的静态数据。
+//
+// 判定顺序上它排在 Validate 之后：先报"声明本身不合法"（对齐/下界/越界/
+// 自相重叠），再报"声明合法但落在模块数据上"，读者才分得清该改声明还是
+// 该改数据布局。零长段不构成重叠（rangesOverlap 用严格不等号）。
+func (d HostRegionDeclaration) CheckAgainstStaticData(img StaticDataImage) error {
+	if img.Unprovable != "" {
+		return fmt.Errorf("%w: %s", ErrHostRegionDataUnprovable, img.Unprovable)
+	}
+	regions := []struct {
+		export     string
+		start, end uint64
+	}{
+		{ExportHostParamsPtr, uint64(d.ParamsPtr), uint64(d.ParamsPtr) + MaxParamsBytes},
+		{ExportHostScratchPtr, uint64(d.ScratchPtr), uint64(d.ScratchPtr) + uint64(d.ScratchSize)},
+	}
+	for _, seg := range img.Segments {
+		if seg.Length == 0 {
+			// 空段不占任何字节：它不可能踩到任何人。rangesOverlap 对 [x,x)
+			// 会返回 true（x<bEnd && bStart<x），所以这里必须先摘掉它。
+			continue
+		}
+		segStart := uint64(seg.Offset)
+		segEnd := segStart + uint64(seg.Length)
+		for _, r := range regions {
+			if !rangesOverlap(segStart, segEnd, r.start, r.end) {
+				continue
+			}
+			return fmt.Errorf(
+				"%w: %s region [%d,%d) overlaps the module's own data segment [%d,%d)",
+				ErrHostRegionOverlapsData, r.export, r.start, r.end, segStart, segEnd)
+		}
+	}
+	return nil
+}
+
 // ─── emit 源混用判定（§8.2）─────────────────────────────────────
 
 // EmitSource 是一条 emission 由哪个 host 函数发出。
@@ -664,6 +733,11 @@ var (
 	ErrHostRegionMissing = errors.New("abi: host region exports are missing")
 	// ErrHostRegionInvalid 是「宿主区重叠 / 未对齐 / 越界 / 低于下界」。
 	ErrHostRegionInvalid = errors.New("abi: host region declaration is invalid")
+	// ErrHostRegionOverlapsData 是「宿主区落在模块自己的 Data section 上」（QT-62）。
+	ErrHostRegionOverlapsData = errors.New("abi: host region overlaps the module's own static data")
+	// ErrHostRegionDataUnprovable 是「无法从 artifact 字节证明宿主区不踩模块数据」
+	// （被动段 / 非常量 offset / 非零 memory index）。读不懂即拒绝，不当作空图。
+	ErrHostRegionDataUnprovable = errors.New("abi: host region overlap cannot be disproved from the artifact bytes")
 	// ErrParamsTooLarge 是「params 超过 MaxParamsBytes 或塞不进声明的区间」。
 	ErrParamsTooLarge = errors.New("abi: strategy params exceed the frozen budget")
 	// ErrScopeUnknown 是「scope 缺失或取了未知值」。

@@ -252,6 +252,6 @@ type SessionLifecycle interface {
 |---|---|---|
 | `emit_target2` | 目标权重表达（§2.1 表已补） | 与 `get_bar2` 同属"artifact 出厂后改不动"的 ABI 面；M0b 的「分层加仓」验收依赖它 |
 | `FillTiming` | **不是 host 函数**，属 `SignalSpec`：`next_open`（终态）/ `same_close`（兼容） | 它决定"读了当日 close 之后按什么价成交"；NT 侧必须同口径，否则 K15 的差异无法归因 |
-| host 区所有权 | 模块必须导出 `__host_params_ptr` / `__host_scratch_ptr` / `__host_scratch_size`；缺失 fail-closed | A6 只定了偏移与上限，没定"这段内存归谁"；没有导出符号就只能靠"TinyGo 当前布局恰好留空"的巧合 |
+| host 区所有权 | 模块必须导出 `__host_params_ptr` / `__host_scratch_ptr` / `__host_scratch_size`；缺失 fail-closed | A6 只定了偏移与上限，没定"这段内存归谁"；没有导出符号就只能靠"TinyGo 当前布局恰好留空"的巧合。**地址空间权威已定（QT-62）**：模块自己的静态数据 = Data section 活动段并集，宿主区 = 三个导出 global 的声明；两者相交即拒绝 artifact（不改地址、不缩区间、不仲裁先后）。实现与证据见 [`host-region-overlap.md`](host-region-overlap.md) |
 
 **冻结纪律**：以上三项 + `get_bar2/get_series_len2/get_date2` 必须在**同一次** abi v2 冻结中一起定稿；已出厂 artifact 不得再补签名。

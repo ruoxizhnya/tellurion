@@ -82,7 +82,19 @@ func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*O
 		module.Close(ctx)
 		return nil, err
 	}
-	diagnostics, err := ValidateLoadedArtifact(inst, family)
+	// QT-62：v2 的宿主区判定要拿模块自己的数据段，而 wazero 的 CompiledModule
+	// 不暴露 Data section ⇒ 从原始字节解一次（纯静态、不执行、无副作用）。
+	// v1 不解析：它的宿主区走 legacy 布局，声明校验整体跳过。
+	var dataImage contracts.StaticDataImage
+	if family == contracts.HostAbiV2 {
+		img, perr := ParseStaticDataImage(wasmBytes)
+		if perr != nil {
+			_ = inst.Close()
+			return nil, perr
+		}
+		dataImage = img
+	}
+	diagnostics, err := ValidateLoadedArtifact(inst, family, dataImage)
 	if err != nil {
 		_ = inst.Close()
 		return nil, err
