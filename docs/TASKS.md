@@ -501,7 +501,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：两仓单独 checkout 后 `go build ./...` + `go test ./...` 绿（不 checkout core/agent）；core / agent `go list -m` 显示 `v0.1.0` 且**无 `=>`**；`make contracts-pin-check` 绿；`tools/check_repo_autonomy.py` 对两仓全绿；切 tag 前后同参回测**逐位一致**（报告归档）；agent 的 R1 在 S3 后转绿。
 - **⑥ 边界**：只做版本切换与自治补齐；X 线六个服务仓**不在本单**（真起进程时另立）。
 
-### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] ⬜
+### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] ⬜ · **① pin 祖先校验已落（2026-10-23）**
 
 - **① 目标**：ADR-D29 §9 的 C1~C5 五条规则**机械可查**；「两边各写一份理解」能在契约层被发现，而不是靠 K15 双跑。
 - **② 上下文**：`repo-topology-and-naming.md` §9；现状无任何跨仓护栏（agent CI 反而在「帮」跨仓构建：checkout core + `go mod edit -replace`）；契约仓**自 S1 起就存在且有实现**（ADR-D31），但「以版本被依赖」要等 S2 的 QT-07。
@@ -514,6 +514,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不比对「两边代码是否相同」（只比契约行为）；不引入新测试框架；不阻断 additive 变更（C5 只约束 breaking）。
 - **⑤ 验收**：故意提交一个仓外 replace → CI 红（留证后撤回）；契约测试能捕获「一侧改了默认值/语义」；PR 模板缺填时 CI 提示；`go.work` 被 add 时 CI 红。
 - **⑥ 边界**：只做护栏与契约测试；契约内容本身由 W0 冻结。
+
+> **进度（2026-10-23，B2：pin 祖先校验落地）**：
+> - **`tools/check_contract_pin.py`**：扫 core + 同级 `tellurion*` go 仓的 `go.mod`，提取对 contracts/kit 的 `require`。伪版本取末尾 12 位 sha、tag 经 `git rev-parse` 解析到 commit；判它是否为目标仓 `origin/main`（本地无远程跟踪时退回 `main`）的祖先；每个 pin 打印 `repo@sha → 提交日期`（committer date，不是伪版本里的时间戳）。**无法解析 / 拉不到目标仓 / `replace` 覆盖了 pin 一律 RED**（fail-closed），不把「没核成」伪装成「核过了」。目标仓优先同级 checkout；core-only CI 匿名 clone `https://<module-path>`（两仓 public，转私有会 fail-loud，按 ADR-D31 的已知风险配凭证）。
+> - **`--self-test`（9 条夹具腿，护栏自证）**：main 中段提交放行（证明判据是「祖先」而不是「相等」）、输出含 `repo@sha → 日期`、main tip 放行、旁支提交红、main 上的 tag 放行、旁支 tag 红、幽灵 sha 红、无 pin 绿、replace 覆盖红。夹具是临时目录里的**真 git 仓**，不碰真仓；无 git 时显式 SKIP + `::warning`，不装成通过。
+> - **接线**：`make contracts-pin-check`（先 `--self-test` 再实扫）与 CI `docs` job 的 `Contract pin ancestry (R5)` 步同款命令；QT-07 ⑤ 的 `make contracts-pin-check` 入口自此可用，S2 切 tag 后实扫会自动从伪版本核到 tag。
+> - **实跑取证**：按本单提交的 HEAD，core / agent 的 `go.mod` 都还没有 contracts/kit 内部 require ⇒ 实扫 **0 pin**、GREEN（摘要显式打印「未发现 pin」，不把「没东西可核」写成「核过了」）。非空路径用真实数据实测两次：① 本工作区并发的 QT-05 未提交改动把 core pin 到 contracts `fbe9a2d0df17`（`v0.0.0-20261022191510-fbe9a2d0df17`）⇒ 实扫 `tellurion-contracts@fbe9a2d0df17 → 2026-10-22T21:15:10+02:00`、`origin/main` 祖先、退出 0（该 pin 属另一会话的未提交改动，**不在本 commit 内**）；② 模拟 core-only / 无兄弟仓，用 contracts `main` = `c44084683bc6` 实测：匿名 clone ⇒ `tellurion-contracts@c44084683bc6 → 2026-10-22T23:07:50+02:00`、退出 0；幽灵 sha ⇒ RED、退出 1。本地兄弟仓腿实测走 `origin/main`（`target=local`）。
+> - **破坏验证（副本上，不碰仓内文件）**：把祖先判定改成 `if True` ⇒「旁支提交 / 旁支 tag」两腿 FAIL、退出 1；关掉 replace 检测 ⇒「replace 覆盖」腿 FAIL、退出 1。自证腿有牙齿，不是空转。
+> - **边界（不夸大）**：本工具只核**已写进 `go.mod` 的 pin**；各仓 AGENTS「依赖的契约版本」声明的一致性仍由 `check_repo_autonomy.py` R5 核 —— 两者互补、互不替代。QT-09 的 ②~⑤（examples / 契约测试 / PR 模板 / AST 扫描）仍未做，本单保持 ⬜。
 
 ### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] ⬜
 

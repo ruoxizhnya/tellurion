@@ -295,6 +295,17 @@ jobs:
           python tools/check_repo_autonomy.py --self-test
           python tools/check_repo_autonomy.py
 
+      # QT-09 ① / QT-07 ⑤：契约 pin 祖先校验（补 R5 的缺口）。
+      # R5（check_repo_autonomy.py）只比对 AGENTS 里的版本声明是否一致；这里核
+      # **go.mod 里的实际 pin 是不是目标仓 main 的祖先** —— 伪版本可以指向未评审
+      # 的旁支，go build 发现不了。core-only checkout 下若真有 pin，脚本会匿名
+      # clone contracts/kit（两仓 public）；当前 main 上尚无 pin ⇒ 不触网，显式打印 0 pin。
+      # 先跑 --self-test：先证明护栏拦得住旁支 pin/tag/replace，再让它对真仓下结论。
+      - name: Contract pin ancestry (R5)
+        run: |
+          python tools/check_contract_pin.py --self-test
+          python tools/check_contract_pin.py
+
   # ── QT-18：过渡期 core↔agent 编译连体护栏 ──────────────────────────
   # S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 换
   # host 函数、错误分级改 getSignals 返回、per-run 实例改 Registry.Get 语义、检查点主键变更）。

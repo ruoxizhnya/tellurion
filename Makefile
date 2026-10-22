@@ -3,7 +3,7 @@
 # Usage: make [target] VERSION=v1.0.0
 # ============================================================
 
-.PHONY: all build push clean test lint agent-compat help
+.PHONY: all build push clean test lint agent-compat contracts-pin-check help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "local")
@@ -122,6 +122,15 @@ lint:
 agent-compat:
 	@sh tools/ci/agent_compat.sh
 
+# QT-09 ① / QT-07 ⑤：契约 pin（contracts/kit）必须是目标仓 main 的祖先。
+# 伪版本可以指向任意 commit，go build 不关心它合没合进 main —— 由这条腿守。
+# 与 CI 的 "Contract pin ancestry (R5)" 步同一份命令；没有 make 时直跑：
+#     python tools/check_contract_pin.py --self-test
+#     python tools/check_contract_pin.py
+contracts-pin-check:
+	python tools/check_contract_pin.py --self-test
+	python tools/check_contract_pin.py
+
 help:
 	@echo ""
 	@echo "📦 Quant Trading - Build & Deploy System"
@@ -156,6 +165,7 @@ help:
 	@echo "  test               Run Go tests"
 	@echo "  lint               Run golangci-lint"
 	@echo "  agent-compat       Shorthand for tools/ci/agent_compat.sh (QT-18 cross-repo compile guard; run the script directly when make is unavailable, e.g. Git Bash on Windows)"
+	@echo "  contracts-pin-check Verify contracts/kit pins are ancestors of their main (QT-09; run the python commands directly when make is unavailable)"
 	@echo "  clean              Clean up Docker resources"
 	@echo "  help               Show this help message"
 	@echo ""

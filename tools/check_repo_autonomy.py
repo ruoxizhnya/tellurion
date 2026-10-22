@@ -29,6 +29,8 @@
                        两条合起来就是 R4；单列一个空函数是假装覆盖，不做。
   R5 契约是版本依赖 —— **core 汇总跑**：各仓 AGENTS「依赖的契约版本」表里对 contracts/kit 的声明
                        必须彼此一致（今天都是「待 S2 → v0.1.0」；一旦有人先钉 v0.1.0、有人钉 v0.2.0 即分叉 → 红）。
+                       本脚本只核**声明一致**；「pin 的 commit 是不是目标仓 main 的祖先」
+                       是另一条腿，由 `tools/check_contract_pin.py` 核（QT-09 ①），两者互补。
   R6 功能边界有契约 —— 每仓 docs/{db-schema,api-schema,dataflow}.md 存在且非空。
                        **core 与 tellurion-docs 豁免**（如实登记，不假装）：core 的表/接口/链路真相
                        直接承载于 SPEC.md / ARCHITECTURE.md（见 REPO-MAP「core 与本仓豁免」），
