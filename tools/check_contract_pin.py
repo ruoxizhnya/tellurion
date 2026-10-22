@@ -536,12 +536,19 @@ def self_test() -> int:
                not res["reds"] and res["pins"] == 0
                and any("无 contracts/kit pin" in x for x in res["notes"]))
 
+        block_replace = find_replaces(
+            "module tellurion\n\nreplace (\n"
+            "\tgithub.com/ruoxizhnya/tellurion-contracts => ../tellurion-contracts\n"
+            ")\n"
+        )
         res = run(block_mod(
             _pseudo(sha_b, "20261002120000"),
             "\nreplace github.com/ruoxizhnya/tellurion-contracts => ../tellurion-contracts\n",
         ))
-        expect("replace 覆盖 pin → 红（require 里的版本不是实际编译版本）",
-               bool(res["reds"]) and all("replace 覆盖" in x for x in res["reds"]))
+        expect("replace 覆盖 pin → 红（单行/块形式都识别）",
+               bool(res["reds"]) and all("replace 覆盖" in x for x in res["reds"])
+               and len(block_replace) == 1
+               and block_replace[0].target == "../tellurion-contracts")
 
     if fails:
         print(f"\n结果：护栏自证 RED —— {len(fails)} 条：{fails}")
