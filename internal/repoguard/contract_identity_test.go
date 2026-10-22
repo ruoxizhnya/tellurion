@@ -14,10 +14,13 @@ package repoguard
 //	  backtest.BacktestResponse，而序列化出去的已是另一份形状 —— 编译器同样不红。
 //	  判据：门面里每一个与契约同名的声明都必须是别名，且别名右侧的包必须真是
 //	  本仓依赖的契约包、那个名字必须真在那边导出（名单现场解析，不手抄）。
-//	腿 C（不许新增撞名的第二定义）：core 里另有 4 个与契约同名但**刻意分型**的
-//	  本地类型（逐条理由见 shadowContractNameBaseline），是 B1 之前就存在的既成
-//	  事实；这条腿守的是「第 5 个不许悄悄长出来」。非别名、又不在基线里 = 红；
-//	  基线条目不再命中 = 反向棘轮逼删（白名单不许替已消失的违规打掩护）。
+//	腿 C（不许长出第二份形状）：core 里任何**用契约类型名**的顶层声明都必须是
+//	  指向契约包的别名，且被指的那个名字得真在契约里导出 —— 这条不限文件名，
+//	  所以「新加一个 aliases2.go 把 BacktestResponse 别名到本仓某个 struct」同
+//	  样咬得住（腿 B 只管门面那一个文件）。既成的 4 个**刻意分型**的本地同名
+//	  类型（逐条理由见 shadowContractNameBaseline）是 B1 之前就存在的既成事实，
+//	  这条腿守的是「第 5 个不许悄悄长出来」；基线条目不再命中 = 反向棘轮逼删
+//	  （白名单不许替已消失的违规打掩护）。
 //
 // 三条都 fail-closed：定位不到契约模块、解析走空，一律红，不把「没核成」伪装
 // 成「核过了」。
@@ -42,8 +45,9 @@ import (
 // contractsModulePath 是本护栏的核保对象，写死是故意的：契约仓改名属跨仓决策。
 const contractsModulePath = "github.com/ruoxizhnya/tellurion-contracts"
 
-// minContractTypeNames 是解析正证据的下限。2026-10-23 实测四包共 97 个导出类型
-// 名：留到 90 容得下 bump，容不下走空（名单为空会让腿 B/C 恒绿）。
+// minContractTypeNames 是解析正证据的下限。2026-10-23 用 go/ast 现场解析四包
+// （domain 71 / domain/market 12 / engine 26 / fees 1，按名字去重后共 98 个导出
+// 类型名）：留到 90 容得下 bump，容不下走空（名单为空会让腿 B/C 恒绿）。
 const minContractTypeNames = 90
 
 // minFacadeAliases 是门面别名腿的正证据下限。2026-10-23 实测 7 条
@@ -80,13 +84,17 @@ var (
 // 的本地包」换成「契约包 vs core 的本地包」），本基线守的是不要再长第 5 条。
 // 2026-10-23 逐条实测过形状（见 docs/TASKS.md QT-05 core 腿结案段的缺口登记）。
 var shadowContractNameBaseline = map[string]string{
-	// 实测：core 这 5 个方法名与契约 market.Provider 逐字相同，另多 5 个
-	// （Name / CheckConnectivity / GetStock / GetTradingDays / BulkLoadOHLCV）
+	// 实测（2026-10-23，逐条读了签名）：core 这 11 个方法里有 5 个与契约
+	// market.Provider 的名字与签名逐字相同（GetOHLCV / GetFundamental /
+	// GetStocks / GetLatestPrice / GetIndexConstituents，返回的 domain.OHLCV 等
+	// 就是 market.OHLCV 的别名），另 6 个是 core 多的（Name / CheckConnectivity /
+	// CheckCalendarExists / GetStock / GetTradingDays / BulkLoadOHLCV）
 	// ⇒ 超集关系，且两者之间没有编译期断言钉住。收敛属数据面（X1 / QT-40）。
-	"pkg/marketdata/provider.go:Provider":   "取数 Provider 接口，是契约 market.Provider 的**超集**（同名 5 方法逐字相同 + 另 5 个）；今天靠实现体同时满足两边，没有 var _ market.Provider = ... 这类断言 —— 已登记缺口，不在本护栏裁",
+	"pkg/marketdata/provider.go:Provider":   "取数 Provider 接口，是契约 market.Provider 的**超集**（同名 5 方法签名逐字相同 + 另 6 个）；今天靠实现体同时满足两边，没有 var _ market.Provider = ... 这类断言 —— 已登记缺口，不在本护栏裁",
 	"pkg/portfolio/interfaces.go:Portfolio": "组合域自己的接口（ApplyFill / Value / Positions / Snapshot）；契约 domain.Portfolio 是可变的内存持仓载体（struct），两者关系已在该文件注释里写清",
 	"pkg/risk/manager.go:RiskManager":       "契约 domain.RiskManager 那个 port 的**实现体**（struct）；实现者与被实现的接口同名是刻意的（同步裁决留 core 进程内）",
-	// 实测 45 个文件在用；engine.go:1504 convertStrategySignals 是唯一的映射腿。
+	// 实测 51 个 .go 里出现 strategy.Signal（`git grep -l 'strategy\.Signal' -- '*.go' | wc -l`；
+	// 去掉 _test.go 是 24 个）。
 	"pkg/strategy/strategy.go:Signal": "策略插件的产出形状（Action string / Price / Date interface{}），在 pkg/backtest/engine.go 的 convertStrategySignals 显式映射成契约 domain.Signal（Direction / CompositeScore / Factors）；要不要收敛属策略面的单，不由本护栏裁",
 }
 
@@ -130,18 +138,7 @@ func TestFacadeReexportsStayAliasesIntoContracts(t *testing.T) {
 
 	// import 标识符 -> 导入路径（无别名时标识符 = 契约包 package 名，下面按
 	// package 子句核，不拿目录名猜）。
-	pathOfIdent := map[string]string{}
-	for _, spec := range file.Imports {
-		path := strings.Trim(spec.Path.Value, `"`)
-		ident := ""
-		if spec.Name != nil { // 显式别名才有；裸 import 时 spec.Name 是 nil
-			ident = spec.Name.Name
-		}
-		if ident == "" {
-			ident = packageIdentOfImportPath(t, root, path)
-		}
-		pathOfIdent[ident] = path
-	}
+	pathOfIdent := importPathsByIdent(t, root, file)
 
 	var offenders []string
 	aliased := 0
@@ -152,13 +149,15 @@ func TestFacadeReexportsStayAliasesIntoContracts(t *testing.T) {
 		where := facadeFile + ":" + strconv.Itoa(fset.Position(ts.Pos()).Line)
 		if ts.Assign.IsValid() {
 			// 别名：右侧必须是 <契约包标识符>.<契约导出的名字>。
-			if path, ok := aliasTargetContractPackage(ts, pathOfIdent); !ok {
+			path, target, ok := aliasTargetContractPackage(ts, pathOfIdent)
+			if !ok {
 				offenders = append(offenders, where+" type "+ts.Name.Name+
 					" = 指向的不是契约模块（改成再导出 "+contractsModulePath+"/… 的那个类型）")
 				continue
-			} else if !contractTypesAt(t, root, path)[ts.Name.Name] {
-				offenders = append(offenders, where+" type "+ts.Name.Name+
-					" = "+path+" 里并没有导出这个名字")
+			}
+			if !contractTypesAt(t, root, path)[target] {
+				offenders = append(offenders, where+" type "+ts.Name.Name+" = "+path+"."+target+
+					" —— 契约那边没导出这个名字")
 				continue
 			}
 			aliased++
@@ -174,8 +173,8 @@ func TestFacadeReexportsStayAliasesIntoContracts(t *testing.T) {
 			"门面是 core 的 API 面，别缩", aliased, minFacadeAliases)
 }
 
-// TestNoUnlistedShadowContractTypeDeclarations 腿 C：core 里不得新增与契约同名
-// 的本地定义；既成的 4 条按基线登记。
+// TestNoUnlistedShadowContractTypeDeclarations 腿 C：core 里任何用契约类型名的
+// 顶层声明，要么是**指向契约包的别名**，要么就是第二份形状。
 func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join("..", "..")
@@ -184,13 +183,32 @@ func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 
 	hits := map[string]bool{}
 	var unlisted []string
+	var badAliases []string
 	forEachGoFile(t, root, func(rel string, file *ast.File, fset *token.FileSet) {
+		var pathOfIdent map[string]string
 		for _, ts := range typeSpecs(file) {
 			if !names[ts.Name.Name] {
 				continue
 			}
+			where := rel + ":" + strconv.Itoa(fset.Position(ts.Pos()).Line)
 			if ts.Assign.IsValid() {
-				continue // 别名不是第二份定义（腿 B 专门核门面的别名）
+				// 别名：不限文件名，右侧必须真是契约模块的包、且那边导出了这个名字。
+				// 门面那 7 条由腿 B 同样核一遍；这里多抓的是「另起一个文件把契约
+				// 类型名别名到本仓 struct」——形状换了，调用点前缀却看不出差别。
+				if pathOfIdent == nil {
+					pathOfIdent = importPathsByIdent(t, root, file)
+				}
+				path, target, ok := aliasTargetContractPackage(ts, pathOfIdent)
+				if !ok {
+					badAliases = append(badAliases, where+" type "+ts.Name.Name+
+						" = 指向的不是 "+contractsModulePath+" 下的包（要再导出契约类型就 import 那个契约包）")
+					continue
+				}
+				if !contractTypesAt(t, root, path)[target] {
+					badAliases = append(badAliases, where+" type "+ts.Name.Name+" = "+path+"."+target+
+						" —— 契约那边没导出这个名字")
+				}
+				continue
 			}
 			key := rel + ":" + ts.Name.Name
 			hits[key] = true
@@ -207,6 +225,12 @@ func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 			"确有理由留在本仓的按 shadowContractNameBaseline 的格式登记并写清撞的是什么：%v",
 		contractsModulePath, unlisted)
 
+	sort.Strings(badAliases)
+	assert.Empty(t, badAliases,
+		"这些别名占住了契约类型名，右侧却不是契约模块导出的那个类型 —— 门面之外的"+
+			"「第二份形状」同样不被允许（腿 B 只覆盖 %s 一个文件，这条覆盖全仓）：\n%s",
+		facadeFile, strings.Join(badAliases, "\n"))
+
 	var stale []string
 	for key, reason := range shadowContractNameBaseline {
 		if !hits[key] {
@@ -217,6 +241,27 @@ func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 	assert.Empty(t, stale,
 		"shadowContractNameBaseline 里这些声明已不在仓里 —— 删掉条目，白名单不许替已消失的"+
 			"撞名打掩护：\n%s", strings.Join(stale, "\n"))
+}
+
+// importPathsByIdent 返回一个文件里「源码中写的那个标识符 -> 导入路径」。
+// 显式导入别名（import foo "path"）直接用别名；裸 import 的标识符是包自己的
+// package 名 —— 契约的 engine/ 目录 package 名就叫 contracts，所以必须读
+// package 子句，不能拿目录末段猜。
+func importPathsByIdent(t *testing.T, root string, file *ast.File) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, spec := range file.Imports {
+		path := strings.Trim(spec.Path.Value, `"`)
+		ident := ""
+		if spec.Name != nil { // 显式别名才有；裸 import 时 spec.Name 是 nil
+			ident = spec.Name.Name
+		}
+		if ident == "" {
+			ident = packageIdentOfImportPath(t, root, path)
+		}
+		out[ident] = path
+	}
+	return out
 }
 
 // contractTypesByPackageIdent 返回「import 标识符（= 契约包的 package 名）->
@@ -265,22 +310,23 @@ func contractTypesAt(t *testing.T, root, importPath string) map[string]bool {
 	return nil
 }
 
-// aliasTargetContractPackage 判断别名右侧是否形如 <ident>.<Name>，且该标识符
-// 对应一个契约模块里的包。
-func aliasTargetContractPackage(ts *ast.TypeSpec, pathOfIdent map[string]string) (string, bool) {
+// aliasTargetContractPackage 判断别名右侧是否形如 <ident>.<Name>、该标识符是否
+// 对应契约模块里的一个包，并返回**右侧那个名字**（不是别名左边的名字 ——
+// 要核的是「契约那边真导出了它」，拿左边的名字去查会恒真）。
+func aliasTargetContractPackage(ts *ast.TypeSpec, pathOfIdent map[string]string) (string, string, bool) {
 	ae, ok := ts.Type.(*ast.SelectorExpr)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	ident, ok := ae.X.(*ast.Ident)
 	if !ok {
-		return "", false
+		return "", "", false
 	}
 	path, ok := pathOfIdent[ident.Name]
 	if !ok || !strings.HasPrefix(path, contractsModulePath+"/") {
-		return "", false
+		return path, ae.Sel.Name, false
 	}
-	return path, true
+	return path, ae.Sel.Name, true
 }
 
 // packageIdentAndExportedTypes 解析一个契约包目录：package 名（标识符）+ 导出
@@ -333,6 +379,10 @@ func packageIdentOfImportPath(t *testing.T, root, importPath string) string {
 
 // goModContractVersion 取 go.mod 里对契约模块的 require 版本。缺这一行本身就是
 // 回归：那意味着契约身份又回到了本仓。
+//
+// 两种写法都要认：require 块里的一行，与 `go mod edit -require=...` 追加的
+// `require path version` 单行形式（tools/ci/agent_compat.sh 就在用 go mod edit，
+// 只认块形式会让本护栏在一个合法的 go.mod 上假红）。
 func goModContractVersion(t *testing.T, root string) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(root, "go.mod"))
@@ -340,6 +390,9 @@ func goModContractVersion(t *testing.T, root string) string {
 
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == "require" && fields[1] == contractsModulePath {
+			return fields[2]
+		}
 		if len(fields) >= 2 && fields[0] == contractsModulePath {
 			return fields[1]
 		}
