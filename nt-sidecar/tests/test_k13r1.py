@@ -177,6 +177,7 @@ class TimingReportTest(unittest.TestCase):
                         "stock_pool": ["600000.SH"],
                         "start_date": START,
                         "end_date": "2024-01-20",
+                        "fill_timing": "same_close",  # QT-02 · required on the wire
                     }
                 ),
                 headers={"Content-Type": "application/json"},
@@ -189,6 +190,8 @@ class TimingReportTest(unittest.TestCase):
             server.server_close()
 
         self.assertEqual(resp.status, 200)
+        # QT-02 · a successful reply echoes the caliber the request declared.
+        self.assertEqual(payload["fill_timing"], "same_close")
         self.assertIn("timing", payload)
         timing = payload["timing"]
         for key in ("queue_ms", "exec_ms", "total_ms"):
