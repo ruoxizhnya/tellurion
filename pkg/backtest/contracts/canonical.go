@@ -46,6 +46,11 @@ const (
 	DomainUniverseHash        = "tellurion.universe_hash.v1"
 	DomainCalendarHash        = "tellurion.calendar_hash.v1"
 	DomainAnchorDigestsHash   = "tellurion.adjustment_anchor_digests.v1"
+	// DomainParamsHash 是 QT-63 落库列 params_hash 的域：生效参数的独立指纹。
+	// 与 run_spec_hash 内嵌的那一份**不同域**——后者是整份输入的复合身份，
+	// 前者要能单独回答「参数是不是同一组」，两者混用会让「只比参数」的查询
+	// 误命中一批换了区间/票池的 run。
+	DomainParamsHash = "tellurion.params_hash.v1"
 )
 
 // NewCanonical 开启一段新的编码，先写入域标签。

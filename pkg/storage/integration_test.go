@@ -256,6 +256,7 @@ func TestIntegration_MigrateIsIdempotentForModuleTables(t *testing.T) {
 		"audit.message_log",
 		"quant.strategy_state",
 		"quant.external_signals",
+		"quant.run_provenance",
 	} {
 		var oid *string
 		require.NoError(t, store.pool.QueryRow(ctx,

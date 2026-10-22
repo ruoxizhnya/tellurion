@@ -205,6 +205,14 @@ type BacktestRequest struct {
 	// K15 之前逐字节一致。校验（weight∈[0,1] finite、as_of ISO 日期、symbol
 	// 非空）在 ValidateRunSpec，违例 400。
 	Signals []SignalWeight `json:"signals,omitempty"`
+
+	// RunID 让**进程内**调用方（job 服务）把 run 身份对齐到 backtest_jobs.id，
+	// 这样 `quant.run_provenance ⋈ backtest_jobs` 才是一条真 join（QT-63 ⑤）。
+	//
+	// json:"-" 是有意的：身份由服务端分配，不开放给 HTTP 客户端指定 ——
+	// 否则任何人可以拿别人的 run_id 去撞 provenance 的 fail-loud 闸门。
+	// 空值 = 引擎自己生成 uuid（既有行为，逐字节不变）。
+	RunID string `json:"-"`
 }
 
 // BacktestResponse represents the API response for a backtest run.

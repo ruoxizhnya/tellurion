@@ -90,6 +90,29 @@ func WithAdjustmentAnchorStore(st AdjustmentAnchorStore) EngineOption {
 	}
 }
 
+// WithRunProvenanceWriter 注入 run 留痕（QT-63）的写入端口。
+// 传 nil 恢复「跟随 e.store」的默认；两者都没有时引擎不写 provenance。
+func WithRunProvenanceWriter(w RunProvenanceWriter) EngineOption {
+	return func(e *Engine) {
+		e.mu.Lock()
+		e.provWriter = w
+		e.mu.Unlock()
+	}
+}
+
+// WithoutRunProvenance 关闭 provenance 写入。
+//
+// 只给「挂了一个只读库 / 纯内存演示」的装配用：默认语义是「有 store 就写」，
+// 而那些装配连接池没有写权限、也没有 run_provenance 表。生产路径不要用它 ——
+// 没有留痕的 run 查不到自己的输入。
+func WithoutRunProvenance() EngineOption {
+	return func(e *Engine) {
+		e.mu.Lock()
+		e.provenanceOff = true
+		e.mu.Unlock()
+	}
+}
+
 // WithLiveTrader 注入 live / paper trading trader。等价于 SetLiveTrader。
 func WithLiveTrader(trader live.LiveTrader) EngineOption {
 	return func(e *Engine) {

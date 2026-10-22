@@ -84,7 +84,7 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 
 - `public`：规范化市场数据（ stocks / ohlcv_daily_qfq【唯一 hypertable，migrate 内 `create_hypertable`】/ stock_fundamentals / trading_calendar / splits / dividends / index_constituents / factor_cache / factor_returns / ic_analysis / backtest_jobs / sync_jobs / sync_schedules / strategies / users / audit_logs 等）
 - `ingest.raw`：类 A 原始响应归档（唯一键 `content_hash`）
-- `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
+- `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；run 留痕 `run_provenance`（QT-63，Migration 056，**只存输入身份、不存 status** —— status 的唯一权威是 `backtest_jobs`，查询用 join/视图）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
 - `research.*`：研究投影（conclusion / question / profile）
 - `market.*`：指数行情独立分区（`market.index_daily`，Migration 057，migrate 内建——指数不与个股混表）
 - `audit.*`：内核事件存储（`audit.message_log`，`pkg/eventstore/schema.go` 的 `EnsureSchema` 幂等建，未并入 migrate）

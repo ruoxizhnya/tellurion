@@ -1186,6 +1186,10 @@ func migrationStatements() []string {
 	// Migration 055（SPEC-R-01）：quant.strategy_state 由 pkg/strategy 的
 	// EnsureSchema 兜底建表，这里收编为 migrate() 的唯一真相。表结构零变更。
 	migrations = append(migrations, StrategyStateSchemaDDL...)
+	// Migration 056（QT-63）：quant.run_provenance —— 一次 run 的输入身份。
+	// 只存输入、不存状态（status 的权威是 backtest_jobs）；落点裁决与 O1 的
+	// 迁移债见 docs/TASKS.md QT-63。
+	migrations = append(migrations, RunProvenanceSchemaDDL...)
 
 	return migrations
 }

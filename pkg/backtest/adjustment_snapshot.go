@@ -90,8 +90,19 @@ type adjustmentRun struct {
 	ratios map[string]float64
 	// captured：本次新采集、flush 时落库的基准。
 	captured []AdjustmentAnchor
+	// digests：本次 run **实际使用**的锚点序列摘要（QT-63 进 run_spec_hash）。
+	// persisted 与 newly captured 都收 —— 两者都决定了本 run 的价格刻度。
+	digests  []string
 	rescaled int
 	skipped  int // 暖机没拿到全区间数据的 symbol 数（不钉，如实计数）
+}
+
+// anchorDigests 返回本次 run 实际使用的锚点摘要（无 store 时为空）。
+func (a *adjustmentRun) anchorDigests() []string {
+	if a == nil {
+		return nil
+	}
+	return a.digests
 }
 
 // prepareAdjustmentRun 在 warmCache 之后调用：对每个 symbol 一次性完成
@@ -136,6 +147,7 @@ func prepareAdjustmentRun(
 				return nil, err
 			}
 			adj.ratios[sym] = ratio
+			adj.digests = append(adj.digests, anchor.SeriesDigest)
 			if ratio != 1 {
 				adj.rescaled++
 			}
@@ -158,6 +170,7 @@ func prepareAdjustmentRun(
 			return nil, fmt.Errorf("symbol %s: first bar close is not positive (%.6f)", sym, bars[0].Close)
 		}
 		adj.captured = append(adj.captured, a)
+		adj.digests = append(adj.digests, a.SeriesDigest)
 		adj.ratios[sym] = 1
 	}
 

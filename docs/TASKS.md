@@ -26,7 +26,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **S0** | QT-06 → **QT-18** → QT-08 | **分仓起步**：core 打 `v0.1.0` + **过渡期连体护栏** + 四仓自治三件套 | P0 / P1 | **QT-18 是 W0 的合入门禁**：未合入前 QT-01 不得进 main（第一个 breaking 就发生在 QT-01 的 abi v2）；QT-06/08 可与 W0 并行 |
 | **W0** | QT-01 ✅ | abi v2 契约冻结（12 函数 + 内存区 + 枚举） | P0 | **已完成（2026-10-21）**；一切 WASM 单的前置；artifact 出厂后改不动。原写「13 函数」是算错（8 v1 + 4 v2 = 12），订正见该单结案记录 |
 | W0 | QT-02 | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
-| W0 | QT-03 🔶 | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它。**定义 + 向量测试 + 文档收口已完成（2026-10-21）**；落库半边因「`run_artifacts` 已有落点」前提被证伪而拆出 → **QT-63** |
+| W0 | QT-03 ✅ | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它。**定义 + 向量测试 + 文档收口（2026-10-21）+ 落库（QT-63，2026-10-22）全部完成**；③-⑥ 的 SPEC 评审未触发（返回面没动） |
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
 | **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
@@ -254,7 +254,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⑤ 验收逐条**：缺字段 → run 拒绝且错误可读 ✅（引擎入口 `ResolveFillTiming` 报 Missing/Unknown 两种报文，绝不回落默认；侧车三种报文互不相同）；报告归档并被引用 ✅（`docs/test-cases/QT02_FILL_TIMING_REPORT.md`，SPEC 的成交时点子节与 openapi 都引它）；同环境重跑 ±0 ✅（momentum 与被断言组合逐位；默认口径 = 显式 next_open 逐位），覆盖面条件写在报告「同参重跑的稳定性」——有重复信号的策略同参复跑会漂，那批数值是一次抽样。
 > **④ 约束遵守**：报告归档（`ee93174`）之前默认值未动（C1~C4 全程 `same_close`），「现有 run 行为零变化」由存量序列化逐字节不变的既有测试与一条去掉 `omitempty` 就红的破坏腿钉住；未改滑点/费率/撮合内部（部分成交、涨跌停判定）；没有为「保住历史基准」而选口径 —— 报告量的差最大到 27.8 个百分点（高频策略，一次抽样），仍然按 §8.1 翻到 next_open。
 
-### QT-03 · 可复现留痕体系（`run_spec_hash` / `dataset_snapshot_hash` / `artifact_hash`）[P0] 🔶
+### QT-03 · 可复现留痕体系（`run_spec_hash` / `dataset_snapshot_hash` / `artifact_hash`）[P0] ✅（2026-10-22）
 
 - **① 目标**：任何一个回测结果都能回答"用什么输入跑出来的"，且**改任一影响结果的输入 ⇒ hash 必变**；三份 hash 的覆盖面与层级不再互相矛盾。
 - **② 上下文**：`p0-round2-review.md` N6 + N7；事实：`run_spec_hash` 全设计集仅 2 处引用、零定义；三 hash 不含费率/滑点/成本模型/T+1/初始资金/`FillTiming`/锚点 digest/内核版本/toolchain/seed；`dataset_snapshot_hash` 两处定义冲突（`data-service-contract-and-ownership.md` §2.1 四项 vs `adr-029-amendment-host-api-v2.md` §7.1 要求含 `Axis`）；`version_hash` 不含 toolchain 而 `@hash` 却指它（`strategy-asset-service-api.md` §1.2/§3.3）。
@@ -263,7 +263,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：向量测试覆盖 8 个"必变"分量与 3 个"不必变"场景；`GET /api/runs/{id}/provenance` 能返回三 hash + 引擎名 + seed（可先只落库，端点随 QT-44）；两处 `dataset_snapshot_hash` 定义在文档中只剩一处正文、另一处为引用。
 - **⑥ 边界**：只做"定义 + 落库 + 校验"；数据快照的实际计算在 QT-40。
 
-> **🔶 进度（2026-10-21）**：**「定义 + 校验」半边完成；「落库」半边因前提不成立而拆出（QT-63）**，故本单保持 🔶，不标 ✅。
+> **✅ 结案（2026-10-22）**：「定义 + 校验」半边 2026-10-21 完成；「落库」半边由 **QT-63** 交付（`quant.run_provenance`，Migration 056 + `Engine.RunBacktest` 写入路径）。③-⑥ 的 SPEC 变更评审**未触发**：`ResultSpec` / `RunSpec` 没有加三 hash 字段（对外返回面属 QT-44），冻结面没被触碰。
 >
 > **① 已完成（③-①②③⑤ + ⑤ 的第一、三条）**：
 > - **canonical 编码器** `pkg/backtest/contracts/canonical.go` —— 域标签 + 长度前缀帧 + 固定写入顺序，浮点用最短往返表示、-0 归一为 0、**NaN/±Inf 报错而不是编进 hash**；不可编码类型（struct/func/chan）报错而不是跳过。最后一条是本体系的命门：**跳过的字段改了也不变 hash，那是一份会撒谎的留痕**。
@@ -275,7 +275,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **② 工单前提被证伪（落库半边）**：④ 原文「不建新表（`run_artifacts` 已有落点，X0 载体）」——**`run_artifacts` 在代码里不存在**。实测：`grep -rn 'run_artifacts'` 在 `*.go` / `*.sql` / `*.yaml` **零命中**，只出现在 7 份设计文档里；`orchestration-service-design.md` §3 自己标的是「**待建（X0 载体）**」，归属 `run` schema，且 §8 红线写「`run` schema DDL 只归编排服务」，而编排服务仓是 S0 占位、未启动。于是「给 run_artifacts 加列」这条**无表可加**，而「建这张表」同时撞上 ④ 的字面禁止、编排仓的 schema 红线、core AGENTS §0 硬规则 2（不许在本仓重建已迁出的东西）。⇒ 不硬做也不擅自换个表落（core 现有 `backtest_jobs` 是任务表、且 O0 计划迁往 `run.backtest_jobs`，把 provenance 列加在一张要搬走的表上 = 第二次迁移），另立 **QT-63** 先定「provenance 落在哪、谁是权威」。**留痕的定义与校验已经冻死，这一处不影响 QT-20/22/23 对本单的依赖**（它们引用的是 `contracts` 里的定义，不是表）。
 >
-> **③ 未做**：③-④ 落库（→ QT-63）；③-⑥ 的 SPEC 变更评审——`ResultSpec`/`RunSpec` **暂未加三 hash 字段**，所以冻结面没被触碰，评审项随落库单一起走（届时 `status` 取值必须守三值口径 `completed/invalid/failed`）。
+> **③ 移出/未触发**：③-④ 落库已由 QT-63 交付（表 `quant.run_provenance`、写入路径与验收证据见该单完成记录）；③-⑥ 的 SPEC 变更评审未触发——`ResultSpec`/`RunSpec` 仍未加三 hash 字段（返回面属 QT-44），冻结面没被触碰。将来对外暴露时仍须守三值口径 `completed/invalid/failed`。
 
 ### QT-04 · 重复信号存量扫描（决定 trap / 合并）[P0] ✅（2026-10-22）
 
@@ -637,7 +637,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
-### QT-63 · provenance 落库落点未定（QT-03 拆分出的半边）[P0] ⬜
+### QT-63 · provenance 落库到 `quant.run_provenance`（QT-03 拆分出的半边）[P0] ✅（2026-10-22）
 
 - **① 目标**：定死「三份 hash 存在哪张表、谁是权威」，然后把 QT-03 已冻结的定义接进执行路径——让任一结果真能查到自己的输入。
 - **② 上下文**：QT-03 ④ 原文「不建新表（`run_artifacts` 已有落点，X0 载体）」**不成立**：`grep -rn 'run_artifacts'` 在 `*.go`/`*.sql`/`*.yaml` **零命中**，只在 7 份设计文档里；`orchestration-service-design.md` §3 标 **待建（X0 载体）**、§8 红线「`run` schema DDL 只归编排服务」，而编排仓是 S0 占位未启动。core 侧今天的 run 记录是 `backtest_jobs`（无 schema、O0 计划迁往 `run.backtest_jobs`）。两个候选落点各有代价：**(a) 现在就加在 core `backtest_jobs`** —— 立刻可查，但那是一列要随 O0 迁移的表，等于把 provenance 搬两次，且与「run schema 只归编排服务」的红线擦边；**(b) 等编排服务 O1 建 `run.run_artifacts`** —— 归属干净，但 W1/W2 的每一单（QT-15/16/20/22）都想读这三 hash，会集体等一个未启动的服务。
@@ -645,6 +645,32 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改 QT-03 已冻结的 canonical 定义（要改就升域标签 v2，代价是全部历史 hash 作废）；不实现数据服务 aggregator 的快照计算（QT-40）；不在本单接 `GET /api/runs/{id}/provenance` 端点（QT-44）。
 - **⑤ 验收**：任一真实 run 经 `quant.run_provenance ⋈ backtest_jobs` 能查到 `{run_spec_hash, dataset_snapshot_hash, artifact_hash, version_hash, strategy_ref_input, params_json, seed, kernel, engine_version, status}`（provenance 表本身不含 `status`，经 join/视图取得）；改费率/滑点/票池/日历/复权/内核/FillTiming/seed 任一 ⇒ 新 run 的 `run_spec_hash` 变（端到端一条腿，不只是单测）；DDL 走 `pkg/storage/postgres.go` 的 `migrationStatements()`（AGENTS §0 硬规则 3：**唯一真相，无例外**）。
 - **⑥ 边界**：只做「落点裁决 + 写入路径」；provenance 的对外返回面属 QT-44。
+
+> **✅ 完成记录（2026-10-22，本地 main；不 push）**
+>
+> **① 落点与写入路径**：
+> - 表 `quant.run_provenance`（Migration 056，DDL = `storage.RunProvenanceSchemaDDL`，挂在 `pkg/storage/postgres.go` 的 `migrationStatements()` 末尾；列清单逐字按 ⑦，**表内没有 `status`**）。
+> - 写入路径 `pkg/backtest/provenance.go`：sink 解析 = `WithRunProvenanceWriter` > `WithoutRunProvenance` 关闭 > `e.store` 自动承接 > 无 sink no-op。**日循环之前写一次**；写不进去 = run 失败（`failed`）——「跑完了但没有身份」不作为一种可交付结果。选项的应用顺序不影响解析（解析发生在 run 时，不是构造时）。
+> - `run_id` 对齐：`BacktestRequest.RunID` 是 `json:"-"` 的服务端字段（HTTP 客户端无法指定，防撞别人的 fail-loud 闸门）；`job.StartJob` 传 `RunID=jobID`，`quant.run_provenance ⋈ backtest_jobs` 因此是真 join。
+>
+> **② 生效值（N6-5）**：`FillTiming` 走 `ResolveFillTiming`、`Kernel` 走 `EffectiveKernel`、费率/涨跌停取自 `WithDefaults` 之后的 `Config.Trading`；滑点取**实际执行服务**的 `SlippageRate`（零值回落 `fees.FixedSlippageRate`，即 REV-19 定的成交口径，不是 tracker 的 0.0001）；`engine_version` 取 Go 构建信息的 `vcs.revision`（有未提交改动加 `-dirty`）。`params_json` / `params_hash` = 策略声明的默认参数（`GlobalGet(name).Parameters()`）——今天没有 run 级覆写（那是 QT-21），默认值同样决定结果，所以必须进 hash。
+>
+> **③ 进 hash 的成本/规则标量**（`RunSpecInput.Fees`）：`commission` / `min_commission` / `stamp_tax` / `stamp_tax_before` / `transfer_fee` / 四档 `price_limit_*` / `new_stock_days` / `liquidity_factor` / `impact_sigma` / `impact_liquidity_factor`。后几项不是费率，但和费率一样直接改成交价——漏一个就是一条「同 hash 不同结果」。
+>
+> **④ 测试**：
+> - `pkg/backtest/provenance_test.go`（默认构建，走真实 `RunBacktest`）：同输入同身份；8 个必变旋钮逐项单独改（费率 / 滑点 / 票池 / 日历 / 复权锚点口径 / 内核 / FillTiming / seed）；`RunID` 对齐；每 run 恰好写一次；写入失败 ⇒ run `failed`；无 sink ⇒ no-op；生效参数与 `params_hash`；dataset 身份按冻结定义复算；记录形状完整；费率键集**精确集合**断言；`engineVersion` 非空。
+> - `pkg/backtest/contracts/provenance_vector_test.go`：`params_hash` 的变更敏感、int/float 同身份、与 `run_spec_hash` 域隔离、黄金向量 `bd6c02a8a0eae3a920d4c7f02553e59871a65da8c97106fc5ddfcaa0ebbff495`（编码漂移当场红）。
+> - `pkg/storage/run_provenance_integration_test.go`（`-tags integration`，真 PG）：写入/读回；`⋈ backtest_jobs` 取回 `status + run_spec_hash + seed`；同身份重复写入幂等；**同 id 不同 hash ⇒ `ErrRunProvenanceConflict` 且原行不被覆盖**。`TestIntegration_MigrateIsIdempotentForModuleTables` 的建表清单加入 `quant.run_provenance`（`migrate()` 连跑两次仍绿）。
+>
+> **⑤ 破坏验证：未执行（如实登记）**。三条改坏腿（关掉写入 / 删掉一个费率键 / 把冲突 `WHERE` 改成恒真）**都被 auto-mode classifier 拦下**，没有拿到执行许可——不是「跑了但没红」。替代取证：① 在 **QT-63 之前**的干净 checkout 里放同一批新测试，退出码 **1**（`storage.RunProvenanceRecord` / `RunProvenanceWriter` / `WithRunProvenanceWriter` / `RunID` / `ParamsHash` 全部未定义）——测试确实咬在新增面上，不是空转；② 费率覆盖用**精确键集**断言（少一个键即红），不是阈值型护栏；③ 冲突腿在真 PG 上跑「同 id 不同 hash → 报错且原行不变」，中间没有 mock。**这三条不等于改坏验证**，等有授权时补做。
+>
+> **⑥ 遗留（如实登记，不假装已覆盖）**：
+> 1. `dataset_snapshot_hash` 的 `DataVersion` 是空串：今天没有供应商批次 / 表水位坐标系（QT-40 的 aggregator 落点）。它意味着 dataset 身份覆盖不到「原始数据被回填」。
+> 2. 内置 Go 策略的 `artifact_hash` / `version_hash` 为空（没有独立字节码）；而 QT-03 冻结的 `RunSpecInput` **不含策略 id** ⇒ 两个参数默认值相同的不同内置策略会得到同一个 `run_spec_hash`。这是 canonical 集合的已知缺口：补法要么 QT-41b 给内置策略登记 artifact，要么升域标签 v2（历史 hash 全作废），**不在本单擅改**。
+> 3. 构建环境没有 VCS 信息时 `engine_version` 回落 `devel`——两个不同提交可能共享该标签。
+> 4. 财报 / 日内快照不进 dataset 身份；`RiskRulesHash` 为空（QT-42 预留）。
+>
+> **⑦ ⑤ 验收逐条**：join 查询 ✅（真库集成腿）；8 个旋钮端到端 ✅（不是只测 builder：每条都从 `RunBacktest` 进、从注入的 sink 出）；DDL 走 `migrationStatements()` ✅（Migration 056 + 幂等腿）。未加 `GET /api/runs/{id}/provenance`（⑥ 边界，属 QT-44）。
 
 ---
 

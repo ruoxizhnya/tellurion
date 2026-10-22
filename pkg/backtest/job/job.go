@@ -429,6 +429,10 @@ func (s *JobService) StartJob(parentCtx context.Context, jobID string) {
 			EndDate:      record.EndDate,
 			Kernel:       kernel,
 			EngineParams: engineParams,
+			// QT-63：把 run 身份对齐到本 job 的行 id，provenance 才能与
+			// backtest_jobs 真 join（⑤）。引擎自己生成 uuid 的话，两边
+			// 各有一个 id 却谁也对不上谁。
+			RunID: jobID,
 		}
 		if v, ok := jobParams["initial_capital"].(float64); ok && v > 0 {
 			backtestReq.InitialCapital = v

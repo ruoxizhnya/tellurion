@@ -231,6 +231,19 @@ func (in RunSpecInput) MustHash() string {
 	return hex
 }
 
+// ParamsHash 是「生效参数」的独立指纹（QT-63 的 params_hash 列）。
+//
+// 与 RunSpecInput.Hash 里那一项是**同一个编码、不同域标签**：域分开是为了让
+// 「同一组参数跑过哪些区间/票池」这类查询可以只按参数比对，而不会被整份
+// run_spec_hash 的其它分量带偏。nil map 与空 map 是同一个身份（「没有声明
+// 任何参数」），因为它们在本函数的类型下指同一件事 —— 不会因为调用方写
+// `var m map[string]any` 还是 `map[string]any{}` 就得到两个 hash。
+func ParamsHash(effective map[string]any) (string, error) {
+	c := NewCanonical(DomainParamsHash)
+	c.Value("strategy_params_effective", effective)
+	return c.Hex()
+}
+
 // ─── strategy_ref 三形态（N7-3）──────────────────────────────
 
 // StrategyRef 是一次运行引用的解析结果。

@@ -416,3 +416,71 @@ func TestGoldenVectors_RunSpecHash(t *testing.T) {
 	assert.Equal(t, "3fa92d73d559fc5d7ebd75ffa95a2f993b1e3fed29483419faf37d243b078b85",
 		baselineDatasetSnapshot().Hash(), "dataset_snapshot_hash 黄金向量变了")
 }
+
+// ─── params_hash（QT-63 落库列）──────────────────────────────
+
+func mustParamsHash(t *testing.T, effective map[string]any) string {
+	t.Helper()
+	h, err := ParamsHash(effective)
+	require.NoError(t, err)
+	require.Len(t, h, 64)
+	return h
+}
+
+// TestParamsHash_ChangesWithEffectiveParams：params_hash 是「同一组参数」的
+// 判据，改动任何一个生效值都必须换指纹。
+func TestParamsHash_ChangesWithEffectiveParams(t *testing.T) {
+	base := map[string]any{"lookback": 20, "top_n": 5, "rebalance": "weekly"}
+	baseHash := mustParamsHash(t, base)
+
+	for _, tc := range []struct {
+		name string
+		mut  map[string]any
+	}{
+		{"value changed", map[string]any{"lookback": 21, "top_n": 5, "rebalance": "weekly"}},
+		{"key added", map[string]any{"lookback": 20, "top_n": 5, "rebalance": "weekly", "extra": true}},
+		{"key removed", map[string]any{"lookback": 20, "top_n": 5}},
+		{"type changed", map[string]any{"lookback": "20", "top_n": 5, "rebalance": "weekly"}},
+	} {
+		assert.NotEqual(t, baseHash, mustParamsHash(t, tc.mut), tc.name)
+	}
+}
+
+// TestParamsHash_IntAndFloatAreOneIdentity：JSON 反序列化后整数变 float64，
+// 但 20 与 20.0 是同一个参数输入 —— 否则「从库里读回来再算一遍」必然假失败。
+func TestParamsHash_IntAndFloatAreOneIdentity(t *testing.T) {
+	fromGo := mustParamsHash(t, map[string]any{"lookback": 20})
+	fromJSON := mustParamsHash(t, map[string]any{"lookback": float64(20)})
+	assert.Equal(t, fromGo, fromJSON)
+}
+
+// TestParamsHash_IsDomainSeparatedFromRunSpec：params_hash 与 run_spec_hash
+// 内嵌的同一项不是同一个域 —— 混用会让「只比参数」的查询误命中换了区间/票池的 run。
+func TestParamsHash_IsDomainSeparatedFromRunSpec(t *testing.T) {
+	params := map[string]any{"lookback": 20}
+
+	spec := baselineRunSpec()
+	spec.StrategyParamsEffective = params
+	runHash := mustRunHash(t, spec)
+
+	assert.NotEqual(t, runHash, mustParamsHash(t, params))
+}
+
+// TestParamsHash_NilAndEmptyMapAreOneIdentity：参数是 map 类型的形参，
+// nil 与空 map 都表示「没有声明任何参数」—— 同一个身份，不能因为调用方写法
+// 不同而产生两个 hash。
+func TestParamsHash_NilAndEmptyMapAreOneIdentity(t *testing.T) {
+	assert.Equal(t, mustParamsHash(t, nil), mustParamsHash(t, map[string]any{}))
+}
+
+// TestGoldenVector_ParamsHash 与两份主 hash 同理：编码方式一改，全部历史
+// params_hash 作废，必须由这里当场红出来。
+func TestGoldenVector_ParamsHash(t *testing.T) {
+	golden := mustParamsHash(t, map[string]any{
+		"lookback":  20,
+		"top_n":     5,
+		"rebalance": "weekly",
+	})
+	assert.Equal(t, "bd6c02a8a0eae3a920d4c7f02553e59871a65da8c97106fc5ddfcaa0ebbff495", golden,
+		"params_hash 黄金向量变了 —— 编码漂移会让全部历史参数留痕失效")
+}

@@ -76,6 +76,17 @@ type BacktestParams struct {
 	// 空值（含 QT-02 之前落盘的历史快照）不是「按收盘成交」而是「口径未知」，
 	// 未知就不该产出结果。
 	FillTiming string `json:"fill_timing,omitempty"`
+
+	// Kernel 是本 run **实际执行**的内核名（QT-63 落 provenance 用）。
+	// 与 FillTiming 同一条纪律：由请求解析点写入生效值（EffectiveKernel），
+	// 引擎内部不猜。它不影响撮合，只进 run_spec_hash —— 换内核必须换 hash，
+	// 否则两个不同实现的结果会顶着同一份输入身份。
+	Kernel string `json:"kernel,omitempty"`
+
+	// IndexCode 是请求里的指数代码（已归一化）。票池由它展开时，展开结果
+	// 已经写进 StockPool；保留原值是为了让 run_spec_hash 记下「票池从哪来」，
+	// 而不是只记一张看起来等价的名单。
+	IndexCode string `json:"index_code,omitempty"`
 }
 
 type WalkForwardParams struct {

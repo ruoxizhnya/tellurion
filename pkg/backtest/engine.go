@@ -139,6 +139,14 @@ type Engine struct {
 	// 未注入但 e.store 在位时自动用 storageAnchorStore 适配。
 	adjStore AdjustmentAnchorStore
 
+	// provWriter 是 QT-63 的 provenance 写入端口。nil = 跟随 e.store
+	// （生产路径：有库就落 quant.run_provenance）；测试可经
+	// WithRunProvenanceWriter 注入替身。
+	provWriter RunProvenanceWriter
+
+	// provenanceOff = true 时完全不写 provenance（只读 / 演示装配）。
+	provenanceOff bool
+
 	// L1 基本面缓存（P2-12）：symbol → 按可用日升序的财报序列。
 	//
 	// 只在策略声明需要（strategy.FundamentalAware）时预热一次，回测期间只读。
@@ -515,7 +523,12 @@ func (e *Engine) RunBacktest(ctx context.Context, req BacktestRequest) (*Backtes
 		return nil, err
 	}
 
-	backtestID := uuid.New().String()
+	// QT-63：进程内调用方（job 服务）可以用 RunID 把身份对齐到 backtest_jobs.id；
+	// 没给就自己生成。对外 HTTP 请求无法设置它（DTO 上是 json:"-"）。
+	backtestID := req.RunID
+	if backtestID == "" {
+		backtestID = uuid.New().String()
+	}
 	state := e.newBacktestState(backtestID, req, stockPool, startDate, endDate, initialCapital, riskFreeRate)
 	e.stateStore.Put(backtestID, state)
 
@@ -634,6 +647,12 @@ func (e *Engine) newBacktestState(backtestID string, req BacktestRequest, stockP
 			// 已知口径。野值在这里原样透传，好让入口报出「你声明的那个不认识」，
 			// 而不是在这里被静默换成默认。
 			FillTiming: req.EffectiveFillTiming().String(),
+			// Kernel 同理取生效值：provenance 记的是**实际执行核**（N6-5），
+			// 不是请求里那一串字。
+			Kernel: req.EffectiveKernel(),
+			// 归一化后的指数代码（票池已由它展开进 StockPool）；provenance
+			// 用它记「票池从哪来」。
+			IndexCode: normalizeIndexCode(req.IndexCode),
 		},
 		StartedAt: time.Now(),
 		Tracker: NewTracker(
@@ -850,6 +869,14 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	}
 
 	logger.Info().Int("trading_days", len(tradingDays)).Msg("Retrieved trading days")
+
+	// QT-63（③-②）：日历与复权锚点都就位后、日循环之前，一次性算出生效输入的
+	// 身份并落库。留痕的是**输入**，所以失败/无效 run 同样落（status 的权威
+	// 是 backtest_jobs，provenance 表不存状态）。没有 sink 时是 no-op。
+	if err := e.recordRunProvenance(ctx, state, tradingDays, adj, logger); err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"failed to record run provenance", "RunBacktest")
+	}
 
 	ca := e.loadCorporateActions(ctx, params.StartDate, params.EndDate, logger)
 	prevCloseCache := make(map[string]float64)
