@@ -42,7 +42,7 @@ import (
 // domain.Bar，但 **domain.Bar 并不存在**（pkg/domain 与 pkg/domain/market
 // 均无此类型；全仓库 grep 无 `domain.Bar` 引用），它是目标形态里的
 // 未建类型。故按任务的 fallback 规则用 domain.OHLCV——它已是本项目
-// 唯一的 bar 载体（pkg/domain/market/types.go:6，domain.OHLCV 是它的
+// 唯一的 bar 载体（`tellurion-contracts:domain/market/types.go`，domain.OHLCV 是它的
 // 别名，二者同一类型）。
 //
 // K2 若真要引入 domain.Bar（例如为 bar 加上调整因子 / 复权标记），

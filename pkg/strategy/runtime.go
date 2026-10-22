@@ -54,7 +54,7 @@ func NewStreamRunner() *StreamRunner { return &StreamRunner{} }
 //   - 严格按 **输入序** 遍历，每根先 clk.Advance(bar.Date) 再 h.OnBar。
 //     同一份 (bars, clk 起点) 输入两次跑，喂给 OnBar 的序列与推进的
 //     时间序列逐点一致——回测确定性由此保证。
-//   - bars 的时间字段取自 domain.OHLCV.Date（pkg/domain/market/types.go:8，
+//   - bars 的时间字段取自 domain.OHLCV.Date（`tellurion-contracts:domain/market/types.go`，
 //     本项目唯一的 bar 时间列；无 domain.Bar 类型）。
 //
 // 时间倒退护栏（fail-loud）：

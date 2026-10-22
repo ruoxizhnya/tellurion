@@ -22,7 +22,7 @@ import (
 // Fill 是成交回报事件——exec-engine 产出、portfolio 消费的最小契约。
 //
 // ─── 裁决：为什么不用现成的 domain.Trade ──────────────────────────
-// domain.Trade（pkg/domain/backtest.go:31）看着像等价类型，但**不是**：
+// domain.Trade（`tellurion-contracts:domain/backtest.go`）看着像等价类型，但**不是**：
 //  1. 它携带 Commission / TransferFee / StampTax 三项费用——费用是
 //     portfolio 自己按 pkg/fees 算出来的**产出**，用它当 Fill 会把
 //     「先有成交、再算费」的因果倒置，并强迫 exec-engine 替 portfolio
@@ -47,7 +47,7 @@ type Fill struct {
 // Snapshot 是组合在某一时刻的快照，即 quant.portfolio_snapshot 的行契约。
 //
 // ─── 裁决：为什么不用现成的 domain.Portfolio ──────────────────────
-// domain.Portfolio（pkg/domain/types.go:99）是可变的**内存状态**载体
+// domain.Portfolio（`tellurion-contracts:domain/types.go`）是可变的**内存状态**载体
 // （Positions map + DailyReturn），且缺 run_id，不适合做落库行的契约。
 // 但它的组成被逐项复用：NAV ← TotalValue、Cash ← Cash、Positions ←
 // []domain.Position、Ts ← UpdatedAt。唯一新增的是 RunID——快照必须可

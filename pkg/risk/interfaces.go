@@ -50,7 +50,7 @@ type Verdict struct {
 
 // RiskEngine 是风控模块的统一抽象。
 //
-// 前三个方法是**冻结现有** domain.RiskManager（pkg/domain/types.go:175）
+// 前三个方法是**冻结现有** domain.RiskManager（`tellurion-contracts:domain/types.go`）
 // 的三方法，签名逐字对齐：CalculatePosition / DetectRegime / CheckStopLoss。
 // 本包既有的 *RiskManager（manager.go）已实现之，由下方编译期检查钉住。
 //
