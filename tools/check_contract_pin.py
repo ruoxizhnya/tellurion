@@ -12,8 +12,8 @@ QT-08 的 R5 只比对各仓 AGENTS 里的版本声明是否一致，核不到�
   2. 伪版本取末尾 12 位 sha；tag 经 `git rev-parse` 解析到 commit；
   3. 该 commit 必须是目标仓 `origin/main`（本地无远程跟踪时退回 `main`）的祖先；
   4. 打印 `repo@sha → 提交日期`（日期取 committer date，不是伪版本里的时间戳）。
-无法解析 / 拉不到目标仓 / `replace` 覆盖了 pin —— 一律 RED（fail-closed），不把
-「没核成」伪装成「核过了」。
+无法解析 / 拉不到目标仓 / **生效的** `replace` 覆盖了 pin —— 一律 RED（fail-closed），
+不把「没核成」伪装成「核过了」。
 
 目标仓从哪来：优先同级 checkout（`<workspace>/tellurion-contracts`），没有则匿名
 clone `https://<module-path>` 到临时目录（core-only CI 走这条）。两仓当前 public；
@@ -24,7 +24,7 @@ clone `https://<module-path>` 到临时目录（core-only CI 走这条）。两�
     python tools/check_contract_pin.py --workspace ..     # 显式 workspace
     python tools/check_contract_pin.py --repo tellurion-agent   # 只扫一个（可重复）
     python tools/check_contract_pin.py --offline          # 只许用本地 checkout（离线/自证）
-    python tools/check_contract_pin.py --self-test        # 护栏自证（9 条夹具腿）
+    python tools/check_contract_pin.py --self-test        # 护栏自证（11 条夹具腿）
 
 `--self-test` 为什么必须有：本脚本和 QT-08 的 R1/R5 一样是护栏，护栏自己没人核就会
 静默失灵（例如把「祖先」写成「相等」、放行旁支 tag）。夹具造真 git 仓（main / 旁支 /
@@ -105,8 +105,9 @@ def git(
         cmd += ["-C", str(repo)]
     cmd += list(args)
     e = os.environ.copy()
-    # 永不发交互式凭据追问：CI/无人值守下宁可 fail-loud，也不要挂到超时。
-    e.setdefault("GIT_TERMINAL_PROMPT", "0")
+    # 永不发交互式凭据追问：父进程就算设了 =1 也压回 0；CI/无人值守下宁可 fail-loud，
+    # 也不要挂到超时。调用方显式传入 env 时仍可覆盖（测试/调试用）。
+    e["GIT_TERMINAL_PROMPT"] = "0"
     if env:
         e.update(env)
     return subprocess.run(
@@ -121,6 +122,22 @@ def last_line(text: str) -> str:
 
 # ───────────────────────── go.mod 解析 ─────────────────────────
 
+def _directive_body(line: str, keyword: str) -> tuple[str | None, bool]:
+    """解析 `require` / `replace` 指令：返回 (指令体, 是否开启括号块)。
+
+    用 split() 而不是 `startswith("require ")`：go.mod 的 token 分隔符可以是
+    制表符或连续空格；写死一个空格会在手写/被编辑器改过的文件上漏掉整条
+    require —— 那是假绿，比没有护栏更糟。
+    """
+    parts = line.split()
+    if not parts or parts[0] != keyword:
+        return None, False
+    rest = parts[1:]
+    if rest and rest[0] == "(":
+        return "", True
+    return " ".join(rest), False
+
+
 def find_pins(consumer: str, text: str) -> list[Pin]:
     """提取受管模块的 require。兼容单行与 `require ( ... )` 块形式，忽略 // 注释。"""
     pins: list[Pin] = []
@@ -129,18 +146,18 @@ def find_pins(consumer: str, text: str) -> list[Pin]:
         line = raw.split("//", 1)[0].strip()
         if not line:
             continue
-        if line.startswith("require ("):
-            in_block = True
-            continue
-        if in_block and line == ")":
-            in_block = False
-            continue
-        if line.startswith("require "):
-            body = line[len("require "):].strip()
-        elif in_block:
+        if in_block:
+            if line == ")":
+                in_block = False
+                continue
             body = line
         else:
-            continue
+            body, opens_block = _directive_body(line, "require")
+            if opens_block:
+                in_block = True
+                continue
+            if body is None:
+                continue
         parts = body.split()
         if len(parts) >= 2 and parts[0] in CONTRACT_MODULES:
             pins.append(Pin(consumer, parts[0], parts[1]))
@@ -155,18 +172,18 @@ def find_replaces(text: str) -> list[Replace]:
         line = raw.split("//", 1)[0].strip()
         if not line:
             continue
-        if line.startswith("replace ("):
-            in_block = True
-            continue
-        if in_block and line == ")":
-            in_block = False
-            continue
-        if line.startswith("replace "):
-            body = line[len("replace "):].strip()
-        elif in_block:
+        if in_block:
+            if line == ")":
+                in_block = False
+                continue
             body = line
         else:
-            continue
+            body, opens_block = _directive_body(line, "replace")
+            if opens_block:
+                in_block = True
+                continue
+            if body is None:
+                continue
         if "=>" not in body:
             continue
         left, _, right = body.partition("=>")
@@ -318,9 +335,15 @@ def check_consumers(
     pin_count = 0
 
     for consumer in consumers:
-        text = read(consumer / "go.mod")
-        if not text:
+        gomod = consumer / "go.mod"
+        if not gomod.exists():
             notes.append(f"{consumer.name}: 无 go.mod（跳过）")
+            continue
+        text = read(gomod)
+        # 文件在但读不出来（空 / 非 UTF-8）不能当成「没有 pin」跳过 —— 那会把
+        # 「没核成」伪装成「核过了」。go.mod 为空本身就是无效文件，判红。
+        if not text.strip():
+            reds.append(f"{consumer.name}: go.mod 为空或不可读（UTF-8 解码失败）—— 无法判定 pin")
             continue
         pins = find_pins(consumer.name, text)
         if not pins:
@@ -387,7 +410,7 @@ def _commit(path: Path, filename: str, content: str, date: str, message: str) ->
     # 用 write_bytes 而不是 write_text(newline=...)：后者 3.10 才有 newline 形参，
     # 而本仓工具承诺 Python 3.9+；顺带避免 Windows 的 CRLF 翻译。
     (path / filename).write_bytes(content.encode("utf-8"))
-    _git_do(path, "add", filename)
+    _git_do(path, "add", "-f", filename)
     env = {
         "GIT_AUTHOR_DATE": date,
         "GIT_COMMITTER_DATE": date,
@@ -396,7 +419,8 @@ def _commit(path: Path, filename: str, content: str, date: str, message: str) ->
         "GIT_COMMITTER_NAME": "fixture",
         "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
     }
-    _git_do(path, "commit", "-q", "-m", message, env=env)
+    # 夹具不依赖宿主机的签名 / hooks 配置：在任意开发机与 CI 上都该能提交。
+    _git_do(path, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, env=env)
     return _git_do(path, "rev-parse", "HEAD")
 
 
@@ -409,7 +433,7 @@ def self_test() -> int:
     print("Quant Lab — check_contract_pin 护栏自证（夹具在临时目录，不触真仓）")
     if shutil.which("git") is None:
         print("  [SKIP] 本机无 git ⇒ 无法造 main/旁支/tag 夹具 —— 这是跳过，不是通过")
-        print("::warning title=QT-09 pin 祖先自证未运行::本机无 git，9 条自证腿全部跳过。"
+        print("::warning title=QT-09 pin 祖先自证未运行::本机无 git，11 条自证腿全部跳过。"
               "这不代表护栏自证通过。")
         return 0
 
@@ -423,6 +447,7 @@ def self_test() -> int:
     date_a = "2026-10-01T12:00:00+08:00"
     date_b = "2026-10-02T12:00:00+08:00"
     date_c = "2026-10-03T12:00:00+08:00"
+    date_k = "2026-10-04T12:00:00+08:00"
 
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp)
@@ -433,8 +458,13 @@ def self_test() -> int:
         sha_b = _commit(contracts, "b.txt", "b\n", date_b, "B")
         _git_do(contracts, "checkout", "-q", "-b", "side", sha_a)
         sha_c = _commit(contracts, "side.txt", "c\n", date_c, "C（只在旁支）")
-        _git_do(contracts, "tag", "v0.1.0", sha_b)
-        _git_do(contracts, "tag", "v0.2.0", sha_c)
+        _git_do(contracts, "-c", "tag.gpgSign=false", "tag", "v0.1.0", sha_b)
+        _git_do(contracts, "-c", "tag.gpgSign=false", "tag", "v0.2.0", sha_c)
+
+        kit = ws / "tellurion-kit"
+        kit.mkdir()
+        _git_do(kit, "init", "-q", "-b", "main")
+        sha_k = _commit(kit, "k.txt", "k\n", date_k, "K")
 
         consumer = ws / "tellurion"
         consumer.mkdir()
@@ -452,9 +482,17 @@ def self_test() -> int:
             )
 
         def single_mod(version: str) -> str:
+            # 刻意用制表符分隔 require 与模块路径：验证解析器不依赖单个空格
+            # （手写 / 编辑器改过的 go.mod 可能是 tab，写死空格会漏读）。
             return (
                 "module tellurion\n\ngo 1.25.0\n\n"
-                f"require github.com/ruoxizhnya/tellurion-contracts {version}\n"
+                f"require\tgithub.com/ruoxizhnya/tellurion-contracts {version}\n"
+            )
+
+        def kit_mod(version: str) -> str:
+            return (
+                "module tellurion\n\ngo 1.25.0\n\n"
+                f"require github.com/ruoxizhnya/tellurion-kit {version}\n"
             )
 
         res = run(block_mod(_pseudo(sha_a, "20261001120000")))
@@ -466,6 +504,11 @@ def self_test() -> int:
         res = run(block_mod(_pseudo(sha_b, "20261002120000")))
         expect("pin 指向 main tip → 绿", not res["reds"] and len(res["oks"]) == 1)
 
+        res = run(kit_mod(_pseudo(sha_k, "20261004120000")))
+        expect("kit pin 指向 main → 绿且打印 kit@sha → 日期",
+               not res["reds"] and len(res["oks"]) == 1
+               and any(f"tellurion-kit@{sha_k[:12]} → {date_k}" in x for x in res["oks"]))
+
         res = run(block_mod(_pseudo(sha_c, "20261003120000")))
         # 夹具没有 origin 远程 ⇒ 判据落回 refs/heads/main；断言只钉「不是 main 的祖先」，
         # 不把 ref 名写死（真实仓通常走 origin/main）。
@@ -476,10 +519,17 @@ def self_test() -> int:
         expect("tag 打在 main 上 → 绿", not res["reds"] and len(res["oks"]) == 1)
 
         res = run(single_mod("v0.2.0"))
-        expect("tag 打在旁支上 → 红", bool(res["reds"]))
+        expect("tag 打在旁支上 → 红（不是 main 祖先）",
+               bool(res["reds"]) and all("不是 main 的祖先" in x for x in res["reds"]))
 
         res = run(block_mod(_pseudo("deadbeefdead", "20261004120000")))
-        expect("幽灵 sha → 红（无法解析，不静默放行）", bool(res["reds"]))
+        expect("幽灵 sha → 红（无法解析，不静默放行）",
+               bool(res["reds"]) and all("不在 tellurion-contracts 的 main 历史中" in x
+                                        for x in res["reds"]))
+
+        res = run("")
+        expect("空 go.mod → 红（不可读不静默跳过）",
+               bool(res["reds"]) and all("go.mod 为空或不可读" in x for x in res["reds"]))
 
         res = run("module tellurion\n\ngo 1.25.0\n")
         expect("无 pin → 绿且显式记 0 pin",
@@ -496,8 +546,8 @@ def self_test() -> int:
     if fails:
         print(f"\n结果：护栏自证 RED —— {len(fails)} 条：{fails}")
         return 1
-    print("\n结果：护栏自证 GREEN —— 9 条腿：拦得住旁支 pin/tag/幽灵 sha/replace，"
-          "也不误伤 main 上的中段提交。")
+    print("\n结果：护栏自证 GREEN —— 11 条腿：拦得住旁支 pin/tag、幽灵 sha、replace、空 go.mod，"
+          "也放行 contracts/kit 在 main 上的中段提交与 tag。")
     return 0
 
 
