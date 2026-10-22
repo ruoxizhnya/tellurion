@@ -671,6 +671,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 4. 财报 / 日内快照不进 dataset 身份；`RiskRulesHash` 为空（QT-42 预留）。
 >
 > **⑦ ⑤ 验收逐条**：join 查询 ✅（真库集成腿）；8 个旋钮端到端 ✅（不是只测 builder：每条都从 `RunBacktest` 进、从注入的 sink 出）；DDL 走 `migrationStatements()` ✅（Migration 056 + 幂等腿）。未加 `GET /api/runs/{id}/provenance`（⑥ 边界，属 QT-44）。
+>
+> **⑧ 干净 checkout 复核（`git worktree add --detach` @ `df16f6d`，2026-10-22）**：`gofmt -l .` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（全套，零 `FAIL`）；`go test -tags integration ./pkg/storage/ -run 'TestIntegration_RunProvenance|TestIntegration_MigrateIsIdempotentForModuleTables'` **EXIT=0**（dockertest 真 PG）；`python tools/check_doc_links.py` **EXIT=0**。
 
 ---
 
