@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 )
 
 // sigBase 是测试基准信号（合法）。

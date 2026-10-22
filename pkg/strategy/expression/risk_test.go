@@ -3,7 +3,7 @@ package expression
 import (
 	"testing"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 func TestCheck_ClampSinglePosition(t *testing.T) {

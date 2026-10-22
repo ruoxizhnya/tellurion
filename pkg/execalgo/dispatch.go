@@ -66,7 +66,7 @@ import (
 	"sync"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ─── K17-R1：受支持算法名与挂载失败分类（单点真相）─────────────────

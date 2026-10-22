@@ -81,8 +81,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/domain"
 )
 
 // HTMLReportOptions controls optional sections / behavior in the rendered

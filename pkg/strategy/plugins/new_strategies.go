@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/statistics"
 	"tellurion/pkg/strategy"
 )

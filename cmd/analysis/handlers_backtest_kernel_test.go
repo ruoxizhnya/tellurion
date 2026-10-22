@@ -34,8 +34,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // kernelFakeRunner 带 marker 的 EngineRunner stub —— 产物响应写 marker，

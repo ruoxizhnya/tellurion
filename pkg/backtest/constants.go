@@ -3,7 +3,7 @@ package backtest
 import (
 	"time"
 
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 )
 
 // S7-P2-1: A-share trading-rule constants (DefaultStampTaxRate,

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // OBS-01：作业层不得把无效运行持久化成 completed。

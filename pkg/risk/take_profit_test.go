@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
-	"tellurion/pkg/domain"
 )
 
 // ============================================================

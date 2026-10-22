@@ -24,10 +24,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/backtest/tracker"
-	"tellurion/pkg/domain"
 )
 
 // wrConfig 是回放器的口径参数——除 capital/signals 外全部有与侧车一致的

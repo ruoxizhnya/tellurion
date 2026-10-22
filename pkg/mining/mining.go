@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"sort"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/expression"
 )
 

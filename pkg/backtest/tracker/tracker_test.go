@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 func TestNewTracker_InitialCash(t *testing.T) {

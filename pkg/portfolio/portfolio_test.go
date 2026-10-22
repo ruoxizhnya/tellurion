@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
-	"tellurion/pkg/fees"
 )
 
 // TestComputeFees_Sell100k_StampTaxIs50Yuan is the AUD-06 acceptance

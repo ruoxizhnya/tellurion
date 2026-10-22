@@ -10,7 +10,7 @@ package execalgo
 import (
 	"context"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // VWAP 是成交量加权拆单算法。

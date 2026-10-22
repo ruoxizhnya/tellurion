@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	_ "tellurion/pkg/strategy/plugins" // registers momentum strategy via init()
 )

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"tellurion/pkg/domain/market"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

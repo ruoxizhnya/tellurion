@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
-	"tellurion/pkg/domain"
 )
 
 func TestOrderLog_RecordAndGetOrders(t *testing.T) {

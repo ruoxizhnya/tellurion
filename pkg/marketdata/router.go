@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"tellurion/pkg/domain/market"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 )
 
 // 物理表名 —— 规范层之外唯一允许直白写出这两个名字的地方（遗留基线

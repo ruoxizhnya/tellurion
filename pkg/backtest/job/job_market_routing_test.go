@@ -25,9 +25,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // newMarketRoutingJobService 构造带路由表（CN→fake）的 JobService。

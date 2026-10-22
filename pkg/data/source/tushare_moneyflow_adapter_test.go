@@ -32,8 +32,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain/market"
 )
 
 // moneyflowAdapterBody 拼一个完整列头的 moneyflow 响应，items 由用例给定。

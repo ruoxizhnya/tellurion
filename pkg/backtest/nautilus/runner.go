@@ -73,8 +73,8 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	apperrors "tellurion/pkg/errors"
 )
 

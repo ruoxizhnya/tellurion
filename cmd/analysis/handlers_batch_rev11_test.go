@@ -25,8 +25,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // rev11Runner 是最小 EngineRunner：立即返回 completed，记录调用次数。

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data/equitydeep"
-	"tellurion/pkg/domain"
 )
 
 // Tests for the 桥 B1 vertical fundamentals factors (factor_equitydeep.go).

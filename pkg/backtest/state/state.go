@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest/tracker"
-	"tellurion/pkg/domain"
 )
 
 // BacktestState holds the state of a backtest run.

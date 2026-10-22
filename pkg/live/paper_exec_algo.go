@@ -55,7 +55,7 @@ import (
 	"fmt"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/execalgo"
 )
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // Snapshot is one record of contracts/snapshot.schema.json — the shape of a

@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "tellurion/pkg/errors"
 )
 

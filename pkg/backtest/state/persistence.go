@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ErrStateNotFound is returned by Load when no persisted state exists

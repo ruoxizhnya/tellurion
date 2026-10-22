@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"tellurion/pkg/domain/market"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 )
 
 // 聚合口径（docs/SPEC.md「规范层 Schema」节是文档真相，本文件是代码真相）。

@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/clock"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/live"
 	"tellurion/pkg/strategy"
 )

@@ -31,8 +31,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/clock"
-	"tellurion/pkg/domain"
 )
 
 // ─── StreamRunner：逐 bar 执行器 ─────────────────────────────────────

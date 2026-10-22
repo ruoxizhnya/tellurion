@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // postBacktestRunSpec 与 handlers_backtest_test.go 的 postBacktest 刻意不同名：

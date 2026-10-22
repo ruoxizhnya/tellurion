@@ -38,8 +38,8 @@ package execution
 import (
 	"fmt"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketimpact"
 )
 

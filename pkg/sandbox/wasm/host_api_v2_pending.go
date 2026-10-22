@@ -15,7 +15,7 @@ package wasm
 import (
 	"context"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // pendingHostFnBody 生成统一的 trap 文案：点名函数、点名它归属的工单。

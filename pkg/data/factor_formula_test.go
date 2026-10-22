@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ─── D3 ⑤1 数值回归红线：公式库版 vs 原代码版，同输入同输出 ───

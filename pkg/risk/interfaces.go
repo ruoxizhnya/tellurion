@@ -17,7 +17,7 @@ import (
 	"context"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // OrderIntent 是订单意图——策略 / 执行算法产出、报送前的「待裁决」订单。

@@ -23,7 +23,7 @@ import (
 	"math"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ExternalSignal 是外部模型注入内核的一条信号（任务契约：符号/方向/强度/as_of）。

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 // ─── 公共测试夹具 ───────────────────────────────────────────────────────

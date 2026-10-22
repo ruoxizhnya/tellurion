@@ -15,7 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // maBuild 生成某 symbol 的活跃度序列：从 date 倒推 count 个自然日，

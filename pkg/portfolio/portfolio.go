@@ -12,7 +12,7 @@ package portfolio
 import (
 	"math"
 
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 )
 
 // FeeBreakdown represents the per-trade fee components for A-share

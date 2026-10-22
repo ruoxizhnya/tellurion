@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/backtest/tracker"
-	"tellurion/pkg/domain"
 )
 
 // rev06Symbol / rev06QfqPrice 是护栏 fixture 的独享标的与 qfq 价。

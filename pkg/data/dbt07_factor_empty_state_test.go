@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 func dbt07Date() time.Time { return time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC) }

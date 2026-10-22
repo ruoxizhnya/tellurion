@@ -19,8 +19,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // okReport 构造一份 K15 bh 实测值量级的报告（全部在阈值内）。

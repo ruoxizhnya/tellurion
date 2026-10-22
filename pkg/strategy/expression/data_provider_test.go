@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // makeBarsN builds a bars map with one symbol having n bars whose Close

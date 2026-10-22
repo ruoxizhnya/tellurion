@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 )
 

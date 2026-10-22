@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ─── D4 ⑤1 演练：登记 → 被公式引用 → 回滚 ─────────────────────────────────

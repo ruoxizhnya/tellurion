@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 )
 
 func mkSignal(symbol string, day int, dir domain.Direction, strength float64) domain.Signal {

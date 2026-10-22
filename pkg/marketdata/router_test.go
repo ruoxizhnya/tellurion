@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/domain/market"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 )
 
 // cst 构造 Asia/Shanghai 时刻的便捷函数（聚合口径的时钟基准）。

@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // OrderManager manages order lifecycle

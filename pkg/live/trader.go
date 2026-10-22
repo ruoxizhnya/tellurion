@@ -32,7 +32,7 @@ import (
 	"context"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // LiveTrader defines the core interface for live trading execution.

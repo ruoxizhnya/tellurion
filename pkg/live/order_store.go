@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 type OrderStatus string

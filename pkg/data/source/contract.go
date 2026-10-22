@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"tellurion/pkg/domain/market"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 )
 
 // 本文件是 connector 注册契约（任务 D2，ADR-031 蓝图 §4.2）的唯一落点。

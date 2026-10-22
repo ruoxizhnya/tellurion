@@ -33,8 +33,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/clock"
-	"tellurion/pkg/domain"
 )
 
 // bestEffortSaveTimeout 是异常退出时保存断点的超时上限。单独成常量：异常

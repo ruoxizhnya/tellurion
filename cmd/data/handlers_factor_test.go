@@ -23,8 +23,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 // emptyFactorStore is a data.FactorStore with nothing in it: no OHLCV, no

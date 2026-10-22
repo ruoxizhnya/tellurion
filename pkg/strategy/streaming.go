@@ -32,7 +32,7 @@ package strategy
 import (
 	"context"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // BarHandler 是流式策略接口——服务 L2 / L3 有状态策略。

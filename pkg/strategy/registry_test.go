@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // mockStrategy implements Strategy for testing.

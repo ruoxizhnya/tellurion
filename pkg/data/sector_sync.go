@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // SectorSyncStore 是板块派生同步的存储面（DATA-01）。

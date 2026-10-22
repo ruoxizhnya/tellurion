@@ -1,6 +1,6 @@
 package source
 
-import "tellurion/pkg/domain/market"
+import "github.com/ruoxizhnya/tellurion-contracts/domain/market"
 
 // 本文件集中登记所有已接入 connector 的注册声明（时间语义 + 频率口径），
 // 遵循项目「声明即登记」约定：新增 connector 必须在此处为其每个

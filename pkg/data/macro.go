@@ -33,7 +33,7 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "tellurion/pkg/errors"
 )
 

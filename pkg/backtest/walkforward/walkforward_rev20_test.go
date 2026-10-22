@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // rev20FakeRunner 记录收到的请求并返回固定 Sharpe。

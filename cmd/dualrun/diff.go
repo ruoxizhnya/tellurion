@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // metricRow 一行指标对比。RelDiff 以 Go 侧为分母（|Diff/Go|，Go=0 时以绝对差呈现）。

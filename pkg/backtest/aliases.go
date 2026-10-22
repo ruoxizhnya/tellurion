@@ -4,21 +4,23 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/batch"
 	"tellurion/pkg/backtest/cache"
-	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/backtest/job"
 	"tellurion/pkg/backtest/state"
 	"tellurion/pkg/backtest/tracker"
 	"tellurion/pkg/backtest/walkforward"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/storage"
 )
 
 // S7-P2-1 (ODR-043): this file re-exports the canonical types,
 // constants, and the EngineRunner interface from the leaf package
-// pkg/backtest/contracts so that every existing caller of
+// `tellurion-contracts:engine`（QT-05 B1 起契约住在契约仓；目录叫 engine，
+// package 名仍叫 contracts，所以下面的 `contracts.X` 一个字没改）so that
+// every existing caller of
 // `backtest.BacktestRequest` / `backtest.TradingConfig` / etc. keeps
 // compiling unchanged after the DTOs move into contracts/.
 //

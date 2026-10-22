@@ -53,7 +53,7 @@ import (
 	"fmt"
 	"math"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // PriceCageError is returned by the validator when a limit-order price

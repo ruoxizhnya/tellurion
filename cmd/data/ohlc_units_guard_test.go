@@ -30,8 +30,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/domain/market"
 )
 
 // marketUnitFields 是必须回答「单位是什么」的行情字段。

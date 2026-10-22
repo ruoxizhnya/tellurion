@@ -37,8 +37,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"

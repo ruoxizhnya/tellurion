@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 )
 
 // TestCostModel_FixedSlippageUsesConfiguredRate：配置值真的生效。

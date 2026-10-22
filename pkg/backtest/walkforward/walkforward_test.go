@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
 )
 
 func TestWalkForwardEngine_buildWindows(t *testing.T) {

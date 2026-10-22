@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // stubRunner records the backtest requests it receives, so we can verify that

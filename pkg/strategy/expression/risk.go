@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // RiskConfig configures a RiskController.

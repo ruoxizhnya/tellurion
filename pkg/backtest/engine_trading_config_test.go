@@ -38,7 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // tradingRulesFromYAML is the set of NON-DEFAULT values used to prove the

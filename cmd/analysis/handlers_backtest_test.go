@@ -24,8 +24,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/contracts"
 )
 
 // gin 的 mode 由 TestMain 设一次（AUD-12）—— 这里不调 gin.SetMode。

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 // ErrSandboxNotRun：登记前必须有沙箱凭证。流水线的登记入口据此把关，

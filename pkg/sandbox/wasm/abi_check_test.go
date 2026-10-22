@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tetratelabs/wazero"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // ─── 测试模块构造 ─────────────────────────────────────────────

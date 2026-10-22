@@ -11,10 +11,10 @@ package main
 
 import (
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/data"
 	"tellurion/pkg/live"
 	"tellurion/pkg/observability"

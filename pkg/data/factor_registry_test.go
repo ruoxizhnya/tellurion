@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data/equitydeep"
-	"tellurion/pkg/domain"
 )
 
 // ─── D3 ⑤1：注册表库管理 + fail-closed ───

@@ -32,11 +32,11 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/backtest/contracts"
 	"tellurion/pkg/backtest/metrics"
 	"tellurion/pkg/backtest/nautilus"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/storage"
 )
 

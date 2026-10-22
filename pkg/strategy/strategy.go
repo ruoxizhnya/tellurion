@@ -4,7 +4,7 @@ package strategy
 import (
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // Parameter defines a configurable parameter for a strategy.

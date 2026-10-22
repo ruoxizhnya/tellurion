@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data/equitydeep"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/statistics"
 )
 

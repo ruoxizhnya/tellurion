@@ -34,7 +34,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 const (

@@ -30,7 +30,7 @@ package strategy
 import (
 	"context"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // StrategyCore captures a strategy's identity — its name and a

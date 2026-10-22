@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 )
 
 // onBarErrAlgo 是注入 OnBar 错误的测试替身：Schedule 正常、OnBar 恒错。

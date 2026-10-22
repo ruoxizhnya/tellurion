@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 var nopLogger = zerolog.Nop()

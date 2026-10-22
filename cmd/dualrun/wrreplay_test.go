@@ -9,8 +9,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 func testBar(sym string, y, m, d int, close, volume float64) domain.OHLCV {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // ─── D4 因子注册表治理：登记 / 回滚 / 版本解析 ─────────────────────────────

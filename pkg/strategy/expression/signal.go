@@ -21,7 +21,7 @@ import (
 	"math"
 	"sort"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	expr "tellurion/pkg/expression"
 	"tellurion/pkg/strategy"
 )

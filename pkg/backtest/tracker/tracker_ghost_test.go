@@ -26,10 +26,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
 )
 
 // TestGhostPosition_LongBuyOffsetsShort verifies that buying exactly the

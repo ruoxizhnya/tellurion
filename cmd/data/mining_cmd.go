@@ -44,9 +44,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/domain/market"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/mining"
 )

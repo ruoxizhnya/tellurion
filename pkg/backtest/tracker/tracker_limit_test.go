@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 func TestTracker_LimitUp_BlocksBuy(t *testing.T) {

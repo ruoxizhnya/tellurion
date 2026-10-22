@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/execution"
-	"tellurion/pkg/fees"
 )
 
 // SimulatedBroker implements a paper trading broker for testing

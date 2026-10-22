@@ -16,7 +16,7 @@ import (
 	"context"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // Fill 是成交回报事件——exec-engine 产出、portfolio 消费的最小契约。

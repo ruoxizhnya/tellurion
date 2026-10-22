@@ -12,10 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/backtest/metrics"
-	"tellurion/pkg/domain"
 	apperrors "tellurion/pkg/errors"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/httpclient"

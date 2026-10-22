@@ -34,9 +34,9 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/logging"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"

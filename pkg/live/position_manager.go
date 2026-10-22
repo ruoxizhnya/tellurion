@@ -3,7 +3,7 @@ package live
 import (
 	"sync"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // PositionManager manages trading positions

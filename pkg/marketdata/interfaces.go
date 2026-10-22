@@ -24,7 +24,7 @@ import (
 	"context"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // DataEngine 是数据入口的唯一闸口。策略 / 回测引擎 / 实盘引擎一律经本

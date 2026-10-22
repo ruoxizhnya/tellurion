@@ -24,9 +24,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/backtest/contracts"
-	"tellurion/pkg/domain"
-	"tellurion/pkg/fees"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"

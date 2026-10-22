@@ -21,7 +21,7 @@ import (
 
 	"github.com/tetratelabs/wazero/api"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // AbiModule 是 abi 校验需要的最小自省面：只要能列出 import 的函数定义。

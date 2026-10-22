@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 )
 
 // TestSaveIndexDailyBatch_IdempotentUpsert 钉「同 (code, trade_date) 重跑不增行、

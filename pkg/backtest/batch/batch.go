@@ -15,10 +15,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/walkforward"
 	"tellurion/pkg/backtest/workers"
-	"tellurion/pkg/domain"
 )
 
 type BatchTask struct {

@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 func TestGetSignals_FailLoudOnUnregistered(t *testing.T) {

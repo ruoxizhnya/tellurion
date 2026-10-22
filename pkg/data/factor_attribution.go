@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 const defaultForwardDays = 20

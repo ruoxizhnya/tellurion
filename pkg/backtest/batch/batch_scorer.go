@@ -3,7 +3,7 @@ package batch
 import (
 	"math"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // Scorer computes batch result scores including overfitting and stability metrics.

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 // dataDateLayout 是 /ohlcv 与缓存预热这批端点接受的日期格式（DATA-13）：tushare 源的

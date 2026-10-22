@@ -22,8 +22,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data/equitydeep"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 )

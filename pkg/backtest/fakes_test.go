@@ -12,7 +12,7 @@ package backtest
 import (
 	"context"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/live"
 )
 

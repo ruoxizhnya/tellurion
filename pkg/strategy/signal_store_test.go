@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/testenv"
 )

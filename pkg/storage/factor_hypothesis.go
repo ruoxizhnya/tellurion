@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // 因子的假设来源（P2-3）。

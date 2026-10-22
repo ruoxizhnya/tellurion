@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // 因子登记账本（D4 因子注册表治理细则——治理库的 DB 侧形态）。

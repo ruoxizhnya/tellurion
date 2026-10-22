@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
-	"tellurion/pkg/domain"
 )
 
 // TestBacktestState_EngineGetBacktestStatusRace uses the real Engine

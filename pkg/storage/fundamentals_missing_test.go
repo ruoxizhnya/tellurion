@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/domain"
 )
 
 // P2-10 的回归测试：库里的 NULL 该读成「未知」（nil），不是 0。

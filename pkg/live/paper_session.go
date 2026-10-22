@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/clock"
-	"tellurion/pkg/domain"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"

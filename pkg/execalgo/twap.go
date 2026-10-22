@@ -12,7 +12,7 @@ package execalgo
 import (
 	"context"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // TWAP 是时间加权拆单算法。

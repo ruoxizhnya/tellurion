@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // 因子定义库（D3 公式化因子引擎——「库里公式」的 DB 侧形态）。

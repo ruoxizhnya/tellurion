@@ -26,7 +26,7 @@ import (
 	"errors"
 	"fmt"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
 // OnBarSession 是「逐 bar on_bar(t) + finalize」协议的会话，替代旧

@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 func registerFactorRoutes(router *gin.Engine, factorAttributor *data.FactorAttributor, logger zerolog.Logger) {

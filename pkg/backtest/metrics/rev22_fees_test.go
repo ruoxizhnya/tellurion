@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 func rev22CloseLong(price, qty float64, commission, transferFee, stampTax float64, ts time.Time) domain.Trade {

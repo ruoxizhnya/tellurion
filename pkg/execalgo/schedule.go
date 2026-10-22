@@ -23,7 +23,7 @@ import (
 	"math"
 	"time"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // DefaultSliceInterval 是片数未显式指定时，推导片数所用的默认片间隔。

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/data"
-	"tellurion/pkg/domain"
 )
 
 // TushareAdapter wraps the existing pkg/data.TushareClient so it satisfies

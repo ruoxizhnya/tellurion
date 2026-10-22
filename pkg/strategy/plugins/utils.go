@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"tellurion/pkg/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
 // sortOHLCV sorts OHLCV data by date in ascending order.

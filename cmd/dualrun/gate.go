@@ -38,7 +38,7 @@ import (
 	"math"
 	"strings"
 
-	"tellurion/pkg/backtest/contracts"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/nautilus"
 )
 
