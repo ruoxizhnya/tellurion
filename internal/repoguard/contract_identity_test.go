@@ -2,7 +2,7 @@ package repoguard
 
 // QT-05 B1（2026-10-23）契约身份护栏。domain / domain/market / engine / fees
 // 四包的本体已整包迁到 `tellurion-contracts`，本仓经版本依赖取用。迁走之后有
-// 三类复燃编译器**看不见**，本护栏钉的就是这三条：
+// 四类复燃编译器**看不见**，本护栏钉的就是这四条：
 //
 //	腿 A（包不许重建）：有人「先拷回来应急」，把 pkg/domain / pkg/fees /
 //	  pkg/backtest/contracts 重新建出来 —— 新建包完全合法，go build 不红，仓里
@@ -21,9 +21,14 @@ package repoguard
 //	  类型（逐条理由见 shadowContractNameBaseline）是 B1 之前就存在的既成事实，
 //	  这条腿守的是「第 5 个不许悄悄长出来」；基线条目不再命中 = 反向棘轮逼删
 //	  （白名单不许替已消失的违规打掩护）。
+//	腿 D（跨语言面不许按路径读迁走的文件）：腿 A 判的是 Go 的 import 块，抓不住
+//	  「按路径 read 一个 Go 源文件」这种形状。B1 当天真实踩过：nt-sidecar 两把
+//	  跨语言字面量守卫读的是已删除的 pkg/domain/market/frequency.go 与
+//	  pkg/backtest/contracts/contracts.go，go build/vet/test 三条全绿，红的只会
+//	  是 CI 的 python job。这条腿把「.py 里出现那三个旧包路径」直接判红。
 //
-// 三条都 fail-closed：定位不到契约模块、解析走空，一律红，不把「没核成」伪装
-// 成「核过了」。
+// 四条都 fail-closed：定位不到契约模块、解析走空、扫描面走空，一律红，不把
+// 「没核成」伪装成「核过了」。
 
 import (
 	"go/ast"
@@ -57,6 +62,11 @@ const minFacadeAliases = 5
 
 // facadeFile 是 core 侧的门面（相对仓根），唯一被允许别名再导出契约类型的地方。
 const facadeFile = "pkg/backtest/aliases.go"
+
+// minPythonFiles 是腿 D 的正证据下限（2026-10-23 实测：跟踪的 .py 与跳过
+// .venv / __pycache__ 后工作区扫到的 .py 都是 32 个）。下限留到 20，容得下
+// 删文件，容不下「扫描面走空 → 整条腿恒绿」。
+const minPythonFiles = 20
 
 var (
 	// legacyContractDirs 是已迁走的包目录（相对仓根）。
@@ -241,6 +251,78 @@ func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 	assert.Empty(t, stale,
 		"shadowContractNameBaseline 里这些声明已不在仓里 —— 删掉条目，白名单不许替已消失的"+
 			"撞名打掩护：\n%s", strings.Join(stale, "\n"))
+}
+
+// TestMigratedPathsNotReadBySidecarCode 腿 D：已迁走的包路径不得再出现在仓里的
+// Python 源码里（跟踪面）。
+//
+// 为什么单独有这条腿，而不是让腿 A 的「旧 import」管：腿 A 判的是 Go 的 import
+// 块，抓不到**按路径读文件**这种形状。2026-10-23 的真实代价 —— B1 删包之后，
+// nt-sidecar 的两把跨语言字面量守卫（tests/test_d1_mapping.py 直读
+// pkg/domain/market/frequency.go、tests/test_d7_native_mode.py 直读
+// pkg/backtest/contracts/contracts.go）当场 FileNotFoundError，而 CI 的 python
+// job 跑的就是它们；`go build` / `go vet` / `go test ./...` 三条全绿，一个都抓不住。
+// 判据按最保守的来：**Python 里出现这三个路径字符串就当红**，因为要么它在读
+// 一个已经不存在的文件，要么它在把一个已经不存在的锚点讲给读者听。要跨语言钉
+// 字面量就读 docs/SPEC.md 的登记表（SPEC ↔ Go 由 e2e/guard 那两把守卫钉住）。
+func TestMigratedPathsNotReadBySidecarCode(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join("..", "..")
+
+	var hits []string
+	pyFiles := 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			// .venv / venv / __pycache__ 是本机生成的第三方源码树（实测工作区里
+			// nt-sidecar/.venv 一个目录就有 2,500+ 个 .py），既不该被扫、也不属
+			// 于「本仓的说法」；跳过它们不是放宽判据。
+			case ".git", ".venv", "venv", "__pycache__", ".workbuddy-ai", ".workbuddy",
+				"node_modules", "web", "vendor", "testdata":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".py") {
+			return nil
+		}
+		pyFiles++
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		rel = filepath.ToSlash(rel)
+		text := string(raw)
+		// 只按目录形式判：`tellurion/pkg/domain`、`tellurion-contracts:domain`
+		// 里的旧路径写法都包含目录形式，列两遍只会把同一处违规报成两条。
+		for _, banned := range legacyContractDirs {
+			if strings.Contains(text, banned) {
+				hits = append(hits, rel+" -> "+banned)
+				break // 一个文件报一条：pkg/domain/market 会同时命中两个 token
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err, "遍历 %s 失败", root)
+
+	// 正证据：扫到东西了才谈得上「没命中」。Python 面若整体消失（改名 / 移目录），
+	// 这条腿会因为一条都没匹配到而恒绿 —— 那是假绿，先钉住文件数。
+	require.GreaterOrEqual(t, pyFiles, minPythonFiles,
+		"只扫到 %d 个 .py（下限 %d）—— Python 面变了还是扫描根走偏了？本条腿会因走空而假绿",
+		pyFiles, minPythonFiles)
+	sort.Strings(hits)
+	assert.Empty(t, hits,
+		"这些 Python 文件还在引用已整包迁到 %s 的旧路径 —— 按路径读文件的腿会当场 "+
+			"FileNotFoundError（`go test` 抓不住，CI 的 python job 才红）。改成读 "+
+			"docs/SPEC.md 的登记表（频率 drift:frequency / ResultSpec 的字段表），或去契约仓"+
+			"给那边自己的守卫加腿：\n%s", contractsModulePath, strings.Join(hits, "\n"))
 }
 
 // importPathsByIdent 返回一个文件里「源码中写的那个标识符 -> 导入路径」。
