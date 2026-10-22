@@ -109,7 +109,7 @@
 | BE-25 | 🔴 | **检查点状态无 schema/artifact 版本**：`State map[string][]byte` 裸存，换 artifact 后恢复旧检查点会按新结构误解释 | state 加信封 `{state_schema_version, artifact_hash, abi_version}`，恢复时校验 fail-closed |
 | BE-26 | 🔴 | **L1 OHLCV 缓存跨 run 单调合并、永不清理**：`RunBacktest:775` 每 run warm，`CacheManager.Warm` 是 `mergeBars`，`LoadOHLCVInMemory(nil)` 无生产调用点；注释却写"per-backtest-lifecycle" | 缓存下沉 per-run，或字节预算 + LRU；按条数算容量不成立 |
 | BE-27 | 🔴 | **复权锚点 digest 覆盖"合并后全序列"**：`fullBars = cache.Peek`（合并缓存），`AnchorDate = bars[0].Date`、digest 覆盖整条切片 ⇒ 长区间跑过之后，重启再跑短区间会 digest 不匹配 → **run 直接失败** | `fullBars` 先按 `[Start, End]` 切片再算；加"长→短→重启→短"回归 |
-| BE-28 | 🔴 | **同 bar 同 symbol 多信号未定义**：两条建仓路径都是 `map[symbol]` 覆盖 = 最后一条生效，顺序未定 | 冻结为 trap（推荐）或显式合并规则，写进 SignalSpec |
+| BE-28 | 🔴 | **同 bar 同 symbol 多信号未定义**：两条建仓路径都是 `map[symbol]` 覆盖 = 最后一条生效，顺序未定 ⚠️ 2026-10-22 QT-04 订正：覆盖的是**仓位尺寸**（`positionSizes[symbol]`），订单循环走信号切片本身，所以实测约一半重复组**两条都成了单**（同日往返）；见 `docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md` | ~~冻结为 trap（推荐）或显式合并规则~~ → **已裁决 branch=`merge`**（QT-04 存量扫描：`td_sequential` 天天有 `close+long` 重复，trap 会当场打挂它）：`close` 优先 + 同向求和 clamp + `duplicate_signals_merged` 计数，写进 SignalSpec；执行单 **QT-21**，排序先行 |
 | BE-29 | 🔴 | **`Scope.Universe` 逐日变化**（`engine.go:916` 传 `eligibleUniverse(date)` 结果），与 symbol_idx 稳定性冲突 | 新增 run 级 `RunUniverse`；`Universe` 降级为当日可交易名单 |
 | BE-30 | 🟠 | **`symbol` scope 无实例并发/内存预算**：设计只写"N/run 分片"，5000 实例 × 64MB 会 OOM | 分片 + 信号量 + 单 run 预算（512 MiB 默认），超预算降并发不失败 |
 

@@ -277,7 +277,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **③ 未做**：③-④ 落库（→ QT-63）；③-⑥ 的 SPEC 变更评审——`ResultSpec`/`RunSpec` **暂未加三 hash 字段**，所以冻结面没被触碰，评审项随落库单一起走（届时 `status` 取值必须守三值口径 `completed/invalid/failed`）。
 
-### QT-04 · 重复信号存量扫描（决定 trap / 合并）[P0] ⬜
+### QT-04 · 重复信号存量扫描（决定 trap / 合并）[P0] ✅（2026-10-22）
 
 - **① 目标**：拿到「同 bar 同 symbol 多条信号」在存量策略里的真实重复率，据此把 A12 从"二选一待定"变成"已成文规则"。
 - **② 上下文**：`p0-round2-review.md` §8.3；现状两条建仓路径都是 `map[symbol]` 覆盖（`pkg/risk/manager.go:185-220`、`engine.go:1552-1560`），"最后一条生效"取决于未排序顺序（A8）。风险：直接上 trap 可能让 14 个内置策略整体失败（判据 B）。
@@ -285,6 +285,19 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：**只读**，不改任何策略与引擎行为；不顺手调整策略信号逻辑；不把扫描器做成生产代码（可留在 `testdata/` 或一次性命令）。
 - **⑤ 验收**：报告存在且含可复现命令；每个重复样例都能定位到源码行；结论落到 `p0-round2-review.md` §8.3 的表格里（勾选分支）。
 - **⑥ 边界**：只决定"重复怎么办"；排序本身是 QT-21。
+
+> **✅ 完成记录（2026-10-22）**：**branch=`merge`**。扫描器 = `pkg/backtest/qt04_duplicate_signal_scan_test.go`（build tag `qt04scan`，只读：不改策略、不改引擎、不写库，qfq 基准走内存）；报告 = `docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md`；结论落点 = `p0-round2-review.md` §8.3（勾选已写）、`backtest-engine-review.md` BE-28、本文件 QT-21 的 ②/③。默认构建里加了一条文档互锁 `qt04_conclusion_interlock_test.go`：报告文本、§8.3、QT-21 派工文本三处的分支必须是同一字面量，单边改动当场红。
+>
+> **复现**：`QT04_PG_DSN='postgres://…' go test ./pkg/backtest -tags qt04scan -run TestQT04DuplicateSignalScan -count=1 -v`（14 策略 × 3 区间 = 42 场 + 复跑 + 成交层对照，约 15 s；universe 与 QT-02 同一份 24 只，`fill_timing` 显式钉 `next_open`）。
+>
+> **实测（本次抽样，与报告同一次生成）**：42 个组合、30,902 条信号里 **4,658 个有害重复组**（15.07% 的信号被 `map[symbol]` 覆盖掉），**全部来自 `td_sequential`**（各区间 32%~36%），其余 11 个能测的策略**全零**。方向组合只有一种：`close+long`（同日既买又平）；「同向多条但 strength 不同」= **0** ⇒ §8.3 的求和 clamp 那一支在现网未触发，它的验收得靠合成用例。2 个策略整场 0 信号（convertible_bond / sentiment），另有 8 场 invalid —— 都是**输入缺失**（本库无可转债表、`news`/`hot_search`/`limit_up_pool`/`ohlcv_minute` 全 0 行、`stock_fundamentals` 只 2 只票），不是策略行为；「零重复」与「不可测」分开读，这一点写在报告里。**这批数每次重生成都会换**（换幅见报告最后一条：同参复跑信号数最大偏离 36 条），所以下面的绝对数字要与那一条一起读。
+>
+> **两条把工单前提证伪的实测**（都进 §8.3 的订正段，不改本单的只读边界）：
+> - **「map 覆盖 ⇒ 最后一条生效」不准确。** 覆盖发生在 `positionSizes[signal.Symbol]`，那是**仓位尺寸**；订单循环 `pkg/backtest/engine_daily.go:393` 的 `for _, signal := range validSignals` 走的是信号切片本身。same_close 成交层对照（决策日==成交日才可逐日 join）实测 1,756 个有害重复组里 **884 组下了两笔以上**（同日往返 881 组，涉及成交额 7,748 万、该组内费用合计 4.79 万，从流水直接加）、872 组恰好一笔、0 组零笔。⇒ 合并规则要按「两条意图都成了单、共用最后一条的仓位」写。②里的行号也随实测订正：现网覆盖点是 `pkg/risk/manager.go:254` 与 `pkg/backtest/engine.go:1621`（原文的 `:185-220` / `:1552-1560` 已漂）。
+> - **「哪条生效不确定」在存量上的形态不是"顺序换人"。** 同参复跑：重复组内末条换人 **0**、组内变序 **0**、**成员集合本身变了 1,969 组**、跨标的序变（条数相同的日子）95 天。原因：`td_sequential` 的平仓腿读 `portfolio.Positions`，而持仓随当天跨标的执行先后变化 ⇒ **QT-21 的排序是本单结论的前置而非并列项**（已写进 QT-21 的 ②/③）。
+>
+> **⑤ 验收逐条**：报告存在且含可复现命令 ✅；每个重复样例都能定位到源码行 ✅ —— 发射点由扫描器**现场从源码定位**（`pkg/strategy/plugins/new_strategies.go:104` 的 `Action: "buy"` 与 `:120` 的 `Action: "sell"`），并有一条**独立实现的交叉核对**盯着它：每个报出去的 file:行号往上走最近的 `func ` 取出的接收者必须是该策略自己的类型。这条护栏做过破坏验证：把筛选改成「整个文件都算」→ 当场红并点名 `bollingerMRStrategy` / `vptStrategy` / `volBreakoutStrategy` 的行被算给了 `td_sequential`（一个文件住了四个策略，这是真会犯的错），还原后 sha256 逐字节一致；结论落档三处由 `TestQT04_ConclusionInterlock_ScanReportDesignDocLedger` 互锁，该测试先红后绿（红期同时报出 §8.3 未勾、QT-21 未引证据、二选一措辞未收三处）。互锁自己也做了破坏腿，都在临时 worktree 里做、不碰共享工作区：① 把报告里的 `merge` 改成 `trap` → 红（报「改分支要重跑扫描器，不是改文本」）；② 把 §8.3 的 `branch=` 改成 `trap` → 红（报「两处必须同源」）；③ 用 **HEAD 里那份还没写 QT-04 结论的 `docs/TASKS.md`** 跑 → 三条腿同时红（QT-21 未引报告、二选一措辞还在、台账未引证据），这样验的是「旧内容真会被抓」，而不是我手搓一个假坏样本。①② 还原后 sha256 逐字节一致。
+> **④ 约束遵守**：全程只读 —— 引擎与策略代码零改动（`git diff` 只有扫描器、报告、三份文档）；没有顺手调整 `td_sequential` 的信号逻辑（它的「整段历史回溯计数 ⇒ 多空两条同现」是本单发现但**不裁**的策略缺陷，⑥ 把裁决权留给 QT-21/策略侧）；扫描器留在 build tag 后面，不是生产代码。
 
 ### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] ⬜ · **已迁（2026-10-21，本仓留指针）**
 
@@ -376,8 +389,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ### QT-21 · 信号顺序规范化 + 重复语义落地 [P0] ⬜
 
 - **① 目标**：同一输入 20 次跑信号序列完全一致；Go 与 WASM 顺序差异不再造成假失败。
-- **② 上下文**：`p0-remediation-design.md` A8/A12 + `p0-round2-review.md` §8.3（QT-04 的结论）。`engine.go:1263` 只排序 `tradingDays`；`examples/value_momentum.go:366` `for symbol := range map` 已证非确定。
-- **③ 要求**：① 应用信号前按 `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)` **稳定排序**；② 排序口径写进 `SignalSpec`，Go/WASM/NT 共用；③ 按 QT-04 结论实现重复语义（trap 或 `close` 优先合并 + 计数）；④ 先跑"旧顺序 vs 新顺序"差异报告，差异可解释后再切换。
+- **② 上下文**：`p0-remediation-design.md` A8/A12 + `p0-round2-review.md` §8.3（**QT-04 已扫，branch=`merge`**，证据 `docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md`）。`engine.go:1263` 只排序 `tradingDays`；`examples/value_momentum.go:366` `for symbol := range map` 已证非确定。QT-04 的两条实测订正直接影响本单形状：① 覆盖发生在 `positionSizes[symbol]`（**仓位尺寸**，`pkg/risk/manager.go:254` / `engine.go:1621`），订单循环 `engine_daily.go:393` 走信号切片本身 ⇒ 现状是「两条意图都下单、共用最后一条的仓位」，不是「只有一条活」；② 同参复跑里重复组**内部**顺序与末条都稳，不稳的是「这一对当天是否存在」（它读 `portfolio.Positions`，随当天跨标的执行序漂）⇒ **排序先行是本单的前置而非并列项**，它同时消掉 A12 的一半症状。
+- **③ 要求**：① 应用信号前按 `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)` **稳定排序**；② 排序口径写进 `SignalSpec`，Go/WASM/NT 共用；③ 重复语义按 QT-04 结论实现 = **`close` 优先合并 + 同向 strength 求和 clamp 到 [0,1] + `duplicate_signals_merged` 计数进 run 级诊断**（trap 不在本单，留作存量迁移完后的下一版开关）；实测只有 `close+long` 一种组合，所以「同向求和」那一支的验收**必须用合成用例**，存量跑不出它；④ 先跑"旧顺序 vs 新顺序"差异报告，差异可解释后再切换。
 - **④ 约束与非目标**：**不允许**为保持结果不变而放弃排序；不合并不同 bar 的信号；不改 `domain.Signal` 字段。
 - **⑤ 验收**：同输入 20 次信号序一致；`value_momentum` 20 次结果逐位一致；差异报告归档；重复语义有专门测试。
 - **⑥ 边界**：只做顺序与重复；单量/仓位是 QT-24 的 `emit_target2`。
