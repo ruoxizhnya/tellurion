@@ -16,8 +16,8 @@
 | 仓 | 一句话 | 与本仓的关系 |
 |---|---|---|
 | **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
-| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（S1 起 `require` 伪版本，**禁 `replace`**） |
-| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 同上 |
+| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.1.0`，2026-10-23 发版，**禁 `replace`**） |
+| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.0`；本仓**尚未 `require`**（13 包仍在 `pkg/` 内，切换归 QT-05 ③-③） |
 | `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
 | `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |
 | `tellurion-data` | 数据面唯一入口（connector / aggregator） | 触发后接管 `market` / `ingest`；本仓改为只读 API |
@@ -40,6 +40,12 @@
    `pkg/eventstore` / `pkg/strategy` 侧的变量是 `storage.*SchemaDDL` 的**别名**，其 `EnsureSchema` 仅作
    「独立可安装 / 测试自证」幂等兜底入口。新增 DDL 一律加到 `migrationStatements()`。
    `migrations/` 与 `docs/migrations/` 的 `.sql` **不执行**，只作历史证据。
+
+### 契约 pin 怎么 bump（QT-07 ⑤ / QT-09 ①）
+
+1. **只升 tag**：`go get github.com/ruoxizhnya/tellurion-contracts@vX.Y.Z`（或 `tellurion-kit`）→ `go mod tidy`，只提交 `go.mod` / `go.sum`；**不手改版本号、不加 `replace`**（ADR-D31）。
+2. **先验祖先**：`make contracts-pin-check`（= `python tools/check_contract_pin.py` 自证 11 腿 + 实扫）必须绿——tag 解析出的 commit 必须是目标仓 `main` 的祖先；旁支 tag 不能晋升。
+3. **同步账**：`AGENTS.md` §0 依赖表与 `docs/TASKS.md` 的 QT-07 进度同一笔提交更新；文档与代码不同步的提交会被打回（Rule 1）。
 
 ---
 
