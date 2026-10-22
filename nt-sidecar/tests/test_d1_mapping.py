@@ -6,8 +6,13 @@ Run from ``nt-sidecar/``::
 
 钉住四类契约（D1 ③3 / ⑤）：
 
-1. **跨语言字面量**：``FREQ_*`` 与 Go ``pkg/domain/market/frequency.go``
-   的 ``Freq*`` 常量逐字相同——测试直接读 Go 源码正则抽取，改一侧即红。
+1. **跨语言字面量**：``FREQ_*`` 与 SPEC.md「规范层 Schema」节 ``drift:frequency``
+   表的频率列逐字相同——测试直接读 SPEC 正则抽取，改一侧即红。表与 Go
+   ``market.Freq*`` 常量 / ``KnownFrequencies()`` 的那一腿由 core 的
+   ``e2e/guard/spec_drift_test.go``（``TestSpecDriftFrequencyVocabulary``）钉住：
+   链条是 Python ↔ SPEC ↔ Go，两头各有机器判据，中段不需要第二份源码读取
+   （QT-05 B1 起 ``frequency.go`` 已整包迁到 ``tellurion-contracts:domain/market``，
+   本仓工作区里再没有那个文件，直读 Go 源码的那条腿因此改读 SPEC）。
 2. **映射表完整性**：``BAR_FIELD_MAP`` 的 canonical 字段名必须存在于
    SPEC.md「规范层 Schema」节 drift:ohlcv 表的 json tag 列（不许引用
    幽灵字段）；NT ``Bar()`` 可消费的规范层字段必须全覆盖。
@@ -22,7 +27,6 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import importlib.util
-import re
 import unittest
 from decimal import Decimal
 from pathlib import Path
@@ -45,7 +49,6 @@ from sidecar.mapping import (
 
 NT_SIDECAR_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GO_FREQUENCY_FILE = REPO_ROOT / "pkg" / "domain" / "market" / "frequency.go"
 SPEC_FILE = REPO_ROOT / "docs" / "SPEC.md"
 EXPORT_BARS_FILE = NT_SIDECAR_DIR / "tools" / "export_bars.py"
 
@@ -69,31 +72,52 @@ def _sample_row(**overrides: object) -> dict[str, object]:
     return row
 
 
-class CrossLanguageLiteralTest(unittest.TestCase):
-    """FREQ_* 常量与 Go frequency.go 逐字相同（读源码，双向）。"""
+def _spec_frequency_rows(spec_src: str) -> list[tuple[str, str]]:
+    """抽 SPEC.md ``drift:frequency`` 表的 (频率字面量, Go 常量名) 行。
 
-    def test_freq_literals_match_go_source(self) -> None:
-        go_src = GO_FREQUENCY_FILE.read_text(encoding="utf-8")
-        go_consts = dict(re.findall(r'Freq(1m|15m|1d)\s+Frequency\s*=\s*"([^"]+)"', go_src))
+    锚点缺失会直接 ValueError 抛出来（``index`` 不静默返回 -1），表解析走空
+    由调用侧断言红 —— 「解析不出来」从不被当成「没有漂移」。
+    """
+    start = spec_src.index("<!-- drift:frequency -->")
+    end = spec_src.index("<!-- /drift:frequency -->")
+    rows: list[tuple[str, str]] = []
+    for line in spec_src[start:end].splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 2 or cells[0] in ("频率", "") or set(cells[0]) <= set("-: "):
+            continue
+        rows.append((cells[0], cells[1]))
+    return rows
+
+
+class CrossLanguageLiteralTest(unittest.TestCase):
+    """FREQ_* 常量与 SPEC.md 频率词表逐字相同（读表，双向）。"""
+
+    def test_freq_literals_match_spec_table(self) -> None:
+        rows = _spec_frequency_rows(SPEC_FILE.read_text(encoding="utf-8"))
+        self.assertTrue(rows, "SPEC.md 的 drift:frequency 表没解析到任何数据行——表结构变了？")
         self.assertEqual(
-            go_consts,
-            {"1m": FREQ_1M, "15m": FREQ_15M, "1d": FREQ_1D},
-            "Python FREQ_* 与 Go Freq* 常量必须逐字相同（跨语言字面量契约）",
+            dict(rows),
+            {FREQ_1M: "market.Freq1m", FREQ_15M: "market.Freq15m", FREQ_1D: "market.Freq1d"},
+            "Python FREQ_* 必须正好是 SPEC 频率表登记的那三个字面量，且各对上一个 "
+            "market.Freq* 常量 —— 改一侧就要同步另一侧与 Go 常量（跨语言字面量契约）",
         )
 
-    def test_known_frequencies_match_go_wordlist(self) -> None:
-        go_src = GO_FREQUENCY_FILE.read_text(encoding="utf-8")
-        m = re.search(r"var knownFrequencies = \[\]Frequency\{([^}]*)\}", go_src)
-        self.assertIsNotNone(m, "Go knownFrequencies 词表行没找到——frequency.go 结构变了？")
-        names = [n.strip() for n in m.group(1).split(",") if n.strip()]
-        go_by_name = dict(re.findall(r'(Freq\w+)\s+Frequency\s*=\s*"([^"]+)"', go_src))
-        missing = [n for n in names if n not in go_by_name]
-        self.assertEqual(missing, [], "knownFrequencies 里的常量名在 frequency.go 找不到定义：%s" % missing)
-        resolved = [go_by_name[n] for n in names]
+    def test_known_frequencies_match_spec_wordlist(self) -> None:
+        rows = _spec_frequency_rows(SPEC_FILE.read_text(encoding="utf-8"))
+        self.assertTrue(rows, "SPEC.md 的 drift:frequency 表没解析到任何数据行——表结构变了？")
+        literals = [lit for lit, _ in rows]
         self.assertEqual(
-            sorted(resolved),
+            sorted(literals),
             sorted(KNOWN_FREQUENCIES),
-            "Python KNOWN_FREQUENCIES 与 Go knownFrequencies 必须同集合",
+            "Python KNOWN_FREQUENCIES 与 SPEC 频率词表必须同集合（SPEC ↔ Go 那一腿由 "
+            "core 的 e2e/guard TestSpecDriftFrequencyVocabulary 钉住）",
+        )
+        off_pattern = [const for _, const in rows if not const.startswith("market.Freq")]
+        self.assertEqual(
+            off_pattern, [], "频率表里这些行的 Go 常名列不像 market.Freq*：%s" % off_pattern
         )
 
 

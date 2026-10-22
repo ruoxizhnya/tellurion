@@ -40,7 +40,7 @@ from sidecar.runspec import RunSpec
 
 NT_SIDECAR_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GO_CONTRACTS_FILE = REPO_ROOT / "pkg" / "backtest" / "contracts" / "contracts.go"
+SPEC_FILE = REPO_ROOT / "docs" / "SPEC.md"
 
 US_SYMBOLS = ("AAPL", "MSFT")
 CN_SYMBOLS = ("600000.SH", "000001.SZ")
@@ -77,19 +77,46 @@ def _shell_keys(payload: dict) -> set[str]:
     return {SIDECAR_WIRE_ALIASES.get(key, key) for key in payload}
 
 
-def _canonical_resultspec_keys() -> set[str]:
-    """从 Go 源码抽 ``BacktestResponse`` 的 json tag 集合（跨语言字面量契约）。
+def _result_spec_section(spec_src: str) -> str:
+    """取「ResultSpec 冻结」节到下一个二级标题之间的文本（锚点缺失即抛）。"""
+    start = spec_src.index("ResultSpec 冻结")
+    rest = spec_src[start:]
+    nxt = rest.find("\n## ")
+    return rest if nxt < 0 else rest[:nxt]
 
-    读源码而不是维护第二份清单：Go 侧改字段名/加字段，这条断言立刻跟上；
+
+def _canonical_resultspec_keys() -> set[str]:
+    """从 SPEC.md「ResultSpec 冻结」节的**字段表**抽 json key 集合。
+
+    读表而不是维护第二份清单：SPEC 改字段名/加字段，这条断言立刻跟上；
     手工清单会悄悄过期，而它一旦过期就再也测不出漂移。
+
+    QT-05 B1（2026-10-23）起 ``BacktestResponse`` 的结构体本体住在
+    ``tellurion-contracts:engine``，本仓工作区里没有那份源码了，所以这一腿
+    改读 SPEC；SPEC ↔ Go 那一腿由 core 的 ``e2e/guard/resultspec_test.go``
+    （``TestResultSpec_FieldSetFrozen`` + ``TestResultSpec_SpecDocCoversFrozenFieldSet``）
+    钉住 —— 链条是 Python ↔ SPEC ↔ Go，两头各有机器判据。
+
+    只认表头为 ``| JSON key |`` 的那张表：同节上面还有一张三值状态表，它的
+    ``completed`` / ``invalid`` / ``failed`` 不是 json key，混进来会让「别名目标是
+    不是幽灵字段」那条断言假绿。
     """
-    src = GO_CONTRACTS_FILE.read_text(encoding="utf-8")
-    body = src.split("type BacktestResponse struct {", 1)[1].split("\n}", 1)[0]
-    tags = set()
-    for line in body.splitlines():
-        m = re.search(r'json:"([^",]+)', line)
-        if m:
-            tags.add(m.group(1))
+    lines = _result_spec_section(SPEC_FILE.read_text(encoding="utf-8")).splitlines()
+    header = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith("| JSON key")), None
+    )
+    if header is None:
+        raise AssertionError(
+            "SPEC.md 的 ResultSpec 节里没有「| JSON key |」表头行——表结构变了，"
+            "本测试的解析器要跟着改，不许静默返回空集合"
+        )
+    tags: set[str] = set()
+    for ln in lines[header + 2:]:
+        ln = ln.strip()
+        if not ln.startswith("|"):
+            break
+        first_cell = ln.strip("|").split("|")[0]
+        tags.update(re.findall(r"`([a-z][a-z0-9_]*)`", first_cell))
     return tags
 
 
@@ -233,7 +260,7 @@ class ReceiptSchemaConsistencyTest(unittest.TestCase):
 
     def test_canonical_key_extraction_is_not_vacuous(self) -> None:
         keys = _canonical_resultspec_keys()
-        self.assertGreater(len(keys), 15, "从 Go 源码抽到的 ResultSpec 键太少——解析器坏了？")
+        self.assertGreater(len(keys), 15, "从 SPEC.md 字段表抽到的 ResultSpec 键太少——解析器坏了？")
         self.assertIn("total_return", keys)
         self.assertIn("portfolio_values", keys)
 
