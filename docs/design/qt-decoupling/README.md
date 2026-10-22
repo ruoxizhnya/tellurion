@@ -100,6 +100,7 @@
 | [project-engineering-file.md](project-engineering-file.md) | 项目工程档案：概况、技术栈、目标架构图、port 契约草案、风险、P0~P3 路线、耦合实测基线 |
 | [p0-round2-review.md](p0-round2-review.md) | **P0 第二轮审查（实施前必读）**：旧 20 项闭环核对（16 闭环 / 5 半闭环 / 1 待裁决）+ **新增 N1~N9**（错误分级、执行时点、状态身份、重放边界、内存所有权、留痕闭合、双哈希、资源准入、仓位表达）+ 修订依赖顺序 |
 | [p0-remediation-design.md](p0-remediation-design.md) | **P0 修复设计基线（实施前必读）**：20 项 P0（A 执行正确性 / B 协议可实现性 / C 可用性 / D 流程）+ 逐项契约 + 依赖顺序 + 影响面 |
+| [w1-repo-ownership.md](w1-repo-ownership.md) | **W1 跨仓落点与仓归属（施工前定盘，2026-10-23）**：QT-10~16 逐单落点仓/文件 + QT-10/11/22 专项裁决 + 撞车文件与串行边界 |
 | [backtest-engine-review.md](backtest-engine-review.md) | **BE-01~BE-30 问题登记本**（现象 + 证据 + 初步方向，不是方案） |
 | [kernel-interface-map.md](kernel-interface-map.md) | Go 内核接口面清单（输入 5 类入口 / 输出面），契约外置的输入 |
 | [external-wasm-proposal-review.md](external-wasm-proposal-review.md) | 第三方 Wasm 方案评审（3 条不成立；发现 P0 缺陷 `WithCloseOnContextDone` 缺失） |

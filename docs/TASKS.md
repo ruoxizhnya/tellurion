@@ -1,7 +1,7 @@
 ---
 status: active
-last-verified: 2026-10-21
-verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。
+last-verified: 2026-10-23
+verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。
 ---
 
 # TASKS — 未完成项（第 4 代）
@@ -329,6 +329,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：构造"每 50 天 trap 一次"的 wasm → run `failed` 且 `Failures`（诊断明细）点名日期/原因；构造缺一天数据的 provider → `invalid` 且 `invalid_reasons` 含 `data_gap_skipped`；护栏测试：把错误改回"只 log"→ 红。
 - **⑥ 边界**：只做错误分级；`EndRun` 的创建/销毁是 QT-14。
 
+> **落点已核（2026-10-23）**：三类哨兵 + `data_gap_skipped` 落 `tellurion-contracts:engine`（`execution_errors.go` 新建 + `validity.go` 追加稳定 Code）；分类包装与状态映射留 core（`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go`、`pkg/backtest/engine.go`、`engine_daily.go`）。与 QT-14 的接口边界见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.1。
+
 ### QT-11 · 策略 per-run 实例（注册工厂 + `NewInstance`）[P0] ⬜
 
 - **① 目标**：同一策略并发/连续跑互不串状态（`SignalStrategy.cursor` 不再跨 run 存活）。
@@ -337,6 +339,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不引入 `Reset()` 作为替代（弱保证）；不改策略业务逻辑；不动 `Registry.Get` 的元数据查询用途（Parameters/Info）。
 - **⑤ 验收**：同一策略顺序跑两次逐位一致；并发两笔不串；执行路径 grep `.Get(` 零命中；14 个插件全部 `NewInstance` 成功。
 - **⑥ 边界**：只做实例生命周期；状态落库是 QT-16。
+
+> **落点已核（2026-10-23）**：`RegisterFactory` / `NewInstance` 落 core `pkg/strategy`（`registry.go` + 14 个插件 + `signal_provider.go`），**不进 contracts**——`contracts/engine/registry.go` 是内核路由注册表，不可混作本单证据。③ 的 WASM 腿今天仓内无实现（接线是 QT-26），已转记为 QT-26 的验收腿。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.2。
 
 ### QT-12 · run 级缓存下沉 + 资源准入（A7/A10/N8 一笔账）[P0] ⬜
 
@@ -414,6 +418,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不含 toolchain（toolchain 差异由 `artifact_hash` 区分，见 QT-03）；不改 `factor_definitions` 的既有算法。
 - **⑤ 验收**：三条"必变"+ 一条"不必变"测试；向量常量固定；改动序列化顺序 → 向量测试红。
 - **⑥ 边界**：只做哈希算法；资产表结构是 QT-41。
+
+> **落点已核（2026-10-23）**：`StrategyVersionInput` + `Hash()` 落 `tellurion-contracts:engine/provenance.go`（hash 体系唯一正文），域标签 `DomainStrategyVersionHash` 加在 `canonical.go`；消费方不止 core（`tellurion-strategy` 资产服务需算同一 hash）。本单只在 contracts 定算法 + 向量测试，core 不接线。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4。
 
 ### QT-23 · `RunUniverse`（run 级稳定票池）[P0] ⬜
 
