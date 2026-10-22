@@ -201,7 +201,8 @@ kernel_routing:
 #
 # `working_dir` is the directory `go build` runs in when compiling
 # LLM-generated strategy code. It MUST contain a `go.mod` that
-# resolves `tellurion/pkg/domain`. Empty
+# resolves `github.com/ruoxizhnya/tellurion-contracts/domain`
+# (QT-05 B1 moved the domain types out of this repo). Empty
 # value = service refuses to build any generated strategy (fails
 # closed with status="sandbox_rejected").
 #

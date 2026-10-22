@@ -4,7 +4,7 @@
 
 * **路由侧（Go）**：`kernel_routing.markets` 决定「哪个市场由哪个内核跑」
   （`CN → go` / `US → nautilus`），未注册市场 400。见
-  `pkg/backtest/contracts/marketroute.go`。
+  `tellurion-contracts:engine/marketroute.go`。
 * **执行侧（本模块）**：NT 内核跑某个市场时用哪套**原生**规则——计价币种、
   精度、费率模型、执行模式。
 

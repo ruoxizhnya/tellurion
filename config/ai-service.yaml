@@ -94,7 +94,9 @@ trading:
   emergency_token: ""
 
 copilot:
-  # LLM 生成代码的编译沙箱目录，必须含能解析 pkg/domain 的 go.mod。
+  # LLM 生成代码的编译沙箱目录，必须含能解析
+  # github.com/ruoxizhnya/tellurion-contracts/domain 的 go.mod（QT-05 B1 起 domain
+  # 类型住在契约仓，本仓已无 pkg/domain；消费方实现以 tellurion-agent 的 copilot 为准）。
   # 空 = 拒绝构建（fail closed, status="sandbox_rejected"）。
   working_dir: ""
 

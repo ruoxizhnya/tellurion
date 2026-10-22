@@ -32,7 +32,7 @@ DEFAULT_INITIAL_CAPITAL = 1_000_000.0
 DEFAULT_D_MAX = 0.10
 
 #: QT-02 · the calibers the platform knows about, mirrored from the Go leaf
-#: package ``pkg/backtest/contracts/filltiming.go``. The two literals are the
+#: package ``tellurion-contracts:engine/filltiming.go``. The two literals are the
 #: wire identity: they go into ``run_spec_hash`` and into K15's pre-flight
 #: comparison, so a rename here and a rename there are the same breaking change.
 KNOWN_FILL_TIMINGS = ("next_open", "same_close")

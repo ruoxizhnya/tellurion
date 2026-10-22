@@ -10,7 +10,7 @@ drifting copy of the rules:
       transferFee = tradeValue * TransferFeeRate
       stampTax    = tradeValue * StampTaxRate          (sell only)
 
-  with the rate constants from ``pkg/fees/ashare.go`` (2024-Q1 上交所/深交所).
+  with the rate constants from ``tellurion-contracts:fees/ashare.go`` (2024-Q1 上交所/深交所).
 
 * **Price limits** — mirrors ``pkg/backtest/pricelimit.go`` ``LimitPrices``::
 
@@ -51,7 +51,7 @@ MAIN_BOARD_LIMIT_RATE = 0.10
 #: A-share equity tick size (CNY).
 TICK_SIZE = 0.01
 
-# ── fee schedule (mirrors pkg/fees/ashare.go, 2024-Q1) ───────────────────────
+# ── fee schedule (mirrors tellurion-contracts:fees/ashare.go, 2024-Q1) ────────
 
 #: Broker commission, both sides (0.03%).
 COMMISSION_RATE = 0.0003

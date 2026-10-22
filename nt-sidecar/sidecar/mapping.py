@@ -13,8 +13,9 @@
 消费者代码——消费者（export_bars）因此没有 per-field 硬编码。
 
 **跨语言字面量契约**：``FREQ_*`` 常量与 Go
-``pkg/domain/market/frequency.go`` 的 ``Freq*`` 常量**逐字相同**，
-测试读 Go 源码双向钉住（改一侧即红）。
+``tellurion-contracts:domain/market/frequency.go`` 的 ``Freq*`` 常量**逐字相同**，
+测试读 SPEC 频率表双向钉住（改一侧即红；SPEC ↔ Go 那一腿由 core 的
+``e2e/guard/spec_drift_test.go`` 钉，链条是 Python ↔ SPEC ↔ Go）。
 
 值变换产出 **NT 模型对象**（``Price`` / ``Quantity``）而非裸数值——
 ``Bar()`` 的类型契约如此（与 K13 既有调用形态逐字一致，不发明新 API）。
@@ -31,7 +32,7 @@ from typing import Callable, Mapping
 
 from nautilus_trader.model import Price, Quantity
 
-# ── 跨语言字面量契约（Go: pkg/domain/market/frequency.go）──────────
+# ── 跨语言字面量契约（Go: tellurion-contracts:domain/market）──────
 #: 1 分钟 bar。与 Go ``market.Freq1m`` 逐字相同。
 FREQ_1M = "1m"
 #: 15 分钟 bar（规范层由 1m 聚合，不物化）。与 Go ``market.Freq15m`` 逐字相同。
