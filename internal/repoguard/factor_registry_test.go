@@ -18,8 +18,9 @@ import (
 
 // ─── D3 ⑤2③：回到硬编码注册表（绕过库）→ 护栏红 ───
 //
-// D3 把因子注册表从「代码冻结」改为「库管理」（pkg/domain 种子定义 +
-// pkg/data.Registry）。本护栏钉住这个迁移**不可逆**：两类「绕回库外」
+// D3 把因子注册表从「代码冻结」改为「库管理」（domain 种子定义 +
+// pkg/data.Registry；种子自 QT-05 B1 起住在 `tellurion-contracts:domain/`）。
+// 本护栏钉住这个迁移**不可逆**：两类「绕回库外」
 // 的形态都拦。
 //
 // 与 canonical_layer_test.go（物理表直连护栏）同构：AST 扫非测试生产
@@ -49,7 +50,8 @@ var factorKernelAllowedFiles = map[string]string{
 
 // factorRosterConstants 是冻结名册的 11 个常量名（domain.FactorType）。
 // registry 之外再出现「成规模的常量引用」（>=3 个/文件）= 硬编码清单
-// 气味——清单只能有一处（domain/factor_def_seed.go 的库里种子）。
+// 气味——清单只能有一处（`tellurion-contracts:domain/factor_def_seed.go`
+// 的库里种子；QT-05 B1 后 domain 已迁出本仓）。
 var factorRosterConstants = []string{
 	"FactorMomentum", "FactorValue", "FactorQuality", "FactorSize",
 	"FactorVolatility", "FactorGrowth", "FactorGrossMarginTrend",
@@ -58,9 +60,13 @@ var factorRosterConstants = []string{
 }
 
 // factorRosterBaseline 登记当前仍引用名册常量的生产文件及理由。
+//
+// 2026-10-23 QT-05 B1：原先这里的 `pkg/domain/factor.go` 与
+// `pkg/domain/factor_def_seed.go` 两条已删——那两个文件随 domain 整包迁到
+// `tellurion-contracts:domain/`，不在本仓的扫描面里了（反向棘轮对「文件已
+// 不存在」的条目判红，留着就是拿红当噪声）。清单的唯一权威本体因此搬到契约
+// 仓，本护栏守的是「core 侧不许再抄一份」。
 var factorRosterBaseline = map[string]string{
-	"pkg/domain/factor.go":               "P2-3 假设来源清单（记录「为什么有效」，非计算注册表）",
-	"pkg/domain/factor_def_seed.go":      "库里种子定义本体——唯一权威清单（Registry 的数据源）",
 	"pkg/backtest/cache/factor_cache.go": "回测因子缓存预热清单（存量：预热 3 个横截面因子。待收敛为从 Registry 读取——D6 多频率视野时一并处理，届时删本条目）",
 }
 
@@ -180,7 +186,7 @@ func TestNoBypassOfFactorRegistry(t *testing.T) {
 		strings.Join(kernelLines, "\n"))
 	assert.Empty(t, rosterLines,
 		"这些生产文件在库外重建了因子名册清单（>=%d 个名册常量聚集）。"+
-			"因子清单的唯一权威是 pkg/domain/factor_def_seed.go 的种子定义"+
+			"因子清单的唯一权威是 `tellurion-contracts:domain/factor_def_seed.go` 的种子定义"+
 			"（Registry 数据源）；确有理由登记进 factorRosterBaseline 并写清用途：\n%s",
 		factorRosterThreshold, strings.Join(rosterLines, "\n"))
 	assert.Empty(t, staleKernel,

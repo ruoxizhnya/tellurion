@@ -104,11 +104,21 @@ jobs:
         #
         # 门禁执法者是 tools/coveragegate（语句加权，与 go tool cover
         # 的 total 同口径）。阈值 = 2026-10-17 实测基线 - 5pct 余量：
-        #   total 57.7% → 52；pkg/backtest 70.4% → 65；pkg/domain 80.4% → 75。
+        #   total 57.7% → 52；pkg/backtest 70.4% → 65；~~pkg/domain 80.4% → 75~~。
         # 基线口径 = 不设 TEST_DATABASE_DSN 跑全套件——与本 CI 口径一致
         # （上面的 postgres service 是空库且无迁移步，DB 测试在此模式下
         # 显式跳过并汇总，见 pkg/testenv/dbenv.go）。要动阈值就同笔改
         # 这里与 docs/TASKS.md 的 REV-21 完成记录，并重跑基线。
+        #
+        # QT-05 B1（2026-10-23）：`-pkg-min=tellurion/pkg/domain=75` 那条腿已删，
+        # 与 Makefile 的 `test` 目标是同一份阈值（改就两边一起改）。理由：domain
+        # 整包迁到 tellurion-contracts，而 coveragegate 对「点名却不在 profile 里」
+        # 的包按 0% fail-closed 判红 —— 本仓的 go test 测不到外部 module 的包，
+        # 留着这条腿只能当场红。迁出后实测 total 61.2%（基线 61.9%；搬走的四包
+        # 自身是 83.2%），52 的下限余量反而更大，所以阈值本身不动。
+        # 如实登记缺口：那条 75% 门槛随代码迁出后**今天没有承接者**（contracts 仓
+        # CI 只跑 `go test ./... -count=1`，无覆盖率下限），已记进 docs/TASKS.md
+        # 的 QT-05 core 腿结案段；要补就在 contracts 仓补，不在本仓替别的仓加门禁。
         #
         # 注意：本地工作树若残留 gitignored 的 web/node_modules（前端拆仓
         # 前的旧产物），go 工具链会把它当模块内包walk 到，本地 total 会
@@ -117,8 +127,7 @@ jobs:
           go test ./... -count=1 -race -coverprofile=coverage.out
           go run ./tools/coveragegate -profile=coverage.out \
             -total-min=52 \
-            -pkg-min=tellurion/pkg/backtest=65 \
-            -pkg-min=tellurion/pkg/domain=75
+            -pkg-min=tellurion/pkg/backtest=65
         env:
           TUSHARE_TOKEN: ""
 

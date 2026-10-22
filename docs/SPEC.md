@@ -264,10 +264,10 @@ citation = { source, dataset, key, as_of, content_hash }
 
 > **Canonical Path (S7-P3-4)**: 市场数据类型（OHLCV / Stock / Fundamental /
 > FundamentalData / IndexConstituent / Split / Dividend / Provider）的 canonical
-> 定义位于 [`pkg/domain/market/`](../pkg/domain/market/)。
-> `pkg/domain/types.go` 通过 Go type alias（`type OHLCV = market.OHLCV`）重导出
+> 定义位于 `tellurion-contracts:domain/market/`。
+> `tellurion-contracts:domain/types.go` 通过 Go type alias（`type OHLCV = market.OHLCV`）重导出
 > 这些类型以保持向后兼容 — 旧代码 `domain.OHLCV` 仍可用，新代码应直接 import
-> `pkg/domain/market`。详见
+> `tellurion-contracts:domain/market`。详见
 > [ARCHITECTURE.md — Domain Market 软分层架构](ARCHITECTURE.md#domain-market-软分层架构-pkgdomainmarket-s7-p3-4)。
 
 ### Stock
@@ -403,10 +403,10 @@ type Portfolio struct {
 > （ohlcv_daily_qfq / ohlcv_minute 只归 pkg/marketdata 的 Router 与
 > 登记的遗留基线）。
 >
-> - 本节是**文档真相**；代码真相在 `pkg/domain/market`（OHLCV /
->   Fundamental / Frequency / 时间语义）、`pkg/domain`（FactorOutput）、
+> - 本节是**文档真相**；代码真相在 `tellurion-contracts:domain/market`（OHLCV /
+>   Fundamental / Frequency / 时间语义）、`tellurion-contracts:domain`（FactorOutput）、
 >   `pkg/marketdata`（Router 透明路由 + 聚合口径）。
-> - **防漂移**：`pkg/domain/spec_drift_test.go` 以反射比对下文三张字段表
+> - **防漂移**：`e2e/guard/spec_drift_test.go` 以反射比对下文三张字段表
 >   与 Go 类型（字段名 + json tag，双向）及频率词表；对不上即红。
 > - **棘轮护栏**：`internal/repoguard/canonical_layer_test.go` 禁止非测试
 >   Go 文件新开直连物理表的路径（只减不增，见下文「护栏」）。
@@ -718,7 +718,7 @@ tzdata——Windows 开发机与精简 CI 容器默认没有 zoneinfo，
 | 时间语义 `TimeSemantics` | `announcement_day` / `after_close` / `next_open` / `custom` | 何时可见；`custom` 必须附判定表达 `VisibleExpr` |
 | 频率口径 `FrequencySpec` | `daily` / `intraday` / `event` | 数据源的产出节奏（与记录自带 `Frequency` 是两个正交的轴） |
 
-Go 侧词表是唯一真相：`pkg/domain/market`（`TimeSemantics` / `FrequencySpec`
+Go 侧词表是唯一真相：`tellurion-contracts:domain/market`（`TimeSemantics` / `FrequencySpec`
 + `Parse*` fail-loud，零值 `""` = 未声明、不算合法）。connector 契约在
 `pkg/data/source`：`ConnectorDeclaration`（`DataType` / `TimeSemantics` /
 `VisibleExpr` / `VisibleField` / `Frequency`）+ `DataSourceAdapter.Declarations()`
@@ -920,7 +920,7 @@ error 映射成 400。
    `directTableAccessBaseline` 登记的遗留文件。**只减不增**：新开直连
    路径 = 红；基线文件被清理 = 红（逼着删条目——白名单不许替已消失的
    违规打掩护）。
-2. **防漂移测试**（`pkg/domain/spec_drift_test.go`）：上文三张字段表 +
+2. **防漂移测试**（`e2e/guard/spec_drift_test.go`）：上文三张字段表 +
    频率词表与 Go 类型反射比对，双向缺失都红。
 3. **翻译层测试**（`nt-sidecar/tests/test_d1_mapping.py`）：Python 映射
    表与 Go 常量逐字一致；`bar_kwargs_for_row` 产出与 export_bars 消耗
@@ -1004,7 +1004,7 @@ FactorComputer.ComputeFactorByName(ctx, name, date)
    名册常量 = 库外重建清单 → 红。**只减不增**（基线带裁决理由）。
 2. **种子词表测试**（`pkg/data/factor_registry_test.go`）：种子定义的
    财报字段码字面量与 `equitydeep.FieldX` 契约常量逐一比对，防漂移。
-3. **防漂移测试**（`pkg/domain/spec_drift_test.go`）：本节目定义骨架表
+3. **防漂移测试**（`e2e/guard/spec_drift_test.go`）：本节目定义骨架表
    与 `domain.FactorDefinition` 反射比对，双向缺失都红。
 
 ### 已知边界（D3 如实登记）
@@ -1110,7 +1110,7 @@ FactorComputer.ComputeFactorByName(ctx, name, date)
 | 登记人 | `Registrar` | `strings.TrimSpace` 非空 |
 | 生效日 | `Definition.EffectiveFrom` | `YYYY-MM-DD`（由 `Definition.Validate()` 覆盖） |
 
-校验在**两道关卡**共同守住（`pkg/domain/factor_registration.go` 的
+校验在**两道关卡**共同守住（`tellurion-contracts:domain/factor_registration.go` 的
 `FactorRegistration.Validate` + Migration 053 的 DB CHECK）：连「绕过写入
 路径直接 INSERT」也被库拒绝（registrar 非空 + 内核体存在 + 状态枚举）。
 
@@ -1167,14 +1167,14 @@ slice，故自持 `sync.RWMutex` 成为**并发安全类型**：
 
 ### 护栏与测试
 
-1. **四样拒收**（`pkg/domain/factor_registration_test.go`）：8 例表驱动
+1. **四样拒收**（`tellurion-contracts:domain/factor_registration_test.go`）：8 例表驱动
    （缺公式/空公式/空哈希/哈希不符/空登记人/纯空白登记人/空生效日/生效日
    格式错）+ 未知状态 + 陈旧哈希。
 2. **登记与回滚 fail-closed**：重复登记、回滚未登记/已回滚/缺 actor。
 3. **破坏验证**（`pkg/storage/factor_registration_test.go`）：绕过写入路径
    直接 INSERT（缺 registrar / 缺内核体 / 未知状态）→ DB CHECK 拒收（护栏
    红）；走正常写入路径 → 绿。另钉「库行被绕过改坏 → 加载时哈希校验拒载」。
-4. **防漂移测试**（`pkg/domain/spec_drift_test.go`）：上表
+4. **防漂移测试**（`e2e/guard/spec_drift_test.go`）：上表
    `factor_registration` 锚点与 `domain.FactorRegistration` 反射比对，双向
    缺失都红。
 5. **并发语义**（`pkg/data/factor_governance_test.go`，REV-03）：
@@ -1185,7 +1185,7 @@ slice，故自持 `sync.RWMutex` 成为**并发安全类型**：
 
 ### 实现指针
 
-- 治理核心类型与校验：`pkg/domain/factor_registration.go`
+- 治理核心类型与校验：`tellurion-contracts:domain/factor_registration.go`
 - 进程内账本（登记 / 回滚 / 版本解析）：`pkg/data/factor_governance.go`
 - DB 侧持久化与审计：`pkg/storage/factor_registration.go`
 - DDL：`pkg/storage/postgres.go` Migration 053（`factor_registrations` /
@@ -1205,11 +1205,11 @@ slice，故自持 `sync.RWMutex` 成为**并发安全类型**：
 | --- | --- | --- | --- |
 | 1 | **前置核实**：官方 API 文档 / 时间戳语义 / token 配额，实测不臆断 | 本单上下文（见下「实测记录」） | 真 token 逐接口探测（`daily_basic` code:0，5563 行/日） |
 | 2 | **存储层**：Migration 056 建 `market_activity` 表 + 读写面 | `pkg/storage/postgres.go` / `pkg/storage/market_activity.go` | 真库往返 / 幂等 / PIT 上界三测试绿 |
-| 3 | **领域层**：规范层数据类 | `pkg/domain/market_activity.go` | SPEC 本文件字段表 + 漂移锚点 `activity`（反射双向比对） |
+| 3 | **领域层**：规范层数据类 | `tellurion-contracts:domain/market_activity.go` | SPEC 本文件字段表 + 漂移锚点 `activity`（反射双向比对） |
 | 4 | **connector**：adapter + 声明 + 注册 + kill-switch | `pkg/data/source/tushare_daily_basic_adapter.go` / `declarations.go` / `cmd/data/registry_init.go` | 契约注册 / 声明政策 / Fetch 汇总落库测试绿 |
 | 5 | **数据层**：Tushare 拉取 + normalize + 幂等落库 | `pkg/data/tushare_daily_basic.go` | 缺失≠0 / 脏值跳过 / 全跳过 fail-loud 测试绿 |
 | 6 | **语言层**：新数据字段进表达式词表（新来源 `activity`） | `pkg/expression/registry.go`（`FieldSourceActivity` + `TableMarketActivity`） | 可用性地图 / 来源声明 / 跨包能力护栏测试绿 |
-| 7 | **因子**：公式因子定义入库 + D4 登记四样 | `pkg/domain/factor_def_seed.go` / `pkg/domain/factor.go`（名册） | 手算值钉死 / 缺失≠0 / 历史不足 / PIT 不可见测试绿 |
+| 7 | **因子**：公式因子定义入库 + D4 登记四样 | `tellurion-contracts:domain/factor_def_seed.go` / `tellurion-contracts:domain/factor.go`（名册） | 手算值钉死 / 缺失≠0 / 历史不足 / PIT 不可见测试绿 |
 | 8 | **策略侧供给**：`OHLCVDataProvider` 供应活跃度字段（未注入 → 明确报错） | `pkg/strategy/expression/data_provider.go` | 能力清单双向相等护栏绿 |
 | 9 | **集成测试（真库贯通）**：注册 → 同步 → 因子出分，真 adapter → 真 PostgresStore → 真 `factor_cache` | `pkg/data/source/daily_basic_integration_test.go` | 手算分落真库 / 重放幂等 / 晚于计算日的观测不可见（真 SQL 上界），用例自清且复核归零 |
 
@@ -1273,8 +1273,8 @@ DSN 构造点）——集成测试初版手拼 DSN 被它当场判红，改为
 
 ### 实现指针
 
-- 领域类型：`pkg/domain/market_activity.go`；名册与假设：`pkg/domain/factor.go`；
-  种子定义：`pkg/domain/factor_def_seed.go`
+- 领域类型：`tellurion-contracts:domain/market_activity.go`；名册与假设：`tellurion-contracts:domain/factor.go`；
+  种子定义：`tellurion-contracts:domain/factor_def_seed.go`
 - 存储：`pkg/storage/market_activity.go` + Migration 056
 - 数据层：`pkg/data/tushare_daily_basic.go`；connector：
   `pkg/data/source/tushare_daily_basic_adapter.go` + `declarations.go`
@@ -1377,7 +1377,7 @@ type IntradayAware interface {
 
 | 测试 | 钉住什么 |
 |---|---|
-| `pkg/domain/market/visibility_test.go` | 闸门判定原语：10:00 bar 在 10:00:30 不可见、10:01 可见；15m bucket / 日线同构；零值 VisibleAt 恒不可见 |
+| `tellurion-contracts:domain/market/visibility_test.go` | 闸门判定原语：10:00 bar 在 10:00:30 不可见、10:01 可见；15m bucket / 日线同构；零值 VisibleAt 恒不可见 |
 | `pkg/backtest/intraday_test.go` | 手算样本；特征可用性在窗口闭合时刻翻转；半窗/空数据/目录外名 = 不可得；按日绑定不泄漏别的交易日；1m/15m 对拍；样例策略回测（买入价 = 收盘含滑点、强平在末日）；纯日线策略对 D6 接线逐点不敏感；预热三「不」；provider 无运行时数据通道 |
 | `internal/repoguard/strategy_marketdata_isolation_test.go` | 红线：策略包不许 import 规范层取数包（破坏验证腿②） |
 | `pkg/backtest/intraday_test.go`（DB 集成，skip-if-unreachable） | 真 PG + 真 Router 自灌自证：31 根种子 bar 的快照内容、频率声明、VisibleAt 口径、端到端特征值 |
@@ -1495,7 +1495,7 @@ adj = 1 − (1 − raw)^NumTrials  族系误差（试 N 次至少中一次的概
 - 沙箱与只读求值：`pkg/mining/sandbox.go`（`Attestation`、`EvaluateOnSnapshot`）
 - 只读预加载快照：`pkg/mining/snapshot.go`
 - 治理层两件：`pkg/mining/governance.go`
-- 留痕类型与校验：`pkg/domain/mining.go`
+- 留痕类型与校验：`tellurion-contracts:domain/mining.go`
 - DB 持久化：`pkg/storage/mining.go`
 - DDL：`pkg/storage/postgres.go` Migration 055（`factor_mining_records`）+
   `docs/migrations/055_add_factor_mining_records.sql`
@@ -1577,8 +1577,8 @@ type Strategy interface {
 type BarHandler interface {
     // OnBar 逐 bar 回调，&mut self 语义（持有内部状态）
     // ⚠️ 2026-10-08 订正：此处原写 domain.Bar，但该类型并不存在
-    //（pkg/domain 与 pkg/domain/market 均无；全仓零引用）——它是目标形态
-    // 里的未建类型。K0 冻结实现用 domain.OHLCV（pkg/domain/market/types.go:6，
+    //（`tellurion-contracts:domain` 与其 `market/` 均无；全仓零引用）——它是目标形态
+    // 里的未建类型。K0 冻结实现用 domain.OHLCV（`tellurion-contracts:domain/market/types.go`，
     // 本项目唯一的 bar 载体）。将来若真引入 domain.Bar（如给 bar 加复权
     // 标记）属**改冻结契约**，须走变更评审并同步 pkg/strategy/streaming.go
     // 及全部调用方。
@@ -3138,7 +3138,7 @@ When a LiveTrader is attached, the engine can run in "paper trading" mode where 
 
 一次回测运行请求可以声明由哪个内核执行（FR-1.1/FR-1.3，ADR-031 D1）：
 
-- **路由键**：`RunSpec.kernel`（`pkg/backtest/contracts.BacktestRequest.Kernel`）。空值 =
+- **路由键**：`RunSpec.kernel`（`tellurion-contracts:engine.BacktestRequest.Kernel`）。空值 =
   默认内核 `"go"`（`EffectiveKernel()` 语义，默认值**不**回填字段 —— 存量请求序列化不变）。
 - **注册表**：`contracts.EngineRegistry`（`Register` / `Resolve`）是内核路由的唯一实现。
   注册仅发生在**装配期**（无热插拔）；`Resolve` 可并发。同步 handler（`POST /api/backtest`
@@ -3151,7 +3151,7 @@ When a LiveTrader is attached, the engine can run in "paper trading" mode where 
   `BacktestRunner`（五参签名，返回 `*domain.BacktestResult`）是 AI 管线端口，**签名不动**，
   与内核路由无关。walk-forward 编排每窗口构造全新 Engine（引擎级缓存 per-instance，
   共享会跨窗口污染），不经注册表解析共享实例。
-- **护栏**：`pkg/backtest/contracts/registry_test.go`（含「未知名回退 go → 红」的破坏腿）、
+- **护栏**：`tellurion-contracts:engine/registry_test.go`（含「未知名回退 go → 红」的破坏腿）、
   `pkg/backtest/job/job_kernel_routing_test.go`、`cmd/analysis/handlers_backtest_kernel_test.go`。
 
 #### 市场路由（D7）与异步 job 的接线（DBT-06，2026-10-17）
@@ -3179,8 +3179,8 @@ When a LiveTrader is attached, the engine can run in "paper trading" mode where 
 ### ResultSpec 冻结（K9，2026-10-12）：BacktestResponse canonical schema
 
 回测结果的 **canonical schema**，四契约（ADR-031）里 ResultSpec 的落地形态，实现于
-`pkg/backtest/contracts.BacktestResponse`。**字段集、指标口径、status 三值语义三者都是契约**：
-任何变更必须先破坏护栏测试 `pkg/backtest/contracts/resultspec_test.go` 再走契约变更评审。
+`tellurion-contracts:engine.BacktestResponse`。**字段集、指标口径、status 三值语义三者都是契约**：
+任何变更必须先破坏护栏测试 `e2e/guard/resultspec_test.go` 再走契约变更评审。
 护栏含文档互锁 —— 改字段不改本节会直接红（本节前身列着根本不存在的 Profit factor /
 Turnover，就是文档与实现静默漂移的标本）。
 

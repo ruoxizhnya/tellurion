@@ -99,11 +99,17 @@ test:
 	# REV-21：与 CI 口径对齐（-count=1 -race + 覆盖率门禁）。修掉原先
 	# 「Makefile 无 -race/-count=1、CI 无 -coverprofile」的双向分叉。
 	# 阈值与 .github/workflows/ci.yml 同一份（改就两边一起改）。
+	#
+	# QT-05 B1（2026-10-23）：删掉 -pkg-min=tellurion/pkg/domain=75 那条腿。
+	# coveragegate 对「点名却不在 profile 里」的包按 0% fail-closed 判红，而
+	# domain 已整包迁到 tellurion-contracts —— 本仓的 go test 测不到外部 module
+	# 的包，留着这条腿只会当场红。如实登记的代价：那条 75% 门槛随代码迁出后
+	# **今天没有承接者**（contracts 仓 CI 只跑 `go test ./... -count=1`，无覆盖率
+	# 下限）；缺口记在 docs/TASKS.md 的 QT-05 core 腿结案段，不在本单替别的仓加门禁。
 	go test ./... -count=1 -race -coverprofile=coverage.out
 	go run ./tools/coveragegate -profile=coverage.out \
 		-total-min=52 \
-		-pkg-min=tellurion/pkg/backtest=65 \
-		-pkg-min=tellurion/pkg/domain=75
+		-pkg-min=tellurion/pkg/backtest=65
 	@echo "✅ Tests completed"
 
 lint:

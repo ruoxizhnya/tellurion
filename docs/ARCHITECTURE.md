@@ -130,9 +130,8 @@ tellurion/
 ├── cmd/analysis/     # 主服务 :8085（API 网关 + 风控/执行 in-process）
 ├── cmd/data/         # 数据服务 :8081（tushare 摄取 + sync 队列）
 ├── pkg/
-│   ├── backtest/     # 回测引擎 + job/batch/walkforward + contracts（RunSpec/ResultSpec 冻结；kernel/market 路由表同步与异步 job 共用，DBT-06）
+│   ├── backtest/     # 回测引擎 + job/batch/walkforward（RunSpec/ResultSpec 四契约与 kernel/market 路由表 2026-10-23 起在 `tellurion-contracts:engine/`，本仓经 `aliases.go` 门面引用，DBT-06 / QT-05）
 │   ├── data/         # 数据管道（tushare 客户端、因子、产业链导入）
-│   ├── domain/       # 领域模型（market 子包为行情类型权威）
 │   ├── kernel/       # 模块化内核（clock/msgbus/eventstore，K1–K12 线）
 │   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
 │   ├── live/         # 实盘/纸交易引擎
@@ -205,7 +204,9 @@ connector 之外无人感知底层表。字段表 / 频率词表 / 聚合口径 
   DDL / 表名常量），只允许 `pkg/marketdata` 与 `directTableAccessBaseline`
   登记的遗留文件；**新开直连 = 红，基线文件被清理 = 逼删条目**
   （只减不增，白名单不许替已消失的违规打掩护）。
-- **防漂移**（`pkg/domain/spec_drift_test.go`）：SPEC 三类字段表 +
+- **防漂移**（`e2e/guard/spec_drift_test.go`；被比的类型自 2026-10-23 起在
+  `tellurion-contracts:domain`，读的是本仓 `docs/SPEC.md`，所以守卫留在本仓）：
+  SPEC 三类字段表 +
   频率词表 ↔ Go 类型反射比对（双向）；Python `FREQ_*` ↔ Go `Freq*`
   逐字钉住（`nt-sidecar/tests/test_d1_mapping.py` 读 Go 源码）。
 - **回归红线**（`pkg/marketdata/router_integration_test.go`）：Router 的
@@ -217,7 +218,7 @@ connector 之外无人感知底层表。字段表 / 频率词表 / 聚合口径 
 （`pkg/data/source.Registry.Register`）时必须声明**时间语义 + 频率口径**，
 缺失 / 非法 / 与数据形态矛盾一律 fail-closed 拒收（`validateDeclarations`
 三类哨兵 `ErrDeclarationMissing` / `ErrDeclarationInvalid` /
-`ErrDeclarationMismatch`）。语义词表唯一真相在 `pkg/domain/market`
+`ErrDeclarationMismatch`）。语义词表唯一真相在 `tellurion-contracts:domain/market`
 （`TimeSemantics` / `FrequencySpec`），存量 connector 的声明登记在
 `pkg/data/source/declarations.go`（「声明即登记」）。高危样例：市场活跃度 /
 拥挤度 = `after_close`（收盘后可见，盘中用当日值即偷看）。文档真相见
@@ -269,7 +270,7 @@ provider 实现无 provider/router/pool 句柄（反射断言）。日频决策�
 ## 8. 因子定义库数据流（数据因子蓝图 D3，2026-10-14）
 
 **不变量**：因子定义只认「库里公式」——一份种子定义
-（`pkg/domain/factor_def_seed.go`，编译期常量）+ 一张持久表
+（`tellurion-contracts:domain/factor_def_seed.go`，编译期常量）+ 一张持久表
 （`factor_definitions`，迁移 051）+ 一个进程内 Registry
 （`pkg/data/factor_registry.go`，构造时定稿、只读）。计算线
 （`ComputeAllFactors` / `ComputeFactorByName`）的因子清单 =
@@ -281,7 +282,7 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 ```
    ┌─────────────────────────────────────────────────────────┐
    │ 定义层（库里公式，唯一权威）                                │
-   │  pkg/domain/factor_def_seed.go（种子 11 条，编译期常量）    │
+   │  contracts 仓 domain/factor_def_seed.go（种子 11 条）      │
    │    · 字段：名字/公式/域过滤/输入字段/生效日/口径/前视纪律    │
    │    · 版本哈希 = SHA-256(canonical 内容)——改公式=新哈希     │
    └──────────────┬───────────────────────────┬──────────────┘
@@ -317,7 +318,7 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 - **数值回归红线**（`pkg/data/factor_formula_test.go`）：公式库版 vs
   原代码版同输入同输出（momentum/value/quality 三列全等，域过滤与
   历史不足的缺失语义由 Validity / NaN 复现）。
-- **防漂移**（`pkg/domain/spec_drift_test.go` + 种子词表测试）：
+- **防漂移**（`e2e/guard/spec_drift_test.go` + 契约仓的种子词表测试）：
   SPEC 定义骨架表 ↔ `FactorDefinition` 反射比对；种子字段码 ↔
   `equitydeep.FieldX` 契约常量逐一比对。
 - **版本可复现**（`pkg/data/factor_registry_test.go` +
@@ -376,7 +377,7 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
   生成器非空、来源枚举、被拒必须写明原因——绕过写入路径直接 INSERT 缺样也被库拒绝。
 - **三条命根子**：版本哈希内容派生（可复现）/ 求值只读快照且缺字段=NaN
   （防偷看）/ 同公式同快照逐点相等（可比），各有测试钉住。
-- **防漂移**（`pkg/domain/spec_drift_test.go`）：SPEC 留痕表
+- **防漂移**（`e2e/guard/spec_drift_test.go`）：SPEC 留痕表
   `factor_mining_record` 锚点 ↔ `FactorMiningRecord` 反射双向比对。
 
 迁移方向：真实 `Proposer`（LLM/MCTS）与 `Evaluator`（研究验证 IC）接线；

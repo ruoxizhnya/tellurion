@@ -204,7 +204,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── api/                      # HTTP 层（gin 路由与中间件）
 │   ├── bootstrap/                # 启动装配（配置 / 监听 / 依赖注入）
 │   ├── kernel/                   # 模块化内核装配（Clock / Bus / Store 的 BootOrder）
-│   ├── backtest/                 # 引擎 + contracts(四契约) + batch + walkforward + metrics
+│   ├── backtest/                 # 引擎 + batch + walkforward + metrics + aliases.go（门面；四契约本体在 contracts 仓）
 │   ├── strategy/                 # 策略运行时 + 插件 + SignalProvider（留 core）
 │   ├── execution/ execalgo/      # 撮合 / 执行算法（留 core）
 │   ├── portfolio/ settlement/    # 组合 / 结算（留 core）
@@ -213,15 +213,13 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── data/ marketdata/ sync/   # 数据管道（→ tellurion-data，X1）
 │   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
-│   ├── fees/                     # 费率模型（形状 → contracts，计算留 core）
 │   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**（SPEC-R-01 已收编全部模块表）
 │   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
-│   ├── domain/                   # 领域模型（→ tellurion-contracts，S1）
 │   ├── logging/ errors/ id/ decimal/ statistics/   # 横切（→ tellurion-kit，S1）
 │   ├── httpclient/ httpserver/ observability/      # 横切（→ tellurion-kit，S1）
 │   ├── auth/ authz/ clock/ sandbox/                # 横切（→ tellurion-kit，S1）
 │   └── testenv/ testutil/        # 测试脚手架（留 core）
-├── e2e/                          # Go 端到端 / 守卫测试（guard_test.go、integration_test.go）
+├── e2e/                          # Go 端到端 / 守卫测试（guard_test.go、integration_test.go；`e2e/guard/` 还放着两把**跨仓 SPEC 互锁**守卫，见下方「已迁出」表最后一行）
 ├── migrations/                   # ⚠️ 历史 SQL 镜像，**不执行**（见该目录 README）
 ├── contracts/                    # ⚠️ 运行时数据契约资产（field_dictionary.yaml + schema），**不是 Go 包**
 ├── deploy/                       # 部署编排（compose / Dockerfile / nginx）
@@ -237,6 +235,8 @@ tellurion/                        # core —— 热路径全在这里，不出�
 | `pkg/validation/`（五维确定性校验器）、`pkg/tools/`（MCP 工具桥） | `tellurion-agent`（`pkg/ai/validation`、`pkg/ai/tools`） | 同上 |
 | `web/src/**`（Vue 3 前端） | `tellurion-ui`（`web/src/**`） | 2026-10-09 前端拆仓 |
 | Playwright E2E（`e2e/tests/*.spec.ts`） | `tellurion-ui` | 同上；本仓 `e2e/` 只剩 Go 守卫与集成测试 |
+| `pkg/domain/`（含 `pkg/domain/market/`）、`pkg/fees/`、`pkg/backtest/contracts/` | `tellurion-contracts`（`domain/`、`domain/market/`、`fees/`、`engine/`——**目录叫 engine、package 名仍叫 contracts**） | 2026-10-23 QT-05 ③-③/④（S1 契约落地，`require` 伪版本、**无 replace**）；`pkg/backtest/aliases.go` 留本仓当门面，调用点前缀 `contracts.X` / `domain.X` 一个字没改 |
+| ↑ 那两把**读 core 文档**的 SPEC 互锁守卫（`spec_drift_test.go`、`resultspec_test.go`） | 留在本仓，挪到 `e2e/guard/` | 契约本体走了、被比的 `docs/SPEC.md` 没走：守卫随包迁到 contracts 仓就会去读一个不存在的 SPEC.md。互锁因此跨仓——在 contracts 仓给 `OHLCV` / `BacktestResponse` 加字段，红的是本仓 CI |
 
 
 > **⚠️ `migrations/` 与 `docs/migrations/` 里的 `.sql` 不被执行。**
@@ -569,7 +569,7 @@ type Strategy interface {
 ### Ask First（先问再做）
 - ❓ 修改数据库 schema（在 `pkg/storage/postgres.go` 的 `migrate()` 数组末尾追加幂等 DDL —— **不是**在 `migrations/` 加文件，那个目录不执行）
 - ❓ 添加新的 npm 或 Go 依赖
-- ❓ 更改核心接口（`Strategy`, `Domain` types in `pkg/domain/`）
+- ❓ 更改核心接口（`Strategy` 留本仓；`Domain` types 自 2026-10-23 起住在 `tellurion-contracts:domain/`，改它要去那个仓、按它的兼容矩阵走 breaking 评审，不是在本仓改）
 - ❓ 移除或重命名现有 API 端点
 - ❓ 修改 `docker-compose.yml` 基础配置
 - ❓ 不确定的设计决策时，检查 `docs/adr/` 是否有先前 ADR

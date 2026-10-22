@@ -299,11 +299,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⑤ 验收逐条**：报告存在且含可复现命令 ✅；每个重复样例都能定位到源码行 ✅ —— 发射点由扫描器**现场从源码定位**（`pkg/strategy/plugins/new_strategies.go:104` 的 `Action: "buy"` 与 `:120` 的 `Action: "sell"`），并有一条**独立实现的交叉核对**盯着它：每个报出去的 file:行号往上走最近的 `func ` 取出的接收者必须是该策略自己的类型。这条护栏做过破坏验证：把筛选改成「整个文件都算」→ 当场红并点名 `bollingerMRStrategy` / `vptStrategy` / `volBreakoutStrategy` 的行被算给了 `td_sequential`（一个文件住了四个策略，这是真会犯的错），还原后 sha256 逐字节一致；结论落档三处由 `TestQT04_ConclusionInterlock_ScanReportDesignDocLedger` 互锁，该测试先红后绿（红期同时报出 §8.3 未勾、QT-21 未引证据、二选一措辞未收三处）。互锁自己也做了破坏腿，都在临时 worktree 里做、不碰共享工作区：① 把报告里的 `merge` 改成 `trap` → 红（报「改分支要重跑扫描器，不是改文本」）；② 把 §8.3 的 `branch=` 改成 `trap` → 红（报「两处必须同源」）；③ 用 **HEAD 里那份还没写 QT-04 结论的 `docs/TASKS.md`** 跑 → 三条腿同时红（QT-21 未引报告、二选一措辞还在、台账未引证据），这样验的是「旧内容真会被抓」，而不是我手搓一个假坏样本。①② 还原后 sha256 逐字节一致。
 > **④ 约束遵守**：全程只读 —— 引擎与策略代码零改动（`git diff` 只有扫描器、报告、三份文档）；没有顺手调整 `td_sequential` 的信号逻辑（它的「整段历史回溯计数 ⇒ 多空两条同现」是本单发现但**不裁**的策略缺陷，⑥ 把裁决权留给 QT-21/策略侧）；扫描器留在 build tag 后面，不是生产代码。
 
-### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] ⬜ · **已迁（2026-10-21，本仓留指针）**
+### QT-05 · S1 契约层与工具层落地（代码直接写进两个新仓）[P0] 🔶 · **已迁（2026-10-21，本仓留指针）；core 腿 A-1~A-4 已落（2026-10-23，见下方结案）**
 
 > **正文已整体迁至 `tellurion-contracts:docs/TASKS.md`「一、本仓任务」`QT-05`**（六字段 + 形态裁决注记逐字保留；任务台账批量重分布：S1 双仓落点，主单落 contracts 仓）。**kit 腿**拆分为 `tellurion-kit:docs/TASKS.md` 的 **QT-05-B**（③-② 的执行单，判据以主单为准）。
 > **本仓侧改动**（主单 ③-③/④/⑥/⑦/⑨ 的 core 部分：`go get` 依赖切换与 sed 全替、禁 `replace` + `go.work` 纪律、5 个数据契约文件不动、`tools/check_contract_pin.py`、core-only 类型清单）随主单执行、在本仓落码。
 > 执行与验收在彼处，此处不镜像；改动请去彼处改，勿在此回填正文。执行顺序（W0 全绿后的 S1）见本文件「执行顺序总览」。
+>
+> **core 腿（交接单 A-1~A-4）已落（2026-10-23，B1）**，本仓侧状态从 ⬜ 改 🔶（kit 腿与 agent 腿未做）：
+> - **实测判据**：`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全 EXIT=0（71 包 ok、0 FAIL；基线是 75 包，少的正是被删的四包）；`git grep '"tellurion/pkg/\(domain\|fees\|backtest/contracts\)"'` **0 命中**；`go.mod` 零 `=>`、`go.work` 不在磁盘也不入库；pin 解析自 module cache（`v0.0.0-20261022191510-fbe9a2d0df17`），非兄弟目录。覆盖率 total **61.9% → 61.2%**（搬走的四包自身 83.2%），`-total-min=52` 与 `-pkg-min=tellurion/pkg/backtest=65` 两条腿照旧绿。
+> - **三处工单没写、但不改就当场红的联动**（都已随本单处理）：① `-pkg-min=tellurion/pkg/domain=75` 那条腿（`tools/coveragegate` 对「点名却不在 profile 里」按 0% fail-closed）在 Makefile 与 CI 两处一起删；② `internal/repoguard/factor_registry_test.go` 的反向棘轮基线钉在将消失的 `pkg/domain/factor.go` / `factor_def_seed.go` 上，`os.Stat` 失败即红——两条已删并把报错文本里的权威路径改指契约仓（**实测过：删包后不动它，`go test ./internal/repoguard/` 当场红**）；③ `docs/{SPEC,ARCHITECTURE}.md` 25+6 处旧路径，含一个指向已删目录的相对链接（CI doc-link job 会红）。
+> - **两条如实订正交接单的前提**：A-3 说「`spec_drift_test.go` 文件里的类型已是 `market.` 限定」——不准，里面 6 把守卫用的是 domain 包内裸类型（`FactorDefinition` / `FactorRegistration` / `FactorMiningRecord` / `FactorOutput` / `MarketActivity` / `IndexDaily`），搬进 `package guard` 必须补 `domain.` 限定；A-1 说「`go.sum` 只增 contracts 条目」——`go mod tidy` 实测还顺手摘掉 `golang.org/x/time`、把 `prometheus/client_model` 降回 indirect，这两个在 HEAD 上就已零 import（迁移 commit `3e765ed` 带的存量脏），不是本单引入。
+> - **登记在案的缺口（不在本单修）**：① 那条 **75% 的 domain 覆盖率下限随代码迁出后今天没有承接者**——contracts 仓 CI 只跑 `go test ./... -count=1`、无覆盖率门禁；要补就去 contracts 仓补，本仓不替别的仓加门禁。② 约 30 处 Go **注释/报错文本**里的旧路径（`pkg/backtest/constants.go`、`pkg/execution/cost.go`、`pkg/live/*` 等）只散文指错、不参与构建，刻意留给下一笔，避免把机械 sed 与文案改写混进同一个 commit。③ **agent 腿（B4）现在起会红**：agent 仍 `replace tellurion => ../tellurion` 且 import `tellurion/pkg/domain`，而该包刚在本仓消失——按交接单的硬顺序「core 先落、再跑 B4」，这是预期窗口，不是回归；QT-18 的 agent-compat job 会红在 core 侧，直到 B4 落地。
 
 ---
 
