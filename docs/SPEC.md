@@ -1,7 +1,7 @@
 ---
 status: evergreen
-last-verified: 2026-09-22
-verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026-09-22）；其余段落沿用 2026-09-16 代码审查
+last-verified: 2026-10-22
+verified-by: AUD-30 定位校准 + AUD-41 `## Configuration` 整段订正（2026-09-22）；其余段落沿用 2026-09-16 代码审查；QT-05 B3 契约迁移路径对拍（2026-10-22）
 ---
 
 # Quant Trading System - System Specification
@@ -267,8 +267,7 @@ citation = { source, dataset, key, as_of, content_hash }
 > 定义位于 `tellurion-contracts:domain/market/`。
 > `tellurion-contracts:domain/types.go` 通过 Go type alias（`type OHLCV = market.OHLCV`）重导出
 > 这些类型以保持向后兼容 — 旧代码 `domain.OHLCV` 仍可用，新代码应直接 import
-> `tellurion-contracts:domain/market`。详见
-> [ARCHITECTURE.md — Domain Market 软分层架构](ARCHITECTURE.md#domain-market-软分层架构-pkgdomainmarket-s7-p3-4)。
+> `tellurion-contracts:domain/market`。包签名与稳定性登记见 `tellurion-contracts:docs/API.md` §4。
 
 ### Stock
 ```go
@@ -3260,7 +3259,7 @@ Turnover，就是文档与实现静默漂移的标本）。
 - **`same_close` 必须自标 `known_bias: same_close_fill`**（§8.1 兼容行）：收盘成交含
   「用 T 日信息参与 T 日成交」的前视偏差。`next_open` 不带任何偏差标识 —— 它是终态
   口径，且偏差名与口径名是两件事（同一口径在不同实现下偏差集合可以不同）。
-- **生产者只有一处**：`FillTiming.KnownBiases()`（`contracts/filltiming.go`）。写路径
+- **生产者只有一处**：`FillTiming.KnownBiases()`（`tellurion-contracts:engine/filltiming.go`）。写路径
   `buildBacktestResponse`、读路径 `ResponseFromState` 都从 `state.Params` 取实际生效值，
   不许各自再推断一次。
 - **成交基准价 = 引擎选定的价，一处来源**（QT-02 顺带修掉的缺陷）：
