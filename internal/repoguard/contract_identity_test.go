@@ -265,6 +265,10 @@ func TestNoUnlistedShadowContractTypeDeclarations(t *testing.T) {
 // 判据按最保守的来：**Python 里出现这三个路径字符串就当红**，因为要么它在读
 // 一个已经不存在的文件，要么它在把一个已经不存在的锚点讲给读者听。要跨语言钉
 // 字面量就读 docs/SPEC.md 的登记表（SPEC ↔ Go 由 e2e/guard 那两把守卫钉住）。
+//
+// 覆盖面只到 .py，不扩到 Makefile / CI yaml / config yaml：那三处今天的命中
+// 全是「这条腿已删」的移除说明（实测逐条看过），一律判红就成了假阳性机器；
+// 而 .py 里这三串没有合法的散文用途。
 func TestMigratedPathsNotReadBySidecarCode(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join("..", "..")
