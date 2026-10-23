@@ -25,9 +25,52 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
+
+// ─── 预算与终止（QT-15 / C1 双层预算）────────────────────────────
+//
+// 预算是双层的：单次调用预算管「一个 bar 卡死」，run 级 deadline 管「每 bar
+// 都合法、整体无限」。单次预算 ≠ run 预算，两者缺一不可。
+
+// SessionBudget 是一个 on_bar 会话的双层预算。零值 PerCall 表示沿用 sandbox
+// 配置的 MaxExecutionTime（旧行为），RunDeadline ≤ 0 表示沿用 DefaultRunDeadline。
+type SessionBudget struct {
+	PerCall     time.Duration
+	RunDeadline time.Duration
+}
+
+const (
+	// DefaultMarketCallBudget 是 scope=market 的单次调用预算（C1 冻结值）。
+	DefaultMarketCallBudget = 50 * time.Millisecond
+	// DefaultSymbolCallBudget 是 scope=symbol 的单次调用预算（C1 冻结值）。
+	DefaultSymbolCallBudget = 5 * time.Millisecond
+	// DefaultRunDeadline 是 run 级 deadline 的默认值（C1 冻结值：10min）。
+	DefaultRunDeadline = 10 * time.Minute
+)
+
+// BudgetForScope 按 scope 返回默认双层预算。scope 的合法值取自冻结契约
+// contracts.StrategyScope——未知值直接报错，预算是 fail-closed 的一部分，
+// 宁可拒绝也不静默套一个「看起来合理」的默认。
+func BudgetForScope(scope contracts.StrategyScope) (SessionBudget, error) {
+	switch scope {
+	case contracts.ScopeMarket:
+		return SessionBudget{PerCall: DefaultMarketCallBudget, RunDeadline: DefaultRunDeadline}, nil
+	case contracts.ScopeSymbol:
+		return SessionBudget{PerCall: DefaultSymbolCallBudget, RunDeadline: DefaultRunDeadline}, nil
+	default:
+		return SessionBudget{}, fmt.Errorf("wasm: unknown scope %q (want %q or %q)", scope, contracts.ScopeMarket, contracts.ScopeSymbol)
+	}
+}
+
+// ErrSessionTerminated 是会话被终止（预算耗尽 / run deadline 到期）后的哨兵：
+// 模块已被 WithCloseOnContextDone 关闭，实例不可再用，任何后续调用都返回
+// 包着本哨兵的错误。恢复路径 = 从最近检查点重建实例并重放（N4 的
+// state_only 裁决，见 replay.go 的 SessionSupervisor）。
+var ErrSessionTerminated = errors.New("wasm: session terminated")
 
 // OnBarSession 是「逐 bar on_bar(t) + finalize」协议的会话，替代旧
 // StrategyPluginSession 的 generate_signals 一次性协议。
@@ -43,9 +86,21 @@ import (
 //	    sess.OnBar(ctx, bc)          // 内部把 bc 注入 ctx，调 on_bar(t)
 //	}
 //	signals, _ := sess.Finalize(ctx, bc)  // 冲刷最终信号
+//
+// 终止语义（QT-15 ③）：任何一次调用把双层预算耗尽，模块连同执行一起被
+// wazero 关闭，会话进入 terminated——后续 Initialize/OnBar/Finalize 一律
+// fail-loud 返回 ErrSessionTerminated，不再有机会静默返回半截结果。
 type OnBarSession struct {
 	inst    Instance
 	sandbox *WASMSandbox
+
+	budget    SessionBudget
+	runCtx    context.Context
+	runCancel context.CancelFunc
+
+	mu         sync.Mutex
+	terminated bool
+	termErr    error
 }
 
 // NewOnBarSession compiles wasmBytes and instantiates an on_bar-protocol session.
@@ -63,6 +118,13 @@ type OnBarSession struct {
 // 一条 legacy_host_layout 诊断。v2 artifact 若没声明宿主区，就会在这里被拒——
 // 而不是等到 host 把 params 写进模块自己的数据段。
 func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*OnBarSession, error) {
+	return s.NewOnBarSessionWithBudget(ctx, wasmBytes, SessionBudget{})
+}
+
+// NewOnBarSessionWithBudget 带**双层预算**构造会话（QT-15 ②）。budget.PerCall
+// ≤ 0 沿用 sandbox 配置；budget.RunDeadline ≤ 0 沿用 DefaultRunDeadline。run
+// 级 deadline 从本调用起算——它管的是「整个 run 的墙钟」，不是单次调用。
+func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes []byte, budget SessionBudget) (*OnBarSession, error) {
 	module, err := s.Compile(ctx, wasmBytes)
 	if err != nil {
 		return nil, err
@@ -104,7 +166,62 @@ func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*O
 			Msg("wasm artifact uses the legacy host memory layout (params at offset 0, scratch at 4096) — " +
 				"host writes are not covered by a module declaration")
 	}
-	return &OnBarSession{inst: inst, sandbox: s}, nil
+	deadline := budget.RunDeadline
+	if deadline <= 0 {
+		deadline = DefaultRunDeadline
+	}
+	// run 级 deadline 派生自请求 ctx（C1：deadline 来自请求 ctx，默认 10min）。
+	// 调用方取消 ctx 同样会把模块关闭——那也是一次终止，不是普通错误。
+	runCtx, runCancel := context.WithTimeout(ctx, deadline)
+	return &OnBarSession{inst: inst, sandbox: s, budget: budget, runCtx: runCtx, runCancel: runCancel}, nil
+}
+
+// checkAlive 在每次协议调用前守门：terminated 会话禁止任何调用（QT-15 ③）。
+// 模块已被 wazero 关闭，再调只会拿到误导性的底层错误；这里直接点名哨兵。
+func (sp *OnBarSession) checkAlive() error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if sp.terminated {
+		// %w 链上带原始终止原因：调用方可以 errors.Is 追到根因。
+		return fmt.Errorf("%w: %w", ErrSessionTerminated, sp.termErr)
+	}
+	return nil
+}
+
+// terminate 把会话标记为终止。幂等：首次写入的错误胜出。
+func (sp *OnBarSession) terminate(cause error) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if !sp.terminated {
+		sp.terminated = true
+		sp.termErr = cause
+	}
+}
+
+// guardedCall 是协议调用的统一入口：先守门（terminated 即拒），再给单次调用
+// 套预算（PerCall ≤ 0 沿用 sandbox 的 MaxExecutionTime），最后把「ctx 到期导致
+// 模块被关」归类为 ErrSessionTerminated（wazero 的 sys.ExitError 会用
+// errors.Is 匹配 context.DeadlineExceeded / context.Canceled，普通 trap 不会
+// 走这条——trap 不关模块，照常作为普通错误返回）。
+func (sp *OnBarSession) guardedCall(ctx context.Context, invoke func(context.Context) error) error {
+	if err := sp.checkAlive(); err != nil {
+		return err
+	}
+	perCall := sp.budget.PerCall
+	if perCall <= 0 {
+		perCall = sp.sandbox.config.MaxExecutionTime
+	}
+	callCtx, cancel := context.WithTimeout(sp.runCtx, perCall)
+	defer cancel()
+	if err := invoke(callCtx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			sp.terminate(err)
+			sp.runCancel()
+			return fmt.Errorf("%w: %w", ErrSessionTerminated, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // Initialize calls the module's "initialize" export with JSON params.
@@ -125,14 +242,16 @@ func (sp *OnBarSession) Initialize(ctx context.Context, params []byte) error {
 	if err := sp.inst.WriteMemory(0, params); err != nil {
 		return fmt.Errorf("write params: %w", err)
 	}
-	results, err := sp.sandbox.CallWithTimeout(ctx, sp.inst, "initialize", 0, uint64(len(params)))
-	if err != nil {
-		return err
-	}
-	if len(results) == 0 || results[0] != 0 {
-		return fmt.Errorf("initialize returned non-zero: %v", results)
-	}
-	return nil
+	return sp.guardedCall(ctx, func(c context.Context) error {
+		results, err := sp.sandbox.CallWithTimeout(c, sp.inst, "initialize", 0, uint64(len(params)))
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 || results[0] != 0 {
+			return fmt.Errorf("initialize returned non-zero: %v", results)
+		}
+		return nil
+	})
 }
 
 // OnBar 推进一个 bar：把 bc 注入 ctx，调用 wasm 的 on_bar(t)（t = bc.T）。
@@ -143,9 +262,10 @@ func (sp *OnBarSession) OnBar(ctx context.Context, bc *BarContext) error {
 	if bc == nil {
 		return errors.New("wasm: OnBar requires non-nil BarContext")
 	}
-	ctx = withBarContext(ctx, bc)
-	_, err := sp.sandbox.CallWithTimeout(ctx, sp.inst, "on_bar", uint64(uint32(bc.T)))
-	return err
+	return sp.guardedCall(ctx, func(c context.Context) error {
+		_, err := sp.sandbox.CallWithTimeout(withBarContext(c, bc), sp.inst, "on_bar", uint64(uint32(bc.T)))
+		return err
+	})
 }
 
 // Finalize 调用 wasm 的 finalize()，返回打包 (ptr,len) 的最终信号（可能是
@@ -154,22 +274,36 @@ func (sp *OnBarSession) Finalize(ctx context.Context, bc *BarContext) ([]byte, e
 	if bc == nil {
 		return nil, errors.New("wasm: Finalize requires non-nil BarContext")
 	}
-	ctx = withBarContext(ctx, bc)
-	results, err := sp.sandbox.CallWithTimeout(ctx, sp.inst, "finalize")
+	var out []byte
+	err := sp.guardedCall(ctx, func(c context.Context) error {
+		results, err := sp.sandbox.CallWithTimeout(withBarContext(c, bc), sp.inst, "finalize")
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			return errors.New("finalize returned no result")
+		}
+		ptr, length := UnpackPtrLen(results[0])
+		if length == 0 {
+			out = []byte{}
+			return nil
+		}
+		read, err := sp.inst.ReadMemory(ptr, length)
+		if err != nil {
+			return err
+		}
+		out = read
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if len(results) == 0 {
-		return nil, errors.New("finalize returned no result")
-	}
-	ptr, length := UnpackPtrLen(results[0])
-	if length == 0 {
-		return []byte{}, nil
-	}
-	return sp.inst.ReadMemory(ptr, length)
+	return out, nil
 }
 
-// Close releases the underlying instance.
+// Close releases the underlying instance. Close 不走 checkAlive：关闭一个已被
+// wazero 关掉的模块是幂等清理，终止会话同样需要能被释放。run 级 ctx 一并取消。
 func (sp *OnBarSession) Close() error {
+	sp.runCancel()
 	return sp.inst.Close()
 }

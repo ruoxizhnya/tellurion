@@ -31,14 +31,29 @@ type WazeroRuntime struct {
 
 // NewWazeroRuntime 创建 wazero 支持的运行时。maxMemoryBytes 是运行时级内存
 // 硬上限（向上取整到 64KB 页）；≤0 时用 DefaultMaxMemory。
+//
+// WithCloseOnContextDone(true) 是 C1（QT-15）的终止能力：不启用时任何一次
+// 调用都可能把 Goroutine 甚至 OS 线程永久阻塞（wasm 里的 while(true) 对
+// CallWithTimeout 的 30s 上限免疫——超时只废掉 ctx，杀不死执行）。启用后
+// ctx 到期会把模块连同执行一起关闭，调用方收到 sys.ExitError。代价是执行
+// 路径插入周期性检查——实测开销见 bench（QT-15 ⑦，wazero_runtime_bench_test.go）。
 func NewWazeroRuntime(ctx context.Context, maxMemoryBytes int) *WazeroRuntime {
+	return newWazeroRuntime(ctx, maxMemoryBytes, true)
+}
+
+// newWazeroRuntime 是构造内部入口。closeOnDone 仅供基准测试造「关掉终止
+// 检查」的对照腿（QT-15 ⑦ 的开/关对拍需要同一份代码只差这一个开关）；
+// 生产路径一律走 NewWazeroRuntime（恒 true）。
+func newWazeroRuntime(ctx context.Context, maxMemoryBytes int, closeOnDone bool) *WazeroRuntime {
 	if maxMemoryBytes <= 0 {
 		maxMemoryBytes = DefaultMaxMemory
 	}
 	// 向上取整到页（wazero 页 = 64KB）。max 存页对齐后的字节数，与 wazero 的
 	// 实际上限一致（避免「max 存原始值、wazero 按页取整」两套口径）。
 	pages := (maxMemoryBytes + 65535) / 65536
-	rtCfg := wazero.NewRuntimeConfig().WithMemoryLimitPages(uint32(pages))
+	rtCfg := wazero.NewRuntimeConfig().
+		WithMemoryLimitPages(uint32(pages)).
+		WithCloseOnContextDone(closeOnDone)
 	return &WazeroRuntime{
 		rt:  wazero.NewRuntimeWithConfig(ctx, rtCfg),
 		max: pages * 65536,

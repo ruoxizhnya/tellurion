@@ -60,6 +60,9 @@ type hostCtxKey struct{}
 //   - State    ：宿主管理的持久化状态（get_state/set_state 载体；切片 3 的
 //     SaveState/LoadState 续跑一致性依赖它）。
 //   - Signals  ：emit_signal 收集的信号（host 可即时校验）。
+//   - SuppressSignals / SuppressedSignals：state_only 重放开关（N4 / QT-15 ④）。
+//     重放期信号「成功但不记录」——对策略侧返回值语义不变，host 只计数；
+//     重放到故障 bar 后关掉开关重执行，那一次的信号才是唯一被应用的信号。
 type BarContext struct {
 	T            int32
 	Series       []float64
@@ -67,6 +70,9 @@ type BarContext struct {
 	Symbols      []string
 	State        map[string][]byte
 	Signals      []EmittedSignal
+
+	SuppressSignals   bool
+	SuppressedSignals int
 }
 
 // EmittedSignal 是 wasm 经 emit_signal 发出的信号。
@@ -234,10 +240,17 @@ func hostSetState(ctx context.Context, m api.Module, keyPtr, keyLen, valPtr, val
 }
 
 // hostEmitSignal 实现 emit_signal(symbol_idx i32, action i32, strength f64) → void。
+// SuppressSignals=true 时（state_only 重放，N4）信号「成功但不记录」：对 wasm
+// 侧返回值语义不变（本来是 void），host 只递增计数。emit_target2（QT-24 接线）
+// 必须遵守同一开关，否则重放期权重照样落账——那是 N4 点名的重复应用。
 func hostEmitSignal(ctx context.Context, symbolIdx, action int32, strength float64) {
 	bc := barContextFrom(ctx)
 	if bc == nil {
 		trapNoContext(contracts.HostFnEmitSignal)
+	}
+	if bc.SuppressSignals {
+		bc.SuppressedSignals++
+		return
 	}
 	bc.Signals = append(bc.Signals, EmittedSignal{
 		SymbolIdx: symbolIdx,

@@ -49,9 +49,18 @@ const (
 	opCall          byte = 0x10
 	opDrop          byte = 0x1a
 	opBr            byte = 0x0c
+	opBrIf          byte = 0x0d
+	opBlock         byte = 0x02
 	opLoop          byte = 0x03
 	opEnd           byte = 0x0b
+	opI32Eqz        byte = 0x45
+	opI32GeS        byte = 0x4e
+	opI32Add        byte = 0x6a
+	opLocalSet      byte = 0x21
 )
+
+// blocktype void（block/loop 后跟的立即数：0x40 = 空结果类型）。
+const blockTypeVoid byte = 0x40
 
 // wasmFuncType 描述一个函数签名。
 type wasmFuncType struct {
