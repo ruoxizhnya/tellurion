@@ -78,10 +78,16 @@ func main() {
 	// runContext，共享单例不再串扰 —— 原来写在这里的理由已经修掉了，别再
 	// 把它读成约束）。保留工厂是因为窗口要一份干净的 state store 与桥接组件。
 	//
-	// 代价如实登记：这里绕过 bootstrap 直接 NewEngine，所以窗口引擎没有
-	// provenance writer、没有 Router、没有 adjStore。缺口登记在
-	// docs/TASKS.md（QT-13 前置），不要顺手在这里补 —— 补了会同时改掉
-	// walk-forward 的复权基准路径，那是 QT-13 的验收面对象。
+	// 装配面实测（2026-10-23，QT-13 自审时逐 setter 对过）：这份工厂 +
+	// setup.go 那层的 SetDataAdapter/SetStore/SetRunObserver，与主引擎在
+	// `pkg/kernel/modules_analysis.go` 里拿到的**是同一组**（NewEngine +
+	// Store + DataAdapter + RiskManager + LiveTrader + RunObserver）。
+	// 曾经记在这里的「窗口引擎没有 provenance writer / adjStore」是错的：
+	// 那两个端口都从 `e.store` 自动派生（`provenanceSink()` /
+	// `adjustmentStore()`），而工厂设了 store —— 窗口的 run 今天既写留痕也
+	// 冻结复权基准。真正没接的是 `SetRouter`（D6 日内预热），而它**主引擎
+	// 也没接**：全仓唯一的 `marketdata.NewRouter` 生产调用点在
+	// `cmd/data/mining_cmd.go` 那条 CLI 上。缺口单立 QT-64。
 	newEngine := func() (*backtest.Engine, error) {
 		eng, err := backtest.NewEngine(v, httpProvider, logger)
 		if err != nil {

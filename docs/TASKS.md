@@ -31,9 +31,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
 | **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
 | **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引） |
-| W1 | QT-11 | per-run 策略实例 | P0 | K15 对拍前置；无文件冲突 |
-| W1 | QT-12 | run 级缓存下沉 + 资源准入 | P0 | 同一笔内存账，必须一起做 |
-| W1 | QT-13 | 复权锚点按 run 区间切片 | P0 | 依赖 QT-12（读的是同一个缓存） |
+| W1 | QT-11 ✅ | per-run 策略实例 | P0 | **已完成（2026-10-23）**；K15 对拍前置；无文件冲突 |
+| W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
+| W1 | QT-13 ✅ | 复权锚点按 run 区间切片 | P0 | **已完成（2026-10-23）**；依赖 QT-12（读的是同一个缓存）；digest 覆盖范围写进摘要串而非加列（W1 唯一 DDL 单是 QT-16） |
+| W1 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」 |
 | W1 | QT-14 | Provider 生命周期（BeginRun/EndRun） | P0 | 依赖 QT-11（实例语义） |
 | W1 | QT-16 | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 | 不可终止执行 + 重放语义 | P0 | 依赖 QT-14（会话）+ **QT-16（身份）**；两者不再「同批」，16 先落 DDL |
@@ -393,7 +394,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **注释订正（那条"必须删"的）**：`cmd/analysis/main.go` 与 `setup.go`、`pkg/backtest/aliases.go`、`walkforward/walkforward.go` 四处把「每窗口/每 run 一台新 Engine」写成**缓存隔离的必要条件**，QT-12 之后那句话为假，已全部改成如实口径（工厂保留的理由换成「每窗口一份干净装配」，并写明传 nil / 返回共享实例都合法）。连带订正 `walkforward_isolation_test.go` 的两条头部说明（今天的判据钉的是工厂契约，不是防污染）。
 > - **代价与登记在案的缺口（如实）**：
 >   1. **多引擎 = 多份闸**：walk-forward 工厂那台引擎有自己的准入账，`runs_active` 是后发布者覆盖、进程预算各算各的 ⇒ 真实并发总账比单看数字宽松。写在 `Engine.SetRunObserver` 与 `cmd/analysis` 注释里；进程级共享账**未做**（本单口径是 Engine 级）。
->   2. **WF 工厂绕过 bootstrap 装配**：`cmd/analysis/main.go` 那份工厂直接 `backtest.NewEngine(v, ...)` + 3 个 setter，产出的窗口引擎没有 provenance writer、没有 Router（日内预热静默不生效）、没有 adjStore（qfq 基准不冻结）。这不是缓存串扰，换工厂修不掉；**归 QT-13 前置**（补它会同手改掉 walk-forward 的复权基准路径，那是 QT-13 的验收面对象，不在本单偷做）。
+>   2. **WF 工厂绕过 bootstrap 装配**（本条 2026-10-23 由 QT-13 自审**订正**，原文三句里两句是假的）：原文写「产出的窗口引擎没有 provenance writer、没有 Router（日内预热静默不生效）、没有 adjStore（qfq 基准不冻结）」。实测：`provenanceSink()` 与 `adjustmentStore()` 都从 `e.store` 自动派生，而那份工厂 + `cmd/analysis/setup.go` 的包装层给的 setter 与主引擎在 `pkg/kernel/modules_analysis.go:212-219` 拿到的**是同一组**（Store / DataAdapter / RiskManager / LiveTrader / RunObserver）⇒ 窗口的 run 今天既写 `quant.run_provenance`、也冻结并核对复权基准。真缺的只有 `SetRouter`，而**主引擎同样没接**（全仓唯一生产构造点 `cmd/data/mining_cmd.go:87`）⇒ 拆成 QT-64（口径从「WF 装配」改成「日内取数通道没接线」）。连带结论：因为窗口**确实**在走锚点这条路，QT-13 修的是生产上活的失败面，不只是测试里的形状。
 >   3. **验收 ⑤-2 的 RSS ±10% 未做实**：单测里断言堆回落会随 GC 时机飘（堆在 GC 之后才降，不在 `close()` 里）。代之以「50 笔不同票池 run 后账本三项归零」（`TestRunContext_AccountedBytesReturnToBaseline`），堆读数只 `t.Logf` 观察（本次实跑 3,067 KiB）。真实 RSS 曲线要在长时程压测里看。
 >   4. **验收 ⑤-1 的「A 有财报 / B 无财报」没做成端到端**：仓内测试无 store，`warmFundamentalsIfNeeded` 的读库腿不可达 ⇒ 这一维的分歧只能在 `runContext` 层测。该层有牙（下面第 2 条破坏腿）；端到端那条（`TestEngine_ConcurrentRunsOnSharedEngineMatchSoloResults`）只保证「并发跑不动坏、结果与串行一致」，**代码注释里明写它不声称有牙**，不要把它读成财报隔离的证据。
 > - **破坏验证（改坏 → 变红 → 还原，15 腿当场实跑，全部还原后绿）**：Engine 加一个 run 级可变态字段（护栏 A 红）／run 流程写引擎级财报（护栏 B 红）／种子注入器改名（覆盖面腿红，证明扫描面不是装饰）／`rc.e.fundamentals = records`（护栏 B 的红形状）／`newRunContext` 共享因子访问器不 Copy（交错用例红）／先验估算少算 slice header（口径互锁红）／去掉溢出饱和（估算红）／`max_queued_runs=0` 走回排队路径（死闸腿红）／短路掉「降 W」这一档（降级顺序腿红）／收尾不撤台账（账本与端到端两条红）／`runs_active` 收尾不报（端到端红）／Release 不幂等（第二次 Release 卡住，测试 2s 内判红）／槽位数不跟 `maxConcurrentRuns` 走（10 笔压闸腿红）／`rc.cache` 退回引擎那份（并发预热独立腿红）／`Copy` 最内层 map 共享（深拷贝三层腿红）。
@@ -402,7 +403,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **验收 ⑤ 对账**：串扰消失 ✓（`TestRunContext_FactorCacheSeedIsCopiedNotShared`、`TestRunContext_OHLCCacheWarmDoesNotReachOtherRun` 就是「B 先 Warm、A 后读」的确定性交错、`TestRunContext_PerRunSnapshotsAreNotShared`、`TestRunContext_ConcurrentWarmIsIndependentPerRun`）；`Bytes()` 可计量 ✓（含口径互锁）；指标 ✓（四项各有读数、收尾归零）；拒绝路径有测试 ✓（`ErrRunQueueFull` / `ErrRunBudgetExceeded` / 取消 / 幂等 / 10 笔压小闸 = 2 放行 + 3 排队 + 5 拒）；`cmd/analysis/main.go` 那条注释可删 ✓（已订正为真口径，未删成空白）；单 run 结果不变 ✓（`go test ./... -count=1` 全仓绿 + REV-18/QT-02 等既有数值回归不退化）。
 > - **门禁**：`gofmt -l` 0 文件、`go vet ./...` EXIT=0、`go test ./... -count=1` 全仓 EXIT=0（本机 Windows 无 `-race`，沿用既有如实登记口径）。测试侧连带改动：`pkg/backtest` 内 ~30 处内部调用点随签名迁到 `rc`（脚手架 `newTestRun` / `newTestRunSpan` 在 `run_context_test.go`，用例不为了测一份缓存去跑整场回测）。
 
-### QT-13 · 复权锚点按 run 区间切片（digest 不许覆盖合并缓存）[P0] ⬜
+### QT-13 · 复权锚点按 run 区间切片（digest 不许覆盖合并缓存）[P0] ✅（2026-10-23）
 
 - **① 目标**：同参数 run 在"先跑长区间、再跑短区间、重启后再跑短区间"三种情形下结果一致；锚点不会因为缓存里有别人的数据而永久校验失败。
 - **② 上下文**：`p0-remediation-design.md` A11；`adjustment_snapshot.go:322`（`fullBars = cache.Peek`）、`:151-156`（`AnchorDate=bars[0].Date` + `seriesDigest(quantizeBars(bars))`）、`:134-137`（digest 不符即 error → run 失败）。A11 直接读 A10 的合并缓存，所以必须在 QT-12 之后。
@@ -410,6 +411,45 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改复权数学口径（qfq 因子计算）；不动 `ON CONFLICT (symbol,start_date)` 主键；不清理历史锚点行。
 - **⑤ 验收**：三条回归全绿且三次结果逐位一致；构造"缓存含更长序列"的交错用例不再产生 anchor 校验失败。
 - **⑥ 边界**：只做锚点区间；复权因子本身的正确性属 QT-52 的核对范围。
+
+> **✅ 完成记录（2026-10-23）**
+>
+> **① 切片（③-①②）**：`pkg/backtest/adjustment_snapshot.go` 新增 `clipToRunRange(bars, start, end)` —— 在**副本**上按日期排序再二分（缓存里 bar 的顺序不保证：装配期种子是调用方直接塞进来的，`CacheManager.Load` 不排序），`newAdjustmentRunForRun` 的 `fullBars` 闭包改成 `clipToRunRange(rc.peekOHLCV(sym), params.StartDate, params.EndDate)`。`AnchorDate = bars[0].Date` 这行代码没动，动的是它拿到的输入 —— 现在切片首根必然 ≥ 区间起点。
+> - **执法点**：`prepareAdjustmentRun` 收到「首根早于 start」的序列**当场报错**（点名"先按区间切片"）。纪律只写在注释里，下一个调用点就会再把越界数据喂进来 —— 破坏验证 L7 证明这条真有牙。
+>
+> **② digest 与主键对齐（③-③）—— 与任务单不同的一处做法，如实写明**：只切片**不够**。主键是 `(symbol, start_date)`，**不记 end**，而切片的上界由每笔 run 自己决定 ⇒ 同 start 不同 end 的两次跑共用同一行：长的先冻、短的后跑（或反过来）都会把一次正常的重跑误报成 `ErrAdjustmentDrift`。设计文档 A11 的原文正是「digest 的输入集合**写入当前 `(symbol, start_date)` 行」—— 于是让摘要串自描述：
+>   - 新冻的行写 `<hash>@<YYYY-MM-DD>`（覆盖上界 = 本 run 区间内最后一根 bar 的日期）；
+>   - 核对时取「记录声明的范围 ∩ 本 run 区间」：本 run 更长/等长 ⇒ 真核对（冻结范围内的改价/补行照旧红）；本 run 更短 ⇒ **哈希不可分解，核对不了**，刻度照钉（ratio 只依赖锚点日）、计数 `digest_unverified_narrower_range` 并写进日志，**不报错**；
+>   - **无后缀 = 存量行**，覆盖范围未知 ⇒ 沿用旧口径（按整个取数区间核对），行为一字不变（`TestVerifyAgainstFrozen_LegacyRowWithoutSuffixKeepsOldSemantics`）；后缀存在但读不懂 ⇒ `ErrAdjustmentDigestShape` 当场失败，不当成旧格式放过。
+>   - **为什么不加一列**：QT-16 才是 W1 唯一带 DDL 的一单，而 `AGENTS.md` 把「改数据库 schema」列在 Ask First；`series_digest` 本来就是自由文本，摘要本体是 16 位十六进制不含 `@`，所以这个形状可无损解析且零迁移。代价：**新冻行的摘要串变了 ⇒ QT-63 的 `dataset_snapshot_hash`（`anchors=` 那一支）跟着变**，这是输入身份的口径变更而非结果变化，登记在此。
+>   - **仍然红的一类（存量账，④ 不清理）**：QT-13 之前由合并缓存冻歪的行（锚点日早于区间起点）今天依旧校验不过 —— 报错文案改成点名修法（「删掉该行重跑即可按本区间重新冻结」），让人不再把一次数据清理当成数据损坏事故。
+>   - **`unverified` 今天只进日志（`digest_unverified_narrower_range`），不进结果返回面**：`BacktestResponse` 是跨仓冻结契约，加字段属 breaking（要去 contracts 仓按兼容矩阵走评审）。所以「这一笔没核对过锚点」目前只有日志与 `run_spec_hash` 里的摘要串形状能看出来 —— 如实登记，不假装成可查询的诊断项。
+> - **与 QT-12 降级的交点（顺带关掉的一个新风险）**：内存准入把 `warmEnd` 往回收时，缓存里就只有 `[start, warmEnd]` 那段。切片 + 自描述之后，这一笔冻的行**如实声明它只覆盖到 warmEnd**，后来的全区间重跑按前缀核对 ⇒ 不再需要额外守卫（用例见 `TestVerifyAgainstFrozen_LongerRerunChecksTheDeclaredRangeOnly`，同一形状）。
+>
+> **③ 测试（③-④ / ⑤）**：新文件 `pkg/backtest/adjustment_range_test.go`（9 条纯逻辑 + 1 条端到端）。
+>   - 端到端 `TestEngine_REV18_ContaminatedFreezeThenCleanThenRestartIdentical`：**A = 污染下冻结**（种子里躺 252 天全量，本 run 只回放第 60…179 天 ⇒ 断言锚点日 = 第 60 天、覆盖上界 = 第 179 天）→ **B = 干净重跑** → **C = 重启 + 重同步（整条 ×0.5）**，三者净值曲线 `assert.Exactly` 逐位一致；再跑 **④ 同 start 的更长区间**（用户重跑与窗口段间的共同形状）与一台空白 store 的同参数 run 对拍，证明这套记账只钉刻度、不改数。
+>   - **A 必须是「冻结」那一步带污染**（首轮写法不是）：破坏验证 L1 实测发现，只把污染放在**重跑**那一笔时切片缺失也不报错 —— 第 ② 条腿（自描述范围）会先把核对裁回正确范围。两条款互为兜底，所以污染要发生在写行的那一刻。
+>   - **验收 ⑤ 对账**：「三条回归全绿且三次结果逐位一致」✓（上面 A/B/C + `require.Greater(TotalTrades, 0)` 保证不是空跑对拍）；「构造『缓存含更长序列』的交错用例不再产生 anchor 校验失败」✓（用例 A 就是那个交错，断言的是**写进去的行**只覆盖本区间）；短/长双向重跑、存量行、坏后缀、越界输入各一条 ✓。**如实收缩的一条**：任务单 ① 里「缓存里有别人的数据」这个向量，在**生产路径**上今天只剩历史行 —— `LoadOHLCVInMemory` 生产零调用点，而跨 run 合并已随 QT-12 关掉，所以切片这条的主要作用是「把越界输入钉成当场报错」＋让测试/bench/未来预加载路径不能再毒化一行；生产上活的是第 ② 条（见 ⑥）。
+>
+> **④ 破坏验证（11 腿，改坏 → 变红 → 还原，全部 RED as expected，还原后源码逐字节一致）**：引擎取数退回整条缓存 / 裁切片不裁 / 不排序 / 冻结不写覆盖范围 / 更短区间硬比 digest / 更长区间不按声明范围裁 / 拆执法点 / 读不懂的后缀放过 / 锚点早于区间不点名修法 / `unverified` 不计数 / `normalize` 无视 ratio（退回实时刻度）。
+>   **脚本首轮把三条误报成「GREEN — 没被测到」**（L5/L8/L10）：那三条改坏后 `last` / `shapeOK` / `verified` 变成 *declared and not used*，**编译不过** ⇒ 一条测试都没跑，退出码却非零。脚本现按输出里的 `[build failed]` 显式判 `INVALID`，与「跑了但没红」分开 —— 编译失败不是测试有效性的证据，也不是反证。
+>
+> **⑤ 门禁**：`gofmt -l pkg/backtest/` 空、`go vet ./...` EXIT=0、`go test ./... -count=1` 全仓 EXIT=0（Windows 无 `-race`，沿用既有如实登记口径）。既有 `TestAdjustmentRun*` / `TestEngine_REV18_*` 全部不退化。
+>
+> **⑥ 本单没做 + 一处自审订正**：
+>   - 不改 walk-forward 的切窗算法，也不动复权因子本身的口径（⑥ 边界）。
+>   - **订正 QT-12 记录里的两条假事实**（原文见该单缺口 2）：「窗口引擎没有 adjStore / 没有 provenance writer」不成立 —— 那两个端口都从 `e.store` 自动派生，而 WF 工厂给了 store；「没有 Router 是 WF 特有」也不成立 —— 主引擎同样没接。连带结论：**窗口的 train/test 段今天真在走锚点这条路**，而 `walkforward.go:455-462` 的算术会让两个段共用同一个 `start_date`（非扩张模式、`TrainDays % step == 0` 时第 `i+TrainDays/step` 个窗口的 train 起点 = 第 i 个窗口的 test 起点，两段终点不同）⇒ 主键只有 start_date 的两段撞在同一行上。修之前那笔 run 报 `ErrAdjustmentDrift`，而 `runSingleWindow` 对错误的处理是 **Warn + return nil**（`walkforward.go:254-264`）⇒ **窗口静默从报告里消失**。所以这条不是测试里的形状，是生产上活的失败面。三处注释已同步订正（`cmd/analysis/main.go`、`pkg/backtest/aliases.go`、本条）。
+>   - 剩下的真装配缺口（`marketdata.Router` 没接线 ⇒ D6 日内预热在所有回测路径静默不生效）重立为 **QT-64**，口径从「WF 工厂少三件」改成「日内取数通道没接」—— 前者是假的，后者才是真的。
+
+### QT-64 · 引擎接入 `marketdata.Router`（D6 日内预热的取数通道今天没接线）[P1] ⬜
+
+- **① 目标**：`IntradayAware` 策略在真实回测路径上要么真拿到分钟快照、要么明确失败 —— 不再「装配里没接 Router ⇒ 静默没有日内数据」。
+- **② 上下文**：QT-12 记录缺口 2 的订正产物（2026-10-23 自审实测）。`SetRouter`（`pkg/backtest/intraday.go:151`）与 `WithRouter`（`pkg/backtest/options.go:163`）**零生产调用点**；全仓唯一的 `marketdata.NewRouter` 在 `cmd/data/mining_cmd.go:87`（一条 CLI）。主引擎装配 `pkg/kernel/modules_analysis.go:212-219` 与 WF 窗口工厂 `cmd/analysis/main.go:85` + `cmd/analysis/setup.go:264-279` 拿的是**同一组** setter（这条实测同时推翻了「只有窗口引擎缺」的旧登记），所以缺口对所有回测路径成立。`runContext.warmIntradayIfNeeded` 在 `router == nil` 时直接返回 nil ⇒ 策略侧表现为「特征恒不可得」。
+- **③ 要求**：① 进程内构造一次 Router（一个进程一个池，复用 `store.DB()`，不新开连接池）；② 主引擎与窗口引擎经**同一个装配函数**拿到它 —— 两处各写一遍就是第二真相；③ 装配缺失时不留静默：接不上就显式记一条 Warn/启动期判定，而不是等策略跑到日内特征才发现没数据；④ 判据一条（repoguard 或装配断言）钉住「引擎装配带 Router」不被顺手删掉。
+- **④ 约束与非目标**：不改 D6 的按日绑定与取数口径（`[start, end+1d)` 那条展开是实测修出来的，动它要另立单）；不在日循环里逐 bar 打库（Router 只在起跑时批量取快照）；不动 `cmd/data` 那条 CLI 的构造点。
+- **⑤ 验收**：集成腿（`-tags integration`，真 PG 灌若干根 1m bar）：经 HTTP/引擎路径跑一次 `IntradayAware` 策略，日志出现 `Intraday snapshot warm-up completed (D6)` 且 `minute_bars > 0`；把 Router 摘掉后同一策略**明确失败**（不是静默全零信号）。
+- **⑥ 边界**：只做接线；分钟数据的生产（connector / aggregator）属 `tellurion-data`（X1 / QT-40）。
+
 
 ### QT-14 · Provider 生命周期（`BeginRun` / `EndRun`）[P0] ⬜
 

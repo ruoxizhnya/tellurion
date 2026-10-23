@@ -215,10 +215,13 @@ type (
 // （state store / 桥接组件），而装配本身有成本与副作用（连接池、留痕写入）。
 // 传 nil 或返回同一实例都是合法装配 —— 不再构成跨窗口污染。
 //
-// ⚠️ 如实登记的既有缺口（QT-13 前置）：cmd/analysis 那份工厂直接
-// `backtest.NewEngine(v, ...)`，绕过 bootstrap 装配，所以它产出的窗口引擎
-// 没有 provenance writer、没有 Router（日内预热静默不生效）、没有
-// adjStore（qfq 基准不冻结）。这些不是缓存串扰，工厂换了也修不掉。
+// ⚠️ 实测订正（2026-10-23，QT-13 自审）：这里曾登记「cmd/analysis 那份工厂
+// 绕过 bootstrap ⇒ 窗口引擎没有 provenance writer / Router / adjStore」，
+// 三句里两句是假的 —— `provenanceSink()` 与 `adjustmentStore()` 都从
+// `e.store` 自动派生，而工厂确实 `SetStore(store)`，所以窗口的 run 今天
+// 既写 `quant.run_provenance` 也冻结/核对复权基准。真缺的只有
+// `SetRouter`（D6 日内预热），而**主引擎同样没接**（全仓唯一生产构造点在
+// `cmd/data/mining_cmd.go` 的 CLI）⇒ 缺口单立 QT-64，不属本签名。
 //
 // 旧签名 `(engine *Engine, store)` 注入的是共享实例，已废弃。
 func NewWalkForwardEngine(
