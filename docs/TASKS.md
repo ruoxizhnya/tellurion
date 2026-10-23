@@ -746,7 +746,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **未完成**：⑥ S3（删 agent replace + CI rewrite 步骤）仍 ⛔ 等 QT-50 + QT-17。
 
 
-### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] 🔶 · **①~⑤ 全部落地（2026-10-23）；仅「两侧都在的机器上跑全量比对」留在 CI 之外**
+### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] ✅ · **①~⑤ 落地（2026-10-23）；2026-10-24 结案核对三腿重跑 GREEN，CI 单侧覆盖面限制在册**
 
 - **① 目标**：ADR-D29 §9 的 C1~C5 五条规则**机械可查**；「两边各写一份理解」能在契约层被发现，而不是靠 K15 双跑。
 - **② 上下文**：`repo-topology-and-naming.md` §9；现状无任何跨仓护栏（agent CI 反而在「帮」跨仓构建：checkout core + `go mod edit -replace`）；契约仓**自 S1 起就存在且有实现**（ADR-D31），但「以版本被依赖」要等 S2 的 QT-07。
@@ -776,6 +776,15 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **⑤ AST 扫描**：`tools/check_contract_shape`（`*Config`/`*Options`/`*Impl` 与 DB import 即红；ADR-0002 的 7 个在册例外逐符号写理由）+ surface 冻结双门（`check_api_surface` 429/429、`check_surface_freeze` 412 行基线）。
 > - **实测**：三仓 `go test ./...` 全绿；`make contracts-conformance` 实跑「core 通过 / agent 通过 / 跳过 0」；牙齿自证——改错语料里 stamp-tax 期望 → 契约侧红，改错 agent 期望 → agent 侧红，未知 kind 塞进 sides 含 core → core 红（均已还原）。
 > - **未做（明确留在本单外）**：CI 只 checkout core → agent 侧恒为「跳过」，所以 CI 里的 conformance 只是**单侧防退化**，不是完整双跑；完整比对在本地/多仓环境跑。真正阻断跨仓漂移的仍是 QT-07 ⑥ S3 之后的「只认 tag + HTTP」形态。
+
+> **✅ 结案核对（2026-10-24，只重跑三腿，不改护栏实现）**
+> - **腿 1 `make contracts-pin-check`**：`--self-test` **18 条腿 GREEN**；实扫 **6 个 pin GREEN**（contracts ×5、kit ×1，均判为 `origin/main` 祖先），退出 **0**。
+> - **腿 2 `make contracts-conformance`**：语料 **33 条 / 9 kind**，**core 通过 / agent 通过 / 失败 0 / 跳过 0**，退出 **0**（本次跑在工作区内两仓都已 checkout 的环境）。
+> - **腿 3 仓边**：`git ls-files` 对 `go.work` / `go.work.sum` **0 命中**（未入库）；`grep -c replace go.mod` = **0**（core 没有 replace）。
+> - ⚠️ **覆盖面限制（写回结案记录，不冒充双跑）**：CI 只 checkout core 时，`contracts-conformance` 的 agent 侧**恒为 skipped**
+>   （脚本打 `[skip]` + `::warning`，摘要里的「跳过 N 侧」不算通过）。所以 **CI 里的 conformance 只是单侧防退化**；
+>   完整双跑只在同时 checkout core + agent 的本地/多仓环境成立。真正阻断跨仓漂移仍要靠 QT-07 ⑥ S3 的
+>   「只认 tag + HTTP」形态（等 G10 的 agent 客户端落地，本单不越界改 agent 仓）。
 
 ### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] 🔶
 
