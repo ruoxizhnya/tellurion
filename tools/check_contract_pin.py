@@ -15,6 +15,13 @@ QT-08 的 R5 只比对各仓 AGENTS 里的版本声明是否一致，核不到�
 无法解析 / 拉不到目标仓 / **生效的** `replace` 覆盖了 pin —— 一律 RED（fail-closed），
 不把「没核成」伪装成「核过了」。
 
+另两条仓边（QT-09 ① 的 C1/C2，每个被扫到的仓都核，与本仓有没有 pin 无关）：
+  * `go.work` / `go.work.sum` 被 git 跟踪 → RED（本地联调可以存在，入库即把
+    三个仓焊成一体，版本依赖就退化成路径依赖）；
+  * `replace` 指向**仓外**路径 → RED。唯一白名单是 agent 的
+    `replace tellurion => ../tellurion`（ADR-D31：S3 删，删之前 agent 编不过）。
+    指向仓内子目录或「模块 => 模块 vX」的 replace 不在此腿范围。
+
 目标仓从哪来：优先同级 checkout（`<workspace>/tellurion-contracts`），没有则匿名
 clone `https://<module-path>` 到临时目录（core-only CI 走这条）。两仓当前 public；
 若将来转私有，本步会 fail-loud，届时按 ADR-D31 的已知风险配 `GOPRIVATE` + 凭证。
@@ -24,7 +31,7 @@ clone `https://<module-path>` 到临时目录（core-only CI 走这条）。两�
     python tools/check_contract_pin.py --workspace ..     # 显式 workspace
     python tools/check_contract_pin.py --repo tellurion-agent   # 只扫一个（可重复）
     python tools/check_contract_pin.py --offline          # 只许用本地 checkout（离线/自证）
-    python tools/check_contract_pin.py --self-test        # 护栏自证（11 条夹具腿）
+    python tools/check_contract_pin.py --self-test        # 护栏自证（18 条夹具腿）
 
 `--self-test` 为什么必须有：本脚本和 QT-08 的 R1/R5 一样是护栏，护栏自己没人核就会
 静默失灵（例如把「祖先」写成「相等」、放行旁支 tag）。夹具造真 git 仓（main / 旁支 /
@@ -56,6 +63,19 @@ PSEUDO_RE = re.compile(
 TAG_RE = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$")
 
 
+# 仓外 replace 的唯一白名单，键 = (仓目录名, 被替换模块, replace 目标原文)。
+# 每一行必须写清「为什么它可以留到哪一天」；新增行等于放行一次跨仓路径依赖，
+# 需要 ADR 级别的裁决，不许在 commit message 里口头豁免。
+LOCAL_REPLACE_WHITELIST: dict[tuple[str, str, str], str] = {
+    ("tellurion-agent", "tellurion", "../tellurion"):
+        "ADR-D31 / QT-07 ⑥：S3 之前 agent 必须靠它编过（core 尚未 HTTP 化）；"
+        "S3 到期即删，届时本行为空",
+}
+
+# go.work* 一旦入库，三个仓就被路径焊成一体 —— 本地联调可以有，跟踪不行。
+WORKFILE_NAMES = ("go.work", "go.work.sum")
+
+
 @dataclass(frozen=True)
 class Pin:
     consumer: str
@@ -68,6 +88,7 @@ class Replace:
     module: str
     version: str | None
     target: str
+    target_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,8 +185,13 @@ def find_pins(consumer: str, text: str) -> list[Pin]:
     return pins
 
 
-def find_replaces(text: str) -> list[Replace]:
-    """提取受管模块的 replace（等价于「require 里的版本不再是实际编译版本」）。"""
+def find_replaces(text: str, *, all_modules: bool = False) -> list[Replace]:
+    """提取 replace 指令。
+
+    all_modules=False（默认）只取受管契约模块 —— pin 覆盖腿只关心「实际编译的
+    是不是 pin 指向的版本」；all_modules=True 取全部模块 —— 仓外路径腿要能看见
+    任何 `<module> => ../sibling` 形式的路径依赖。
+    """
     out: list[Replace] = []
     in_block = False
     for raw in text.splitlines():
@@ -188,16 +214,89 @@ def find_replaces(text: str) -> list[Replace]:
             continue
         left, _, right = body.partition("=>")
         tokens = left.split()
-        if not tokens or tokens[0] not in CONTRACT_MODULES:
+        if not tokens:
             continue
+        if not all_modules and tokens[0] not in CONTRACT_MODULES:
+            continue
+        right_tokens = right.split()
         out.append(
             Replace(
                 module=tokens[0],
                 version=tokens[1] if len(tokens) > 1 else None,
-                target=right.strip() or "(空)",
+                target=right_tokens[0] if right_tokens else "(空)",
+                target_version=right_tokens[1] if len(right_tokens) > 1 else None,
             )
         )
     return out
+
+
+# ───────────────────────── 仓边（go.work / 仓外 replace）─────────────────────────
+
+def is_outside(repo: Path, target: str) -> bool:
+    """target 解析后是否落在 repo 之外。相对路径按仓根解释（go.mod 的语义）。"""
+    p = Path(target)
+    if not p.is_absolute():
+        p = repo / p
+    try:
+        p.resolve().relative_to(repo.resolve())
+    except ValueError:
+        return True
+    return False
+
+
+def tracked_files(repo: Path, names: tuple[str, ...]) -> tuple[list[str] | None, str]:
+    """返回被 git 跟踪的 names；None = 判不了（无 git / 非工作树 / 命令失败）。
+
+    判不了必须由调用方降级成 note，不能当成「没跟踪」—— 把「没核成」写成
+    「核过了」正是这类护栏最常见的失效方式。
+    """
+    if shutil.which("git") is None:
+        return None, "本机无 git，无法核对 go.work 是否入库"
+    inside = git(repo, "rev-parse", "--is-inside-work-tree")
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None, "不是 git 工作树，无法核对 go.work 是否入库"
+    r = git(repo, "ls-files", "-z", "--", *names)
+    if r.returncode != 0:
+        return None, f"git ls-files 失败：{last_line(r.stderr)}"
+    return [item for item in r.stdout.split("\0") if item], ""
+
+
+def check_repo_edges(repo: Path, text: str) -> tuple[list[str], list[str]]:
+    """QT-09 ① 的 C1/C2：`go.work*` 不得入库；`replace` 不得指向仓外路径。
+
+    与 pin 无关：一个仓没有任何 contracts/kit pin 时这两条照样成立，因此
+    check_consumers 必须在「无 pin 就跳过」之前调用本函数。
+    """
+    reds: list[str] = []
+    notes: list[str] = []
+
+    tracked, err = tracked_files(repo, WORKFILE_NAMES)
+    if tracked is None:
+        notes.append(f"{repo.name}: {err}（跳过 go.work 核对 —— 这是跳过，不是通过）")
+    elif tracked:
+        reds.append(
+            f"{repo.name}: {', '.join(tracked)} 被 git 跟踪 —— go.work* 不得入库（C1/C2）；"
+            f"本地联调用完请 `git rm --cached`"
+        )
+
+    for r in find_replaces(text, all_modules=True):
+        if r.target_version is not None:
+            # `<module> => <module> vX`：版本对版本的替换，不引路径依赖。
+            continue
+        if not is_outside(repo, r.target):
+            continue
+        key = (repo.name, r.module, r.target)
+        if key in LOCAL_REPLACE_WHITELIST:
+            notes.append(
+                f"{repo.name}: replace {r.module} => {r.target} 在册（"
+                f"{LOCAL_REPLACE_WHITELIST[key]}）"
+            )
+            continue
+        reds.append(
+            f"{repo.name}: replace {r.module} => {r.target} 指向仓外 —— "
+            f"跨仓只认 tag（ADR-D31 / C1）"
+        )
+    return reds, notes
 
 
 # ───────────────────────── 目标仓与 commit 解析 ─────────────────────────
@@ -340,6 +439,10 @@ def check_consumers(
             notes.append(f"{consumer.name}: 无 go.mod（跳过）")
             continue
         text = read(gomod)
+        # 仓边（go.work / 仓外 replace）与本仓有没有 pin 无关，先核。
+        edge_reds, edge_notes = check_repo_edges(consumer, text)
+        reds.extend(edge_reds)
+        notes.extend(edge_notes)
         # 文件在但读不出来（空 / 非 UTF-8）不能当成「没有 pin」跳过 —— 那会把
         # 「没核成」伪装成「核过了」。go.mod 为空本身就是无效文件，判红。
         if not text.strip():
@@ -433,7 +536,7 @@ def self_test() -> int:
     print("Quant Lab — check_contract_pin 护栏自证（夹具在临时目录，不触真仓）")
     if shutil.which("git") is None:
         print("  [SKIP] 本机无 git ⇒ 无法造 main/旁支/tag 夹具 —— 这是跳过，不是通过")
-        print("::warning title=QT-09 pin 祖先自证未运行::本机无 git，11 条自证腿全部跳过。"
+        print("::warning title=QT-09 pin 祖先自证未运行::本机无 git，18 条自证腿全部跳过。"
               "这不代表护栏自证通过。")
         return 0
 
@@ -545,16 +648,63 @@ def self_test() -> int:
             _pseudo(sha_b, "20261002120000"),
             "\nreplace github.com/ruoxizhnya/tellurion-contracts => ../tellurion-contracts\n",
         ))
-        expect("replace 覆盖 pin → 红（单行/块形式都识别）",
-               bool(res["reds"]) and all("replace 覆盖" in x for x in res["reds"])
+        expect("replace 覆盖 pin → 红（单行/块形式都识别；同时命中仓外路径腿）",
+               any("replace 覆盖" in x for x in res["reds"])
+               and any("指向仓外" in x for x in res["reds"])
                and len(block_replace) == 1
                and block_replace[0].target == "../tellurion-contracts")
+
+        # ── 仓边腿（C1/C2）：go.work 入库、replace 指向仓外 ──
+        # 需要一个真 git 工作树 —— `git ls-files` 判不了「跟踪与否」，也就谈不上自证。
+        edge = ws / "tellurion-edge"
+        edge.mkdir()
+        _git_do(edge, "init", "-q", "-b", "main")
+        _commit(edge, "README.md", "edge\n", date_a, "init")
+
+        (edge / "go.work").write_bytes(b"go 1.25.0\n")
+        reds, _ = check_repo_edges(edge, "module tellurion\n")
+        expect("go.work 在磁盘但未入库 → 绿（本地联调合法）", not reds)
+
+        _git_do(edge, "add", "-f", "go.work")
+        reds, _ = check_repo_edges(edge, "module tellurion\n")
+        expect("go.work 被 git 跟踪 → 红（C1/C2）",
+               bool(reds) and all("go.work" in x and "被 git 跟踪" in x for x in reds))
+        _git_do(edge, "rm", "-q", "--cached", "go.work")
+        (edge / "go.work").unlink()
+
+        reds, _ = check_repo_edges(
+            edge, "module tellurion\n\nreplace tellurion-extra => ../tellurion-extra\n")
+        expect("replace 指向仓外路径 → 红（C1）",
+               bool(reds) and all("指向仓外" in x for x in reds))
+
+        reds, _ = check_repo_edges(
+            edge, "module tellurion\n\nreplace tellurion-extra => ./sub\n")
+        expect("replace 指向仓内子目录 → 绿（不构成跨仓路径依赖）", not reds)
+
+        reds, _ = check_repo_edges(
+            edge, "module tellurion\n\nreplace example.com/a => example.com/b v1.2.3\n")
+        expect("replace 模块 => 模块 vX → 绿（版本替换不是路径依赖）", not reds)
+
+        agent = ws / "tellurion-agent"
+        agent.mkdir()
+        _git_do(agent, "init", "-q", "-b", "main")
+        _commit(agent, "README.md", "agent\n", date_b, "init")
+        reds, notes = check_repo_edges(
+            agent, "module tellurion-agent\n\nreplace tellurion => ../tellurion\n")
+        expect("agent 的 `replace tellurion => ../tellurion` 在册 → 不红且显式记账",
+               not reds and any("在册" in x for x in notes))
+
+        reds, notes = check_repo_edges(
+            agent, "module tellurion-agent\n\nreplace tellurion => ../elsewhere\n")
+        expect("同一仓换成非在册目标 → 红（白名单按目标逐条，不是按仓放行）",
+               bool(reds) and all("指向仓外" in x for x in reds))
 
     if fails:
         print(f"\n结果：护栏自证 RED —— {len(fails)} 条：{fails}")
         return 1
-    print("\n结果：护栏自证 GREEN —— 11 条腿：拦得住旁支 pin/tag、幽灵 sha、replace、空 go.mod，"
-          "也放行 contracts/kit 在 main 上的中段提交与 tag。")
+    print("\n结果：护栏自证 GREEN —— 18 条腿：拦得住旁支 pin/tag、幽灵 sha、replace、空 go.mod、"
+          "go.work 入库、仓外路径 replace（白名单按目标逐条），"
+          "也放行 contracts/kit 在 main 上的中段提交与 tag、未入库的 go.work。")
     return 0
 
 
@@ -611,8 +761,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  [red] {line}")
 
     if result["reds"]:
-        print(f"\n结果：RED —— {len(result['reds'])} 个 pin 未通过祖先校验"
-              f"（共扫描 {result['pins']} 个 pin）。")
+        print(f"\n结果：RED —— {len(result['reds'])} 项未通过（pin 祖先 / 仓边护栏；"
+              f"共扫描 {result['pins']} 个 pin、{len(consumers)} 个仓）。")
         return 1
     if result["pins"] == 0:
         print(f"\n结果：GREEN —— 未发现 contracts/kit pin（0 个），无需祖先校验；"
