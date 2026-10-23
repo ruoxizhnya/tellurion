@@ -13,6 +13,7 @@ import (
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/compliance"
+	"tellurion/pkg/kernel"
 	"tellurion/pkg/live/reconciliation"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/strategy"
@@ -85,9 +86,9 @@ func main() {
 	// 曾经记在这里的「窗口引擎没有 provenance writer / adjStore」是错的：
 	// 那两个端口都从 `e.store` 自动派生（`provenanceSink()` /
 	// `adjustmentStore()`），而工厂设了 store —— 窗口的 run 今天既写留痕也
-	// 冻结复权基准。真正没接的是 `SetRouter`（D6 日内预热），而它**主引擎
-	// 也没接**：全仓唯一的 `marketdata.NewRouter` 生产调用点在
-	// `cmd/data/mining_cmd.go` 那条 CLI 上。缺口单立 QT-64。
+	// 冻结复权基准。真正缺的日内取数通道（`SetRouter` / D6 预热）已由
+	// QT-64 补齐：主引擎与窗口引擎都经 `kernel.AttachMarketDataRouter`
+	// 这同一个装配函数拿到进程内唯一的 Router（`ak.Wiring.Router`）。
 	newEngine := func() (*backtest.Engine, error) {
 		eng, err := backtest.NewEngine(v, httpProvider, logger)
 		if err != nil {
@@ -96,6 +97,9 @@ func main() {
 		eng.SetRiskManager(riskManager)
 		eng.SetLiveTrader(executionTrader)
 		eng.SetStore(store)
+		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
+		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
+		kernel.AttachMarketDataRouter(eng, ak.Wiring.Router, logger)
 		return eng, nil
 	}
 

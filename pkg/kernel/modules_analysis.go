@@ -165,6 +165,11 @@ type StrategyRuntimeDeps struct {
 	DataEngine *DataEngineModule
 	RiskEngine *RiskEngineModule
 	ExecEngine *ExecEngineModule
+
+	// Router 是进程内唯一的规范层取数路由（D6 日内预热的唯一通道）。
+	// 由 cmd/analysis 经 NewMarketDataRouter 构造一次后传进来；main 的
+	// walk-forward 窗口工厂拿的是同一个实例（QT-64）。
+	Router *marketdata.Router
 }
 
 // StrategyRuntimeModule 持有回测引擎，并在 Init 时完成对前序模块产物的
@@ -217,6 +222,9 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	engine.SetDataAdapter(d.DataEngine.Adapter)
 	engine.SetRiskManager(d.RiskEngine.RiskManager)
 	engine.SetLiveTrader(d.ExecEngine.Trader)
+	// D6：日内预热的取数通道（QT-64）。与 walk-forward 窗口工厂走
+	// 同一个装配函数；nil 时该函数显式 Warn，不留静默出口。
+	AttachMarketDataRouter(engine, d.Router, m.logger)
 
 	m.Engine = engine
 	return nil

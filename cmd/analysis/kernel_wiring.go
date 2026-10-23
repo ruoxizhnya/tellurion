@@ -64,6 +64,9 @@ type AnalysisWiring struct {
 	Engine   *backtest.Engine
 	Provider marketdata.Provider
 	Adapter  *marketdata.DataAdapter
+	// Router 是进程内唯一的规范层取数路由（D6 日内预热，QT-64）。
+	// walk-forward 的窗口引擎与主引擎共用这一个实例。
+	Router *marketdata.Router
 
 	RiskManager     *risk.RiskManager
 	ExecutionTrader live.LiveTrader
@@ -112,6 +115,14 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		return bootstrap.BuildExecutionTrader(v, logger), nil
 	})
 
+	// D6 日内预热的取数通道（QT-64）：进程内构造一次 Router（复用 store
+	// 的连接池，不新开池）；主引擎经 deps.Router、walk-forward 窗口引擎经
+	// Wiring.Router，两处共用同一个实例。
+	mdRouter, err := kernel.NewMarketDataRouter(store)
+	if err != nil {
+		return nil, fmt.Errorf("kernel: 构造 marketdata.Router 失败: %w", err)
+	}
+
 	// strategy-runtime（第 7 位）：引擎构造 + 全部 Set* 注入在模块 Init 内
 	// 完成（依赖前序产物，缺失即 fail-fast，见 modules_analysis.go）。
 	strategyMod := kernel.NewStrategyRuntimeModule(v, logger, &kernel.StrategyRuntimeDeps{
@@ -119,6 +130,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		DataEngine: dataMod,
 		RiskEngine: riskMod,
 		ExecEngine: execMod,
+		Router:     mdRouter,
 	})
 
 	// 三个 Noop 槽位（4/8/9）—— 理由见 pkg/kernel/modules_analysis.go 头部
@@ -166,6 +178,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		Engine:          strategyMod.Engine,
 		Provider:        dataMod.Provider,
 		Adapter:         dataMod.Adapter,
+		Router:          mdRouter,
 		RiskManager:     riskMod.RiskManager,
 		ExecutionTrader: execMod.Trader,
 	}

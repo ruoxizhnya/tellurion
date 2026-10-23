@@ -1,6 +1,6 @@
 ---
 status: active
-last-verified: 2026-10-23
+last-verified: 2026-10-24
 verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。
 ---
 
@@ -34,7 +34,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-11 ✅ | per-run 策略实例 | P0 | **已完成（2026-10-23）**；K15 对拍前置；无文件冲突 |
 | W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
 | W1 | QT-13 ✅ | 复权锚点按 run 区间切片 | P0 | **已完成（2026-10-23）**；依赖 QT-12（读的是同一个缓存）；digest 覆盖范围写进摘要串而非加列（W1 唯一 DDL 单是 QT-16） |
-| W1 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」 |
+| W1 | QT-64 ✅ | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」。**已完成（2026-10-24）** |
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
@@ -447,7 +447,29 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >   - **订正 QT-12 记录里的两条假事实**（原文见该单缺口 2）：「窗口引擎没有 adjStore / 没有 provenance writer」不成立 —— 那两个端口都从 `e.store` 自动派生，而 WF 工厂给了 store；「没有 Router 是 WF 特有」也不成立 —— 主引擎同样没接。连带结论：**窗口的 train/test 段今天真在走锚点这条路**，而 `walkforward.go:455-462` 的算术会让两个段共用同一个 `start_date`（非扩张模式、`TrainDays % step == 0` 时第 `i+TrainDays/step` 个窗口的 train 起点 = 第 i 个窗口的 test 起点，两段终点不同）⇒ 主键只有 start_date 的两段撞在同一行上。修之前那笔 run 报 `ErrAdjustmentDrift`，而 `runSingleWindow` 对错误的处理是 **Warn + return nil**（`walkforward.go:254-264`）⇒ **窗口静默从报告里消失**。所以这条不是测试里的形状，是生产上活的失败面。三处注释已同步订正（`cmd/analysis/main.go`、`pkg/backtest/aliases.go`、本条）。
 >   - 剩下的真装配缺口（`marketdata.Router` 没接线 ⇒ D6 日内预热在所有回测路径静默不生效）重立为 **QT-64**，口径从「WF 工厂少三件」改成「日内取数通道没接」—— 前者是假的，后者才是真的。
 
-### QT-64 · 引擎接入 `marketdata.Router`（D6 日内预热的取数通道今天没接线）[P1] ⬜
+### QT-64 · 引擎接入 `marketdata.Router`（D6 日内预热的取数通道今天没接线）[P1] ✅（2026-10-24）
+
+> **✅ 完成记录（2026-10-24）**
+>
+> **① 单例 Router（③-①）**：`pkg/kernel/marketdata_wiring.go` 的 `NewMarketDataRouter(store)` 是进程内唯一构造点 —— 复用 `store.DB()`，不新开池；`store == nil` 直接报错（静默返回 nil Router 会把装配错误推迟到策略跑到日内特征）。
+>
+> **② 同一装配函数（③-②）**：`AttachMarketDataRouter(eng, router, logger)` 是唯一接线入口。主引擎在 `StrategyRuntimeModule.Init`（`modules_analysis.go`）调它；walk-forward 窗口工厂在 `cmd/analysis/main.go` 的 `newEngine` 里调同一个函数（`setup.go` 的 wfEngine 闭包经 `newEngine` 取引擎，同样覆盖）。Router 实例由 `cmd/analysis/kernel_wiring.go` 构造一次，经 `StrategyRuntimeDeps.Router` 与 `AnalysisWiring.Router` 两条路喂给同一份实例。
+>
+> **③ 缺失不静默（③-③）**：`AttachMarketDataRouter(nil)` 显式 Warn「marketdata.Router 未装配」；`warmIntradayIfNeeded` 在「策略是 IntradayAware 且 Router 为 nil」时再记一条带策略名的 Warn。**另一处行为订正**：`runContext.intradayFeatureProvider` 在快照为空时返回 nil 供给 —— 此前它恒返回一个空快照 provider，策略侧「特征不可得」被读成「今天没信号」，正是验收要消灭的「静默全零信号」；nil 供给走 `LocalSignalProvider` 既有的「nil 不注入」契约，策略用到特征时明确失败。
+>
+> **④ 装配断言（③-④）**：`internal/repoguard/engine_router_wiring_test.go` 钉住四件事 —— 唯一构造点复用 `store.DB()`；主引擎与窗口工厂都经 `AttachMarketDataRouter`；构造出的实例确实传进 `StrategyRuntimeDeps.Router`；生产代码里 `SetRouter(` 只许出现在 `pkg/backtest/intraday.go`（定义）/ `options.go`（WithRouter 转发）/ `pkg/kernel/marketdata_wiring.go`（唯一装配）—— 第三处直连即红。
+>
+> **⑤ 验收（集成腿，真 PG）**：`pkg/backtest/router_wiring_integration_test.go`（`-tags integration`，`TEST_DATABASE_DSN`）—— 真 PG 17 灌 30 根 1m bar（2024-01-02 09:30–09:59，开盘半小时动量 +0.05），同一天线与同一个策略名跑两笔：
+>   - **正腿**（挂 Router）：日志出现 `Intraday snapshot warm-up completed (D6)`，`"minute_bars":` 命中正数正则，样例策略产生成交（特征真的到了策略）；
+>   - **反腿**（摘 Router）：同一策略明确失败（日志含 `no IntradayFeatureProvider injected` + 引擎 `Failed to get signals, skipping day`），成交为 0，且不出现预热完成日志。
+>
+> **⑥ 破坏验证（2 腿，改坏 → 变红 → 逐字节还原）**：
+>   - L1 删掉 `modules_analysis.go` 的 `AttachMarketDataRouter(engine, d.Router, m.logger)` → `TestEngineAssemblyCarriesMarketDataRouter` 红（点名「主引擎装配丢了 Router 接线」）；还原后 SHA256 与改前一致、转绿。
+>   - L2 把 `intradayFeatureProvider` 的 nil-guard 还原成「恒返回空快照 provider」→ 集成腿红：反腿日志里只剩 `"signals":0`（静默全零），既没有 `Failed to get signals` 也没有点名原因；还原后 SHA256 一致、集成腿转绿。
+>
+> **⑦ 门禁**：`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全绿（Windows 无 `-race`，沿用既有如实登记口径）；`gofmt -l` 对改动目录为空；集成腿另跑 `go test -tags integration ./pkg/backtest -run TestQT64_RouterWiring_Integration` PASS。
+>
+> **⑧ 本单没做（边界）**：分钟数据的生产（connector / aggregator）属 `tellurion-data`；不改 D6 按日绑定与 `[start, end+1d)` 展开口径；不动 `cmd/data/mining_cmd.go` 的构造点；仍只在起跑前批量取快照（日循环不逐 bar 打库）。
 
 - **① 目标**：`IntradayAware` 策略在真实回测路径上要么真拿到分钟快照、要么明确失败 —— 不再「装配里没接 Router ⇒ 静默没有日内数据」。
 - **② 上下文**：QT-12 记录缺口 2 的订正产物（2026-10-23 自审实测）。`SetRouter`（`pkg/backtest/intraday.go:151`）与 `WithRouter`（`pkg/backtest/options.go:163`）**零生产调用点**；全仓唯一的 `marketdata.NewRouter` 在 `cmd/data/mining_cmd.go:87`（一条 CLI）。主引擎装配 `pkg/kernel/modules_analysis.go:212-219` 与 WF 窗口工厂 `cmd/analysis/main.go:85` + `cmd/analysis/setup.go:264-279` 拿的是**同一组** setter（这条实测同时推翻了「只有窗口引擎缺」的旧登记），所以缺口对所有回测路径成立。`runContext.warmIntradayIfNeeded` 在 `router == nil` 时直接返回 nil ⇒ 策略侧表现为「特征恒不可得」。

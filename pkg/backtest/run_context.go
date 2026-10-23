@@ -240,8 +240,13 @@ func (rc *runContext) warmIntradayIfNeeded(ctx context.Context, strategyName str
 	router := rc.e.router
 	rc.e.mu.RUnlock()
 	if router == nil {
-		// 没有 Router：不报错、不阻断。策略用到特征时 provider 恒不可得
-		// ⇒ 明确失败（缺失≠0），与「没传财报」同口径。
+		// 装配缺口不许静默（QT-64 ③-③）：策略明确要日内特征，而进程里
+		// 没有取数通道 —— 这时既没有快照也不会预热，必须当场说清楚，
+		// 而不是等策略跑到特征时才发现「怎么全是不可得」。策略侧随后
+		// 会因 nil 供给明确失败（见 intradayFeatureProvider）。
+		rc.e.logger.Warn().
+			Str("strategy", strategyName).
+			Msg("marketdata.Router 未装配 —— D6 日内快照不会预热；该 IntradayAware 策略将明确失败（缺失≠0，不静默产出全零信号）")
 		return nil
 	}
 
@@ -340,9 +345,18 @@ func (rc *runContext) eligibleUniverse(pool []string, date time.Time, held map[s
 // intradayFeatureProvider 构造「绑定回放日」的日内特征供给（引擎每个
 // 交易日调一次，供 LocalSignalProvider 注入 IntradayAware 策略）。
 // 按日绑定的理由见 intraday.go 的原注释：只暴露当日，结构性挡住偷看。
+//
+// 快照为空时返回 nil（QT-64）：LocalSignalProvider 的契约是「nil 供给
+// 不注入」—— 策略拿不到供给就会明确失败。此前这里恒返回一个非 nil 的
+// 空快照供给，策略侧「特征不可得」被读成「今天没有信号」，表现成静默
+// 全零信号；装配缺 Router 时尤其如此。
 func (rc *runContext) intradayFeatureProvider(day time.Time) strategy.IntradayFeatureProvider {
+	snapshot := rc.intradaySnapshot()
+	if len(snapshot) == 0 {
+		return nil
+	}
 	return &snapshotIntradayProvider{
-		snapshot: rc.intradaySnapshot(),
+		snapshot: snapshot,
 		dayStart: shanghaiDayStart(day),
 		dayEnd:   shanghaiDayStart(day).AddDate(0, 0, 1),
 	}

@@ -247,6 +247,10 @@ PIT 执法点有二：① 声明侧 `after_close`（`TestDailyBasicDeclaration_M
 不是运行时查询：
 
 ```
+  进程装配（一次）
+     kernel.NewMarketDataRouter(store)      ← 复用 store 池，一个进程一个 Router（QT-64）
+       └─ kernel.AttachMarketDataRouter      ← 主引擎与 walk-forward 窗口引擎共用这一个装配函数
+
    RunBacktest 启动前（一次性）
      warmIntradayIfNeeded（仅 IntradayAware 策略触发）
        └─ marketdata.Router.Bars(Freq1m, symbol, [start, end+1d) 按 365 天分片)
@@ -256,6 +260,7 @@ PIT 执法点有二：① 声明侧 `after_close`（`TestDailyBasicDeclaration_M
      getSignals → LocalSignalProvider.Signals
        ├─ 类型断言 IntradayAware ⇒ 注入「绑定回放日」的 provider
        │    （快照 + D 日边界，二分切当日段；别的交易日取不到）
+       │    没有快照（未接 Router / 库里无分钟数据）⇒ 不注入，策略明确失败
        └─ 策略调 IntradayFeature(symbol, "open_momentum_30m", asOf)
             └─ 闸门：只许 VisibleAt <= asOf 的 bar 进特征（10:00 bar 10:01 可见）
 ```
