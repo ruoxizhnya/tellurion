@@ -27,6 +27,17 @@ import (
 // 意味着一个 ?limit=99999999 会把整表拉进内存。
 const maxListJobsLimit = 100
 
+// collectionPayload 构造集合端点的响应体：数组字段 + count。
+// DATA-14：encoding/json 把 nil slice 编成 null，而 docs/openapi.yaml 对
+// jobs/schedules 声明的是 array —— 空结果必须是 []。消费方（前端 .map
+// 最典型）拿到 null 会直接炸。
+func collectionPayload[T any](key string, items []T) gin.H {
+	if items == nil {
+		items = []T{}
+	}
+	return gin.H{key: items, "count": len(items)}
+}
+
 // SyncHandler holds dependencies for sync-related HTTP handlers.
 type SyncHandler struct {
 	jobService    *sync.JobService
@@ -418,7 +429,8 @@ func (h *SyncHandler) listJobsHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"jobs": jobs, "count": len(jobs)})
+	// DATA-14：空结果必须是 []，不能是 null（见 collectionPayload）。
+	c.JSON(http.StatusOK, collectionPayload("jobs", jobs))
 }
 
 // getJobHandler returns a single sync job by ID.
@@ -750,7 +762,8 @@ func (h *SyncHandler) listSchedulesHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"schedules": schedules, "count": len(schedules)})
+	// DATA-14：同 jobs —— 空结果返回 []，不返回 null。
+	c.JSON(http.StatusOK, collectionPayload("schedules", schedules))
 }
 
 // getScheduleHandler returns a single schedule by ID.
