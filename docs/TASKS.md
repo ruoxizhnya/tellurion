@@ -858,7 +858,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **④ 鉴权 / fail-closed**：JWT + `route_policy.go` 档位（因子登记 **admin**、批量行情 **readonly-post**）；
 > 行为腿用真 router + 真 JWT：六条动作无 token 全 401，viewer/trader 打因子登记 403（且不是「策略表缺条目」），
-> admin 穿过鉴权层（最小装配无库 → 503）。loopback-only 仍是既有 `DecideAuthStartup`（无密钥且非环回拒绝启动），本单未改其口径。
+> admin 穿过鉴权层（最小装配无库 → 503）。
+> **loopback-only 补了运行期那条腿**（启动期 `DecideAuthStartup` 只判绑定网卡，管不到逐请求来源）：
+> `pkg/httpserver.LoopbackOnly()` 只看 `RemoteAddr`（**不信可伪造的 `X-Forwarded-For`**），
+> 由 `bootstrap.BuildRouter` 在「鉴权关闭且 `server.host` 为回环」时挂上；非回环一律 403（`non-loopback` 可检索）。
+> 容器 `loopback-published` 形态（bind `0.0.0.0`）**不走**这道门——容器内 RemoteAddr 是发布层网关地址，
+> 逐请求拒绝会打挂本地栈；暴露面仍由静态护栏 + 运行时 netstat 断言保证（`bootstrap.auth.go` 文件头）。
+> 行为测试：`pkg/httpserver/loopback_test.go`（判据 + 中间件 + XFF 不能洗白）、
+> `pkg/bootstrap/loopback_guard_test.go`（装配腿：回环放行 / 非回环 403 / loopback-published 跳过 / 鉴权开启时不叠门）。
 >
 > **⑤ 错误码 / 限流**：随每条 endpoint 写进 `docs/openapi.yaml`（400/401/403/429/502/503）；
 > 限流沿用全局 `RateLimiter`（新端点不豁免，`/api/auth/status` 那三条豁免未动）。
@@ -869,7 +876,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - 鉴权：临时删掉 `route_policy.go` 里 `"POST /api/factor/registrations"` 那一行 → `TestAgentCoarseActions_FailClosed`
 >   **MUT_EXIT=1**（viewer/trader 的 403 变成 `no authorization policy`、admin 期望 503 实得 403）；逐字节还原后 **RESTORED_EXIT=0**。
 >
-> **验收实跑**：`go build ./... && go vet ./... && go test ./pkg/kernel/... ./cmd/analysis/... ./docs/... ./internal/repoguard/... -count=1`
+> **分层文档**：`docs/ARCHITECTURE.md` §5 目录结构与 §7 装配示意改到 `cmd/analysis/wiring`；
+> ADR 侧不是新造一条，而是把既有 **ADR-D5**（装配层外移，`docs/design/qt-decoupling/project-engineering-file.md`）
+> 从「提议」推进到「已实施」，并在该节补落点/护栏/loopback 判据归属（`README.md` 索引状态同步）。
+>
+> **验收实跑**：`go build ./... && go vet ./... && go test ./pkg/kernel/... ./cmd/analysis/... ./pkg/bootstrap/... ./pkg/httpserver/... ./docs/... ./internal/repoguard/... -count=1`
 > 全绿；`python tools/check_doc_links.py` 退出 0。
 >
 > **未落（跨仓 / 待裁，不计作本单完成的部分）**：
@@ -1150,6 +1161,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    带时刻形状补齐后关掉一半，本单关掉剩下那一半（读不懂当今天）。
 >    另：⑧ 的「真库落库日期」那条腿今天**确认拿不到** —— `docker ps` 无输出（引擎未运行）且仓内无 `.env`
 >    （无 DSN），不是忘了跑。
+
+> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。五单状态仍为 ⬜ —— **材料不等于裁决**；DBT-15 未执行任何 `DELETE` / `TRUNCATE`。
 
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜
 
