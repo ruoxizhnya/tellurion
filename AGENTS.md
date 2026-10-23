@@ -44,8 +44,9 @@
 ### 契约 pin 怎么 bump（QT-07 ⑤ / QT-09 ①）
 
 1. **只升 tag**：`go get github.com/ruoxizhnya/tellurion-contracts@vX.Y.Z`（或 `tellurion-kit`）→ `go mod tidy`，只提交 `go.mod` / `go.sum`；**不手改版本号、不加 `replace`**（ADR-D31）。
-2. **先验祖先**：`make contracts-pin-check`（= `python tools/check_contract_pin.py` 自证 11 腿 + 实扫）必须绿——tag 解析出的 commit 必须是目标仓 `main` 的祖先；旁支 tag 不能晋升。
+2. **先验祖先**：`make contracts-pin-check`（= `python tools/check_contract_pin.py` 自证 18 腿 + 实扫）必须绿——tag 解析出的 commit 必须是目标仓 `main` 的祖先；旁支 tag 不能晋升。同一脚本还核两条仓边：`go.work*` 被 git 跟踪即红、`replace` 指向仓外即红（唯一白名单是 agent 的 `tellurion => ../tellurion`，S3 删）。
 3. **同步账**：`AGENTS.md` §0 依赖表与 `docs/TASKS.md` 的 QT-07 进度同一笔提交更新；文档与代码不同步的提交会被打回（Rule 1）。
+4. **改契约语料**：`tellurion-contracts:conformance/cases.json` 是跨仓唯一真相；改它要三仓同测 —— `make contracts-conformance`（core + agent 两侧；某侧未 checkout 会显式 `[skip]`+`::warning`，**不算通过**）。
 
 ---
 
