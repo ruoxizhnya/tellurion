@@ -106,7 +106,7 @@ func TestModuleLifecycleCallbackGuardSeesTheTree(t *testing.T) {
 
 	assert.Contains(t, scanned, "pkg/kernel/adapters.go",
 		"遍历没有走到模块实现所在的文件上 —— 那么「没有违规」什么也没证明")
-	assert.Contains(t, scanned, "pkg/kernel/modules_analysis.go",
+	assert.Contains(t, scanned, "cmd/analysis/wiring/modules_analysis.go",
 		"遍历没有走到业务模块包装文件上 —— 覆盖面声明是假的")
 	assert.GreaterOrEqual(t, lifecycleMethods, 10,
 		"一个生命周期方法都没识别出来（got %d）—— 识别逻辑瞎了，护栏的绿是假的", lifecycleMethods)

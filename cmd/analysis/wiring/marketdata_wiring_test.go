@@ -1,4 +1,4 @@
-package kernel
+package wiring
 
 // marketdata_wiring_test.go —— QT-64 的装配断言。
 //

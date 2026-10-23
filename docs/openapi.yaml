@@ -160,6 +160,7 @@ paths:
         2. **Async (job)**: `strategy_id` + `universe` + `start_date` + `end_date` —
            creates an async job and returns the job ID immediately.
       operationId: runBacktest
+      x-agent-coarse-action: submit_backtest
       requestBody:
         required: true
         content:
@@ -425,6 +426,7 @@ paths:
       summary: Run batch backtests
       description: Runs multiple backtest tasks concurrently with optional walk-forward validation.
       operationId: runBatch
+      x-agent-coarse-action: submit_batch_backtest
       requestBody:
         required: true
         content:
@@ -505,6 +507,7 @@ paths:
       summary: List strategies
       description: Returns all strategies, optionally filtered by type or active status.
       operationId: listStrategies
+      x-agent-coarse-action: fetch_strategy_definitions
       parameters:
         - name: type
           in: query
@@ -1012,6 +1015,7 @@ paths:
       tags: [Factor]
       summary: Get factor returns time series
       operationId: getFactorReturns
+      x-agent-coarse-action: query_factor_evaluation
       parameters:
         - name: factor
           in: path
@@ -1053,6 +1057,63 @@ paths:
                       type: object
         '400':
           $ref: '#/components/responses/BadRequest'
+
+  # ============================================================
+  # Factor (QT-50 coarse action: registration)
+  # ============================================================
+  /api/factor/registrations:
+    post:
+      tags: [Factor]
+      summary: Register a factor definition version
+      description: |
+        QT-50 的「因子登记」粗粒度动作（D24 六类之一）。一次请求登记一版
+        定义（不是逐因子/逐日期的写入口）。
+
+        服务端口径（与 D4 治理账本同源）：`version_hash` 由服务端从
+        `definition` 派生（客户端不能自带）；登记人取自 JWT 身份；四样
+        （公式 / 哈希 / 登记人 / 生效日）缺一即 `400`。同一
+        `(factor_name, version_hash)` 重复登记是幂等 no-op，可安全重试。
+
+        敏感写：ADMIN 档 —— 它改变后续所有回测能引用到的因子定义集合。
+      operationId: registerFactor
+      x-agent-coarse-action: register_factor
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactorRegistrationRequest'
+      responses:
+        '200':
+          description: Registration accepted (same name+hash replay is a no-op)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Authenticated caller is not an admin (RBAC `RequireRole`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Registration store unavailable (service started without a database).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/factor/ic/{factor}:
     get:
@@ -2243,6 +2304,61 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '502':
           description: Data service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Market data (QT-50 coarse action: bulk query)
+  # ============================================================
+  /api/v1/ohlcv/bulk:
+    post:
+      tags: [Market]
+      summary: Query OHLCV for many symbols in one request
+      description: |
+        QT-50 的「行情查询」粗粒度动作（D24 六类之一）。一次请求承载
+        `symbols × [start_date, end_date]` 的整批读取 —— **不是** per-symbol
+        端点：agent 的研究循环不得对每个 symbol 发一次 HTTP（D24 硬否决；
+        per-bar / per-symbol / per-order 远程调用一律禁止）。
+
+        请求转发到 data-service 的同名端点；批量中某个 symbol 失败体现在
+        该条的 `error` 字段里，整批仍 `200`（与数据服务的既有语义一致）。
+      operationId: queryOHLCVBulk
+      x-agent-coarse-action: query_market_data
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkOHLCVRequest'
+      responses:
+        '200':
+          description: Per-symbol results (a failed symbol is reported in its own `error` field).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOHLCVResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Authenticated caller rejected by the route policy (fail-closed tier lookup).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: data-service unreachable or returned a non-JSON body.
           content:
             application/json:
               schema:
@@ -4198,6 +4314,114 @@ components:
               type: integer
             wf_step_days:
               type: integer
+
+    BulkOHLCVRequest:
+      type: object
+      required: [symbols]
+      properties:
+        symbols:
+          type: array
+          minItems: 1
+          description: Exchange-qualified symbols (e.g. `000001.SZ`). One request = the whole batch.
+          items:
+            type: string
+        start_date:
+          type: string
+          description: YYYYMMDD; empty keeps the data-service default window.
+        end_date:
+          type: string
+          description: YYYYMMDD; empty keeps the data-service default window.
+
+    BulkOHLCVResult:
+      type: object
+      properties:
+        symbol:
+          type: string
+        ohlcv:
+          type: array
+          items:
+            $ref: '#/components/schemas/OHLCV'
+        error:
+          type: string
+          description: Present only when this symbol failed; the rest of the batch is unaffected.
+
+    BulkOHLCVResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkOHLCVResult'
+
+    FactorDefinition:
+      type: object
+      description: |
+        与 contracts `domain.FactorDefinition` 的 JSON 形状一致。字段语义
+        （四样之一「公式」与「生效日」）由 core 侧 `Validate()` fail-closed 校验：
+        `pending` 内核不可登记为生效；`input_fields` 对非 `pending` 内核必填。
+      required: [name, kernel, caliber, effective_from, lookahead]
+      properties:
+        name:
+          type: string
+          description: Must be in the frozen factor registry (`domain.ParseFactorType`).
+        kernel:
+          type: string
+          enum: [leaf, formula, code, pending]
+        formula:
+          type: string
+          description: Required for `leaf` / `formula` kernels.
+        validity:
+          type: string
+          description: Optional domain filter formula (same DSL as `formula`).
+        code_ref:
+          type: string
+          description: Required for `code` kernels (Go closure identifier).
+        caliber:
+          type: string
+          enum: [z-score, rank, raw]
+        input_fields:
+          type: array
+          items:
+            type: string
+        effective_from:
+          type: string
+          description: YYYY-MM-DD.
+        lookahead:
+          type: string
+          description: Look-ahead discipline declaration (mandatory), e.g. `trade_date`.
+        lookback:
+          type: integer
+          description: Formula evaluation window in calendar days (code kernels leave 0).
+
+    FactorRegistrationRequest:
+      type: object
+      required: [definition]
+      properties:
+        definition:
+          $ref: '#/components/schemas/FactorDefinition'
+        registrar:
+          type: string
+          description: |
+            Only honoured when authentication is **disabled** (loopback-only dev
+            mode). With JWT enabled the registrar is taken from the token and this
+            field is ignored — anonymous registration is always rejected.
+
+    FactorRegistrationResponse:
+      type: object
+      properties:
+        factor:
+          type: string
+        version_hash:
+          type: string
+          description: Derived server-side from the definition (canonical JSON SHA-256).
+        registrar:
+          type: string
+        status:
+          type: string
+          enum: [active, rolled_back]
+        registered_at:
+          type: string
+          format: date-time
 
     StrategyConfig:
       type: object

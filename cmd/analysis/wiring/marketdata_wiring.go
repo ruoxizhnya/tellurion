@@ -1,4 +1,4 @@
-package kernel
+package wiring
 
 // marketdata_wiring.go —— D6 日内预热的取数通道装配（QT-64）。
 //

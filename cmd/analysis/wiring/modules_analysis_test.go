@@ -1,4 +1,4 @@
-package kernel
+package wiring
 
 // modules_analysis_test.go —— K1 切片 3 的装配顺序契约测试。
 //

@@ -127,12 +127,13 @@ Redis 不可用时服务不启动即失败（连接在装配期建立）——�
 
 ```
 tellurion/
-├── cmd/analysis/     # 主服务 :8085（API 网关 + 风控/执行 in-process）
+├── cmd/analysis/     # 主服务 :8085（API 网关 + 风控/执行 in-process）；wiring/ 是装配层
 ├── cmd/data/         # 数据服务 :8081（tushare 摄取 + sync 队列）
 ├── pkg/
 │   ├── backtest/     # 回测引擎 + job/batch/walkforward（RunSpec/ResultSpec 四契约与 kernel/market 路由表 2026-10-23 起在 `tellurion-contracts:engine/`，本仓经 `aliases.go` 门面引用，DBT-06 / QT-05）
 │   ├── data/         # 数据管道（tushare 客户端、因子、产业链导入）
-│   ├── kernel/       # 模块化内核（clock/msgbus/eventstore，K1–K12 线）
+│   ├── kernel/       # 模块化内核**框架**（Module/BootOrder/生命周期/槽位，K1–K12 线）；
+│   │                 # 业务模块包装与取数接线在 cmd/analysis/wiring（QT-50 ①：框架零业务 import）
 │   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
 │   ├── live/         # 实盘/纸交易引擎
 │   ├── risk/         # 风控（in-process 并入 analysis）
@@ -248,8 +249,8 @@ PIT 执法点有二：① 声明侧 `after_close`（`TestDailyBasicDeclaration_M
 
 ```
   进程装配（一次）
-     kernel.NewMarketDataRouter(store)      ← 复用 store 池，一个进程一个 Router（QT-64）
-       └─ kernel.AttachMarketDataRouter      ← 主引擎与 walk-forward 窗口引擎共用这一个装配函数
+     wiring.NewMarketDataRouter(store)      ← 复用 store 池，一个进程一个 Router（QT-64；QT-50 ① 迁至 cmd/analysis/wiring）
+       └─ wiring.AttachMarketDataRouter      ← 主引擎与 walk-forward 窗口引擎共用这一个装配函数
 
    RunBacktest 启动前（一次性）
      warmIntradayIfNeeded（仅 IntradayAware 策略触发）

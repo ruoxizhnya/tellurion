@@ -1,7 +1,11 @@
-package kernel
+// Package wiring 是 analysis 应用的装配层（composition root 的实现部分）：
+// 业务模块包装 + 取数通道接线。它住在 cmd 下而不是 pkg/kernel ——
+// **装配属应用层，不属库**（QT-50 ①）：kernel 只留 Module/BootOrder/
+// 生命周期/槽位，不许 import 业务族。
+package wiring
 
 // modules_analysis.go —— analysis 服务的 7 个业务模块包装（K1 切片 3：
-// 接管 setup.go 装配）。
+// 接管 setup.go 装配；QT-50 ① 自 pkg/kernel 迁入，代码逐字）。
 //
 // ─── 映射裁决（模块名 ↔ 现有组件，BootOrder 冻结序）─────────────────
 //
@@ -23,11 +27,11 @@ package kernel
 // （cmd/analysis/kernel_wiring.go），接管 TASKS 条目有登记。
 //
 // ─── 构造逻辑为什么经闭包注入，而不写死在本包 ────────────────────────
-// pkg/kernel 是纯装配机制；bootstrap（builder 库）import 业务包与 viper，
-// kernel 若直接调 builder 会把「拿什么装配」（composition root 的职责）
-// 混进「怎么装配」（本包职责）。故模块持有 cmd 注入的构造闭包，Init 执行；
-// 产物经导出字段暴露，main 从模块检索装 ServerDeps —— 装配顺序的控制权
-// 由此移交 BootOrder（本切片的验收核心）。
+// 本包只管「怎么装配」；「拿什么装配」仍由 cmd/analysis 的闭包决定。
+// bootstrap（builder 库）import 业务包与 viper，若本包直接调 builder，
+// 会把 composition root 的职责也吸进来。故模块持有 cmd 注入的构造闭包，
+// Init 执行；产物经导出字段暴露，main 从模块检索装 ServerDeps ——
+// 装配顺序的控制权由此移交 BootOrder（本切片的验收核心）。
 //
 // ─── 顺序依赖的保证方式 ─────────────────────────────────────────────
 // StrategyRuntimeModule 的 Init 读前序模块（data-engine / risk-engine /
@@ -42,6 +46,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
+	"tellurion/pkg/kernel"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
@@ -238,8 +243,8 @@ func (m *StrategyRuntimeModule) Stop(context.Context) error { return nil }
 
 // ─── 编译期合规检查 ────────────────────────────────────────────────
 var (
-	_ Module = (*DataEngineModule)(nil)
-	_ Module = (*RiskEngineModule)(nil)
-	_ Module = (*ExecEngineModule)(nil)
-	_ Module = (*StrategyRuntimeModule)(nil)
+	_ kernel.Module = (*DataEngineModule)(nil)
+	_ kernel.Module = (*RiskEngineModule)(nil)
+	_ kernel.Module = (*ExecEngineModule)(nil)
+	_ kernel.Module = (*StrategyRuntimeModule)(nil)
 )

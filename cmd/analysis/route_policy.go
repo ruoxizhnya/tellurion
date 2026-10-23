@@ -37,6 +37,10 @@ var analysisRoutePolicy = authz.Policy{
 		"POST /api/plugins/watch-dir", // 改写路径校验的锚点
 		"POST /api/plugins/:name/unload",
 		"POST /api/plugins/:name/reload",
+
+		// QT-50 ③ 第 6 类粗粒度动作：因子登记。改的是「后续所有回测能引用
+		// 哪些因子定义」的治理账本，属管理面（登记人取自 JWT，不接受自报）。
+		"POST /api/factor/registrations",
 	},
 
 	// ── ReadOnlyPOST：POST 承载查询/计算，不改变任何状态 ──
@@ -53,6 +57,11 @@ var analysisRoutePolicy = authz.Policy{
 		"POST /calculate_position",
 		"POST /check_stoploss",
 		"POST /detect_regime",
+
+		// QT-50 ③ 第 4 类粗粒度动作：批量行情查询（多 symbol × 日期区间，
+		// 纯读、不写库）。POST 只因参数是集合；agent 的「行情查询」走这一条，
+		// 不走 per-symbol 的 GET /api/ohlcv/{symbol}（D24 禁 per-symbol）。
+		"POST /api/v1/ohlcv/bulk",
 	},
 
 	// ── Trader：其余全部变更端点 ──

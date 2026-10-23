@@ -10,10 +10,10 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
+	"tellurion/cmd/analysis/wiring"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/compliance"
-	"tellurion/pkg/kernel"
 	"tellurion/pkg/live/reconciliation"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/strategy"
@@ -81,13 +81,13 @@ func main() {
 	//
 	// 装配面实测（2026-10-23，QT-13 自审时逐 setter 对过）：这份工厂 +
 	// setup.go 那层的 SetDataAdapter/SetStore/SetRunObserver，与主引擎在
-	// `pkg/kernel/modules_analysis.go` 里拿到的**是同一组**（NewEngine +
+	// `cmd/analysis/wiring/modules_analysis.go` 里拿到的**是同一组**（NewEngine +
 	// Store + DataAdapter + RiskManager + LiveTrader + RunObserver）。
 	// 曾经记在这里的「窗口引擎没有 provenance writer / adjStore」是错的：
 	// 那两个端口都从 `e.store` 自动派生（`provenanceSink()` /
 	// `adjustmentStore()`），而工厂设了 store —— 窗口的 run 今天既写留痕也
 	// 冻结复权基准。真正缺的日内取数通道（`SetRouter` / D6 预热）已由
-	// QT-64 补齐：主引擎与窗口引擎都经 `kernel.AttachMarketDataRouter`
+	// QT-64 补齐：主引擎与窗口引擎都经 `wiring.AttachMarketDataRouter`
 	// 这同一个装配函数拿到进程内唯一的 Router（`ak.Wiring.Router`）。
 	newEngine := func() (*backtest.Engine, error) {
 		eng, err := backtest.NewEngine(v, httpProvider, logger)
@@ -99,7 +99,7 @@ func main() {
 		eng.SetStore(store)
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
-		kernel.AttachMarketDataRouter(eng, ak.Wiring.Router, logger)
+		wiring.AttachMarketDataRouter(eng, ak.Wiring.Router, logger)
 		return eng, nil
 	}
 
@@ -275,6 +275,15 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	registerStrategyRoutes(router, deps.StrategyDB)
 	registerDatasourceRoutes(router, deps.Engine)
 	registerFactorRoutes(router, deps.FactorAttributor, deps.Logger)
+	// QT-50 ③ 第 6 类粗粒度动作：因子登记写入门。未接库（零值 store）时
+	// 路由照常注册、请求时 503（newMinimalDeps 约束）。注意先判 pool 再装
+	// 接口——nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
+	// 到 handler 里才 panic。
+	var factorRegStore factorRegistrationStore
+	if deps.Store != nil && deps.Store.DB() != nil {
+		factorRegStore = deps.Store
+	}
+	NewFactorRegistrationHandler(factorRegStore, deps.AuthSvc, deps.Logger).RegisterRoutes(router)
 	registerPluginRoutes(router, deps.PluginLoader, deps.AuthSvc)
 	// AI 拆仓阶段 1（ADR-027 §5 第 8 步前置切片）：copilot / pipeline /
 	// explore / tools 四族路由改反代到 ai-service。原进程内注册（registerCopilotRoutes

@@ -2729,6 +2729,11 @@ GET  /api/ohlcv/:symbol           - Get OHLCV data for symbol
      ?start_date=20240101&end_date=20241231
                                      日期只认 YYYYMMDD（DATA-13，归档 docs/archive/TASKS-2026-10-16-archived.md；网关把数据服务的
                                      400 原状态码原文透出，不 launder）
+POST /api/v1/ohlcv/bulk           - 批量行情查询（QT-50 第 4 类粗粒度动作）
+     {"symbols": ["000001.SZ", ...], "start_date": "20240101", "end_date": "20241231"}
+                                     一次请求取回多 symbol × 日期区间；转发到 data-service 同名端点。
+                                     ⚠️ agent 的研究循环**不得**退回 per-symbol 的 GET /api/ohlcv/:symbol
+                                     （D24 禁 per-symbol 远程调用）；单 symbol 失败在该条 error 字段里，整批仍 200
 POST /api/screen                  - Screen stocks by criteria
 GET  /api/stocks/count            - Stock count + status split + latest quote date
                                     (passthrough; 形状见 §1「`GET /stocks/count` 的响应形状」)
@@ -2801,6 +2806,36 @@ REV-13 从 `main()` 抽出的 alerts / reconciliation 第二批接线），与�
 **破坏验证（三腿，均红→还原→绿）**：① 删 yaml 里 `/api/strategies/{id}` →
 `GET/PUT/DELETE` 三条当场红；② 代码注册 `/api/rev13-sabotage` → 红；③ yaml
 加一条 `/api/rev13-ghost` → `SpecToCode` 红。
+
+#### Agent 粗粒度动作（QT-50 ②③）
+
+agent ↔ core 的 wire 面**只有六类粗粒度动作**（D24 白名单，不是示例）。声明处：
+`cmd/analysis/agent_actions.go`；每条的 openapi operation 带
+`x-agent-coarse-action: <name>`，与 `docs/openapi.yaml` 双向对拍
+（`cmd/analysis/agent_coarse_actions_test.go`）。
+
+| 动作 | endpoint | 最低角色 | 为什么是粗粒度 |
+|---|---|---|---|
+| `submit_backtest` | `POST /api/backtest` | trader | 一次请求一个 RunSpec，universe 在 core 内展开 |
+| `submit_batch_backtest` | `POST /api/batch` | trader | 一次请求一批参数组合 |
+| `query_factor_evaluation` | `GET /api/factor/returns/{factor}` | 已认证（GET） | 日期区间整段返回，不按交易日逐次调用 |
+| `query_market_data` | `POST /api/v1/ohlcv/bulk` | 已认证（readonly-post） | 多 symbol × 区间一次取回 |
+| `fetch_strategy_definitions` | `GET /api/strategies` | 已认证（GET） | 定义清单/详情；执行与逐 bar 信号留在 core |
+| `register_factor` | `POST /api/factor/registrations` | admin | 一版定义一次登记（治理账本，非行情写） |
+
+**硬否决**：任何 per-bar / per-symbol / per-order 远程调用；策略执行、风控裁决、
+撮合永远在 core 进程内。护栏（`TestAgentCoarseActions_AreCoarseGrain`）拒绝通配
+路由，并拒绝路径里出现 `{bar}` / `{symbol}` / `{order_id}` 这类 per-item 参数。
+**第 7 类**（交易日历 / 上市窗口查询）待用户裁-04，未确认前不在表里。
+
+鉴权：JWT + `route_policy.go` 的端点 × 最低角色表（`authz.Middleware` 全局一次，
+查不到即 403 fail-closed）；本地 insecure 模式仍由 `DecideAuthStartup` 限定为
+loopback / loopback-published，非环回一律拒绝启动。错误码与限流语义随每条
+endpoint 写进 `docs/openapi.yaml`（`400/401/403/429/502/503`）。
+
+**未落的跨仓腿（如实）**：agent 侧 HTTP 客户端在 G10（本仓只提供 wire 面）；
+`contracts/dto` 由 `oapi-codegen` 生成的前提是 contracts 新增 `dto` 包
+（v0.3.0 无此包，报 **G0D-C5**），本批没有手写/伪造生成物。
 
 #### Data Synchronization (Phase 3 — gateway to data-service)
 
@@ -2897,6 +2932,10 @@ GET  /api/factor/ic/:factor       - Get factor IC time series
 POST /api/factor/compute-returns  - Compute factor returns for given universe
 POST /api/factor/compute-ic       - Compute IC for factor × returns cross-section
 GET  /api/factor/list             - List all available factors
+POST /api/factor/registrations    - 登记一版因子定义（QT-50 第 6 类粗粒度动作）   [admin]
+     {"definition": { ... }, "registrar": "仅鉴权关闭时采纳"}
+                                     version_hash 由服务端从 definition 派生；登记人取自 JWT；
+                                     四样（公式/哈希/登记人/生效日）缺一 400；同 (name, hash) 幂等
 ```
 
 #### Strategy Management

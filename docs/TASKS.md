@@ -825,7 +825,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 六、横切
 
-### QT-50 · 装配外移（`pkg/kernel` 只留框架）+ agent ↔ core HTTP 粗粒度 [P1] ⬜
+### QT-50 · 装配外移（`pkg/kernel` 只留框架）+ agent ↔ core HTTP 粗粒度 [P1] ✅（2026-10-24，本仓侧）
 
 - **① 目标**：框架包零业务依赖；agent 与 core 的边界只剩"粗粒度 HTTP + contracts"。
 - **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记），禁止 per-bar/per-symbol/per-order 远程调用。
@@ -833,6 +833,55 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义；**不绕过 `docs/openapi.yaml` 手写 dto**（生成物禁手改）；不为图省事把七类动作拆成 per-bar/per-symbol 细粒度端点。
 - **⑤ 验收**：kernel 的非测试 import 里零业务族；搬运前后 `package_wiring_test.go`/`module_lifecycle_callback_test.go` 各跑一次全绿；agent 侧 grep 无 per-bar 远程调用；`docs/openapi.yaml` 含全部新端点且**路由表对拍绿**；`contracts/dto` 与生成物一致（重生成 diff 为空）；**fail-closed 用例**：无 token / 越权角色 / 非白名单来源 / 非环回 insecure 请求全部被拒且报错可检索。
 - **⑥ 边界**：只做装配与边界；module 拆分是 QT-05。
+
+> **✅ 完成记录（2026-10-24，本仓侧；三条跨仓腿如实留在下文）**
+>
+> **① 装配外移**：`pkg/kernel/modules_analysis.go` + `marketdata_wiring.go`（含各自测试）整体迁入
+> **`cmd/analysis/wiring/`**（`git mv`，代码逐字；只有 `package` 与 `Module` 前缀改为 `kernel.Module`）。
+> `pkg/kernel` 现在只剩 `kernel.go` / `interfaces.go` / `adapters.go` 与测试：Module / BootOrder /
+> 生命周期 / 槽位。`cmd/analysis/kernel_wiring.go` 与 `main.go` 改调 `wiring.*`。
+> **护栏**：`pkg/kernel/import_boundary_test.go` 用 `go/parser` 读本包**非测试** import，
+> 命中业务族（backtest / live / risk / marketdata / storage / strategy / data …）即红；
+> `clock` / `msgbus` / `eventstore` 是 `Kernel.Clock/Bus/Store` 的返回类型，按框架依赖显式放行。
+> `internal/repoguard/engine_router_wiring_test.go` 与 `module_lifecycle_callback_test.go` 的路径断言同步到新落点。
+>
+> **② ≥③ 六类粗粒度动作的 wire 面**（客户端本体在 agent 仓，见 G10）：
+> 声明处 `cmd/analysis/agent_actions.go`（六条，带「为什么是粗粒度」理由）；六条 endpoint 全部
+> 写入 `docs/openapi.yaml`，operation 上打 `x-agent-coarse-action: <name>`，新增 DTO
+> `BulkOHLCVRequest/Response`、`FactorDefinition`、`FactorRegistrationRequest/Response`。
+> 两处是**新增的门**：`POST /api/v1/ohlcv/bulk`（analysis 侧代理，批量行情 —— 刻意不引导 agent 走
+> per-symbol 的 `GET /api/ohlcv/{symbol}`）与 `POST /api/factor/registrations`（因子登记，
+> `version_hash` 服务端派生、登记人取自 JWT、四样 fail-closed、同 (name,hash) 幂等）。
+> 其余四条复用既有端点，未另造平行面。
+> **对拍**：`cmd/analysis/agent_coarse_actions_test.go` 三条腿 —— 声明↔openapi 双向、声明↔生产路由、
+> 粒度（禁通配 + 禁 `{bar}`/`{symbol}`/`{order_id}` 路径参数）。既有 REV-13 路由表↔yaml 双向对拍照旧覆盖新端点。
+>
+> **④ 鉴权 / fail-closed**：JWT + `route_policy.go` 档位（因子登记 **admin**、批量行情 **readonly-post**）；
+> 行为腿用真 router + 真 JWT：六条动作无 token 全 401，viewer/trader 打因子登记 403（且不是「策略表缺条目」），
+> admin 穿过鉴权层（最小装配无库 → 503）。loopback-only 仍是既有 `DecideAuthStartup`（无密钥且非环回拒绝启动），本单未改其口径。
+>
+> **⑤ 错误码 / 限流**：随每条 endpoint 写进 `docs/openapi.yaml`（400/401/403/429/502/503）；
+> 限流沿用全局 `RateLimiter`（新端点不豁免，`/api/auth/status` 那三条豁免未动）。
+>
+> **⑥ 破坏验证（两份，均跑真退出码）**：
+> - kernel 护栏：给 `pkg/kernel/adapters.go` 临时加 `_ "tellurion/pkg/backtest"` → `go test ./pkg/kernel -run TestKernelImportsNoBusinessFamily`
+>   **MUT_EXIT=1**（点名 pkg/kernel → tellurion/pkg/backtest）；逐字节还原（`cmp` 相同）后 **RESTORED_EXIT=0**。
+> - 鉴权：临时删掉 `route_policy.go` 里 `"POST /api/factor/registrations"` 那一行 → `TestAgentCoarseActions_FailClosed`
+>   **MUT_EXIT=1**（viewer/trader 的 403 变成 `no authorization policy`、admin 期望 503 实得 403）；逐字节还原后 **RESTORED_EXIT=0**。
+>
+> **验收实跑**：`go build ./... && go vet ./... && go test ./pkg/kernel/... ./cmd/analysis/... ./docs/... ./internal/repoguard/... -count=1`
+> 全绿；`python tools/check_doc_links.py` 退出 0。
+>
+> **未落（跨仓 / 待裁，不计作本单完成的部分）**：
+> 1. **agent 侧六类动作的 HTTP 客户端**属 **G10**（本仓只提供 wire 面，不改 agent 仓）；
+>    agent 仓的「禁 import core / 禁逐 bar 远程调用」AST 护栏亦随 G10。
+> 2. **`contracts/dto` 生成物**：QT-50 ③ 的 `oapi-codegen` 前提是 contracts 新增 `dto` 包，
+>    **contracts v0.3.0 无此包** → 报 **G0D-C5**；本批**没有**手写或伪造生成物，openapi 仍是唯一 wire 真相。
+> 3. **第 7 类动作**（交易日历 / 上市窗口查询）等用户**裁-04**；未确认前不在 `agentCoarseActions` 里
+>    （`coarseActionCount = 6` 是那道闸）。
+>
+> ⚠️ **对 S3 的含义（不夸大）**：本单把 agent↔core 的 wire 面与鉴权落齐了，但**不等于** agent 现在就能删
+> `replace ../tellurion` —— 客户端尚未实现（G10），且 agent 仍有 76 处 core 实现包 import（见 QT-17 记录）。
 
 ### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] ⬜
 
@@ -1149,7 +1198,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > **2026-10-21 自 `tellurion-ui:docs/TASKS.md` 迁入**（该单原标注「待迁 core」，归属 core 的 `cmd/data` + `pkg/storage`；六字段原样迁入、正文不改写，ui 仓只留指针）。
 
-### DATA-14 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）⬜ 待做
+### DATA-14 · 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）✅（2026-10-24）
 
 > ✅ **编号换号（2026-10-21，SPEC-R-03）**：本单原号 DATA-04，与 `docs/archive/TASKS-2026-10-16-archived.md:553` 旧 DATA-04（成交量单位统一，✅ 2026-10-14）撞号；现役单换号为 **DATA-14**，归档旧单一字不改。
 
@@ -1166,6 +1215,30 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
   - 加一条 Go 侧断言：空结果路径序列化后含 `":[]"` 而不是 `":null"`（照 `pkg/storage/bulk_insert_ddl_test.go` 那种静态读源码/编解码的零 DB 依赖做法）。
   - **破坏验证**：把 `?? []` 那类前端防御临时摘掉 ⇒ 队列面板那条 e2e（`a08-job-console.spec.ts` 的「空队列的真实回包走空态」）必须红，还原转绿 —— 证明那条 e2e 真在钉形状，不是常驻绿。
 - **⑥ 边界**：只处理"空集合的编码形状"这一件事；`latest_date` 静默缺席与 PIT 通道是 DATA-03、票池拆分是 DATA-02（两单均已归档 `docs/archive/TASKS-2026-10-16-archived.md`）。
+
+- **⑦ 施工记录（2026-10-24）**：
+  - **改动**：`cmd/data/sync_handlers.go` 新增 `collectionPayload[T](key, items)`，在构造响应体时把 nil slice 折成 `[]T{}`；`listJobsHandler` 与 `listSchedulesHandler` 的 `c.JSON` 改用它。除这两处外**未改任何端点**（③/④ 的约束）。
+  - **零 DB 断言**：新增 `cmd/data/sync_handlers_empty_list_test.go::TestCollectionPayload_EmptyResultSerializesAsArray`，直接对 handler 实际使用的 `collectionPayload` 做编解码，断言 jobs/schedules 的空结果都含 `":[]"`、不含 `":null"`。零 DB 依赖（照 `pkg/storage/bulk_insert_ddl_test.go` 的范式）。
+  - **真机验收**（本地编译 `cmd/data`，连本地 PostgreSQL/Redis，`127.0.0.1:8091`）：
+    - `GET /api/sync/jobs?status=retrying&limit=5` → `{"count":0,"jobs":[]}`
+    - `GET /api/sync/schedules?active_only=true` → `{"count":0,"schedules":[]}`
+  - **破坏验证**：删除 `collectionPayload` 里的 `if items == nil { items = []T{} }` → 测试红，实测输出 `{"count":0,"jobs":null}` / `{"count":0,"schedules":null}`；逐字节还原后转绿。**跨仓腿如实登记**：⑤ 原本还要求 `tellurion-ui` 的 `a08-job-console.spec.ts` 在摘掉前端 `?? []` 后变红——那在 ui 仓，本单不 checkout/不改其他仓，未执行；本仓腿的破坏验证已用上面的 Go 断言完成。
+  - **同族集合端点盘点（本单只登记，不修）**——空结果会吐 `null` 的：
+    1. `GET /api/sync/jobs` — `jobs`（本单已修）
+    2. `GET /api/sync/schedules` — `schedules`（本单已修）
+    3. `GET /stocks` — `stocks`（`GetStocks` 返回 nil slice）
+    4. `GET /ohlcv/:symbol` — `ohlcv`（`storage.GetOHLCV` 返回 nil slice；另有 DATA-13 的日期格式成因，二者叠加）
+    5. `GET /index/:code/constituents` — `constituents`（`TushareClient.GetIndexConstituents` 空结果返回 `nil, nil`）
+    6. `GET /fundamentals/:symbol/history` — `history`（`GetFundamentalDataHistory` 返回 nil slice）
+    7. `POST /screen` — `results`（`ScreenFundamentals` 返回 nil slice）
+    8. `GET /api/factors/attribution/:factor_name` — `returns`（`GetFactorReturns` 返回 nil slice）
+    9. `GET /api/factors/ic/:factor_name` — `ic_series`（`GetICEntries` 返回 nil slice）
+    10. `POST /sync/factors/all` — `computed`（全部 skipped 时 `FactorBatchReport.Computed` 为 nil）
+    11. `POST /api/ingest/equitydeep` — `dropped`（无丢弃字段时 nil）
+    12. `POST /api/v1/ohlcv/bulk` — 每个 result 的内层 `ohlcv` 可能为 `null`（外层 `results` 已用 `make`）
+  - **不会吐 `null` 的（已用 `make`/`omitempty` 保证，仅作对照）**：`GET /stocks/count`（`by_status` 已归一）、`GET /market/index`、`GET /api/v1/trading/calendar`、`GET /api/datasource/registry/*`（adapters/chains 均 `make`）、`GET /api/sync/workers`（`registered_types` 用 `make`）、`GET /api/sync/scheduler/stats`（`next_runs` 带 `omitempty`）。
+  - **禁区遵守**：未改 `docs/openapi.yaml`（已声明数组，改它会撞 G2 唯一写者）；未动 `ResultSpec`；未顺手改上述任何端点。
+  - **测试**：`go test ./cmd/data/... -count=1` → `ok tellurion/cmd/data 6.178s`（改后复跑见收工输出）。
 
 ---
 

@@ -18,6 +18,11 @@ import (
 	"tellurion/pkg/httpserver"
 )
 
+// maxBulkOHLCVBodyBytes 是 POST /api/v1/ohlcv/bulk 的请求体上限。一个
+// symbol 列表（全市场约 5k 只 × ~12 字节）远低于这个量；设上限是为了不让
+// 网关成为无界缓冲。
+const maxBulkOHLCVBodyBytes = 1 << 20
+
 // registerProxyRoutes wires the analysis→data forwarding surface. The viper
 // instance is the loaded analysis config (not the global one) so that
 // data_service.url is actually read — the global viper was never populated
@@ -98,6 +103,36 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		q.Set("end_date", endDate)
 		dataURL := dataServiceURL + "/ohlcv/" + url.PathEscape(symbol) + "?" + q.Encode()
 		proxyRequest(c, http.MethodGet, dataURL, nil)
+	})
+
+	router.POST("/api/v1/ohlcv/bulk", func(c *gin.Context) {
+		// QT-50 ③ 的「行情查询」粗粒度动作：多 symbol × 日期区间在**一次**
+		// 请求内取回。刻意不把 agent 引导到上面的 per-symbol 端点 ——
+		// D24 禁止 per-symbol 远程调用，一个包含 N 个 symbol 的研究循环
+		// 若逐 symbol 打 HTTP，就是 N 次跨进程往返。
+		//
+		// 转发口径与其它反代一致：只搬这条端点认识的三个键，其余留在这里
+		// 让 data-service 对「这条端点认什么」负责。
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBulkOHLCVBodyBytes)
+		var req struct {
+			Symbols   []string `json:"symbols"`
+			StartDate string   `json:"start_date"`
+			EndDate   string   `json:"end_date"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if len(req.Symbols) == 0 {
+			httpserver.Fail(c, http.StatusBadRequest, "symbols is required")
+			return
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		proxyRequest(c, http.MethodPost, dataServiceURL+"/api/v1/ohlcv/bulk", bytes.NewReader(body))
 	})
 
 	router.POST("/api/screen", func(c *gin.Context) {

@@ -41,6 +41,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
+	"tellurion/cmd/analysis/wiring"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/clock"
@@ -98,7 +99,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 
 	// data-engine（第 3 位）：行情能力。构造逻辑与接管前
 	// buildBacktestEngine + buildDataServices 的对应行逐字一致。
-	dataMod := kernel.NewDataEngineModule(func() (marketdata.Provider, *marketdata.DataAdapter, error) {
+	dataMod := wiring.NewDataEngineModule(func() (marketdata.Provider, *marketdata.DataAdapter, error) {
 		httpProvider := marketdata.NewHTTPProvider(dataServiceURL(v), logger)
 		pgProvider := marketdata.NewPostgresProvider(store, logger)
 		adapter := marketdata.NewDataAdapter(nil, pgProvider, httpProvider, logger)
@@ -106,26 +107,26 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	})
 
 	// risk-engine（第 5 位）。
-	riskMod := kernel.NewRiskEngineModule(func() (*risk.RiskManager, error) {
+	riskMod := wiring.NewRiskEngineModule(func() (*risk.RiskManager, error) {
 		return bootstrap.BuildRiskManager(v, logger), nil
 	})
 
 	// exec-engine（第 6 位）。
-	execMod := kernel.NewExecEngineModule(func() (live.LiveTrader, error) {
+	execMod := wiring.NewExecEngineModule(func() (live.LiveTrader, error) {
 		return bootstrap.BuildExecutionTrader(v, logger), nil
 	})
 
 	// D6 日内预热的取数通道（QT-64）：进程内构造一次 Router（复用 store
 	// 的连接池，不新开池）；主引擎经 deps.Router、walk-forward 窗口引擎经
 	// Wiring.Router，两处共用同一个实例。
-	mdRouter, err := kernel.NewMarketDataRouter(store)
+	mdRouter, err := wiring.NewMarketDataRouter(store)
 	if err != nil {
 		return nil, fmt.Errorf("kernel: 构造 marketdata.Router 失败: %w", err)
 	}
 
 	// strategy-runtime（第 7 位）：引擎构造 + 全部 Set* 注入在模块 Init 内
 	// 完成（依赖前序产物，缺失即 fail-fast，见 modules_analysis.go）。
-	strategyMod := kernel.NewStrategyRuntimeModule(v, logger, &kernel.StrategyRuntimeDeps{
+	strategyMod := wiring.NewStrategyRuntimeModule(v, logger, &wiring.StrategyRuntimeDeps{
 		Store:      store,
 		DataEngine: dataMod,
 		RiskEngine: riskMod,
@@ -133,7 +134,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		Router:     mdRouter,
 	})
 
-	// 三个 Noop 槽位（4/8/9）—— 理由见 pkg/kernel/modules_analysis.go 头部
+	// 三个 Noop 槽位（4/8/9）—— 理由见 cmd/analysis/wiring/modules_analysis.go 头部
 	// 映射裁决表；BootOrder 是宪法，槽位必须占住。
 	placeholders := []*kernel.NoopModule{
 		kernel.NewNoopModule("portfolio"),
@@ -174,7 +175,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 
 	// 产物检索：各模块的导出字段 → wiring（字段与接管前 main 的局部变量
 	// 一一对应）。
-	wiring := &AnalysisWiring{
+	artifacts := &AnalysisWiring{
 		Engine:          strategyMod.Engine,
 		Provider:        dataMod.Provider,
 		Adapter:         dataMod.Adapter,
@@ -188,7 +189,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		Int("modules", len(kernel.BootOrder)).
 		Msg("kernel booted (K1 切片 3) — 装配顺序由 BootOrder 接管，kernel.boot → audit.message_log")
 
-	return &AnalysisKernel{Kernel: k, Wiring: wiring}, nil
+	return &AnalysisKernel{Kernel: k, Wiring: artifacts}, nil
 }
 
 // dataServiceURL 取 data-service 地址（与 bootstrap.BuildBacktestEngine
