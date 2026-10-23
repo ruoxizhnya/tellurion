@@ -37,7 +37,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」 |
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
-| W1 | QT-15 | 不可终止执行 + 重放语义 | P0 | 依赖 QT-14（会话）+ **QT-16（身份）**；两者不再「同批」，16 先落 DDL |
+| W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
 | **W2** | QT-20 | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash） |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
 | W2 | QT-22 | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具 |
@@ -504,7 +504,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
   - 冻结 schema（kernel_modules.schema.sql）变更评审随本单走（W1 唯一 DDL 单，工单派工时已授权）。
   - Migration 058 无 `migrations/` / `docs/migrations/` 镜像文件——那两个目录只读不维护，唯一执行路径仍是 `pkg/storage/postgres.go` 内联 DDL（SPEC-R-01）。
 
-### QT-15 · 不可终止执行 + 重放语义（`state_only`）[P0] ⬜
+### QT-15 · 不可终止执行 + 重放语义（`state_only`）[P0] ✅ 2026-10-23（沙箱层；commit `8f21e83`）
 
 - **① 目标**：`while(true)` 能在预算内被终止且进程存活；终止后的重建**不会重复下单**。
 - **② 上下文**：`p0-remediation-design.md` C1 + `p0-round2-review.md` N4；`wazero_runtime.go:41-43` 只有 `WithMemoryLimitPages`，未启 `WithCloseOnContextDone`（wazero 默认关闭，关闭时单次调用可永久阻塞 Goroutine/OS 线程）；C1 只写"重建并重放该日期块剩余 bar"，没说重放期 emit 怎么处理。
@@ -513,6 +513,27 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：`while(true)` 在单次预算内终止且进程存活；在 bar k 注入一次超预算，重建后成交笔数/成交价/净值与无 trap 跑法**逐笔一致**；`replay_suppressed_signals` 计数符合预期；性能基准报告归档。
 - **⑥ 边界**：只做终止与重放；检查点身份是 QT-16。
 - **⑦ 前置（硬）**：**QT-16 已合入**。重放要按分片恢复状态，没有 `shard_key` 与 `run_identity_hash` 就分不清「这份字节属于哪个实例」；market scope（`shard_key=''`）可先验，但 symbol scope 必须等 16。
+
+**施工记录（2026-10-23，沙箱层 · commit `8f21e83`）**
+
+前提核对：`pkg/sandbox/wasm` 尚未接进引擎（repoguard：待策略插件执行接线），因此 ①~④⑥⑦ 全部落沙箱层；⑤ 的 run 级落账（`invalid` + `session_terminated` 映射进冻结三值）物理上要等引擎接线。落地形状：
+
+- **① 终止能力**：`NewWazeroRuntime` 启用 `WithCloseOnContextDone(true)`（内部 `newWazeroRuntime(ctx, max, closeOnDone)` 留对照腿给 ⑦ 基准）；超时错误按 `errors.Is(DeadlineExceeded/Canceled)` 归类（wazero v1.12.0 `sys.ExitError` 语义，源码实测核对）。
+- **② 双层预算**：`SessionBudget{PerCall, RunDeadline}`；`BudgetForScope`（scope 取契约 `contracts.StrategyScope`，未知值 fail-closed）；冻结默认 market 50ms / symbol 5ms / run 10min。`NewOnBarSessionWithBudget` 从构造起算 run deadline（派生自请求 ctx——调用方取消也是一次终止）。
+- **③ terminated 状态**：`ErrSessionTerminated` 哨兵 + `checkAlive` 守门，终止后 `Initialize/OnBar/Finalize` 一律 fail-loud 且错误链带原始原因；普通 trap 不关模块、不走终止路径（fail-loud 直返）。
+- **④ `state_only` 重放**：`BarContext.SuppressSignals/SuppressedSignals`——重放期 emit「成功但不记录」只计数；`replay.go` 的 `SessionSupervisor` 驱动重建：快照边界 → 终止 → 丢弃失败 bar 的 emit（调用报错 = 引擎未消费）→ 重建 → 恢复快照 → 重放窗口（suppress）→ 故障 bar 以 apply 重执行；重放期再次终止走同一路径。`ReplayApply` 构造即拒（点名缺引擎侧事务性回滚）。
+- **⑤**：稳定 code `CodeSessionTerminated = "session_terminated"` 已在沙箱层给出；run 级 `invalid` 落账 + EndRun 不调 finalize 的引擎侧实现归 QT-26/QT-30 接线（supervisor 的 finalize 本就只在正常路径调用）。
+- **⑥**：重建按 run 计，`DefaultMaxRebuilds=3`；确定性故障（每次重建同 bar 复发，真实 wasm 模块验证）到上限即 failed。
+- **⑦ 基准结论（overhead > 10%，裁决：wasm 沙箱恒开）**：727 次 on_bar 开/关各跑（`wazero_runtime_bench_test.go`，微负载 Off ≈2.25ms / On ≈3.63ms ≈ **+61%**；紧 wasm 循环负载（每 bar 10000 次迭代）Off ≈5.4ms / On ≈141.9ms ≈ **26×**）。超过 10% 阈值 → C1 的分级启用分支触发，但裁决是**恒开**：能进 wasm 沙箱的 artifact 天然全部不可信（ADR-029 能力隔离是沙箱的存在理由），「可信内置策略」走 Go 原生表达式载体（ADR-024）根本不进沙箱——分级启用在 wasm 路径上是空集。代价登记：策略在 wasm 内写紧循环会付 ~19ns/迭代 的检查代价；重计算的可信逻辑应留在表达式载体，不进 wasm。
+
+**验收证据**：`while(true)` 真实字节码在 100ms 预算内终止、进程存活、错误链含原始原因（`TestWhileTrueTerminatesWithinBudget`，watchdog 5s）；瞬态故障重建 1 次、重放窗口压制计数 3、信号序列与无故障基线**逐项一致**、状态恢复无重复无缺失（`TestSupervisorStateOnlyReplayRecovers`，stub 注入）；确定性故障重建 3 次后 failed（真实 wasm，`TestSupervisorRebuildCapExhausted`）。**护栏破坏验证四腿全红 + 字节级还原**：D1 关 close-on-done → 死循环测试红（watchdog）；D2 删压制分支 → 压制测试红；D3 删重建上限 → 30s timeout 红（无限重建）；D4 删 checkAlive → 直构会话单测红（runCtx 取消会掩盖守门缺失，故 checkAlive 的破坏腿用 runCtx 健康的直构会话，不靠间接层）。
+
+**如实登记（5 条）**：
+1. **引擎侧落账未做**：⑤ 的 run `invalid` + `invalid_reasons=session_terminated` 映射、`Failures += session_terminated` 诊断明细、`replay_suppressed_signals` 异常放大告警（N4 的 10× 阈值）——全部归 QT-26/QT-30 接线；本单只提供哨兵、稳定 code 与计数。
+2. **逐笔一致的验收口径**：N4 验收要求「成交笔数/成交价/净值逐笔一致」——那是引擎侧验收（信号 → 撮合 → 结算）；本单做到**信号级**逐项一致（`TestSupervisorStateOnlyReplayRecovers` 的断言口径），成交级留给引擎接线后的端到端。
+3. **瞬态故障用 stub**：真实 wasm 的确定性死循环每次重建都在同一 bar 复发（那正是 ⑥ 的规定行为，用真实模块验了）；「恢复路径」需要故障只发生一次，真实字节码造不出来，用遵守 `SuppressSignals` 语义的 stub 会话注入——stub 与 host emit 的语义一致性由 `TestHostEmitSuppression` 钉住。
+4. **emit_target2 压制未接线**：v2 的 `emit_target2` 函数体仍是 QT-01 的 trap 骨架；它接线时（QT-24）必须遵守 `SuppressSignals`（host_api.go 注释已点名），否则重放期权重照样落账。
+5. **基准负载的坑**：基准用的 busy 模块曾把 i32.const 立即数用 ULEB 编码（正确是 SLEB），10000 被解码成 -6384、循环当场退出且不报错——症状是「重负载读数 ≈ 微负载」。已在 builder 注释与基准代码两处点名，防再踩。
 
 ---
 
