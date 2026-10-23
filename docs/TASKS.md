@@ -22,14 +22,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | 波次 | 单 | 主题 | 级别 | 依赖 / 排序理由 |
 |---|---|---|---|---|
 | **S-1** | QT-60 ✅ | **改名到 tellurion**（12 仓已建 + module path + 运行时标识；旧仓 archive 延后） | P0 | **已完成（2026-10-20）**——tag 已可打在新仓 |
-| **S0-前置** | QT-61 | **CI 基线归零**（4 项预存在失败） | P0 | **排在 QT-06 之前**：QT-06/QT-07 的验收写着「CI 绿」，基线不归零则验收不可达 |
-| **S0** | QT-06 → **QT-18** → QT-08 | **分仓起步**：core 打 `v0.1.0` + **过渡期连体护栏** + 四仓自治三件套 | P0 / P1 | **QT-18 是 W0 的合入门禁**：未合入前 QT-01 不得进 main（第一个 breaking 就发生在 QT-01 的 abi v2）；QT-06/08 可与 W0 并行 |
+| **S0-前置** | QT-61 ✅ | **CI 基线归零**（4 项预存在失败） | P0 | **排在 QT-06 之前**：QT-06/QT-07 的验收写着「CI 绿」，基线不归零则验收不可达 |
+| **S0** | QT-06 ✅ → **QT-18 ✅** → QT-08 ✅ | **分仓起步**：core 打 `v0.1.0` + **过渡期连体护栏** + 四仓自治三件套 | P0 / P1 | **QT-18 是 W0 的合入门禁**：未合入前 QT-01 不得进 main（第一个 breaking 就发生在 QT-01 的 abi v2）；QT-06/08 可与 W0 并行 |
 | **W0** | QT-01 ✅ | abi v2 契约冻结（12 函数 + 内存区 + 枚举） | P0 | **已完成（2026-10-21）**；一切 WASM 单的前置；artifact 出厂后改不动。原写「13 函数」是算错（8 v1 + 4 v2 = 12），订正见该单结案记录 |
-| W0 | QT-02 | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
+| W0 | QT-02 ✅ | `FillTiming` + 两口径差异报告 | P0 | 决定全部历史基准怎么读；与 QT-01 无文件冲突，可并行 |
 | W0 | QT-03 ✅ | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它。**定义 + 向量测试 + 文档收口（2026-10-21）+ 落库（QT-63，2026-10-22）全部完成**；③-⑥ 的 SPEC 评审未触发（返回面没动） |
-| W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
+| W0 | QT-04 ✅ | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
-| **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
+| **S2/S3** | QT-17 🔶 / QT-07 🔶 / QT-19 🔶 / QT-09 🔶 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
 | **W1** | QT-10 ✅ | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引）。**已完成（2026-10-24；契约腿随 contracts v0.3.0）** |
 | W1 | QT-11 ✅ | per-run 策略实例 | P0 | **已完成（2026-10-23）**；K15 对拍前置；无文件冲突 |
 | W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
@@ -40,7 +40,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
 | **W2** | QT-20 ⛔ | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash）。**阻塞（2026-10-24）：`BacktestRequest.StrategyParams` 属 tellurion-contracts（QT-05 迁出），v0.3.0 无此字段；G2 不越界改契约仓** |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
-| W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4），v0.3.0 无实现** |
+| W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
 | W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
 | W2 | QT-24 | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | 依赖 QT-01/QT-23 |
 | W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
@@ -50,6 +50,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
+| **横切** | QT-66 ⬜ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | 依赖 QT-42 的规则 hash / 快照端点（已落）；只动 core 的取 hash 与写入路径，与 W1 可并行 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
 **并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 新增 4 个 host 函数（8 → 12），那第一个会打穿 agent 编译的改动点在它身上，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
@@ -616,7 +617,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：同一输入 20 次跑信号序列完全一致；Go 与 WASM 顺序差异不再造成假失败。
 - **② 上下文**：`p0-remediation-design.md` A8/A12 + `p0-round2-review.md` §8.3（**QT-04 已扫，branch=`merge`**，证据 `docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md`）。`engine.go:1263` 只排序 `tradingDays`；`examples/value_momentum.go:366` `for symbol := range map` 已证非确定。QT-04 的两条实测订正直接影响本单形状：① 覆盖发生在 `positionSizes[symbol]`（**仓位尺寸**，`pkg/risk/manager.go:254` / `engine.go:1621`），订单循环 `engine_daily.go:393` 走信号切片本身 ⇒ 现状是「两条意图都下单、共用最后一条的仓位」，不是「只有一条活」；② 同参复跑里重复组**内部**顺序与末条都稳，不稳的是「这一对当天是否存在」（它读 `portfolio.Positions`，随当天跨标的执行序漂）⇒ **排序先行是本单的前置而非并列项**，它同时消掉 A12 的一半症状。
-- **③ 要求**：① 应用信号前按 `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)` **稳定排序**；② 排序口径写进 `SignalSpec`，Go/WASM/NT 共用；③ 重复语义按 QT-04 结论实现 = **`close` 优先合并 + 同向 strength 求和 clamp 到 [0,1] + `duplicate_signals_merged` 计数进 run 级诊断**（trap 不在本单，留作存量迁移完后的下一版开关）；实测只有 `close+long` 一种组合，所以「同向求和」那一支的验收**必须用合成用例**，存量跑不出它；④ 先跑"旧顺序 vs 新顺序"差异报告，差异可解释后再切换。
+- **③ 要求**：① 应用信号前按 `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)` **稳定排序**；② 排序口径写进信号契约面（设计术语 `SignalSpec`；Go 侧无同名符号，实际承载是 `tellurion-contracts:engine` 的 `SignalWeight` + `domain.Signal`），Go/WASM/NT 共用；③ 重复语义按 QT-04 结论实现 = **`close` 优先合并 + 同向 strength 求和 clamp 到 [0,1] + `duplicate_signals_merged` 计数进 run 级诊断**（trap 不在本单，留作存量迁移完后的下一版开关）；实测只有 `close+long` 一种组合，所以「同向求和」那一支的验收**必须用合成用例**，存量跑不出它；④ 先跑"旧顺序 vs 新顺序"差异报告，差异可解释后再切换。
 - **④ 约束与非目标**：**不允许**为保持结果不变而放弃排序；不合并不同 bar 的信号；不改 `domain.Signal` 字段。
 - **⑤ 验收**：同输入 20 次信号序一致；`value_momentum` 20 次结果逐位一致；差异报告归档；重复语义有专门测试。
 - **⑥ 边界**：只做顺序与重复；单量/仓位是 QT-24 的 `emit_target2`。
@@ -720,7 +721,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **正文已整体迁至 `tellurion-agent:docs/TASKS.md`「QT-17」**（六字段逐字保留；任务台账批量重分布）。本单本就是 agent 仓的活（`ai.*` schema 与 store 落 agent），执行与验收在彼处，此处不镜像；改动请去彼处改，勿在此回填正文。
 > **本仓侧衔接两处**（随主单执行）：③-③ 的仪器域只读 port（`TradingCalendar`/`ListingWindow`）由 core 提供，其 endpoint + DTO + 鉴权随 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`；④ 的 core 侧 `experiments.go`/`research.go` 标 deprecated 并登记删除期限。S3 删 replace 的数据前置语义不变（`kit/db` 由 QT-05 提供）。
 
-### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] ⬜
+### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] 🔶
 
 - **① 目标**：`tellurion-contracts` / `tellurion-kit` 各自**单仓可构建、可自证**（R1~R5 全成立）；core 与 agent 从「伪版本」切到「`v0.1.0`」；agent 最终删掉 `../tellurion` replace。
 - **② 上下文**：`repo-topology-and-naming.md` §7/§8（D29）+ **ADR-D31**；前置 = W0 + QT-05 全绿。**两仓在 S1 已有实现与真实伪版本依赖**——本单**不再 `git init`、不再迁目录**（原 ①/② 已随 Plan A 作废），只做「伪版本 → tag」与自治补齐。**分两次合入**：S2（①~⑤）先合；S3（⑥）等 QT-50 + QT-17 完成后再合——不要因为 ⑥ 未完成而卡住 ①~⑤。
@@ -776,7 +777,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **实测**：三仓 `go test ./...` 全绿；`make contracts-conformance` 实跑「core 通过 / agent 通过 / 跳过 0」；牙齿自证——改错语料里 stamp-tax 期望 → 契约侧红，改错 agent 期望 → agent 侧红，未知 kind 塞进 sides 含 core → core 红（均已还原）。
 > - **未做（明确留在本单外）**：CI 只 checkout core → agent 侧恒为「跳过」，所以 CI 里的 conformance 只是**单侧防退化**，不是完整双跑；完整比对在本地/多仓环境跑。真正阻断跨仓漂移的仍是 QT-07 ⑥ S3 之后的「只认 tag + HTTP」形态。
 
-### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] ⬜
+### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] 🔶
 
 - **① 目标**：把 D29 §9 C5「破坏性变更保留旧接口一个版本周期」变成可执行纪律——否则每次 breaking 都靠人记，`deprecated` 会永远不被删也不可能被删。
 - **② 上下文**：D29 §9 C1~C5；现状三仓 tag 全为 0（QT-06 只解决 core），无 semver 惯例、无兼容矩阵、无 CHANGELOG。contracts 拆仓后独立发版，必须有规则。
@@ -789,6 +790,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不引入 release 工具链（goreleaser 等）；不做自动 CHANGELOG 生成；不强制 core 也走同一套（core 是应用不是库，tag 只作依赖锚点）。
 - **⑤ 验收**：contracts 与 kit 两仓 README 各存在版本规则表与兼容矩阵；CHANGELOG 至少有一条记录；三个仓的 require 版本都落在矩阵声明范围内。
 - **⑥ 边界**：只定策略与文档；「禁删 deprecated」的机械护栏由 QT-09 ⑤ 实现；`GOPRIVATE`/git 凭证前提见 QT-07 ③-S2-c（refactor-plan-review L5，本单不重复登记）。
+
+> **状态校正（2026-10-24 实测）**：①~⑤ 的文档面已由 contracts `CT-02`（2026-10-22：README 版本规则表 + 兼容矩阵 + `CHANGELOG.md` + `check_release_matrix` 进 CI）与 kit `README` 版本规则/兼容矩阵 + `CHANGELOG.md` 覆盖；本单保留 🔶 而非 ✅，因为验收「三个仓的 require 版本落在矩阵声明范围内」要随各仓切 tag 逐批复核。
 
 ---
 
@@ -970,11 +973,22 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 1. `dataset_snapshot_hash` 的 `DataVersion` 是空串：今天没有供应商批次 / 表水位坐标系（QT-40 的 aggregator 落点）。它意味着 dataset 身份覆盖不到「原始数据被回填」。
 > 2. 内置 Go 策略的 `artifact_hash` / `version_hash` 为空（没有独立字节码）；而 QT-03 冻结的 `RunSpecInput` **不含策略 id** ⇒ 两个参数默认值相同的不同内置策略会得到同一个 `run_spec_hash`。这是 canonical 集合的已知缺口：补法要么 QT-41b 给内置策略登记 artifact，要么升域标签 v2（历史 hash 全作废），**不在本单擅改**。
 > 3. 构建环境没有 VCS 信息时 `engine_version` 回落 `devel`——两个不同提交可能共享该标签。
-> 4. 财报 / 日内快照不进 dataset 身份；`RiskRulesHash` 为空（QT-42 预留）。
+> 4. 财报 / 日内快照不进 dataset 身份；`RiskRulesHash` 生产路径恒空串（`pkg/backtest/provenance.go:194`，2026-10-24 实测）——risk 仓已能算内容寻址 hash，core 侧未接线，见 QT-66。
 >
 > **⑦ ⑤ 验收逐条**：join 查询 ✅（真库集成腿）；8 个旋钮端到端 ✅（不是只测 builder：每条都从 `RunBacktest` 进、从注入的 sink 出）；DDL 走 `migrationStatements()` ✅（Migration 056 + 幂等腿）。未加 `GET /api/runs/{id}/provenance`（⑥ 边界，属 QT-44）。
 >
 > **⑧ 干净 checkout 复核（`git worktree add --detach` @ `df16f6d`，2026-10-22）**：`gofmt -l .` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（全套，零 `FAIL`）；`go test -tags integration ./pkg/storage/ -run 'TestIntegration_RunProvenance|TestIntegration_MigrateIsIdempotentForModuleTables'` **EXIT=0**（dockertest 真 PG）；`python tools/check_doc_links.py` **EXIT=0**。
+
+---
+
+### QT-66 · `risk_rules_hash` 生产接线（provenance 恒空串）[P1] ⬜
+
+- **① 目标**：真实 run 的 `quant.run_provenance.risk_rules_hash` 写进 risk 仓算出的内容寻址 hash —— 「同 hash 不同结果」的最后一列不再恒空。
+- **② 上下文（2026-10-24 实测）**：`pkg/backtest/provenance.go:194` 恒写 `""`；`tellurion-risk:internal/rule` 已有 `version_hash` / `risk_rules_hash` 内容寻址、`snapshots/{hash}` 与 `bundle` 端点、进程内 `ParseBundle`，但 core 侧消费接线未做（risk 仓 `AGENTS.md` §1 已如实登记「core 侧消费接线未做，F3」）。QT-63 ⑦ 的列清单把这列标为「可空，QT-42 预留」；QT-42 已落，预留至今没兑现。
+- **③ 要求**：① 先定口径：`risk_rules_hash` = run 起始时刻生效的规则快照 hash，来源只能是 risk 仓，core **不得**按规则文件重算（第二真相）；② 取值方式二选一并落一条 ADR：run 提交时由 core 向 risk 的 `snapshots/{hash}` / `bundle` 端点取当前生效 hash 并随 run 参数传入，或由装配层注入「生效快照 hash provider」；③ 取不到 hash 时 **fail-loud**（run 判 `failed`）还是记可查询的 `unavailable`，要在 ADR 里写死；不允许再写空串冒充「没有规则」；④ 空串只剩一种合法含义（该部署没有 risk 服务），且必须与「接了但没取到」可区分。
+- **④ 约束与非目标**：不改 QT-03 / QT-63 已冻结的 canonical 与列清单；不动 QT-42 仓内的规则算法与快照端点；不新增 per-run 远程读规则正文（逐 bar / 逐笔裁决仍进程内，硬否决）；不做 QT-44 的对外 provenance 端点。
+- **⑤ 验收**：真 PG 集成腿——同一 run 经 `quant.run_provenance` 读回的 `risk_rules_hash` 非空，且等于 risk 仓对同一规则快照算出的值；改规则快照后新 run 的该列变化；取 hash 失败路径按 ADR 口径表现（`failed` 或可查询的 `unavailable`），日志点名原因；生产代码 `grep 'RiskRulesHash: ""'` 零命中。
+- **⑥ 边界**：只做 core 侧「取 hash + 写入」；规则版本算法、快照内容寻址与端点归 `tellurion-risk`（QT-42）；对外查询面归 QT-44。
 
 ---
 

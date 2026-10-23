@@ -92,13 +92,15 @@
 
 **未来搬仓**：当策略资产拆分把 `SignalProvider` 搬进 contracts 时，这三个类型**必须同一次提交一起搬**（单点搬 = 漂移）。本表把这条写成搬仓前置，登记在 `repo-topology-and-naming.md` 的既有「未接线」口径旁即可，不新开待裁号。
 
-### 2.4 QT-22：`version_hash` → `contracts/engine`（已核）
+### 2.4 QT-22：`version_hash` → `contracts/engine`（已核；6 项口径 2026-10-24 定，contracts 腿未落）
 
 **落点**：`tellurion-contracts:engine/provenance.go`（追加 `StrategyVersionInput` + `Hash()` / `MustHash()`）+ `canonical.go`（+1 域标签 `DomainStrategyVersionHash = "tellurion.strategy_version_hash.v1"`）。
 
 **为什么在 contracts 而不是 core / strategy 仓**：① canonical 编码器唯一在 contracts（J4）；② **消费方不止 core**——`tellurion-strategy` 资产服务（QT-41）必须算出同一个 hash，contracts 是唯一共享面；③ `provenance.go` 已是 hash 体系唯一正文（`artifact_hash` / `universe_hash` / `calendar_hash` / `dataset_snapshot_hash` / `run_spec_hash` / `params_hash`），`version_hash` 归入同一文件而不是另起一处。
 
-**集合（冻结 7 项，顺序在 `Hash()` 里逐行写死）**：`strategy_id + carrier + abi_version + scope + entry + source + params_defaults`；**不含 toolchain**（由 `artifact_hash` 区分，QT-03）；不动 `factor_definitions` 既有算法；资产表结构是 QT-41，不在本单。
+**集合（冻结 6 项，顺序在 `Hash()` 里逐行写死）**：`strategy_id + carrier + abi_version + scope + entry + source`；**不含 `capability`**（只参与路由，不改变源码语义）与 **`params_defaults`**（参数由 `params_hash` 区分，QT-21）；**不含 toolchain**（由 `artifact_hash` 区分，QT-03）；不动 `factor_definitions` 既有算法；资产表结构是 QT-41，不在本单。
+
+**现状（2026-10-24 实测；口径裁决：按代码对齐，本节原写 7 项含 `params_defaults` 作废）**：contracts 的 `engine/provenance.go` 仍**没有** `StrategyVersionInput` / `DomainStrategyVersionHash`；`tellurion-strategy:internal/asset/hash.go` 已先落 6 项 `VersionInput` + 域标签 `tellurion.strategy_version_hash.v1`，并把「域标签未收编」登记为本仓风险。收编时以 contracts 为准；**改域标签会让全部历史 `version_hash` 失效，必须升 v1 → v2**。
 
 **边界**：QT-22 只做算法 + 向量测试，**core 不接线**。因此 contracts 的这一定义必须**先于任何使用方**落地，避免各仓自算。
 
