@@ -786,7 +786,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >   完整双跑只在同时 checkout core + agent 的本地/多仓环境成立。真正阻断跨仓漂移仍要靠 QT-07 ⑥ S3 的
 >   「只认 tag + HTTP」形态（等 G10 的 agent 客户端落地，本单不越界改 agent 仓）。
 
-### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] 🔶
+### QT-19 · 契约版本策略与兼容矩阵（C5 落地）[P1] ✅（2026-10-24 结案核对）
 
 - **① 目标**：把 D29 §9 C5「破坏性变更保留旧接口一个版本周期」变成可执行纪律——否则每次 breaking 都靠人记，`deprecated` 会永远不被删也不可能被删。
 - **② 上下文**：D29 §9 C1~C5；现状三仓 tag 全为 0（QT-06 只解决 core），无 semver 惯例、无兼容矩阵、无 CHANGELOG。contracts 拆仓后独立发版，必须有规则。
@@ -800,7 +800,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：contracts 与 kit 两仓 README 各存在版本规则表与兼容矩阵；CHANGELOG 至少有一条记录；三个仓的 require 版本都落在矩阵声明范围内。
 - **⑥ 边界**：只定策略与文档；「禁删 deprecated」的机械护栏由 QT-09 ⑤ 实现；`GOPRIVATE`/git 凭证前提见 QT-07 ③-S2-c（refactor-plan-review L5，本单不重复登记）。
 
-> **状态校正（2026-10-24 实测）**：①~⑤ 的文档面已由 contracts `CT-02`（2026-10-22：README 版本规则表 + 兼容矩阵 + `CHANGELOG.md` + `check_release_matrix` 进 CI）与 kit `README` 版本规则/兼容矩阵 + `CHANGELOG.md` 覆盖；本单保留 🔶 而非 ✅，因为验收「三个仓的 require 版本落在矩阵声明范围内」要随各仓切 tag 逐批复核。
+> **✅ 结案核对（2026-10-24 实测；只核对，不重写一套规则）**
+> - **contracts 仓**：README 版本规则表在册（`rules:begin/end`，MAJOR/MINOR/PATCH 三档 + 0.x breaking 细则 + Go 特有判定补充）；
+>   兼容矩阵在册（`matrix:begin/end`：`v0.4` / `v0.3` / `v0.2` / `v0.1` / `main` 五行）；CHANGELOG **5 个版本节 / 48 条**。
+>   `go run ./tools/check_release_matrix` **退出 0**（规则表 3 行 ｜ 矩阵序列 4 ｜ tag 5）。
+> - **kit 仓**：README 同样三件齐全（`v0.1` / `main` 两行矩阵；CHANGELOG **1 节 / 16 条**）；同工具 **退出 0**。
+> - **require 落区间**（实测 `go.mod`，2026-10-24）：core = contracts **`v0.3.0`**（`v0.3` 行写「已切 v0.3.0」）、
+>   **无 kit require**（矩阵写「尚无 require」）；agent = contracts **`v0.3.0`** + kit **`v0.1.0`**（两行均在册）。
+>   ⇒ 三个仓的 require 全部落在矩阵声明范围内，⑤ 的判据成立。
+> - **没有另起规则**：两仓 README 的规则表都以本单 ③ 为源头（它们自己写着「改口径先去那张单」），本批未改任何规则文本。
+> - **跨仓观察（不在本仓可改）**：contracts 的 `v0.4` 行把 core/agent 记为「待切 `v0.4.0`」——core 今天仍 pin `v0.3.0`，
+>   升 pin 归 **G13**；这不影响本单验收（`v0.3` 行与实际 pin 一致）。
 
 ---
 
