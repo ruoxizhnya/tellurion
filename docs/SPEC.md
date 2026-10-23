@@ -448,9 +448,11 @@ type Portfolio struct {
 
 **机制**（`pkg/backtest/adjustment_snapshot.go` + 表 `backtest_adjustment_anchors`）：
 
-1. **起跑时**（warmCache 后，L1 已有全区间数据）每个 symbol 一次性处理：
-   库里已有冻结基准 → 按锚点日收盘算 ratio 并**校验全序列 digest**；
-   没有 → 以**区间首根 bar** 为新基准冻结（anchor 日期 + 收盘 + digest），
+1. **起跑时**（warmCache 后，本 run 的 L1 已有区间数据）每个 symbol 一次性处理：
+   序列**先按 `[StartDate, EndDate]` 切片**（QT-13：缓存里可能有装配期种子塞进来的、
+   本 run 根本不会回放的 bar，锚点吃整条缓存就会冻出一行后来谁都校验不过的基准），
+   然后：库里已有冻结基准 → 按锚点日收盘算 ratio 并**校验区间序列 digest**；
+   没有 → 以**切片首根 bar** 为新基准冻结（anchor 日期 + 收盘 + digest），
    运行结束落库（`ON CONFLICT DO NOTHING`，**首写者胜**——基准一旦冻结不可
    被改写）；
 2. 日环内对取数窗口做定比缩放（`ratio = anchorClose / 当前锚点日收盘`），
@@ -459,7 +461,14 @@ type Portfolio struct {
 3. digest = FNV-1a over (日期, O/H/L/C 量化值)。**换基准**（整条曲线乘常数）
    能精确还原，digest 必然一致；**改价/补行**（数据修正）还原不出来 →
    fail loud（`ErrAdjustmentDrift`），不给一条看起来一样的曲线；
-4. 暖机失败（拿不到全区间）的 symbol 不钉、如实计数，保持当前刻度直通；
+   摘要串自描述覆盖范围（`<hash>@<YYYY-MM-DD>`，QT-13 ③）：主键是
+   `(symbol, start_date)`、不含 end，所以「同 start 不同 end」共用同一行 ——
+   重跑区间更长就按记录声明的那段核对，更短则核对不了（哈希不可分解），
+   只钉刻度并计数（`digest_unverified_narrower_range`），不把一次正常的重跑
+   误报成数据损坏。**无后缀的存量行**按旧口径（整个取数区间）核对，不清理；
+   其中当年由合并缓存冻歪的行（锚点日早于区间起点）仍会红，报错点名修法
+   （删该行重跑）。
+4. 暖机失败（拿不到区间数据）的 symbol 不钉、如实计数，保持当前刻度直通；
    表未建（迁移未跑）时整表降级为「无冻结基准」，回测照常（42P01 判别）。
 
 **为什么锚点收盘存原始值不量化**：ratio 带上量化误差会把 ~40 元的价推过
@@ -469,7 +478,9 @@ type Portfolio struct {
 **与 REV-06 (a) 的衔接**：除权不改账（信号层确定性）+ 基准快照（数据层
 确定性）= 双重确定性。执法测试：`engine_rev18_reproducibility_test.go`
 （×0.5 漂移后同区间重跑，净值曲线逐位一致；破坏验证 = 基准改「实时最新」
-→ 红）与 `adjustment_snapshot_test.go`（增长窗口前缀逐位一致、改价 fail-loud）。
+→ 红）、`adjustment_snapshot_test.go`（增长窗口前缀逐位一致、改价 fail-loud）
+与 `adjustment_range_test.go`（QT-13：锚点输入集合 = run 区间；同 start 不同
+end 的双向重跑；无后缀存量行行为不变）。
 
 **已知边界**：`Trade.ID` 是纳秒墙钟（tracker 既有行为），对拍剥离 ID 比对
 语义字段；digest 挡得住「同 symbol 序列变化」，跨 symbol 的新增/剔除由
