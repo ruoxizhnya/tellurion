@@ -102,6 +102,8 @@
 | [p0-remediation-design.md](p0-remediation-design.md) | **P0 修复设计基线（实施前必读）**：20 项 P0（A 执行正确性 / B 协议可实现性 / C 可用性 / D 流程）+ 逐项契约 + 依赖顺序 + 影响面 |
 | [w1-repo-ownership.md](w1-repo-ownership.md) | **W1 跨仓落点与仓归属（施工前定盘，2026-10-23）**：QT-10~16 逐单落点仓/文件 + QT-10/11/22 专项裁决 + 撞车文件与串行边界 |
 | [backtest-engine-review.md](backtest-engine-review.md) | **BE-01~BE-30 问题登记本**（现象 + 证据 + 初步方向，不是方案） |
+| [market-friction-audit.md](market-friction-audit.md) | **市场摩擦六类事实核实（QT-52 / BE-11 结案）**：停牌 / 成交量 / 复权 / 分红送股 / 涨跌停 / 集合竞价逐类「完备·部分·缺失」结论 + 证据行号 + 方向性影响 + `auction` 接线方案 |
+| [host-region-overlap.md](host-region-overlap.md) | **宿主区 × 模块静态数据（QT-62）**：地址空间权威定则、静态腿实现（解 Data section）、fail-closed 语义与验收/破坏验证证据 |
 | [kernel-interface-map.md](kernel-interface-map.md) | Go 内核接口面清单（输入 5 类入口 / 输出面），契约外置的输入 |
 | [external-wasm-proposal-review.md](external-wasm-proposal-review.md) | 第三方 Wasm 方案评审（3 条不成立；发现 P0 缺陷 `WithCloseOnContextDone` 缺失） |
 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 头脑风暴记录（与 ADR-027 对齐、WASM 机制、contracts 三层、能力化模型） |

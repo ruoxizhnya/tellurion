@@ -289,7 +289,16 @@ func ReadHostRegion(mod hostRegionModule) (contracts.HostRegionDeclaration, erro
 // 导出，一律 fail-closed 会把 v1 全打死，与「v1 仍能跑」直接矛盾（QT-01 ③-④）。
 // v1 走白名单跳过符号校验，但返回 legacy_host_layout 诊断，让这条兼容分支
 // 在日志里可见、可数，而不是静默。
-func ValidateLoadedArtifact(inst Instance, family contracts.HostAbiVersion) ([]string, error) {
+//
+// dataImage（QT-62）是从 artifact 字节解出的**静态数据区间图**。它和宿主区声明
+// 都来自 artifact 自己，因此重叠没有仲裁空间 —— 命中即拒绝，不改地址也不缩区间。
+// 传空图（v1 路径 / 无数据段）表示"没有可判的段"，不是"跳过判定"：v2 的空数据段
+// 与"解不出来"在 StaticDataImage 里是两件事，后者由 Unprovable 表达。
+func ValidateLoadedArtifact(
+	inst Instance,
+	family contracts.HostAbiVersion,
+	dataImage contracts.StaticDataImage,
+) ([]string, error) {
 	mod, ok := inst.(*wazeroInstance)
 	if !ok {
 		return nil, fmt.Errorf("wasm: host region introspection requires the wazero runtime, got %T", inst)
@@ -303,6 +312,10 @@ func ValidateLoadedArtifact(inst Instance, family contracts.HostAbiVersion) ([]s
 	}
 	// 区间重叠 / 未对齐 / 越界 全部由契约层的纯函数判（可独立测，见 contracts 侧测试）。
 	if err := decl.Validate(mod.MemorySize()); err != nil {
+		return nil, err
+	}
+	// QT-62：声明合法之后，再判它有没有落在模块自己的静态数据上。
+	if err := decl.CheckAgainstStaticData(dataImage); err != nil {
 		return nil, err
 	}
 	return nil, nil

@@ -445,7 +445,7 @@ func TestNewOnBarSession_V1ArtifactStillLoadsWithLegacyDiagnostic(t *testing.T) 
 	assert.Empty(t, out)
 
 	// v1 的 legacy 分支要**显式**给诊断，不能静默放行。
-	diags, err := ValidateLoadedArtifact(sess.inst, contracts.HostAbiV1)
+	diags, err := ValidateLoadedArtifact(sess.inst, contracts.HostAbiV1, contracts.StaticDataImage{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{DiagLegacyHostLayout}, diags)
 }
@@ -453,7 +453,7 @@ func TestNewOnBarSession_V1ArtifactStillLoadsWithLegacyDiagnostic(t *testing.T) 
 func TestValidateLoadedArtifact_RequiresWazeroInstance(t *testing.T) {
 	// Instance 接口本身不暴露 global 自省；非 wazero 实现必须得到点名运行时的错误，
 	// 而不是 nil panic 或「缺符号」。
-	_, err := ValidateLoadedArtifact(stubInstance{}, contracts.HostAbiV2)
+	_, err := ValidateLoadedArtifact(stubInstance{}, contracts.HostAbiV2, contracts.StaticDataImage{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wazero")
 }
