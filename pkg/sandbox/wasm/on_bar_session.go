@@ -137,7 +137,8 @@ func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes [
 	family, err := DetectHostAbiFamily(abiMod)
 	if err != nil {
 		_ = module.Close(ctx)
-		return nil, err
+		// abi 族判定失败 = 跨边界约定不符（QT-10 ③-②）⇒ ContractBreach。
+		return nil, classifyExecutionError(contracts.ErrContractBreach, err)
 	}
 	inst, err := s.InstantiateModule(ctx, module)
 	if err != nil {
@@ -152,14 +153,16 @@ func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes [
 		img, perr := ParseStaticDataImage(wasmBytes)
 		if perr != nil {
 			_ = inst.Close()
-			return nil, perr
+			// artifact 静态镜像校验失败 = 策略制品坏了 ⇒ StrategyFault。
+			return nil, classifyExecutionError(contracts.ErrStrategyFault, perr)
 		}
 		dataImage = img
 	}
 	diagnostics, err := ValidateLoadedArtifact(inst, family, dataImage)
 	if err != nil {
 		_ = inst.Close()
-		return nil, err
+		// artifact 校验失败（宿主区声明缺失等）⇒ StrategyFault（QT-10 ③-②）。
+		return nil, classifyExecutionError(contracts.ErrStrategyFault, err)
 	}
 	for _, d := range diagnostics {
 		s.log.Warn().Str("abi_diagnostic", d).Str("abi_version", family.String()).
@@ -183,7 +186,10 @@ func (sp *OnBarSession) checkAlive() error {
 	defer sp.mu.Unlock()
 	if sp.terminated {
 		// %w 链上带原始终止原因：调用方可以 errors.Is 追到根因。
-		return fmt.Errorf("%w: %w", ErrSessionTerminated, sp.termErr)
+		// QT-10 ③-②：终止（预算耗尽 / deadline）是策略执行故障 ⇒ StrategyFault，
+		// 引擎据此终止 run 而不是跳天。
+		return classifyExecutionError(contracts.ErrStrategyFault,
+			fmt.Errorf("%w: %w", ErrSessionTerminated, sp.termErr))
 	}
 	return nil
 }
@@ -217,9 +223,12 @@ func (sp *OnBarSession) guardedCall(ctx context.Context, invoke func(context.Con
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			sp.terminate(err)
 			sp.runCancel()
-			return fmt.Errorf("%w: %w", ErrSessionTerminated, err)
+			return classifyExecutionError(contracts.ErrStrategyFault,
+				fmt.Errorf("%w: %w", ErrSessionTerminated, err))
 		}
-		return err
+		// 普通 trap（含 wasm 侧 unreachable / divide-by-zero 等）也是策略
+		// 自己跑坏了 ⇒ StrategyFault（QT-10 ③-②），不是数据缺口。
+		return classifyExecutionError(contracts.ErrStrategyFault, err)
 	}
 	return nil
 }
@@ -236,8 +245,9 @@ func (sp *OnBarSession) guardedCall(ctx context.Context, invoke func(context.Con
 // 那一步属 QT-26。上限本身与地址无关，所以现在就能生效。
 func (sp *OnBarSession) Initialize(ctx context.Context, params []byte) error {
 	if len(params) > contracts.MaxParamsBytes {
-		return fmt.Errorf("%w: params is %d bytes > MaxParamsBytes=%d (rejected, not truncated)",
-			contracts.ErrParamsTooLarge, len(params), contracts.MaxParamsBytes)
+		// 参数超限是跨边界的约定被违反（A6）⇒ ContractBreach，不是策略跑坏。
+		return classifyExecutionError(contracts.ErrContractBreach, fmt.Errorf("%w: params is %d bytes > MaxParamsBytes=%d (rejected, not truncated)",
+			contracts.ErrParamsTooLarge, len(params), contracts.MaxParamsBytes))
 	}
 	if err := sp.inst.WriteMemory(0, params); err != nil {
 		return fmt.Errorf("write params: %w", err)
@@ -260,7 +270,8 @@ func (sp *OnBarSession) Initialize(ctx context.Context, params []byte) error {
 // 取出（见 host_api.go 的 barContextFrom）。每次调用前调用方应更新 bc.T。
 func (sp *OnBarSession) OnBar(ctx context.Context, bc *BarContext) error {
 	if bc == nil {
-		return errors.New("wasm: OnBar requires non-nil BarContext")
+		return classifyExecutionError(contracts.ErrContractBreach,
+			errors.New("wasm: OnBar requires non-nil BarContext"))
 	}
 	return sp.guardedCall(ctx, func(c context.Context) error {
 		_, err := sp.sandbox.CallWithTimeout(withBarContext(c, bc), sp.inst, "on_bar", uint64(uint32(bc.T)))
@@ -272,7 +283,8 @@ func (sp *OnBarSession) OnBar(ctx context.Context, bc *BarContext) error {
 // pack(0,0) 表示无信号）。bc 注入 ctx 使 finalize 内也能 get_state 冲刷状态。
 func (sp *OnBarSession) Finalize(ctx context.Context, bc *BarContext) ([]byte, error) {
 	if bc == nil {
-		return nil, errors.New("wasm: Finalize requires non-nil BarContext")
+		return nil, classifyExecutionError(contracts.ErrContractBreach,
+			errors.New("wasm: Finalize requires non-nil BarContext"))
 	}
 	var out []byte
 	err := sp.guardedCall(ctx, func(c context.Context) error {

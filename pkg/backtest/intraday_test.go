@@ -503,6 +503,10 @@ func TestEngine_IntradayAwareStrategy_Backtest(t *testing.T) {
 }
 
 // 没有供给时样例策略明确失败（不静默当 0）—— 契约注释的执行体。
+//
+// QT-10 起这条失败不再「跳过该日」：策略故障（ErrStrategyFault）立刻终止
+// run 并判 failed。这正是本用例要的形状——没有供给就是没有特征，不能跑出
+// 一条「全零信号但状态 completed」的曲线。
 func TestEngine_IntradayAwareStrategy_FailsLoudWithoutProvider(t *testing.T) {
 	const sym = "600519.SH"
 	daily := map[string][]domain.OHLCV{
@@ -526,11 +530,13 @@ func TestEngine_IntradayAwareStrategy_FailsLoudWithoutProvider(t *testing.T) {
 		InitialCapital: 1000000,
 		RiskFreeRate:   0.03,
 	})
-	// 引擎对 getSignals 失败是「跳过该日」（warn），不是整场失败 ——
-	// 与既有语义一致。但结果必须是没有成交（策略明确失败 ⇒ 无信号），
-	// 而不是假装有特征下了单。
-	require.NoError(t, err)
-	assert.Equal(t, 0, resp.TotalTrades, "没有供给就没有信号，不得凭空成交")
+	require.Error(t, err, "策略故障必须终止 run（QT-10），不能再静默跳日")
+	require.NotNil(t, resp)
+	assert.Equal(t, StatusFailed, resp.Status)
+	assert.Contains(t, resp.Error, "2024-01-02", "Failures 必须点名失败现场日期")
+	assert.Contains(t, resp.Error, "strategy_fault", "Failures 必须点名失败类")
+	assert.Contains(t, resp.Error, "no IntradayFeatureProvider injected", "原因必须点名（缺失≠0）")
+	assert.Equal(t, 0, resp.TotalTrades, "没有供给就不得凭空成交")
 }
 
 // ─── ④ 回归：纯日线策略对 D6 接线不敏感 ──────────────────────────────

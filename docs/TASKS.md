@@ -30,7 +30,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W0 | QT-04 | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
 | **S2/S3** | QT-17 / QT-07 / QT-19 / QT-09 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
-| **W1** | QT-10 | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引） |
+| **W1** | QT-10 ✅ | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引）。**已完成（2026-10-24；契约腿随 contracts v0.3.0）** |
 | W1 | QT-11 ✅ | per-run 策略实例 | P0 | **已完成（2026-10-23）**；K15 对拍前置；无文件冲突 |
 | W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
 | W1 | QT-13 ✅ | 复权锚点按 run 区间切片 | P0 | **已完成（2026-10-23）**；依赖 QT-12（读的是同一个缓存）；digest 覆盖范围写进摘要串而非加列（W1 唯一 DDL 单是 QT-16） |
@@ -330,7 +330,39 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 二、W1 · 执行正确性（修"今天就在错"的）
 
-### QT-10 · 策略执行错误分级（fail-closed 落地）[P0] ⬜
+### QT-10 · 策略执行错误分级（fail-closed 落地）[P0] ✅（2026-10-24）
+
+> **✅ 完成记录（2026-10-24）**
+>
+> **前提（如实登记）**：派工写「等 G1 出 `v0.2.1`」，但 G1 实际连跳到 **contracts `v0.3.0`**（release commit `7c8f4a1` 明写「QT-10 契约腿随 tag 分发」；`v0.2.1` 不存在）。三类哨兵与 `CodeDataGapSkipped` 在 `v0.3.0` 里齐备，本仓 pin `v0.2.0 → v0.3.0`（离线 module cache 升级，`go get` 无网络）后落地。
+>
+> **① 契约消费（③-①）**：直接使用 `contracts.ErrDataGap` / `ErrStrategyFault` / `ErrContractBreach` 与 `contracts.CodeDataGapSkipped`，不新增哨兵、不改三值。
+>
+> **② provider 侧包装（③-②）**：
+>   - `pkg/strategy/execution_errors.go` 新增 `classifyExecutionError`（只用 `errors.Is` 判定；双 `%w` 保链；已归类不重复包）。`signal_provider.go` 六处归类：会话未开 / BeginRun 空 RunID / 会话上限 / EndRun 不匹配 / 策略未注册（含 shared 注册）→ **ContractBreach**；流式 `OnBar` 与批式 `GenerateSignals` 失败 → **StrategyFault**；`RejectFutureSignals` → **ContractBreach**。归类后 `apperrors` 仍在链上（HTTP 码映射不退化，测试用 `errors.As` 钉住）。
+>   - `pkg/sandbox/wasm/execution_errors.go` 同名助手 + `on_bar_session.go`：trap / 预算终止（`ErrSessionTerminated` 原哨兵保链）/ artifact 静态镜像与校验失败 → **StrategyFault**；abi 族不符 / params 超限（`ErrParamsTooLarge` 保链）/ nil `BarContext` → **ContractBreach**。
+>
+> **③ 引擎消费（③-③）**：`runBacktestInternal` 的 `getSignals` 错误分支改为分类消费 —— `ErrDataGap` 跳天、计数并挂 `data_gap_skipped`；其余（含**无法归类**的 fail-closed 兜底）立刻 `return nil, terminateError(...)`，`RunBacktest` 据此 `Status=failed` + `error`。`run_failures.go` 收集 `Failures` 诊断（日期/类/原因），拼进 error 与日志；**不新增冻结字段**。
+>
+> **④ 三值映射（③-④）**：`data_gap_skipped → invalid`；两类终止 → `failed` + `error` 必填；`Failures` 只作诊断明细。`docs/SPEC.md` 的 status 三值节补一条映射说明（不引入第四值）。
+>
+> **⑤ 护栏（③-⑤）**：`internal/repoguard/qt10_signal_error_guard_test.go` 用 **AST** 定位 `getSignals` 赋值 + 紧跟的 `if err != nil`，要求该分支同时有 `errors.Is` 分类与 `return`；并钉住 provider 侧两个文件必须经 `classifyExecutionError` 且出现 `ErrStrategyFault`。附三条片段表（正确 / 只 log / 不分类直接 return）证明判据不是文案匹配。
+>
+> **⑥ 验收（⑤ 对账，全部实跑）**：
+>   - `TestQT10_TrapTerminatesRun`：60 个交易日、第 50 天注入 `ErrStrategyFault`（模拟 wasm trap）→ `failed`，error 点名 `2024-02-20` / `strategy_fault` / 原因，且 provider 只被调用 50 次（立即终止）。
+>   - `TestQT10_DataGapSkipsDayAndMarksInvalid`：6 天里第 3 天 `ErrDataGap` → 无 error、`Status=invalid`、`invalid_reasons` 含 `data_gap_skipped`，其余 6 天照常调用。
+>   - `TestQT10_UnclassifiedErrorFailsClosed`：裸 error → `failed` + `contract_breach`。
+>   - `pkg/strategy` 三条（策略失败/前视/未注册）与 `pkg/sandbox/wasm` 四条（trap/预算/params/nil ctx）逐类断言 `errors.Is`。
+>   - 连带订正：QT-64 的 D6 反腿与集成反腿从「跳天 warn」改为「failed 终止」（QT-10 收紧后的正确形状）；REV-22 的计数测试改名为 `...CounterIsDiagnosticOnly`。
+>
+> **⑦ 破坏验证（3 腿，改坏 → 变红 → 逐字节还原）**：
+>   - L1 删除终止分支的 `return nil, terminateError(...)` → 护栏红（点名「缺少 return —— 退回了只 log + 跳天」）；SHA256 还原一致。
+>   - L2 让 `classifyExecutionError` 不再带类（`unclassified: %w`）→ `pkg/strategy` 三条归类测试全红；SHA256 还原一致。**首轮 L2 直接把包装删成 `return err` 导致 `fmt` unused 编译失败，按 INVALID 重做**（编译失败不算测试有效性证据）。
+>   - L3 把跳天判据从 `ErrDataGap` 换成 `ErrStrategyFault` → trap 与 data-gap 两条引擎腿同时红；SHA256 还原一致。
+>
+> **⑧ 门禁**：`gofmt -l` 改动目录为空、`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全绿；集成腿（真 PG + 1m bar）PASS。
+>
+> **⑨ 本单没做（边界）**：`fetchMarketDataForDay` 的逐 symbol 取数 Warn 未纳入 `ErrDataGap` —— 当前它是「部分标的缺失、其余照跑」的现役语义，全量改判会改变既有回测形状，且需要与 QT-24 的 Axis/Bars 数据模型一起定；本单只覆盖 `getSignals` 通道（验收所指）。`engine_daily.go` 因此无行为改动。
 
 - **① 目标**：策略故障与契约违规**终止 run**，只有数据缺口可以跳过当天且必须留痕；"漂亮曲线但策略一直在 trap"不再可能。
 - **② 上下文**：`p0-round2-review.md` N1；`engine.go:918-926` 对 `getSignals` 的一切错误只 `Warn` + `skipping day`，注释明写"不进 invalid_reasons"；而该错误面同时含 `RejectFutureSignals` 拒绝与 wasm trap。
@@ -461,7 +493,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **⑤ 验收（集成腿，真 PG）**：`pkg/backtest/router_wiring_integration_test.go`（`-tags integration`，`TEST_DATABASE_DSN`）—— 真 PG 17 灌 30 根 1m bar（2024-01-02 09:30–09:59，开盘半小时动量 +0.05），同一天线与同一个策略名跑两笔：
 >   - **正腿**（挂 Router）：日志出现 `Intraday snapshot warm-up completed (D6)`，`"minute_bars":` 命中正数正则，样例策略产生成交（特征真的到了策略）；
->   - **反腿**（摘 Router）：同一策略明确失败（日志含 `no IntradayFeatureProvider injected` + 引擎 `Failed to get signals, skipping day`），成交为 0，且不出现预热完成日志。
+>   - **反腿**（摘 Router）：同一策略明确失败（日志含 `no IntradayFeatureProvider injected` + 引擎 `Failed to get signals, skipping day`），成交为 0，且不出现预热完成日志。**（2026-10-24 随 QT-10 收紧：策略故障不再跳天，反腿改判 `Status=failed` + error 点名；历史记录保留当时形状。）**
 >
 > **⑥ 破坏验证（2 腿，改坏 → 变红 → 逐字节还原）**：
 >   - L1 删掉 `modules_analysis.go` 的 `AttachMarketDataRouter(engine, d.Router, m.logger)` → `TestEngineAssemblyCarriesMarketDataRouter` 红（点名「主引擎装配丢了 Router 接线」）；还原后 SHA256 与改前一致、转绿。

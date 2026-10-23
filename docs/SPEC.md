@@ -3224,6 +3224,12 @@ Turnover，就是文档与实现静默漂移的标本）。
   校验期拦下）/ `exec_algo_attach_failed`（挂载期失败：父单号重复 / Σ子单量不等 /
   计划非法）。无效是**结果属性**不是错误，所以不进 `error` —— `error` 只装真实
   错误（取不到日历、参数非法等）。
+- **QT-10 错误分级映射**（不引入第四值）：`ErrDataGap` 是唯一可跳天类 ⇒
+  跳过当天并挂 `data_gap_skipped`（`contracts.CodeDataGapSkipped`），终态
+  `invalid`；`ErrStrategyFault`（trap / 非法信号 / 预算超限 / artifact 校验失败）
+  与 `ErrContractBreach`（前视 / 未知参数 / abi 不符，含**无法归类**的兜底）
+  ⇒ 立刻终止 run、终态 `failed`，`error` 必填且点名失败日期/类/原因。
+  `Failures` 仅是诊断明细，不是状态来源。
 - `invalid` 的指标字段照常给出（如实呈现），但调用方**不得**把它当成功观测。
 - 读路径同源：state → response 的唯一透传点是 `Engine.ResponseFromState`
   （`cmd/analysis.buildResponseFromState` 是其薄包装）。API 读路径与多策略对比

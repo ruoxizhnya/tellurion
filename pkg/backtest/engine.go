@@ -3,6 +3,7 @@ package backtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/backtest/metrics"
@@ -969,6 +971,11 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// 跨服务的解析逻辑，空票池的裁定交给 contracts.CheckValidity。
 	maxUniverseSize := 0
 
+	// QT-10 ③-④：被跳过的数据缺口天数（跳天次数 > 0 ⇒ 终态 invalid +
+	// invalid_reasons 里的 data_gap_skipped）。终止类失败另走 runFailDiag。
+	dataGapDays := 0
+	runFailDiag := &runFailures{}
+
 	// K17：exec-algo 派发器（本 run 私有——Engine 实例可被多个回测并发
 	// 共享，父单运行态绝不能跨 run 串。零算法单时它是空转的，默认路径
 	// 数值零变化）。见 pkg/backtest/exec_algo.go。
@@ -1057,15 +1064,30 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 
 		signals, err := e.getSignals(ctx, rc, params.StrategyName, universe, marketDataCache, date, state.Tracker)
 		if err != nil {
-			// REV-22-(3)：信号失败当天交易凭空消失，只留一条 Warn 不够——
-			// 计数进 run 级诊断（复用 execAlgoRunDiag 通道），logSummary 汇总。
-			// 不进 invalid_reasons：单日策略故障不否定整段回测的有效性，
-			// 但必须可见。
-			execAlgoDiag.recordSignalFailure(date, err)
-			logger.Warn().
-				Time("date", date).
-				Err(err).
-				Msg("Failed to get signals, skipping day")
+			// QT-10 ③-③：错误必须被分类消费，**禁止只 log**。
+			//   - ErrDataGap：唯一的可跳天类 —— 跳过当天、留 invalid_reasons
+			//     （data_gap_skipped），run 继续跑完、终态 invalid；
+			//   - ErrStrategyFault / ErrContractBreach（含无法归类的兜底）：
+			//     立刻终止 run（status=failed），并把日期/类/原因点名进
+			//     Failures 诊断与返回的 error。
+			if errors.Is(err, contracts.ErrDataGap) {
+				dataGapDays++
+				execAlgoDiag.recordSignalFailure(date, err)
+				logger.Warn().
+					Time("date", date).
+					Err(err).
+					Msg("Data gap — skipping day and recording data_gap_skipped (QT-10)")
+			} else {
+				class := classifyFatal(err)
+				rec := runFailDiag.record(date, class, err)
+				logger.Error().
+					Time("date", date).
+					Str("failure_class", string(class)).
+					Str("failures", runFailDiag.logLine()).
+					Err(err).
+					Msg("Strategy execution failure — terminating run (status=failed, QT-10)")
+				return nil, terminateError(rec, err)
+			}
 		}
 
 		// K5 切片 2：信号对账观察钩子（撮合前，信号尚未受风控/持仓抵扣
@@ -1173,6 +1195,12 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// **既有** invalid_reasons 通道（不新增 ResultSpec 字段），run 状态
 	// 随之为 invalid。两条 Code 见 contracts/validity.go。
 	result.InvalidReasons = append(result.InvalidReasons, execAlgoDiag.invalidReasonCodes()...)
+	// QT-10 ③-④：有交易日因 ErrDataGap 被跳过 ⇒ 挂稳定 Code
+	// data_gap_skipped（与上面两条同一通道，不是第四种状态）。run 跑完了，
+	// 但「被跳过过交易日的运行不是一次干净的观测」⇒ 终态 invalid。
+	if dataGapDays > 0 {
+		result.InvalidReasons = append(result.InvalidReasons, contracts.CodeDataGapSkipped)
+	}
 	execAlgoDiag.logSummary(logger)
 	fillDiag.logSummary(logger) // REV-09：停牌/截断计数（正常行为，不进 invalid_reasons）
 

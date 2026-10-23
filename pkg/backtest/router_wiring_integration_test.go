@@ -136,16 +136,20 @@ func TestQT64_RouterWiring_Integration(t *testing.T) {
 		"拿到日内特征后样例策略应产生成交（否则特征根本没到策略）")
 
 	// ── 反腿：摘掉 Router，同一策略明确失败（不是静默全零信号）──────
+	// QT-10 起策略故障（ErrStrategyFault）终止 run：Status=failed + error
+	// 点名日期/类/原因；不会再走「跳天继续」的老路。
 	var noRouter qt64Buffer
 	loggerWithout := zerolog.New(&noRouter)
 	engWithout := qt64Engine(t, daily, loggerWithout)
 
 	respWithout, err := engWithout.RunBacktest(ctx, req)
-	require.NoError(t, err)
-	logsWithout := noRouter.String()
+	require.Error(t, err, "策略故障必须终止 run（QT-10）")
+	require.NotNil(t, respWithout)
+	assert.Equal(t, StatusFailed, respWithout.Status)
 	assert.Zero(t, respWithout.TotalTrades, "没有日内供给就不得凭空成交")
-	assert.Contains(t, logsWithout, "Failed to get signals, skipping day",
-		"策略明确失败必须在引擎日志里可见（不是静默跳过）")
+	assert.Contains(t, respWithout.Error, "2024-01-02", "Failures 必须点名失败现场日期")
+	assert.Contains(t, respWithout.Error, "strategy_fault", "Failures 必须点名失败类")
+	logsWithout := noRouter.String()
 	assert.Contains(t, logsWithout, "no IntradayFeatureProvider injected",
 		"失败原因必须点名「没有日内供给」（缺失≠0）")
 	assert.NotContains(t, logsWithout, "Intraday snapshot warm-up completed (D6)",

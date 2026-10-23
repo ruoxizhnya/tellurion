@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	apperrors "tellurion/pkg/errors"
 )
 
@@ -236,14 +237,15 @@ func (p *LocalSignalProvider) Stateful() bool { return true }
 // 失败（fail-closed 不排队，见 activeRun 字段注释）。
 func (p *LocalSignalProvider) BeginRun(_ context.Context, meta RunMeta) error {
 	if meta.RunID == "" {
-		return fmt.Errorf("strategy: BeginRun: RunMeta.RunID is empty — 会话必须有 run 身份（QT-14）")
+		return classifyExecutionError(contracts.ErrContractBreach,
+			fmt.Errorf("strategy: BeginRun: RunMeta.RunID is empty — 会话必须有 run 身份（QT-14）"))
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.activeRun != "" {
-		return fmt.Errorf(
+		return classifyExecutionError(contracts.ErrContractBreach, fmt.Errorf(
 			"strategy: BeginRun(%s) rejected: session %q is still active — 一个 LocalSignalProvider 同时只服务一个 run（会话上限 1，超限 fail-closed 不排队）；并发 run 请各持一份 provider（引擎按 run 构造，QT-11/QT-14）",
-			meta.RunID, p.activeRun)
+			meta.RunID, p.activeRun))
 	}
 	p.activeRun = meta.RunID
 	return nil
@@ -256,10 +258,12 @@ func (p *LocalSignalProvider) EndRun(_ context.Context, runID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.activeRun == "" {
-		return fmt.Errorf("strategy: EndRun(%s) without an active session（QT-14）", runID)
+		return classifyExecutionError(contracts.ErrContractBreach,
+			fmt.Errorf("strategy: EndRun(%s) without an active session（QT-14）", runID))
 	}
 	if p.activeRun != runID {
-		return fmt.Errorf("strategy: EndRun(%s) but the active session is %q — 会话身份不匹配（QT-14）", runID, p.activeRun)
+		return classifyExecutionError(contracts.ErrContractBreach,
+			fmt.Errorf("strategy: EndRun(%s) but the active session is %q — 会话身份不匹配（QT-14）", runID, p.activeRun))
 	}
 	for name, s := range p.instances {
 		s.Cleanup()
@@ -283,8 +287,8 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 	active := p.activeRun
 	p.mu.Unlock()
 	if active == "" {
-		return nil, fmt.Errorf(
-			"strategy: Signals called before BeginRun — provider 会话未开启（QT-14）：有状态 provider 必须经 BeginRun/EndRun 走完一个 run 的生命周期，否则实例缓存的流式状态会跨 run 泄漏")
+		return nil, classifyExecutionError(contracts.ErrContractBreach, fmt.Errorf(
+			"strategy: Signals called before BeginRun — provider 会话未开启（QT-14）：有状态 provider 必须经 BeginRun/EndRun 走完一个 run 的生命周期，否则实例缓存的流式状态会跨 run 泄漏"))
 	}
 
 	strat, err := p.strategyFor(scope.Strategy)
@@ -292,15 +296,17 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 		if errors.Is(err, ErrSharedStrategy) {
 			// 装配错误，不是「策略不存在」：报 NOT_FOUND 会把人引去查名字拼写，
 			// 而真正要改的是注册方式。
-			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
-				fmt.Sprintf("strategy %q is registered as a shared instance; per-run execution needs strategy.RegisterFactory (QT-11)",
-					scope.Strategy), "getSignals")
+			return nil, classifyExecutionError(contracts.ErrContractBreach,
+				apperrors.Wrap(err, apperrors.ErrCodeInternal,
+					fmt.Sprintf("strategy %q is registered as a shared instance; per-run execution needs strategy.RegisterFactory (QT-11)",
+						scope.Strategy), "getSignals"))
 		}
 		// fail-loud（OBS-11）：未注册策略名是装配错误。错误消息逐字节
 		// 保留旧 getSignals 口径（含 op "getSignals"）。
-		return nil, apperrors.Wrap(err, apperrors.ErrCodeNotFound,
-			fmt.Sprintf("strategy %q not registered (strategy-service signal fallback removed per OBS-11/ADR-012); available: %v",
-				scope.Strategy, ListStrategies()), "getSignals")
+		return nil, classifyExecutionError(contracts.ErrContractBreach,
+			apperrors.Wrap(err, apperrors.ErrCodeNotFound,
+				fmt.Sprintf("strategy %q not registered (strategy-service signal fallback removed per OBS-11/ADR-012); available: %v",
+					scope.Strategy, ListStrategies()), "getSignals"))
 	}
 
 	if fa, ok := strat.(FactorAware); ok && p.factorReader != nil {
@@ -336,9 +342,10 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 				continue
 			}
 			if err := bh.OnBar(ctx, bar); err != nil {
-				return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
-					fmt.Sprintf("local streaming strategy %s OnBar failed at %s", scope.Strategy, bar.Date.Format("2006-01-02")),
-					"getSignals")
+				return nil, classifyExecutionError(contracts.ErrStrategyFault,
+					apperrors.Wrap(err, apperrors.ErrCodeInternal,
+						fmt.Sprintf("local streaming strategy %s OnBar failed at %s", scope.Strategy, bar.Date.Format("2006-01-02")),
+						"getSignals"))
 			}
 		}
 
@@ -353,15 +360,16 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 		// tracker.GetPortfolio 提前到了调用方，GetPortfolio 是纯读）。
 		signals, err = strat.GenerateSignals(ctx, scope.MarketData, scope.Portfolio)
 		if err != nil {
-			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
-				fmt.Sprintf("local strategy %s failed", scope.Strategy), "getSignals")
+			return nil, classifyExecutionError(contracts.ErrStrategyFault,
+				apperrors.Wrap(err, apperrors.ErrCodeInternal,
+					fmt.Sprintf("local strategy %s failed", scope.Strategy), "getSignals"))
 		}
 	}
 
 	// 契约级防前视把关（破坏验证腿①的对象）：未来信号在这里被拒，
 	// 不静默放行——删掉本调用，契约拒绝测试变红。
 	if err := RejectFutureSignals(signals, asOf); err != nil {
-		return nil, err
+		return nil, classifyExecutionError(contracts.ErrContractBreach, err)
 	}
 	return signals, nil
 }

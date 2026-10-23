@@ -336,9 +336,10 @@ type execAlgoRunDiag struct {
 	fails   map[execalgo.AttachFailureKind]int
 	samples map[execalgo.AttachFailureKind]string
 
-	// signalFailures（REV-22-(3)）：getSignals 整日失败的计数。与挂载失败
-	// 共用 run 诊断通道但**不进 invalid_reasons**——单日策略故障不否定整段
-	// 回测有效性；logSummary 汇总给排障者。
+	// signalFailures：getSignals 因 ErrDataGap 跳天的计数（QT-10 起策略
+	// 故障/契约违规直接终止 run，不进这里）。与挂载失败共用 run 诊断通道；
+	// data_gap_skipped 的 Code 由引擎的分类分支挂，计数本身只作诊断明细
+	// （logSummary 汇总给排障者）。
 	signalFailures     int
 	firstSignalFailure string
 	firstSignalDate    time.Time
@@ -411,14 +412,14 @@ func (dg *execAlgoRunDiag) invalidReasonCodes() []string {
 // 记录——invalid 状态之外，这里是给排障者看的人类可读版。键序先排序，
 // 不让 map 遍历序进日志。
 func (dg *execAlgoRunDiag) logSummary(logger zerolog.Logger) {
-	// REV-22-(3)：信号失败单独汇总——empty() 只看挂载失败，信号失败不能
-	// 被「挂载零失败」吞掉。
+	// REV-22-(3)：数据缺口跳天单独汇总——empty() 只看挂载失败，跳天
+	// 不能被「挂载零失败」吞掉（QT-10 起非数据缺口类已在分类分支终止 run）。
 	if dg != nil && dg.signalFailures > 0 {
 		logger.Error().
 			Int("signal_failure_days", dg.signalFailures).
 			Time("first_failure_date", dg.firstSignalDate).
 			Str("first_failure_error", dg.firstSignalFailure).
-			Msg("Signal failures summary — trading on those days silently skipped (REV-22-(3))")
+			Msg("Signal failures summary — data-gap days skipped (REV-22-(3) / QT-10)")
 	}
 	if dg.empty() {
 		return

@@ -47,9 +47,9 @@ func TestREV22_SignalFailuresSummarized(t *testing.T) {
 	assert.Contains(t, out, "Signal failures summary")
 }
 
-func TestREV22_SignalFailuresDoNotAffectInvalidReasons(t *testing.T) {
+func TestREV22_SignalFailureCounterIsDiagnosticOnly(t *testing.T) {
 	dg := newExecAlgoRunDiag()
 	dg.recordSignalFailure(time.Now(), errors.New("x"))
 	assert.Nil(t, dg.invalidReasonCodes(),
-		"信号失败不进 invalid_reasons（单日策略故障不否定整段回测）——计数可见即可")
+		"计数本身从不写 invalid_reasons；data_gap_skipped 由引擎的分类分支挂（QT-10）——计数只作诊断明细")
 }
