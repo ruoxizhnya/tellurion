@@ -252,6 +252,62 @@ func TestDiv_Negative(t *testing.T) {
 	assert.True(t, Equal(q, MustFromString("-2.50")), "got %s", q)
 }
 
+// TestDiv_ResultScaleBelowDividendScale 与 kit 侧同款（KT-06）：定标走
+// 分母侧，被除数低位数字活到舍入步——2.5 / 1 在 scale 0 答案是 3。
+func TestDiv_ResultScaleBelowDividendScale(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		a, b  Decimal
+		scale int
+		want  string
+	}{
+		{name: "2.5_div_1_at_0", a: New(25, 1), b: New(1, 0), scale: 0, want: "3"},
+		{name: "2.5_div_8_at_0", a: New(25, 1), b: New(8, 0), scale: 0, want: "0"},
+		{name: "neg_2.5_div_1_at_0", a: New(-25, 1), b: New(1, 0), scale: 0, want: "-3"},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := Div(c.a, c.b, c.scale)
+			require.NoError(t, err)
+			assert.True(t, Equal(got, MustFromString(c.want)), "got %s", got)
+		})
+	}
+}
+
+// TestDiv_OverflowFailsClosed 与 kit 侧同款（KT-06）：越界一步就
+// ErrOverflow，不许静默截断（精度错）或跳乘（量纲错）。
+func TestDiv_OverflowFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		a, b  Decimal
+		scale int
+	}{
+		{name: "numerator_over_maxScaled10", a: Decimal{value: 922337203685477581, scale: 0}, b: New(1, 0), scale: 1},
+		{name: "numerator_negative_overflow", a: Decimal{value: -922337203685477581, scale: 0}, b: New(1, 0), scale: 1},
+		{name: "old_break_shape_now_errors", a: Decimal{value: 5_000_000_000, scale: 0}, b: New(1, 0), scale: 18},
+		{name: "denominator_overflow_on_negative_shift", a: Decimal{value: 1, scale: 18}, b: Decimal{value: 922337203685477581, scale: 0}, scale: 0},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := Div(c.a, c.b, c.scale)
+			require.ErrorIs(t, err, ErrOverflow)
+			assert.Equal(t, Zero, got)
+		})
+	}
+}
+
 func TestNeg(t *testing.T) {
 	t.Parallel()
 	d := New(5, 0)
