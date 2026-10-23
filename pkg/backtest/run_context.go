@@ -23,6 +23,7 @@ package backtest
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
+
+	apperrors "tellurion/pkg/errors"
 )
 
 // runContext 承载一个 run 的全部可变运行态。字段一律不导出：只有本包
@@ -347,8 +350,8 @@ func (rc *runContext) intradayFeatureProvider(day time.Time) strategy.IntradayFe
 
 // newSignalProvider 为本 run 建信号供给（QT-11 的 run 级实例缓存住在里面）。
 //
-// 注入自定义 provider 时原样返回那个对象：它的跨 run 生命周期属 QT-14
-// （BeginRun/EndRun），不在本单里自作主张。
+// 注入自定义 provider 时原样返回那个对象：它的会话由 beginProviderSession
+// 随 run 开关（QT-14），本方法只负责选出对象。
 func (rc *runContext) newSignalProvider() strategy.SignalProvider {
 	if injected := rc.e.signalProvider; injected != nil {
 		return injected
@@ -359,6 +362,44 @@ func (rc *runContext) newSignalProvider() strategy.SignalProvider {
 	p.SetFactorReader(rc.factorZScore)
 	p.SetFundamentalsProvider(rc.fundamentalsSnapshot)
 	return p
+}
+
+// beginProviderSession 随 run 开关 provider 会话（QT-14 ②③）。
+//
+// 规则（p0-remediation-design.md A1）：
+//   - provider 实现 SessionLifecycle ⇒ BeginRun，返回的收尾函数在 run 退出
+//     时 EndRun（错误路径同样走到，调用方挂 defer）；
+//   - provider 声明 Stateful 却没有生命周期 ⇒ 当场失败 —— 这是装配期校验
+//     （strategy.ValidateSessionLifecycle）之外的第二道门：绕过构造函数
+//     塞进来的 stateful provider 不能静默跑；
+//   - 顺序 run 同样走 Begin/End，不做「复用会话」优化（A1 规则 5）。
+//
+// 返回的收尾函数把 EndRun 的错误原样上交：End 失败 = finalize/Close 没做成，
+// 结果不可信 —— 调用方（runBacktestInternal）在本 run 尚无更早错误时把它
+// 接管为 run 失败。
+func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestState) (func() error, error) {
+	p := rc.provider
+	meta := strategy.RunMeta{
+		RunID:    state.ID,
+		Strategy: state.Params.StrategyName,
+		// Params 通路归 QT-20（defaults ⊕ 覆写）；本单先留位，如实为空。
+		Params:   nil,
+		Start:    state.Params.StartDate,
+		End:      state.Params.EndDate,
+		Universe: state.Params.StockPool,
+	}
+	if lc, ok := p.(strategy.SessionLifecycle); ok {
+		if err := lc.BeginRun(ctx, meta); err != nil {
+			return nil, err
+		}
+		runID := meta.RunID
+		return func() error { return lc.EndRun(ctx, runID) }, nil
+	}
+	if sf, ok := p.(strategy.Stateful); ok && sf.Stateful() {
+		return nil, apperrors.New(apperrors.ErrCodeInternal,
+			fmt.Sprintf("signal provider %T declares Stateful() but does not implement SessionLifecycle — 有状态 provider 必须实现 BeginRun/EndRun（QT-14 ④：不做可选接口 + 静默降级）；装配期校验是第一道门，这里是纵深防御的第二道", p)).WithOperation("beginProviderSession")
+	}
+	return func() error { return nil }, nil
 }
 
 // ─── 内存账（QT-12 ③④⑤ 的可计量面）─────────────────────────────────

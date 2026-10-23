@@ -60,8 +60,9 @@ func piRegistry(t *testing.T, name string) (*Registry, *[]*piStream) {
 func TestLocalSignalProviderReusesOneInstanceWithinARun(t *testing.T) {
 	asOf := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
 	reg, built := piRegistry(t, "pi_stream")
-	// 一个 provider = 一个 run（QT-11 的装配纪律，见 LocalSignalProvider 注释）。
+	// 一个 provider = 一个 run（QT-11 的装配纪律 + QT-14 的会话门）。
 	provider := NewLocalSignalProvider(reg)
+	plBegin(t, provider)
 
 	bars := map[string][]domain.OHLCV{"AAA": pvBars("AAA", asOf, 3)}
 	for i := 1; i <= 3; i++ {
@@ -80,6 +81,7 @@ func TestLocalSignalProviderGivesEachRunAFreshInstance(t *testing.T) {
 
 	// 第一笔 run：喂了 2 根。
 	first := NewLocalSignalProvider(reg)
+	plBegin(t, first)
 	for i := 0; i < 2; i++ {
 		_, err := first.Signals(context.Background(), Scope{Strategy: "pi_stream", MarketData: bars}, asOf)
 		require.NoError(t, err)
@@ -87,6 +89,7 @@ func TestLocalSignalProviderGivesEachRunAFreshInstance(t *testing.T) {
 
 	// 第二笔 run（新的 provider）：只能看见自己这一根。
 	second := NewLocalSignalProvider(reg)
+	plBegin(t, second)
 	_, err := second.Signals(context.Background(), Scope{Strategy: "pi_stream", MarketData: bars}, asOf)
 	require.NoError(t, err)
 
@@ -103,7 +106,9 @@ func TestLocalSignalProviderFailsClosedOnSharedRegistration(t *testing.T) {
 	shared := &piStream{pvBatch: pvBatch{name: "pi_shared"}}
 	require.NoError(t, reg.Register(shared))
 
-	_, err := NewLocalSignalProvider(reg).Signals(context.Background(),
+	p := NewLocalSignalProvider(reg)
+	plBegin(t, p)
+	_, err := p.Signals(context.Background(),
 		Scope{Strategy: "pi_shared", MarketData: map[string][]domain.OHLCV{"AAA": pvBars("AAA", asOf, 3)}}, asOf)
 
 	require.Error(t, err, "共享实例注册在 run 取实例那一步就该失败")

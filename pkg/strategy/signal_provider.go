@@ -46,12 +46,75 @@ type SignalProvider interface {
 	Signals(ctx context.Context, scope Scope, asOf time.Time) ([]Signal, error)
 }
 
+// RunMeta 是一次 run 的身份与输入快照（QT-14）。BeginRun 收到它之后实现方
+// 应把它当成**不可变**的：同一 runID 的会话期内字段不许被改写。
+type RunMeta struct {
+	// RunID 复用引擎生成的 backtestID（Engine.RunBacktest 里 uuid 或请求
+	// 指定的 RunID）。空 RunID 的 BeginRun 违约。
+	RunID string
+	// Strategy 是注册表键（策略名）。
+	Strategy string
+	// Params 是解析后的生效参数。参数投递通路（defaults ⊕ 覆写）归 QT-20，
+	// 本单先留位：今日恒空 map / nil，不是遗漏而是口径 —— 有了再填。
+	Params map[string]any
+	// Start / End 是本 run 的回放区间（UTC 零点）。
+	Start, End time.Time
+	// Universe 是本 run 的标的池。
+	Universe []string
+}
+
+// SessionLifecycle 是有状态 provider 必须实现的生命周期契约（QT-14）。
+//
+// 语义（p0-remediation-design.md A1，非可选）：
+//   - BeginRun 在 run 的任何 Signals 调用**之前**被调用；实现方在内部
+//     `map[runID]*session`（加锁）里开一份会话；
+//   - EndRun = finalize() + Close()：冲刷/清点的信号归属该 runID，**不许
+//     跨 run 合并**；实现方销毁该 runID 的会话与其内部状态；
+//   - 会话数有上限（建议 ≤ 并发 run 上限 × 1.2），超限 **fail-closed 不排队**
+//     —— 悄悄阻塞等于把串状态问题换成死锁问题；
+//   - 顺序 run 也必须走 BeginRun/EndRun，不做「顺序复用会话」的优化，
+//     否则残留状态回归（正是本契约要消灭的东西）。
+type SessionLifecycle interface {
+	BeginRun(ctx context.Context, meta RunMeta) error
+	EndRun(ctx context.Context, runID string) error
+}
+
+// Stateful 是 provider 的显式状态声明（QT-14）：Stateful()==true 的实现
+// **必须**同时实现 SessionLifecycle，否则装配期当场失败
+// （ValidateSessionLifecycle / bootstrap Fatal）——不做「可选接口 + 静默降级」，
+// 因为串状态的后果是结果随并发顺序变，跑起来才发现就晚了。
+type Stateful interface{ Stateful() bool }
+
+// ValidateSessionLifecycle 装配期校验（QT-14 ⑤）：Stateful()==true 但未实现
+// SessionLifecycle ⇒ 返回错误（装配点应据此拒绝构造，bootstrap 直接 Fatal）。
+// 非 nil 且无状态（或未声明 Stateful）的 provider 恒通过。
+func ValidateSessionLifecycle(p SignalProvider) error {
+	if p == nil {
+		return nil
+	}
+	sf, ok := p.(Stateful)
+	if !ok || !sf.Stateful() {
+		return nil
+	}
+	if _, ok := p.(SessionLifecycle); !ok {
+		return fmt.Errorf(
+			"strategy: signal provider %T declares Stateful() but does not implement SessionLifecycle (BeginRun/EndRun) — 有状态 provider 必须随 run 开关会话，否则实例状态跨 run 泄漏；要么实现 SessionLifecycle，要么如实声明 Stateful()==false（QT-14 ⑤ 装配期 fail-closed）",
+			p)
+	}
+	return nil
+}
+
 // ─── 编译期合规检查（破坏验证腿②）──────────────────────────────────
 // 删掉接口任一方法 → 方法表达式守卫编译失败（样板同 streaming.go）。
 var (
-	_ SignalProvider = (*LocalSignalProvider)(nil)
+	_ SignalProvider   = (*LocalSignalProvider)(nil)
+	_ Stateful         = (*LocalSignalProvider)(nil)
+	_ SessionLifecycle = (*LocalSignalProvider)(nil)
 
 	_ func(SignalProvider, context.Context, Scope, time.Time) ([]Signal, error) = SignalProvider.Signals
+	_ func(SessionLifecycle, context.Context, RunMeta) error                    = SessionLifecycle.BeginRun
+	_ func(SessionLifecycle, context.Context, string) error                     = SessionLifecycle.EndRun
+	_ func(Stateful) bool                                                       = Stateful.Stateful
 )
 
 // RejectFutureSignals fail-loud 拒绝任何 as_of > asOf 的信号（DayOf 日粒度）。
@@ -85,8 +148,11 @@ func RejectFutureSignals(sigs []Signal, asOf time.Time) error {
 // 在一个 run 内活着。反过来，**每个 run 必须新建一个**——共享一个
 // LocalSignalProvider 跑两笔，缓存就把第一笔的策略实例递给了第二笔，
 // 正是 QT-11 要消灭的串状态。引擎侧的对应纪律见
-// `Engine.newRunSignalProvider`；注入自定义 provider 的跨 run 生命周期
-// 归 QT-14（BeginRun/EndRun）。
+// `Engine.newRunSignalProvider`。
+//
+// QT-14 把上面那句「必须新建一个」从注释升级成了代码：本类型如实声明
+// Stateful 并实现 SessionLifecycle（会话上限 1），`Signals` 在会话未开时
+// 直接拒绝 —— 忘了 Begin/End 的共享 provider 当场报错，而不是悄悄串状态。
 type LocalSignalProvider struct {
 	registry     *Registry
 	factorReader FactorZScoreReader
@@ -96,10 +162,17 @@ type LocalSignalProvider struct {
 	// 用到特征时明确失败（契约注释口径）。
 	intraday IntradayFeatureProvider
 
-	// mu 护 instances：run 内是单线程日循环，但 provider 是导出类型，
-	// 调用方并发用（= 误用）时不能 data race。
+	// mu 护 instances 与 activeRun：run 内是单线程日循环，但 provider 是
+	// 导出类型，调用方并发用（= 误用）时不能 data race。
 	mu        sync.Mutex
 	instances map[string]Strategy
+	// activeRun 是当前打开的会话（QT-14）。空串 = 会话未开；非空 = 已
+	// BeginRun 且未 EndRun。**上限 1**：一个 LocalSignalProvider 的实例
+	// 缓存就是一份 run 的状态，同时服务两个 run 等于把两笔 run 的流式
+	// 状态记进同一批实例 —— 所以第二个 BeginRun 直接报错（fail-closed
+	// 不排队）。引擎按 run 构造 provider（QT-11），生产路径永远打不到
+	// 这堵墙；打到了就是有人在跨 run 共享 provider。
+	activeRun string
 }
 
 // NewLocalSignalProvider 构造本地实现。registry 传 nil 表示调用时取
@@ -155,6 +228,47 @@ func (p *LocalSignalProvider) SetIntradayProvider(ip IntradayFeatureProvider) {
 	p.intraday = ip
 }
 
+// Stateful 如实声明：本 provider 的实例缓存（流式策略的递推状态）就是
+// 状态。正因为有状态，它实现了 SessionLifecycle —— 会话不开就不服务。
+func (p *LocalSignalProvider) Stateful() bool { return true }
+
+// BeginRun 开启本 run 的会话（QT-14）。上限 1：并发第二个 BeginRun 直接
+// 失败（fail-closed 不排队，见 activeRun 字段注释）。
+func (p *LocalSignalProvider) BeginRun(_ context.Context, meta RunMeta) error {
+	if meta.RunID == "" {
+		return fmt.Errorf("strategy: BeginRun: RunMeta.RunID is empty — 会话必须有 run 身份（QT-14）")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.activeRun != "" {
+		return fmt.Errorf(
+			"strategy: BeginRun(%s) rejected: session %q is still active — 一个 LocalSignalProvider 同时只服务一个 run（会话上限 1，超限 fail-closed 不排队）；并发 run 请各持一份 provider（引擎按 run 构造，QT-11/QT-14）",
+			meta.RunID, p.activeRun)
+	}
+	p.activeRun = meta.RunID
+	return nil
+}
+
+// EndRun 结束会话（QT-14 ③：finalize + Close）。对本实现而言 finalize 的
+// 形态是：逐实例 Cleanup + 清空实例缓存 —— 流式缓冲随实例销毁，信号归属
+// 本 runID，绝不跨 run 合并；下一个 run 从空缓存重新构造实例。
+func (p *LocalSignalProvider) EndRun(_ context.Context, runID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.activeRun == "" {
+		return fmt.Errorf("strategy: EndRun(%s) without an active session（QT-14）", runID)
+	}
+	if p.activeRun != runID {
+		return fmt.Errorf("strategy: EndRun(%s) but the active session is %q — 会话身份不匹配（QT-14）", runID, p.activeRun)
+	}
+	for name, s := range p.instances {
+		s.Cleanup()
+		delete(p.instances, name)
+	}
+	p.activeRun = ""
+	return nil
+}
+
 // Signals 实现 SignalProvider 契约。
 //
 // 双模式检测顺序「优先流式 BarHandler，否则批式 SignalGenerator」的结构保证
@@ -162,6 +276,17 @@ func (p *LocalSignalProvider) SetIntradayProvider(ip IntradayFeatureProvider) {
 // 现有批式策略的类型断言恒假、必然落到批式分支——这是类型系统的结构保证，
 // 不靠运行时标志。只有同时实现 Strategy 与 BarHandler 的双模式策略才走流式。
 func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf time.Time) ([]Signal, error) {
+	// QT-14 会话门：无会话即拒绝，不静默服务。放开这道门，跨 run 共享
+	// 一个 provider 的调用方就回到「实例缓存把上一笔的状态递给下一笔」
+	// 的老路 —— 错误结果不报错，比报错更糟。
+	p.mu.Lock()
+	active := p.activeRun
+	p.mu.Unlock()
+	if active == "" {
+		return nil, fmt.Errorf(
+			"strategy: Signals called before BeginRun — provider 会话未开启（QT-14）：有状态 provider 必须经 BeginRun/EndRun 走完一个 run 的生命周期，否则实例缓存的流式状态会跨 run 泄漏")
+	}
+
 	strat, err := p.strategyFor(scope.Strategy)
 	if err != nil {
 		if errors.Is(err, ErrSharedStrategy) {

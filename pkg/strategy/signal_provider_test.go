@@ -88,6 +88,14 @@ func pvBars(symbol string, lastDay time.Time, n int) []domain.OHLCV {
 	return bars
 }
 
+// plBegin 为测试里的 provider 开一个会话（QT-14：有状态 provider 不开
+// 会话就不服务 —— Signals 会拒绝）。会话随测试结束收掉。
+func plBegin(t *testing.T, p *LocalSignalProvider) {
+	t.Helper()
+	require.NoError(t, p.BeginRun(context.Background(), RunMeta{RunID: t.Name()}))
+	t.Cleanup(func() { _ = p.EndRun(context.Background(), t.Name()) })
+}
+
 // ─── RejectFutureSignals（DayOf 日粒度）────────────────────────────
 
 func TestRejectFutureSignalsDayGranularity(t *testing.T) {
@@ -125,6 +133,7 @@ func TestLocalSignalProviderRejectsFutureDatedOutput(t *testing.T) {
 	require.NoError(t, reg.RegisterFactory(func() Strategy { return future }))
 
 	p := NewLocalSignalProvider(reg)
+	plBegin(t, p)
 	_, err := p.Signals(context.Background(), Scope{Strategy: "pv-future"}, asOf)
 	require.Error(t, err, "未来信号必须被契约拒绝（防前视），而不是静默放行")
 	require.Contains(t, err.Error(), "防前视", "报错必须是前视拒绝，而不是别的失败")
@@ -146,7 +155,9 @@ func TestLocalSignalProviderBatchPassthrough(t *testing.T) {
 
 	bars := map[string][]domain.OHLCV{"A": pvBars("A", asOf, 3)}
 	port := &domain.Portfolio{Cash: 1000}
-	got, err := NewLocalSignalProvider(reg).Signals(context.Background(),
+	p := NewLocalSignalProvider(reg)
+	plBegin(t, p)
+	got, err := p.Signals(context.Background(),
 		Scope{Strategy: "pv-batch", MarketData: bars, Portfolio: port}, asOf)
 	require.NoError(t, err)
 	require.Equal(t, want, got, "批式输出必须逐字段原样透传")
@@ -168,7 +179,9 @@ func TestLocalSignalProviderStreamingFeedsOnlyTodayBars(t *testing.T) {
 		"BBB": pvBars("BBB", asOf.AddDate(0, 0, -2), 3), // 停牌：最后一根是前天
 		"CCC": {},                                       // 空历史
 	}
-	got, err := NewLocalSignalProvider(reg).Signals(context.Background(),
+	p := NewLocalSignalProvider(reg)
+	plBegin(t, p)
+	got, err := p.Signals(context.Background(),
 		Scope{Strategy: "pv-stream", MarketData: bars}, asOf)
 	require.NoError(t, err)
 	require.Len(t, stream.fed, 1, "只喂当日 bar：停牌/空历史标的不喂陈旧 bar")
@@ -177,7 +190,7 @@ func TestLocalSignalProviderStreamingFeedsOnlyTodayBars(t *testing.T) {
 	require.Equal(t, []Signal{{Symbol: "AAA", Date: asOf}}, got, "Signals() 取走的信号必须原样返回")
 
 	// 取走即清空：再次调用（无新信号）不重复吐出上一日的信号。
-	got2, err := NewLocalSignalProvider(reg).Signals(context.Background(),
+	got2, err := p.Signals(context.Background(),
 		Scope{Strategy: "pv-stream", MarketData: bars}, asOf)
 	require.NoError(t, err)
 	require.Empty(t, got2, "取走即清空，防重复消费")
@@ -187,6 +200,7 @@ func TestLocalSignalProviderStreamingFeedsOnlyTodayBars(t *testing.T) {
 // 且错误消息与旧 getSignals 逐字节同源（OBS-11 口径）。
 func TestLocalSignalProviderRegistryMissFailLoud(t *testing.T) {
 	p := NewLocalSignalProvider(NewRegistry())
+	plBegin(t, p)
 	_, err := p.Signals(context.Background(), Scope{Strategy: "no-such-strategy"}, time.Now())
 	require.Error(t, err, "未注册策略必须报错")
 	msg := err.Error()
@@ -211,6 +225,7 @@ func TestLocalSignalProviderInjectsFactorAndFundamentals(t *testing.T) {
 	p := NewLocalSignalProvider(reg)
 	p.SetFactorReader(reader)
 	p.SetFundamentalsProvider(func() map[string]FundamentalSeries { return fund })
+	plBegin(t, p)
 
 	for i := 0; i < 2; i++ {
 		_, err := p.Signals(context.Background(), Scope{Strategy: "pv-inject"}, asOf)

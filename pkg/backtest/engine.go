@@ -434,6 +434,13 @@ func NewEngineWithOptions(cfg Config, provider marketdata.Provider, opts ...Engi
 	// QT-12：默认档准入；WithRunObserver / WithRunAdmissionDisabled 覆盖。
 	eng.admission = newRunAdmission(defaultAdmissionConfig(), nil)
 	applyOptions(eng, opts)
+	// QT-14 装配期门：有状态 provider 必须实现 SessionLifecycle，否则当场
+	// 拒绝构造 ——「跑起来才发现串状态」就晚了。bootstrap（BuildBacktestEngine）
+	// 对这里的错误直接 Fatal，生产路径没有静默降级的出口。
+	if err := strategy.ValidateSessionLifecycle(eng.signalProvider); err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInvalidInput,
+			"signal provider rejected at assembly (QT-14)", "NewEngineWithOptions")
+	}
 	return eng, nil
 }
 
@@ -828,7 +835,11 @@ func lookupStrategyGitHash(strategyName string) string {
 }
 
 // runBacktestInternal contains the core backtest loop.
-func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) (*domain.BacktestResult, error) {
+//
+// 返回值具名（res / runErr）：QT-14 的会话收尾挂在 defer 里，EndRun 失败
+// 且本 run 尚无更早错误时接管 runErr —— finalize/Close 没做成的结果不可信，
+// 不能当成功返回。
+func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) (res *domain.BacktestResult, runErr error) {
 	params := state.Params
 
 	// QT-02：成交口径是「这份结果能不能和别的比」的判据，引擎不猜。
@@ -845,6 +856,20 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// Release 是 no-op，而台账撤账（retireRun）必须无条件发生 ——
 	// 把它写在 if 里面，等于「闸关着的时候 run 的缓存账永远留在看板上」。
 	defer rc.close()
+
+	// QT-14：provider 会话随 run 创建与销毁 —— 拿到 backtestID（state.ID）
+	// 之后、任何取信号之前 BeginRun，收尾挂 defer（错误路径同样走到）。
+	// 顺序 run 也走 Begin/End，不做「复用会话」优化（A1 规则 5）。
+	endSession, err := rc.beginProviderSession(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if serr := endSession(); serr != nil && runErr == nil {
+			runErr = apperrors.Wrap(serr, apperrors.ErrCodeInternal,
+				"provider EndRun failed — 会话收尾（finalize/Close）没做成，本 run 的结果不可信（QT-14 fail-closed）", "runBacktestInternal")
+		}
+	}()
 
 	if e.admission != nil {
 		lease, err := e.admission.acquire(ctx)

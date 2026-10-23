@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"context"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
+	"tellurion/pkg/strategy"
 )
 
 // 单测 run 作用域状态的脚手架（QT-12）。
@@ -33,11 +35,20 @@ func newTestRun(t *testing.T, eng *Engine) *runContext {
 //
 // t.Cleanup 里挂 rc.close()：把「run 收尾必释放凭证」这条不变量交给
 // 测试框架兜着，用例忘了 defer 也不会让后续用例撞在残留槽位上。
+// provider 会话同样随测试开关（QT-14：有状态 provider 不开会话就不服务，
+// 直接调 getSignals 的用例得先模拟引擎的 BeginRun）。
 func newTestRunSpan(t *testing.T, eng *Engine, params domain.BacktestParams) *runContext {
 	t.Helper()
 	eng.admission = nil
 	rc := newRunContext(eng, params)
 	t.Cleanup(rc.close)
+	if lc, ok := rc.provider.(strategy.SessionLifecycle); ok {
+		meta := strategy.RunMeta{RunID: "test-" + t.Name(), Strategy: params.StrategyName}
+		if err := lc.BeginRun(context.Background(), meta); err != nil {
+			t.Fatalf("test provider session BeginRun: %v", err)
+		}
+		t.Cleanup(func() { _ = lc.EndRun(context.Background(), meta.RunID) })
+	}
 	return rc
 }
 
