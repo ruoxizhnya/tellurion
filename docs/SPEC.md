@@ -2061,6 +2061,20 @@ SELECT create_hypertable('factor_cache', 'date');
 
 `quant.external_signals` 表（Migration 048，`storage.ExternalSignalsSchemaDDL`，镜像 `docs/migrations/048`）：`content_hash` UNIQUE 既是幂等键也是证据坐标的 source 位；`factors` 为诊断快照（JSONB，不入哈希）。消费侧 `SignalStrategy.ListFor` 按 (model_id, symbol) + `as_of <= upTo` 拉取。
 
+### Provider 生命周期（QT-14，已实施 — 2026-10-23）
+
+> `pkg/strategy/signal_provider.go` 在 `SignalProvider` 旁落三个类型（落点裁决：**不进 contracts**，见 `docs/design/qt-decoupling/w1-repo-ownership.md` §2.3——消费方全在 core，无第二仓需要）：
+>
+> - `RunMeta`：run 身份与输入快照（RunID = 引擎 backtestID / Strategy / Params / Start / End / Universe）。`Params` 通路归 QT-20，今日恒空。
+> - `SessionLifecycle`（`BeginRun(ctx, meta)` / `EndRun(ctx, runID)`）：有状态 provider 必须实现。EndRun = finalize + Close，信号归属该 runID，**不许跨 run 合并**；会话数超限 fail-closed 不排队；顺序 run 同样走 Begin/End（不做「复用会话」优化）。
+> - `Stateful`：显式状态声明。`Stateful()==true` 却未实现 `SessionLifecycle` ⇒ **装配期拒绝构造**（`strategy.ValidateSessionLifecycle`，在 `NewEngineWithOptions` 里执行；bootstrap `BuildBacktestEngine` 对该错误直接 Fatal）——不做「可选接口 + 静默降级」。
+>
+> 引擎执行（`runBacktestInternal`）：拿到 backtestID 后 BeginRun、defer EndRun（错误路径同样走到）；EndRun 失败且本 run 无更早错误时接管为 run 失败——finalize/Close 没做成的结果不可信。绕过装配塞进来的 stateful-no-lifecycle provider 由运行期第二道门拦下（`runContext.beginProviderSession`）。
+>
+> `LocalSignalProvider` 如实声明 `Stateful` 并实现 `SessionLifecycle`（会话上限 1——一个 provider 的实例缓存就是一份 run 的状态，并发第二个 BeginRun 直接报错）；`Signals` 无会话即拒绝。QT-11 的「一个 provider 只服务一个 run」由此从注释纪律升级为代码：跨 run 共享 provider 的调用路径当场报错，而不是悄悄串状态。
+>
+> 执法测试：`pkg/strategy/signal_provider_lifecycle_test.go`（会话门 / 簿记 fail-closed / EndRun = Cleanup + 清缓存）+ `pkg/backtest/engine_provider_session_test.go`（装配门 / 运行期第二道门 / 每笔 run 恰好一次 Begin-End 且 RunMeta 逐字段正确 / Begin/End 失败即 run 失败）。破坏验证 8 腿改坏→变红→还原（见 TASKS.md QT-14 施工记录）。
+
 ### 产业链静态数据层（P2-2，已实施 — quant schema 四表）
 
 > ADR-023 数据层 L1「产业链图谱」的静态底座（TASKS.md §五 P2-2，2026-10-12）。取代手抄快照：四表统一带 `source`（来源标识）+ `as_of`（观察时点）溯源列，各有幂等唯一约束（同键重导刷新行，不插新行）。加表唯一执行路径为 `pkg/storage/postgres.go` 内联 `migrate()`（Migration 049，DDL 文本 `SupplyChainSchemaDDL`，镜像 `docs/migrations/049_add_supply_chain_tables.sql`）。

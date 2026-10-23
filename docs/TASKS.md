@@ -35,7 +35,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
 | W1 | QT-13 ✅ | 复权锚点按 run 区间切片 | P0 | **已完成（2026-10-23）**；依赖 QT-12（读的是同一个缓存）；digest 覆盖范围写进摘要串而非加列（W1 唯一 DDL 单是 QT-16） |
 | W1 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」 |
-| W1 | QT-14 | Provider 生命周期（BeginRun/EndRun） | P0 | 依赖 QT-11（实例语义） |
+| W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 | 不可终止执行 + 重放语义 | P0 | 依赖 QT-14（会话）+ **QT-16（身份）**；两者不再「同批」，16 先落 DDL |
 | **W2** | QT-20 | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash） |
@@ -457,7 +457,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑥ 边界**：只做接线；分钟数据的生产（connector / aggregator）属 `tellurion-data`（X1 / QT-40）。
 
 
-### QT-14 · Provider 生命周期（`BeginRun` / `EndRun`）[P0] ⬜
+### QT-14 · Provider 生命周期（`BeginRun` / `EndRun`）[P0] ✅（2026-10-23）
+
+> **✅ 完成记录（2026-10-23）**
+>
+> **① 契约（③-①）**：`pkg/strategy/signal_provider.go` 在 `SignalProvider` 旁落 `RunMeta` / `SessionLifecycle` / `Stateful` 三个类型 + `ValidateSessionLifecycle(p)` 装配期校验助手。落点按 `w1-repo-ownership.md` §2.3 裁决**不进 contracts**（消费方全在 core，进 contracts 只会制造无消费方的接口）。签名照 `p0-remediation-design.md` A1 原文（`BeginRun(ctx, meta)` / `EndRun(ctx, runID)`）。`RunMeta.Params` 今日恒空——参数投递通路是 QT-20，注释里写明「留位不是遗漏」。
+>
+> **② 引擎钩子（③-②③）**：`runContext.beginProviderSession`（`run_context.go`）——provider 实现 `SessionLifecycle` ⇒ `BeginRun`，返回收尾闭包供 defer `EndRun`；`runBacktestInternal` 改**具名返回** `(res, runErr)`，钩子紧跟 `defer rc.close()`。**一处比设计文档加严的裁决，如实登记**：A1 只说「defer EndRun（错误路径同样执行）」，没说 EndRun 失败怎么办——本实现让 EndRun 错误在**本 run 尚无更早错误时接管 runErr**（run 判 failed）。理由：End 失败 = finalize/Close 没做成，「跑通了」的账对不上，比报错更糟；已有更早错误时不掩盖主错误。另一处如实登记：`RunMeta.Universe` / Start / End 从 `state.Params` 直取（`resolveStockPool` 之后），`RunID` = 引擎 backtestID（QT-63 的进程内对齐口径）。
+>
+> **③ LocalSignalProvider 的会话（③-④⑥）**：本类型如实声明 `Stateful()==true`（实例缓存 = 流式策略的递推状态）并实现 `SessionLifecycle`——**会话上限 1**（一个 provider 的实例缓存就是一份 run 的状态，并发第二个 BeginRun 直接报错，即 A1 规则 3 的 fail-closed；一般 provider 的 `map[runID]*session` 上限是契约注释钉死的实现方职责，本仓今天没有多会话 provider）；`EndRun` = 逐实例 `Cleanup()` + 清空实例缓存（本实现形态的 finalize + Close）；**`Signals` 无会话即拒绝**。这第三条是把 QT-11 的「一个 provider 只服务一个 run」从注释升级成代码：忘了 Begin/End 的共享 provider 当场报错，而不是悄悄串状态。连带代价（如实登记）：`pkg/strategy` 5 处直调 `Signals` 的既有测试与 `newTestRunSpan` 脚手架都补了 Begin/End（测试替身经 `plBegin`，脚手架在 t.Cleanup 里收会话）——这是会话门有牙的证据，不是破坏。
+>
+> **④ 装配期门（③-⑤）**：`NewEngineWithOptions` 在 `applyOptions` 后跑 `strategy.ValidateSessionLifecycle`，stateful-no-lifecycle 当场拒绝构造；`bootstrap.BuildBacktestEngine` 对 `NewEngine` 的错误本就 `logger.Fatal` ⇒ 生产装配失败 = 进程起不来，没有静默出口。**第二道门**：`beginProviderSession` 里 provider 声明 Stateful 却没有生命周期 ⇒ 运行期当场失败——为「下一个注入点绕过构造函数直塞字段」留的纵深防御（测试用字段直塞取证了这条路真的会被拦）。
+>
+> **⑤ 测试（⑤ 验收对账）**：新文件 `pkg/strategy/signal_provider_lifecycle_test.go`（装配校验 4 形状 / 会话门 / 簿记 fail-closed：空 RunID、并发第二 Begin、错误 runID End、重复 End / EndRun = Cleanup + 下一 run 全新实例）+ `pkg/backtest/engine_provider_session_test.go`（装配门拒绝构造且不交出半装配引擎 / 运行期第二道门 / 每笔 run 恰好一次 Begin-End 且 RunMeta 逐字段正确、顺序两笔各一次 / BeginRun 失败 run 判 failed / EndRun 失败 run 判 failed）。验收 ①「并发两笔与单独跑逐位一致」与 ②「连续两次同参一致」由 QT-11 的既有两条腿覆盖（`engine_perrun_instance_test.go`），它们今天走的就是会话路径；验收 ③ 即 ④ 的装配门测试。
+>
+> **⑥ 破坏验证（8 腿，改坏 → 变红 → 还原，全部 RED as expected，还原后源码逐字节一致）**：L1 删 Signals 会话门；L2 删 BeginRun 上限判断；L3 EndRun 不 Cleanup 不清缓存；L4 删装配门；L5 删运行期 Stateful 分支；L6 删引擎 Begin/End 钩子；L7 EndRun 错误不上交（defer 里吞掉）；L8 删 `ValidateSessionLifecycle` 的 Stateful 分支。脚本沿 QT-13 口径把「编译不过」显式判 INVALID，与「跑了但没红」分开。L6 的连带效应如实登记：删掉钩子后默认 LocalSignalProvider 路径**全线红**（Signals 无会话即拒绝）——引擎钩子的牙是全仓级的，不是只有注入路径才被看守。
+>
+> **⑦ 门禁**：`gofmt -l pkg/` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` EXIT=0（Windows 无 `-race`，沿用既有如实登记口径）。
+>
+> **⑧ 本单没做**：`RunMeta.Params` 的真实通路（QT-20）；finalize 的信号归属细节——缓冲冲刷语义与「信号归属该 runID」的一般化（QT-24）；多会话 provider 的通用实现（本仓今天没有第二个 SignalProvider 实现，WASM 接线归 QT-26）。
 
 - **① 目标**：有状态 provider 的会话随 run 创建与销毁；"有状态但没实现生命周期"在**装配期**就失败，而不是跑起来才发现串状态。
 - **② 上下文**：`p0-remediation-design.md` A1；`signal_provider.go:41-44` `Signals(ctx,scope,asOf)` 无 runID；`handlers_backtest.go:136` 共享 runner。
