@@ -38,9 +38,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
-| **W2** | QT-20 | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash） |
+| **W2** | QT-20 ⛔ | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash）。**阻塞（2026-10-24）：`BacktestRequest.StrategyParams` 属 tellurion-contracts（QT-05 迁出），v0.3.0 无此字段；G2 不越界改契约仓** |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
-| W2 | QT-22 | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具 |
+| W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4），v0.3.0 无实现** |
 | W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
 | W2 | QT-24 | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | 依赖 QT-01/QT-23 |
 | W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
@@ -593,7 +593,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 三、W2 · 协议落地
 
-### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ⬜
+> **G2 串行施工状态（2026-10-24）**：QT-20 ⛔ 阻塞、QT-22 ⛔ 阻塞（两者的契约腿都必须先落 `tellurion-contracts`，本仓 no-replace/no-越界）。按「顺序不可换」的派工约束，G2 在 QT-20 处**停**，未跳序施工 QT-21 及其后各单。已完成项：QT-64（`73440a5`）、QT-10（`1e21054`）。
+
+### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ⛔（阻塞于 contracts）
+
+> **⛔ 阻塞记录（2026-10-24）**
+>
+> **缺什么**：③-① 要求 `BacktestRequest` 加 `StrategyRef` + `StrategyParams`。该结构体自 QT-05 起住 `tellurion-contracts:engine/contracts.go`（v0.3.0 第 170–215 行实测无这两个字段），本仓 `pkg/backtest/aliases.go` 只是 type alias —— 在 core 侧加字段无法做到，且会撞 `internal/repoguard/contract_identity_test.go` 的契约身份护栏。`domain.BacktestParams`（v0.3.0 `domain/backtest.go:62-90`）同样无 params 字段，③-④ 的 `RunMeta.Params` 没有上游来源。
+>
+> **已核对可用的部分**：`RunSpecInput.StrategyParamsEffective`（`engine/provenance.go:147`）已在契约里，⑤ 的 hash 分量不缺；缺的是**入口字段**，所以整单仍不可开工（只做半条通路会造出「参数生效但无法从请求指定」的死路）。
+>
+> **解除条件**：G1 在 `tellurion-contracts` 发布含 `StrategyRef` / `StrategyParams` 的 tag（并同步 `ValidateRunSpec` 未知键拒绝口径）；core 升 pin 后按本单 ①~⑤ 落地。
 
 - **① 目标**：run 覆写参数真正生效且可追溯；未知键 400；执行期不再读 DB 的 `strategies.params`。
 - **② 上下文**：`p0-remediation-design.md` A3 / D26；`contracts.go:171-199` 无 params；`ReloadFromDB`/`ConfigureStrategy` 零生产调用点。
@@ -611,7 +621,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：同输入 20 次信号序一致；`value_momentum` 20 次结果逐位一致；差异报告归档；重复语义有专门测试。
 - **⑥ 边界**：只做顺序与重复；单量/仓位是 QT-24 的 `emit_target2`。
 
-### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⬜
+### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⛔（阻塞于 contracts）
+
+> **⛔ 阻塞记录（2026-10-24）**
+>
+> ③ 的落点已由 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 裁到 `tellurion-contracts:engine/provenance.go`（`StrategyVersionInput` + `Hash()`）与 `canonical.go`（`DomainStrategyVersionHash`），core 不接线。实测 contracts **v0.3.0** 两处都**不存在**（全仓 grep `StrategyVersionInput` / `DomainStrategyVersionHash` 零命中）。本仓不能越界定义同名算法——那会造出两份 version_hash 真源。
+>
+> **解除条件**：contracts 发布含 `StrategyVersionInput` + 域标签的 tag；core 升 pin 后只做「消费 + 对拍」腿（本单的向量常量与三必变/一不必变测试届时落在契约仓，core 侧留集成验证）。
 
 - **① 目标**：改 scope / 改默认参数 / 改源码，三者任一都产生新 hash；只改 run 覆写不产生新 hash；序列化顺序被人改动会立刻红。
 - **② 上下文**：`p0-remediation-design.md` A4；canonical 集合 = `strategy_id + carrier + abi_version + scope + entry + source + params_defaults`；`factor_definitions.version_hash` 是可复用样板（`factor_def.go:151`）。
