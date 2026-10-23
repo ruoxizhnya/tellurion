@@ -91,11 +91,14 @@ type Engine struct {
 	// Logger
 	logger zerolog.Logger
 
-	// L1 in-memory OHLCV cache (per-backtest-lifecycle) — P1-16
-	// (ADR-020) 拆分为 CacheManager 子组件。旧字段 inMemoryOHLCV /
-	// inMemoryOHLCVAtomic 已删除，行为完全迁移到 cache；外部代码
-	// 通过 Engine.CacheManager() 访问，旧 LoadOHLCVInMemory /
-	// getOHLCV / warmCache 保留为 backward-compat shim (6 个月)。
+	// L1 in-memory OHLCV cache —— **装配期种子**（QT-12 语义变更）。
+	//
+	// P1-16 (ADR-020) 拆分为 CacheManager 子组件；QT-12 之前 run 直接 warm
+	// 这份，于是并发 run 互相覆盖、且跨 run 单调合并不清理（A7/A10）。
+	// 现在每个 run 在 newRunContext 里拷一份自己的，**run 期间没人写这里**。
+	// 留下它的理由只有两个：① LoadOHLCVInMemory / CacheManager() 是对外
+	// API（测试与 bench 用它注入起点数据）；② 装配期注入的种子正是
+	// 「每个 run 从同一份数据出发」的锚。
 	//
 	// Key: symbol, Value: all OHLCV bars for that symbol (sorted by date).
 	// Populated via CacheManager.Warm() or CacheManager.Load().
@@ -104,15 +107,8 @@ type Engine struct {
 	// days) during a backtest run.
 	cache *CacheManager
 
-	// L1 factor cache (per-backtest-lifecycle) — P1-16 (ADR-020) 拆分
-	// 为 FactorCacheAccessor 子组件。旧字段 factorCache 已删除；
-	// 旧 LoadFactorCache / GetFactorZScore / warmFactorCache 保留为
-	// backward-compat shim。Engine.FactorCache() 返回 accessor。
-	//
-	// Structure: factorType -> tradeDate -> symbol -> zScore.
-	// Populated via FactorCacheAccessor.Load() before a backtest run.
-	// Get() reads from this map — zero-latency hit. Eliminates
-	// per-symbol-per-day DB queries for multi-factor strategies.
+	// L1 factor cache —— 同 e.cache，**装配期种子**（QT-12）。run 用的是
+	// runContext 里的副本（FactorCacheAccessor.Copy）。
 	factor *FactorCacheAccessor
 
 	// In-process risk manager — when set, position sizing, stop-loss, and
@@ -161,6 +157,8 @@ type Engine struct {
 	// 空 map = 没有这份数据，引擎**不过滤**并如实上报（偏差维会带
 	// PoolSourceCurrent 的 blocking）。绝不能反过来假设「没记录 = 一直在市」
 	// —— 那正是幸存者偏差本身。
+	//
+	// **装配期种子**（QT-12）：run 期间读写的是 runContext 里那份副本。
 	listing map[string]storage.ListingWindow
 
 	// liveBridge 桥接 backtest 信号到 live/paper trading (P1-17 ADR-020)。
@@ -214,7 +212,18 @@ type Engine struct {
 	// 数据，日内特征 provider 恒不可得（缺失≠0，不是 0）。
 	//
 	// 受 e.mu 保护：Engine 实例是共享的，多个回测可以并发跑。
+	// **装配期种子**（QT-12）：run 读写的是 runContext 里的副本。
 	intraday map[string][]domain.OHLCV
+
+	// admission 是 run 准入闸（QT-12 ④）：并发上限 + 有界队列 + 内存预算
+	// 与降级顺序都在 pkg/backtest/admission.go。nil = 显式关闭
+	// （WithRunAdmissionDisabled）——生产路径不该有这种取值。
+	admission *runAdmission
+
+	// wasmBytesAccounting 上报 wasm 会话占用的线性内存字节
+	// （QT-12 ⑤ 的 backtest_wasm_bytes 生产者）。nil = 今天仓内的真实形态
+	// （没有 wasm 信号供给，接线是 QT-26），指标报 0 而不是不报。
+	wasmBytesAccounting func() int64
 }
 
 // BacktestState is defined in state.go (P1-20) with internal locking
@@ -344,6 +353,8 @@ func NewEngine(v *viper.Viper, provider marketdata.Provider, logger zerolog.Logg
 		executionBridge: executionBridge,
 		rng:             rng,
 	}
+	// QT-12：准入闸默认开（并发上限 min(GOMAXPROCS,4) + 内存预算）。
+	eng.admission = newRunAdmission(admissionFromViper(v), nil)
 	return eng, nil
 }
 
@@ -420,6 +431,8 @@ func NewEngineWithOptions(cfg Config, provider marketdata.Provider, opts ...Engi
 		executionBridge: executionBridge,
 		rng:             rng,
 	}
+	// QT-12：默认档准入；WithRunObserver / WithRunAdmissionDisabled 覆盖。
+	eng.admission = newRunAdmission(defaultAdmissionConfig(), nil)
 	applyOptions(eng, opts)
 	return eng, nil
 }
@@ -470,6 +483,27 @@ func (e *Engine) SetStore(store *storage.PostgresStore) {
 	if store != nil {
 		e.logger.Info().Msg("PostgresStore attached to engine — factor cache warming enabled")
 	}
+}
+
+// SetRunObserver 把准入/缓存账的观察面挂到本引擎的准入闸（QT-12 ⑤）。
+//
+// 为什么是 setter 不是 option：装配方（cmd/analysis）先建引擎、再建
+// metrics，顺序反过来的话 option 路径拿不到 m。行为与 WithRunObserver
+// 完全一致，共用同一条闸内落点（runAdmission.attachObserver）。
+//
+// ⚠️ 一个如实登记的口径限制：**闸是按引擎算的**。一个进程里有两个引擎
+// （walk-forward 的每窗口工厂就是第二个），runs_active 会被后发布者覆盖、
+// 内存预算也各算各的 —— 进程总账比单看数字宽松。多引擎共享一份进程级
+// 准入账是 QT-12 的遗留项，见 docs/TASKS.md。
+func (e *Engine) SetRunObserver(ob RunObserver) {
+	e.mu.Lock()
+	gate := e.admission
+	e.mu.Unlock()
+	if gate == nil {
+		e.logger.Warn().Msg("SetRunObserver 被忽略：准入闸已通过 WithRunAdmissionDisabled 关闭")
+		return
+	}
+	gate.attachObserver(ob)
 }
 
 func (e *Engine) DataAdapter() *marketdata.DataAdapter {
@@ -803,6 +837,26 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// 内部路径、或 QT-02 之前落盘的历史快照被续跑）—— 当场失败，不回落默认：
 	// 悄悄按收盘成交一份「没声明口径」的回测，正是 §8.1 要把 ErrFillTimingMissing
 	// 立成必填的原因。
+	// QT-12：本 run 的可变状态（L1 缓存 / 因子 / 财报 / 上市日历 / 日内快照 /
+	// 信号供给 / 准入档位）全在 runContext 里，Engine 上的同名字段只是装配期
+	// 种子。run 期间没有任何一条路径写引擎级字段。
+	rc := newRunContext(e, params)
+	// 收尾一律挂上，不等准入分支：lease 为 nil（闸关闭 / 还没抢到）时
+	// Release 是 no-op，而台账撤账（retireRun）必须无条件发生 ——
+	// 把它写在 if 里面，等于「闸关着的时候 run 的缓存账永远留在看板上」。
+	defer rc.close()
+
+	if e.admission != nil {
+		lease, err := e.admission.acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rc.lease = lease
+		if err := rc.applyAdmission(params.StockPool); err != nil {
+			return nil, err
+		}
+	}
+
 	fillTiming, err := ResolveFillTiming(params.FillTiming)
 	if err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInvalidInput,
@@ -820,7 +874,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	logger.Info().Msg("Starting backtest")
 
 	warmCtx, warmCancel := context.WithTimeout(ctx, 2*time.Minute)
-	if err := e.warmCache(warmCtx, params.StockPool, params.StartDate, params.EndDate); err != nil {
+	if err := rc.warmCache(warmCtx, params.StockPool); err != nil {
 		warmCancel()
 		logger.Warn().Err(err).Msg("Cache warm-up failed — continuing without pre-cached data")
 	} else {
@@ -828,36 +882,39 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		logger.Info().Msg("Cache warm-up completed")
 	}
 
-	if err := e.warmFactorCache(ctx, params.StartDate, params.EndDate); err != nil {
+	if err := rc.warmFactorCache(ctx); err != nil {
 		logger.Warn().Err(err).Msg("Factor cache warm-up failed — strategies will fall back to HTTP computation")
-	} else if e.factor.Len() > 0 {
+	} else if rc.factor.Len() > 0 {
 		logger.Info().Msg("Factor cache warm-up completed")
 	}
 
 	// P2-12：只有声明了要财报的策略才会真的去查。
-	if err := e.warmFundamentalsIfNeeded(ctx, params.StrategyName, params.StockPool, params.EndDate); err != nil {
+	if err := rc.warmFundamentalsIfNeeded(ctx, params.StrategyName, params.StockPool, params.EndDate); err != nil {
 		logger.Warn().Err(err).Msg("Fundamentals warm-up failed — 用了 pe/pb/roe 的表达式会明确失败（不会静默当 0）")
 	}
 
 	// D6：只有声明了要日内特征的策略才会真的去预热（同财报范式）。
 	// 快照在启动前一次取完全区间；回测期间策略只读快照 —— 运行时
 	// 查询 provider 是红线（蓝图 §4.3）。
-	if err := e.warmIntradayIfNeeded(ctx, params.StrategyName, params.StockPool, params.StartDate, params.EndDate); err != nil {
+	if err := rc.warmIntradayIfNeeded(ctx, params.StrategyName, params.StockPool, params.StartDate, params.EndDate); err != nil {
 		logger.Warn().Err(err).Msg("Intraday snapshot warm-up failed — 日内特征策略会明确失败（不会静默当 0）")
 	}
+
+	// QT-12 ⑤：预热收尾时报一次缓存账（backtest_cache_bytes{kind}）。
+	rc.publishCacheMetrics()
 
 	// REV-18：qfq 复权基准快照 —— 起跑时读回本区间已冻结的基准（没有则本次
 	// 首建并落库）。必须**先于**任何取数发生，否则第一次取数就会以「当前刻度」
 	// 自建基准，重跑无从对齐。defer flush 把本次新采集的基准落库（首写者胜），
 	// 失败路径也照常冻结：基准是数据的客观属性，与这次策略跑得如何无关。
-	adj, err := e.newAdjustmentRunForRun(ctx, params)
+	adj, err := e.newAdjustmentRunForRun(ctx, rc, params)
 	if err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal, "failed to load adjustment anchors", "RunBacktest")
 	}
 	defer adj.flush(ctx, logger)
 
 	// P2-4：上市日历。拿不到就放弃按日在市过滤，并由偏差维如实记上。
-	e.loadListingCalendar(ctx)
+	rc.loadListingCalendar(ctx)
 
 	tradingDays, err := e.getTradingDays(ctx, params.StartDate, params.EndDate)
 	if err != nil {
@@ -895,10 +952,6 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	execAlgoDiag := newExecAlgoRunDiag()
 	fillDiag := newFillRunDiag() // REV-09：停牌跳过 / 流动性截断的 run 级计数
 
-	// QT-11：信号供给本 run 私有 —— 它缓存的那份策略实例因此跟着 run 活，
-	// 流式状态（游标 / EMA）不再残留到下一笔。见 newRunSignalProvider。
-	sigProvider := e.newRunSignalProvider()
-
 	// QT-02 · next_open：T 日收盘决策的信号在 T+1 开盘成交，所以「待成交」
 	// 要跨一天活着。same_close 分支不读它（下面的 else 就是既有调用）。
 	var pendingSignals []domain.Signal
@@ -920,7 +973,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 
 		// P2-4：池子按当天在市名单过滤，外加「还持仓的」（含已退市待平仓）。
 		held := heldSymbols(state.Tracker)
-		universe := e.eligibleUniverse(params.StockPool, date, held)
+		universe := rc.eligibleUniverse(params.StockPool, date, held)
 
 		// OBS-01：票池规模统计 —— 见 maxUniverseSize 声明处。
 		if n := len(universe); n > maxUniverseSize {
@@ -928,7 +981,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		}
 
 		marketDataCache, pricesCache, stockCache, updatedPrevClose, suspended := e.fetchMarketDataForDay(
-			ctx, universe, params, date, prevCloseCache, fillDiag, adj, logger,
+			ctx, rc, universe, params, date, prevCloseCache, fillDiag, adj, logger,
 		)
 		prevCloseCache = updatedPrevClose
 
@@ -957,7 +1010,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		// K18：摘牌强平是「引擎外改仓」——对每个真被平掉的 symbol 取消其
 		// 活跃 exec-algo 父单（剩余未报送子单丢弃），否则后续天的子单会把
 		// 已平的仓位买回。
-		for _, sym := range e.forceCloseDelisted(state, pricesCache, date, logger) {
+		for _, sym := range rc.forceCloseDelisted(state, pricesCache, date, logger) {
 			cancelExecAlgoParentsForSymbol(algoDispatch, sym, cancelReasonDelisted, logger)
 		}
 
@@ -977,7 +1030,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			}
 		}
 
-		signals, err := e.getSignals(ctx, sigProvider, params.StrategyName, universe, marketDataCache, date, state.Tracker)
+		signals, err := e.getSignals(ctx, rc, params.StrategyName, universe, marketDataCache, date, state.Tracker)
 		if err != nil {
 			// REV-22-(3)：信号失败当天交易凭空消失，只留一条 Warn 不够——
 			// 计数进 run 级诊断（复用 execAlgoRunDiag 通道），logSummary 汇总。
@@ -1019,7 +1072,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			}
 			pendingSignals = signals
 		}
-		e.processSignalsAndExecuteTrades(ctx, state, fillSignals, marketDataCache, pricesCache, plan, regime, date, algoDispatch, execAlgoDiag, suspended, fillDiag, logger)
+		e.processSignalsAndExecuteTrades(ctx, rc, state, fillSignals, marketDataCache, pricesCache, plan, regime, date, algoDispatch, execAlgoDiag, suspended, fillDiag, logger)
 
 		// K17：exec-algo 到点子单送撮合（在信号处理之后：新挂父单的首片
 		// SubmitAt = 信号当日，当日到点即发）。无活跃父单时零开销返回。
@@ -1144,35 +1197,6 @@ func (e *Engine) checkCalendarExists(ctx context.Context, start, end time.Time) 
 	return ok, nil
 }
 
-// warmCache pre-fetches all OHLCV data for the stock universe into the L1
-// in-memory cache (e.inMemoryOHLCV) using the provider's bulk endpoint.
-//
-// If the L1 cache was already populated (via LoadOHLCVInMemory) and contains
-// entries for the requested symbols, this function returns immediately — the
-// caller has already done the work. This is the common path for in-memory and
-// benchmark backtests.
-//
-// P1-16 (ADR-020): thin shim to cache.Warm(). The fast-path skip,
-// bulk fetch, sort, and atomic publish are now in pkg/backtest/cache.go.
-func (e *Engine) warmCache(ctx context.Context, symbols []string, start, end time.Time) error {
-	return e.cache.Warm(ctx, symbols, start, end, e.effectiveProvider)
-}
-
-// P1-16 (ADR-020): thin shim to factor.Warm().
-// Typed-nil guard: e.store is a *storage.PostgresStore (concrete pointer).
-// Passing it directly to an interface param would create a non-nil
-// interface (Go's typed-nil trap), causing factor.Warm to dereference
-// a nil receiver. Check the underlying pointer first.
-func (e *Engine) warmFactorCache(ctx context.Context, start, end time.Time) error {
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-	if store == nil {
-		return nil
-	}
-	return e.factor.Warm(ctx, start, end, store)
-}
-
 // SetFundamentals 让调用方直接注入财报数据，跳过预热（P2-12）。
 //
 // 给测试和「没有 Postgres 也想跑估值策略」的场景留的门：数据从哪来由调用
@@ -1181,16 +1205,6 @@ func (e *Engine) SetFundamentals(records map[string]strategy.FundamentalSeries) 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.fundamentals = records
-}
-
-// fundamentalsSnapshot 返回当前缓存的财报（并发安全）。
-//
-// 不复制：回测期间每个交易日都要对齐一次，几万条记录复制一遍不值得。
-// 调用方只读。
-func (e *Engine) fundamentalsSnapshot() map[string]strategy.FundamentalSeries {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.fundamentals
 }
 
 // SetListingWindows 让调用方直接注入上市日历（P2-4），跳过预热。
@@ -1210,49 +1224,6 @@ func (e *Engine) ListingWindows() map[string]storage.ListingWindow {
 	return e.listing
 }
 
-// loadListingCalendar 预热上市日历（P2-4）。
-//
-// 一次查询覆盖整个回测区间：回测每天要判断几千只票在不在市，逐日查库
-// 不可行，而这份数据是低频的（一年变不了几只）。
-//
-// 取不到时不报错 —— 没有日历只是「治不了幸存者偏差」，不是回测失败。
-// 但会打 warn，并且 ListingWindows() 返回空，让偏差维能如实记上这条债。
-func (e *Engine) loadListingCalendar(ctx context.Context) {
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-	if store == nil {
-		return
-	}
-
-	windows, err := store.GetListingWindows(ctx)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg(
-			"Listing calendar load failed — 无法按日在市过滤，池子仍是当前上市名单（幸存者偏差未修）")
-		return
-	}
-	if len(windows) == 0 {
-		e.logger.Warn().Msg(
-			"stocks 表为空 — 无法按日在市过滤，池子仍是当前上市名单（幸存者偏差未修）")
-		return
-	}
-
-	delisted := 0
-	for _, w := range windows {
-		if w.Delist != nil {
-			delisted++
-		}
-	}
-	e.mu.Lock()
-	e.listing = windows
-	e.mu.Unlock()
-
-	e.logger.Info().
-		Int("stocks", len(windows)).
-		Int("delisted", delisted).
-		Msg("Listing calendar loaded")
-}
-
 // heldSymbols 取出当前还持仓的股票。
 //
 // universe 过滤要用到它：已退市但还持仓的票不能从池子里消失，否则永远
@@ -1267,89 +1238,6 @@ func heldSymbols(tracker *Tracker) map[string]bool {
 	return out
 }
 
-// eligibleUniverse 返回 date 当天真正参与回测的股票集合（P2-4）。
-//
-// 两个来源取并集：
-//  1. 当天仍在市 —— 未上市的不能算（那是"未来股"，另一种前视偏差），
-//     已摘牌的不能算（那时候它已经不存在了，拿不到价格也交易不了）。
-//  2. 还持仓的 —— 哪怕已退市也要留着，否则持仓永远卡在账上：既卖不掉
-//     也不计损益，比"收益被高估"更离谱。它们会在当天被强制平掉。
-//
-// 没有上市日历时原样返回 pool（不过滤），调用方需自行上报这条偏差。
-// 返回的顺序与入参一致 —— 顺序会影响成交序列，不能引入随机性（P1-14）。
-func (e *Engine) eligibleUniverse(pool []string, date time.Time, held map[string]bool) []string {
-	e.mu.RLock()
-	listing := e.listing
-	e.mu.RUnlock()
-
-	if len(listing) == 0 {
-		return pool
-	}
-
-	out := make([]string, 0, len(pool))
-	for _, s := range pool {
-		w, known := listing[s]
-		switch {
-		case !known:
-			// 日历里查不到这只票 —— 不知道就放进去了？不。
-			// 宁可漏也不能凭空造：留它在池子里等于假设"它一直在市"，
-			// 那正是要修的偏差本身。但要如实记一笔，否则池子悄悄缩水。
-			e.logger.Debug().Str("symbol", s).Time("date", date).
-				Msg("Symbol absent from listing calendar — excluded from universe")
-		case w.IsListed(date):
-			out = append(out, s)
-		case held[s]:
-			out = append(out, s) // 已退市但仍持仓：留着等强平
-		}
-	}
-	return out
-}
-
-// warmFundamentals 预热基本面数据（P2-12）。
-//
-// 三个「不」：
-//  1. 策略不要就不查 —— 只有实现了 strategy.FundamentalAware 的策略才预热，
-//     纯价量策略不该为估值数据付查询成本。
-//  2. 只查一次 —— 一次 bulk 查询覆盖回测终点之前的所有期数；每根 K 线的
-//     可见性由 OHLCVDataProvider 在对齐时切，不需要按日重查。
-//  3. 失败不阻断 —— 没有财报数据只是让估值表达式跑不起来（明确报错），
-//     不是回测本身失败。
-func (e *Engine) warmFundamentalsIfNeeded(ctx context.Context, strategyName string, symbols []string, asOf time.Time) error {
-	// QT-11：这里只为「策略要不要财报」的类型探测，但探测对象必须是执行路径
-	// 真正拿到的那种东西——走 NewInstance（拿不到 = 未注册/共享实例，同样
-	// 不预热），而不是把注册表里那份共享实例摸出来。
-	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
-	if err != nil {
-		return nil // 本地注册表没有该策略（未加载/拼错）：不预热；不存在的策略不付查询成本
-	}
-	if _, ok := strat.(strategy.FundamentalAware); !ok {
-		return nil // 价量策略：不付这份查询成本
-	}
-
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-	if store == nil {
-		return nil // 没有 DB：策略会在用到 pe/pb 时明确报错
-	}
-
-	records, err := store.GetFundamentalsPITBulk(ctx, symbols, asOf)
-	if err != nil {
-		return err
-	}
-
-	e.mu.Lock()
-	e.fundamentals = records
-	e.mu.Unlock()
-
-	e.logger.Info().
-		Int("symbols", len(symbols)).
-		Int("stocks_with_fundamentals", len(records)).
-		Time("as_of", asOf).
-		Msg("Fundamentals warm-up completed")
-	return nil
-}
-
 // getTradingDays retrieves trading days from data service.
 func (e *Engine) getTradingDays(ctx context.Context, start, end time.Time) ([]time.Time, error) {
 	days, err := e.effectiveProvider().GetTradingDays(ctx, start, end)
@@ -1362,17 +1250,6 @@ func (e *Engine) getTradingDays(ctx context.Context, start, end time.Time) ([]ti
 	})
 
 	return days, nil
-}
-
-// getOHLCV retrieves OHLCV data for a symbol.
-// L1 cache hit (CacheManager) → zero-latency return with date-range filtering.
-// L1 cache miss → fallback to provider (HTTP or InMemoryProvider).
-//
-// P1-16 (ADR-020): thin shim to cache.Get(). The atomic-pointer snapshot
-// load, binary-search range filter, and provider fallback all live in
-// pkg/backtest/cache.go. See CacheManager doc for hot-path invariants.
-func (e *Engine) getOHLCV(ctx context.Context, symbol string, start, end time.Time) ([]domain.OHLCV, error) {
-	return e.cache.Get(ctx, symbol, start, end, e.effectiveProvider)
 }
 
 // dateRangeBounds was promoted to DateRangeBounds (exported) in
@@ -1451,35 +1328,15 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// newRunSignalProvider 为**本 run** 建一份信号供给（QT-11）。
-//
-// 为什么跟着 run 而不是跟着 Engine：Engine 实例可被多个回测并发共享，而
-// LocalSignalProvider 会缓存它经注册表构造函数拿到的那份策略实例 ——
-// provider 跨 run 复用 = 策略实例跨 run 复用 = `SignalStrategy.cursor`
-// 这类流式状态活到下一笔（K17 派发器同一条纪律）。
-//
-// 调用方经 WithSignalProvider 注入自定义实现时，本方法原样返回那个对象：
-// 它的跨 run 生命周期属 QT-14（BeginRun/EndRun），不在本单里自作主张。
-func (e *Engine) newRunSignalProvider() strategy.SignalProvider {
-	if injected := e.signalProvider; injected != nil {
-		return injected
-	}
-	p := strategy.NewLocalSignalProvider(nil)
-	// 现绑 factor/fundamentals method value，注入节奏同旧实现的每交易日注入。
-	p.SetFactorReader(e.GetFactorZScore)
-	p.SetFundamentalsProvider(e.fundamentalsSnapshot)
-	return p
-}
-
 // getSignals retrieves trading signals via the SignalProvider 契约（K8 ·
 // SignalSpec）。默认供给是 strategy.LocalSignalProvider——注册表 miss 时
 // fail-loud 的 OBS-11 口径与批式/流式双模式逻辑都在那边，行为与旧实现
 // 逐字节一致。
 //
-// sigProvider 由调用方按 run 创建（见 newRunSignalProvider）并在日循环里
-// 传进来：本方法自己不新建，否则每交易日换一份策略实例、流式状态当天就丢。
-// 传 nil 只发生在直接调用本方法的测试里，等价于旧的「每调用一份 provider」。
-func (e *Engine) getSignals(ctx context.Context, sigProvider strategy.SignalProvider, strategyName string, stockPool []string, marketData map[string][]domain.OHLCV, date time.Time, tracker *Tracker) ([]domain.Signal, error) {
+// sigProvider 来自本 run 的状态包（见 newRunContext）：本方法自己不新建，
+// 否则每交易日换一份策略实例、流式状态当天就丢。rc 在 run 流程里恒非 nil
+// —— 它是 RunBacktest 第一件事建出来的那个对象。
+func (e *Engine) getSignals(ctx context.Context, rc *runContext, strategyName string, stockPool []string, marketData map[string][]domain.OHLCV, date time.Time, tracker *Tracker) ([]domain.Signal, error) {
 	// 组合快照提前到调用方计算（GetPortfolio 纯读、可提前调用）。tracker
 	// 为 nil（如注册表 miss 的装配错误路径）时 Portfolio 留 nil，流式路径
 	// 本就不用它。
@@ -1488,17 +1345,14 @@ func (e *Engine) getSignals(ctx context.Context, sigProvider strategy.SignalProv
 		portfolio = tracker.GetPortfolio(extractLatestPrices(marketData))
 	}
 
-	if sigProvider == nil {
-		sigProvider = e.newRunSignalProvider()
-	}
-
-	// D6：绑定「当日」日内特征供给（快照 + 回放日边界）。策略未实现
-	// IntradayAware 时注入被断言挡掉，零成本零行为变化。
-	// 只对本 run 私有的默认实现做这件事（QT-11）——逐日改写一个跨 run
-	// 共享的 provider，会把上一笔的日内窗口带进这一笔。
-	if e.signalProvider == nil {
+	// 信号供给是本 run 的（QT-11），日内特征按当日绑定（D6）：
+	// 逐日改写一个跨 run 共享的 provider 会把上一笔的窗口带进这一笔。
+	// 注入过自定义 provider（QT-14 的会话对象）时**不动它** —— 那个对象
+	// 不属于本 run，逐日 Set 回去正是 QT-11 当初要堵的形状。
+	sigProvider := rc.provider
+	if rc.e.signalProvider == nil {
 		if local, ok := sigProvider.(*strategy.LocalSignalProvider); ok {
-			local.SetIntradayProvider(e.intradayFeatureProvider(date))
+			local.SetIntradayProvider(rc.intradayFeatureProvider(date))
 		}
 	}
 
@@ -1605,7 +1459,7 @@ func resolveDirection(s strategy.Signal) domain.Direction {
 // calculatePosition calculates position size using risk service.
 // When an in-process RiskManager is set (via SetRiskManager), computes locally
 // without HTTP calls. Otherwise falls back to the external risk-service.
-func (e *Engine) calculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64) (domain.PositionSize, error) {
+func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64) (domain.PositionSize, error) {
 	e.mu.RLock()
 	rm := e.riskManager
 	e.mu.RUnlock()
@@ -1614,7 +1468,7 @@ func (e *Engine) calculatePosition(ctx context.Context, signal domain.Signal, po
 		// P1-16 (ADR-020): read cached snapshot via CacheManager.Peek
 		// (peek-only — no provider fallback; calculatePosition is a
 		// best-effort read of already-warmed data).
-		ohlcv := e.cache.Peek(signal.Symbol)
+		ohlcv := rc.peekOHLCV(signal.Symbol)
 		pos, err := rm.CalculatePosition(ctx, signal, portfolio, regime, currentPrice, ohlcv)
 		if err != nil {
 			return domain.PositionSize{}, apperrors.Wrap(err, apperrors.ErrCodeInternal, "in-process position calculation failed", "calculatePosition")
@@ -1657,6 +1511,7 @@ func (e *Engine) calculatePosition(ctx context.Context, signal domain.Signal, po
 // Uses the RiskManager's batch method when available for better performance.
 func (e *Engine) calculatePositionsBatch(
 	ctx context.Context,
+	rc *runContext,
 	signals []domain.Signal,
 	portfolio *domain.Portfolio,
 	regime *domain.MarketRegime,
@@ -1673,7 +1528,7 @@ func (e *Engine) calculatePositionsBatch(
 
 	results := make(map[string]domain.PositionSize, len(signals))
 	for _, sig := range signals {
-		ps, err := e.calculatePosition(ctx, sig, portfolio, regime, pricesCache[sig.Symbol])
+		ps, err := e.calculatePosition(ctx, rc, sig, portfolio, regime, pricesCache[sig.Symbol])
 		if err != nil {
 			continue
 		}

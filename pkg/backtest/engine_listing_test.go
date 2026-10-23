@@ -37,29 +37,31 @@ func testWindows() map[string]storage.ListingWindow {
 func TestEligibleUniverse_FiltersByListingDate(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 	pool := []string{"ALIVE", "GONE", "FUTURE"}
 
 	// 2020 年：FUTURE 还没上市（未来股，另一种前视偏差）
 	assert.Equal(t, []string{"ALIVE", "GONE"},
-		eng.eligibleUniverse(pool, date("2020-06-01"), nil),
+		rc.eligibleUniverse(pool, date("2020-06-01"), nil),
 		"未上市的票不能出现在历史池子里")
 
 	// 2023 年：GONE 已摘牌
 	assert.Equal(t, []string{"ALIVE", "FUTURE"},
-		eng.eligibleUniverse(pool, date("2023-01-01"), nil),
+		rc.eligibleUniverse(pool, date("2023-01-01"), nil),
 		"已摘牌的票不能在摘牌后继续交易")
 
 	// 摘牌当天仍算在市（退市整理期通常还有行情，也该能卖出）
 	assert.Equal(t, []string{"ALIVE", "GONE"},
-		eng.eligibleUniverse(pool, date("2021-06-01"), nil))
+		rc.eligibleUniverse(pool, date("2021-06-01"), nil))
 }
 
 // 修复幸存者偏差的关键不在「剔除已退市」，而在「退市前让它一直在池子里」。
 func TestEligibleUniverse_DelistedStockStaysInPoolBeforeDelisting(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
-	got := eng.eligibleUniverse([]string{"GONE"}, date("2019-03-01"), nil)
+	got := rc.eligibleUniverse([]string{"GONE"}, date("2019-03-01"), nil)
 	assert.Equal(t, []string{"GONE"}, got,
 		"退市票在退市**之前**必须在池子里 —— 否则修的就不是幸存者偏差，是把它坐实了")
 }
@@ -68,8 +70,9 @@ func TestEligibleUniverse_DelistedStockStaysInPoolBeforeDelisting(t *testing.T) 
 func TestEligibleUniverse_DelistedButHeldIsKeptForLiquidation(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
-	got := eng.eligibleUniverse([]string{"ALIVE", "GONE"}, date("2023-01-01"),
+	got := rc.eligibleUniverse([]string{"ALIVE", "GONE"}, date("2023-01-01"),
 		map[string]bool{"GONE": true})
 	assert.Equal(t, []string{"ALIVE", "GONE"}, got,
 		"还持仓的退市票要留着，好把它平掉")
@@ -79,8 +82,9 @@ func TestEligibleUniverse_DelistedButHeldIsKeptForLiquidation(t *testing.T) {
 func TestEligibleUniverse_UnknownSymbolIsExcluded(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
-	got := eng.eligibleUniverse([]string{"ALIVE", "WHO"}, date("2020-06-01"), nil)
+	got := rc.eligibleUniverse([]string{"ALIVE", "WHO"}, date("2020-06-01"), nil)
 	assert.Equal(t, []string{"ALIVE"}, got,
 		"查不到上市日期的票不能默认它在市")
 }
@@ -88,10 +92,11 @@ func TestEligibleUniverse_UnknownSymbolIsExcluded(t *testing.T) {
 // 没有日历时不过滤 —— 但调用方必须照实上报这条偏差，不能当成"已修好"。
 func TestEligibleUniverse_NoCalendarPassesThrough(t *testing.T) {
 	eng := newTestEngine(t)
+	rc := newTestRun(t, eng)
 	pool := []string{"ALIVE", "GONE", "FUTURE"}
 
 	assert.Nil(t, eng.ListingWindows(), "没注入日历就该是空的")
-	assert.Equal(t, pool, eng.eligibleUniverse(pool, date("2020-06-01"), nil),
+	assert.Equal(t, pool, rc.eligibleUniverse(pool, date("2020-06-01"), nil),
 		"没有日历就不能乱剔除，但偏差维要报 PoolSourceCurrent")
 }
 
@@ -99,11 +104,12 @@ func TestEligibleUniverse_NoCalendarPassesThrough(t *testing.T) {
 func TestEligibleUniverse_PreservesOrder(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 	pool := []string{"ALIVE", "GONE", "FUTURE"}
 
-	first := eng.eligibleUniverse(pool, date("2020-06-01"), nil)
+	first := rc.eligibleUniverse(pool, date("2020-06-01"), nil)
 	for i := 0; i < 20; i++ {
-		assert.Equal(t, first, eng.eligibleUniverse(pool, date("2020-06-01"), nil))
+		assert.Equal(t, first, rc.eligibleUniverse(pool, date("2020-06-01"), nil))
 	}
 }
 
@@ -130,13 +136,14 @@ func buy(t *testing.T, state *BacktestState, symbol string, qty, price float64, 
 func TestForceCloseDelisted_ClosesPositionAfterDelisting(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
 	state := newTestState(t)
 	buy(t, state, "GONE", 100, 10, date("2021-05-20"))
 	require.True(t, state.Tracker.HasPosition("GONE"))
 
 	// 摘牌后的第一个交易日：当天已无行情，走持仓里的最后已知价。
-	eng.forceCloseDelisted(state, map[string]float64{}, date("2021-06-02"), zerolog.Nop())
+	rc.forceCloseDelisted(state, map[string]float64{}, date("2021-06-02"), zerolog.Nop())
 
 	pos, ok := state.Tracker.GetPosition("GONE")
 	if ok && pos.Quantity != 0 {
@@ -149,11 +156,12 @@ func TestForceCloseDelisted_ClosesPositionAfterDelisting(t *testing.T) {
 func TestForceCloseDelisted_NotTriggeredOnDelistDay(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
 	state := newTestState(t)
 	buy(t, state, "GONE", 100, 10, date("2021-05-20"))
 
-	eng.forceCloseDelisted(state, map[string]float64{"GONE": 9}, date("2021-06-01"), zerolog.Nop())
+	rc.forceCloseDelisted(state, map[string]float64{"GONE": 9}, date("2021-06-01"), zerolog.Nop())
 
 	pos, ok := state.Tracker.GetPosition("GONE")
 	require.True(t, ok)
@@ -165,11 +173,12 @@ func TestForceCloseDelisted_NotTriggeredOnDelistDay(t *testing.T) {
 func TestForceCloseDelisted_LeavesListedPositionsAlone(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())
+	rc := newTestRun(t, eng)
 
 	state := newTestState(t)
 	buy(t, state, "ALIVE", 100, 10, date("2020-05-20"))
 
-	eng.forceCloseDelisted(state, map[string]float64{"ALIVE": 11}, date("2020-06-01"), zerolog.Nop())
+	rc.forceCloseDelisted(state, map[string]float64{"ALIVE": 11}, date("2020-06-01"), zerolog.Nop())
 
 	pos, ok := state.Tracker.GetPosition("ALIVE")
 	require.True(t, ok)
@@ -178,11 +187,12 @@ func TestForceCloseDelisted_LeavesListedPositionsAlone(t *testing.T) {
 
 func TestForceCloseDelisted_NoCalendarIsNoop(t *testing.T) {
 	eng := newTestEngine(t)
+	rc := newTestRun(t, eng)
 
 	state := newTestState(t)
 	buy(t, state, "GONE", 100, 10, date("2021-05-20"))
 
-	eng.forceCloseDelisted(state, map[string]float64{}, date("2021-06-02"), zerolog.Nop())
+	rc.forceCloseDelisted(state, map[string]float64{}, date("2021-06-02"), zerolog.Nop())
 
 	pos, ok := state.Tracker.GetPosition("GONE")
 	require.True(t, ok)

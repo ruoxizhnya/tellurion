@@ -28,6 +28,8 @@ package cache
 
 import (
 	"context"
+	"math"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -37,6 +39,27 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "tellurion/pkg/errors"
 	"tellurion/pkg/marketdata"
+)
+
+// 内存账的估算口径（QT-12 ③）。三个常数都是**估算**，不是 profiler：
+// 这个数用于「这笔跑不跑得下」的准入判断与 backtest_cache_bytes 指标，
+// 真实峰值仍以 runtime.MemStats 为准 —— 口径写在 Bytes 的文档里。
+var (
+	// ohlcvBarBytes 是一根 domain.OHLCV 在堆上占的大小（不含字段指向的对象）。
+	// 用 reflect 而不是硬编码：结构体加字段时这个数自己跟着变，
+	// 而写死的数会让内存预算越算越乐观 —— 预算算小了才是真事故。
+	ohlcvBarBytes = int64(reflect.TypeOf(domain.OHLCV{}).Size())
+
+	// sliceHeaderBytes 是 map 里那个 []domain.OHLCV 值本身的开销（ptr/len/cap）。
+	sliceHeaderBytes = int64(24)
+
+	// mapEntryBytes 是 Go map 每个条目的摊销开销（桶元数据 + key 的 string header）。
+	// 取 24：与 runtime 的 mapbucket 口径同量级，宁可略保守。
+	mapEntryBytes = int64(24)
+
+	// 因子缓存的值本体宽度（z-score 是 float64、分位是 int，64 位平台上都是 8）。
+	float64Bytes = int64(8)
+	intBytes     = int64(8)
 )
 
 // CacheManager 管理 L1 OHLCV 缓存。
@@ -288,6 +311,89 @@ func (cm *CacheManager) Snapshot() map[string][]domain.OHLCV {
 		return nil
 	}
 	return *snap
+}
+
+// Bytes 返回 L1 OHLCV 缓存**约**占的堆字节（QT-12 ③ 的可计量口径）。
+//
+// 口径（照实，不是精确值）：
+//   - bar 本体按 `cap(bars) × sizeof(domain.OHLCV)` 计 —— 用 cap 不用 len，
+//     因为分配器给的就是 cap；
+//   - 每个 symbol 条目再加 slice header 与 map 条目摊销（见包内三个常数）；
+//   - 不含 bars 里字符串字段指向的堆对象（symbol 名等在多处共享，重复计会
+//     把预算算得比真实更悲观，而悲观的方向是「该跑的跑不了」）。
+//
+// 它是**准入判断与 backtest_cache_bytes 指标**的输入，不是 profiler：
+// 真实峰值看 runtime.MemStats。返回 lock-free（读已发布快照）。
+func (cm *CacheManager) Bytes() int64 {
+	snap := cm.inMemoryOHLCVAtomic.Load()
+	if snap == nil {
+		return 0
+	}
+	return OHLCVMapBytes(*snap)
+}
+
+// OHLCVMapBytes 估算一份 symbol→bars 映射的堆字节，口径见 Bytes 的文档。
+//
+// 导出理由：这份账只该有一处定义。引擎的**日内快照**（per-run 的
+// map[string][]domain.OHLCV，D6）与 L1 缓存是同一种数据形态，各处自写
+// 一遍估算迟早分叉 —— 分叉的两侧会各自给出「我的预算没超」。
+func OHLCVMapBytes(data map[string][]domain.OHLCV) int64 {
+	var total int64
+	for symbol, bars := range data {
+		total += int64(cap(bars))*ohlcvBarBytes + sliceHeaderBytes + mapEntryBytes + int64(len(symbol))
+	}
+	return total
+}
+
+// FundamentalsBytes 估算一份 symbol→财报序列 映射的堆字节
+// （口径与局限同 OHLCVMapBytes：估算、准入用、不是 profiler）。
+//
+// 放这儿而不是引擎里：三种数据形态（OHLCV / 因子 / 财报）的账必须在同一个
+// 包里用同一组常数算出来，否则「backtest_cache_bytes」这个指标就不是一个口径。
+func FundamentalsBytes(data map[string][]domain.Fundamental) int64 {
+	recordBytes := int64(reflect.TypeOf(domain.Fundamental{}).Size())
+	var total int64
+	for symbol, series := range data {
+		total += int64(cap(series))*recordBytes + sliceHeaderBytes + mapEntryBytes + int64(len(symbol))
+	}
+	return total
+}
+
+// Bars 返回缓存里的 bar 总条数（准入估算的第二维：跑 N 天 × M 只票要多少行）。
+func (cm *CacheManager) Bars() int64 {
+	snap := cm.inMemoryOHLCVAtomic.Load()
+	if snap == nil {
+		return 0
+	}
+	var n int64
+	for _, bars := range *snap {
+		n += int64(cap(bars))
+	}
+	return n
+}
+
+// EstimateOHLCVBytes 估算「symbols 只票 × days 根 bar」全量预加载的堆字节。
+//
+// 准入闸在**取数之前**要回答「这笔装不装得下」，那时还没有真实 map，
+// 所以这里给的是同口径的先验估算（每只票一条 slice 的 header + map 条目
+// 摊销 + days 根 bar）。口径与 OHLCVMapBytes 必须一致 —— 两处各写一遍
+// 迟早分叉，分叉两侧会各自宣称「我的预算没超」。
+//
+// 极端输入饱和到 MaxInt64 而不是让它绕回：int64 相乘溢出会得到一个
+// **看起来合理的小正数**（1e9 × 1e9 天绕回约 9.8e12），比负数更坏 ——
+// 负数至少让「装得下」判定恒真得可疑，绕回的数会顺利过关。
+func EstimateOHLCVBytes(symbols, days int64) int64 {
+	if symbols <= 0 || days <= 0 {
+		return 0
+	}
+	if days > math.MaxInt64/ohlcvBarBytes {
+		return math.MaxInt64
+	}
+	perSymbol := days*ohlcvBarBytes + sliceHeaderBytes + mapEntryBytes
+	if symbols > math.MaxInt64/perSymbol {
+		return math.MaxInt64
+	}
+	return symbols * perSymbol
 }
 
 // Get 读取单个 symbol 的 OHLCV 区间。

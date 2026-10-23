@@ -157,69 +157,6 @@ func (e *Engine) SetRouter(r *marketdata.Router) {
 	}
 }
 
-// intradaySnapshot 返回当前日内快照（并发安全，只读语义同
-// fundamentalsSnapshot：回测期间每个交易日对齐一次，不复制）。
-func (e *Engine) intradaySnapshot() map[string][]domain.OHLCV {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.intraday
-}
-
-// warmIntradayIfNeeded 预热日内分钟快照（D6；范式同
-// warmFundamentalsIfNeeded）。
-//
-// 三个「不」：
-//  1. 策略不要就不查 —— 只有实现了 strategy.IntradayAware 的策略才预热，
-//     纯日线策略不为分钟数据付取数/内存成本（回归红线：数值不变）。
-//  2. 只走 Router —— 不经 provider 直查物理表（repoguard 护栏 +
-//     本文件是引擎侧唯一 provider 访问点）。
-//  3. 失败不阻断 —— 没有快照只是让日内特征策略明确报错，不是回测失败
-//     （同财报预热语义）。
-func (e *Engine) warmIntradayIfNeeded(ctx context.Context, strategyName string, symbols []string, start, end time.Time) error {
-	// QT-11：同 warmFundamentalsIfNeeded —— 类型探测也经 NewInstance，
-	// 执行路径不许摸注册表里那份共享实例。
-	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
-	if err != nil {
-		return nil // 本地注册表没有该策略（未加载/拼错）：与日内预热无关，直接返回
-	}
-	if _, ok := strat.(strategy.IntradayAware); !ok {
-		return nil // 纯日线策略：不付这份成本
-	}
-
-	e.mu.RLock()
-	router := e.router
-	e.mu.RUnlock()
-	if router == nil {
-		// 没有 Router：不报错、不阻断。策略用到特征时由 provider 恒
-		// 不可得 ⇒ 明确失败（缺失≠0），与「没传财报」同口径。
-		return nil
-	}
-
-	// 交易日区间 → 取数区间：引擎的 start/end 是 **UTC 零点的交易日**，
-	// 而 1m 路由按 ts BETWEEN 取数（D1 口径）—— 直接把 00:00 UTC
-	// 当上界，会把当日 09:30 CST（= 01:30 UTC）之后的全部分钟 bar
-	// 挡在门外（自灌自证测试当场抓到的缺口）。展开到
-	// [start, end+1d) 覆盖每一天的完整交易时段。
-	endExclusive := end.AddDate(0, 0, 1)
-
-	snapshot, totalBars, err := loadIntradaySnapshot(ctx, router, symbols, start, endExclusive)
-	if err != nil {
-		return err
-	}
-
-	e.mu.Lock()
-	e.intraday = snapshot
-	e.mu.Unlock()
-
-	e.logger.Info().
-		Int("symbols", len(snapshot)).
-		Int("minute_bars", totalBars).
-		Time("start", start).
-		Time("end", end).
-		Msg("Intraday snapshot warm-up completed (D6)")
-	return nil
-}
-
 // loadIntradaySnapshot 经 Router 分片取 [start, endExclusive) 的 1m bar
 // （生产版自灌自证）。
 //
@@ -258,20 +195,6 @@ func loadIntradaySnapshot(
 		}
 	}
 	return snapshot, total, nil
-}
-
-// intradayFeatureProvider 构造「绑定回放日」的日内特征供给（引擎每个
-// 交易日调一次，供 LocalSignalProvider 注入 IntradayAware 策略）。
-//
-// 为什么按日绑定而不是把整份快照交给策略：provider 只暴露**当日**
-// 的分钟特征（dayRange 二分切片），策略拿不到其它交易日的 bar ——
-// 这是「启动前快照」与「不许偷看别的日子」两道红线的交点。
-func (e *Engine) intradayFeatureProvider(day time.Time) strategy.IntradayFeatureProvider {
-	return &snapshotIntradayProvider{
-		snapshot: e.intradaySnapshot(),
-		dayStart: shanghaiDayStart(day),
-		dayEnd:   shanghaiDayStart(day).AddDate(0, 0, 1),
-	}
 }
 
 // shanghaiDayStart 返回时刻所属 Shanghai 自然日的起点。

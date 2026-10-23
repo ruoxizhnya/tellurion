@@ -19,6 +19,13 @@
 // （延迟分布）。ObserveNTCall 隐式实现 nautilus.RunObserver（消费方定义的
 // 窄接口；编译期断言在装配侧 cmd/analysis/setup.go）。outcome 取值封闭为
 // ok/unavailable/timeout/internal，与 pkg/errors 错误码族对齐，标签基数有界。
+//
+// QT-12 ⑤ · run 准入与内存账：另注册四条 Gauge —— backtest_runs_active、
+// backtest_runs_queued、backtest_cache_bytes{kind}、backtest_wasm_bytes。
+// 对应的四个方法（SetRunsActive / SetRunsQueued / SetCacheBytes /
+// SetWasmBytes）隐式实现 backtest.RunObserver，编译期断言同样在
+// cmd/analysis/setup.go。四条都是「现在是多少」而不是「累计多少」，
+// 所以都不带 _total 后缀 —— 那个后缀在 Prometheus 约定里专指单调递增。
 package observability
 
 import (
@@ -47,6 +54,14 @@ type Metrics struct {
 	// timeout/internal，与 pkg/errors 错误码族对齐）。
 	NTCallCount    *prometheus.CounterVec
 	NTCallDuration *prometheus.HistogramVec
+
+	// QT-12 ⑤ · run 准入与缓存账（四个都是 Gauge：读的是「现在」，
+	// 不是累计。刻意不带 _total 后缀 —— 那个后缀在 Prometheus 约定里
+	// 专指单调递增的 Counter，挂在一个会往下走的量上会让 rate() 出鬼值）。
+	RunsActive prometheus.Gauge
+	RunsQueued prometheus.Gauge
+	CacheBytes *prometheus.GaugeVec
+	WasmBytes  prometheus.Gauge
 
 	registry *prometheus.Registry
 }
@@ -94,13 +109,34 @@ func NewMetrics() *Metrics {
 			Buckets: prometheus.ExponentialBuckets(0.05, 2, 12), // 50ms .. ~200s，与 backtest_duration 同桶口径
 		}, []string{"outcome"}),
 
+		RunsActive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "backtest_runs_active",
+			Help: "Backtest runs currently holding a slot in this process (QT-12 admission). Flatline at the limit = the gate is the bottleneck.",
+		}),
+
+		RunsQueued: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "backtest_runs_queued",
+			Help: "Backtest runs waiting for a slot inside the bounded queue (QT-12 admission). Rejections beyond the queue are errors, not this gauge.",
+		}),
+
+		CacheBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "backtest_cache_bytes",
+			Help: "Estimated bytes held by one backtest run's private caches, labeled by kind (ohlcv/factor/intraday/fundamentals).",
+		}, []string{"kind"}),
+
+		WasmBytes: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "backtest_wasm_bytes",
+			Help: "Estimated linear-memory bytes used by WASM strategy sessions. 0 until the WASM provider is wired (QT-26); the series exists so 'empty' and 'zero' stay distinguishable.",
+		}),
+
 		registry: prometheus.NewRegistry(),
 	}
 }
 
 // Register attaches the four core metrics (plus the K16 ② NT sidecar
-// pair) to the underlying registry. The constructor above does not
-// auto-register so that tests can inspect / re-create metrics;
+// pair and the QT-12 run-admission gauges) to the underlying registry.
+// The constructor above does not auto-register so that tests can inspect
+// / re-create metrics;
 // production code MUST call Register before exposing /metrics.
 func (m *Metrics) Register() {
 	m.registry.MustRegister(
@@ -110,6 +146,10 @@ func (m *Metrics) Register() {
 		m.CacheHitRatio,
 		m.NTCallCount,
 		m.NTCallDuration,
+		m.RunsActive,
+		m.RunsQueued,
+		m.CacheBytes,
+		m.WasmBytes,
 	)
 }
 
@@ -186,4 +226,49 @@ func (m *Metrics) ObserveNTCall(outcome string, d time.Duration) {
 	if m.NTCallDuration != nil {
 		m.NTCallDuration.WithLabelValues(outcome).Observe(d.Seconds())
 	}
+}
+
+// ─── QT-12 ⑤ · run 准入与缓存账 ──────────────────────────────────────
+//
+// 下面四个方法隐式实现 backtest.RunObserver（消费方定义的窄接口）。
+// 编译期断言在装配侧 cmd/analysis/setup.go —— 本包不 import pkg/backtest，
+// 依赖方向与 ObserveNTCall / nautilus.RunObserver 一致。
+
+// SetRunsActive 报当前占用槽位的 run 数。
+func (m *Metrics) SetRunsActive(v float64) {
+	if m == nil || m.RunsActive == nil {
+		return
+	}
+	m.RunsActive.Set(v)
+}
+
+// SetRunsQueued 报有界队列里正在等待的 run 数。
+//
+// 队列本身有界，所以这个数有上界；被拒的 run 不体现在这里（它们是错误，
+// 走 HTTP 状态码与日志），本指标只回答「还要排多久」。
+func (m *Metrics) SetRunsQueued(v float64) {
+	if m == nil || m.RunsQueued == nil {
+		return
+	}
+	m.RunsQueued.Set(v)
+}
+
+// SetCacheBytes 按 kind 报在跑 run 的缓存字节合计。
+//
+// kind 由调用方给（ohlcv / factor / intraday / fundamentals）。与
+// ObserveNTCall 的 outcome 同理：词表在生产者侧（runAdmission.publishCacheBytes）
+// 封闭，这里不重复校验，免得两处各有一份「合法 kind」清单。
+func (m *Metrics) SetCacheBytes(kind string, v float64) {
+	if m == nil || m.CacheBytes == nil {
+		return
+	}
+	m.CacheBytes.WithLabelValues(kind).Set(v)
+}
+
+// SetWasmBytes 报 wasm 会话线性内存字节（QT-26 接线前恒 0）。
+func (m *Metrics) SetWasmBytes(v float64) {
+	if m == nil || m.WasmBytes == nil {
+		return
+	}
+	m.WasmBytes.Set(v)
 }

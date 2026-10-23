@@ -135,6 +135,35 @@ func (f *FactorCacheAccessor) Load(data map[domain.FactorType]map[time.Time]map[
 	f.mu.Unlock()
 }
 
+// Copy 返回一份**独立**的缓存副本（三层 map 都新建，值本体是 float64
+// 无需再拷），分位表随之重建。
+//
+// 存在的理由（QT-12）：run 级缓存要从「装配期注入的那份」起步，但绝不能
+// 与引擎级种子共享 map —— Warm 是整体替换语义，替换前的 `combined` 是在
+// 现有 map 上叠出来的，共享等于让 A run 的 warm 写进 B run 正在读的那份。
+// 空缓存返回一个干净的访问器（不是 nil），调用方不必判空。
+func (f *FactorCacheAccessor) Copy() *FactorCacheAccessor {
+	f.mu.RLock()
+	seeded := make(map[domain.FactorType]map[time.Time]map[string]float64, len(f.cache))
+	for factor, byDate := range f.cache {
+		cloneDate := make(map[time.Time]map[string]float64, len(byDate))
+		for date, bySymbol := range byDate {
+			cloneSymbol := make(map[string]float64, len(bySymbol))
+			for symbol, z := range bySymbol {
+				cloneSymbol[symbol] = z
+			}
+			cloneDate[date] = cloneSymbol
+		}
+		seeded[factor] = cloneDate
+	}
+	logger := f.logger
+	f.mu.RUnlock()
+
+	g := NewFactorCacheAccessor(logger)
+	g.Load(seeded)
+	return g
+}
+
 // buildQuintileCache derives a quintile cache from a z-score cache by
 // applying computeQuintile to every entry. Returns nil for nil/empty input
 // so that GetQuintile cleanly reports ErrQuintileNotFound.
@@ -244,6 +273,57 @@ func (f *FactorCacheAccessor) Len() int {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return len(f.cache)
+}
+
+// Entries 返回 (factor, date, symbol) 三元组的条数。
+//
+// 与 Len 的区别：Len 是「几个因子」，Entries 是「多少个数」—— 内存账与
+// 准入估算要的是后者（一个因子铺 5000 只票 × 250 天 = 一百二十五万条）。
+func (f *FactorCacheAccessor) Entries() int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.entriesLocked()
+}
+
+// Bytes 返回 L1 因子缓存**约**占的堆字节（QT-12 ③，口径同 CacheManager.Bytes：
+// 准入与指标用的估算，不是 profiler）。
+//
+// 三层 map 都计：z-score（float64）与分位（int）各一份，外加每层的
+// map 条目摊销与 symbol 字符串本体。常数 mapEntryBytes 与 OHLCV 侧共用
+// 同一份定义（cache.go），两条腿的口径不许各说各话。
+func (f *FactorCacheAccessor) Bytes() int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	var total int64
+	for factor, byDate := range f.cache {
+		total += mapEntryBytes + int64(len(factor))
+		total += int64(len(byDate)) * mapEntryBytes
+		for _, bySymbol := range byDate {
+			for symbol := range bySymbol {
+				total += float64Bytes + mapEntryBytes + int64(len(symbol))
+			}
+		}
+	}
+	// 分位表是 z-score 表的镜像（Load/Warm 同步填充），值换成 int。
+	for _, byDate := range f.quintileCache {
+		for _, bySymbol := range byDate {
+			total += int64(len(bySymbol)) * (intBytes + mapEntryBytes)
+		}
+	}
+	return total
+}
+
+// entriesLocked 是 Entries 的无锁内核，供 Bytes 之外仍需持锁的路径复用。
+// 调用方须持有 mu（读锁即可）。
+func (f *FactorCacheAccessor) entriesLocked() int64 {
+	var n int64
+	for _, byDate := range f.cache {
+		for _, bySymbol := range byDate {
+			n += int64(len(bySymbol))
+		}
+	}
+	return n
 }
 
 // Compile-time check that *storage.PostgresStore satisfies FactorStore.

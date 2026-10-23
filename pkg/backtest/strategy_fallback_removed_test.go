@@ -25,8 +25,9 @@ import (
 
 func TestGetSignals_FailLoudOnUnregistered(t *testing.T) {
 	eng, _, symbols := buildSyntheticEngine(t, 2, 5, 1)
+	rc := newTestRun(t, eng)
 
-	_, err := eng.getSignals(context.Background(), nil, "no-such-strategy",
+	_, err := eng.getSignals(context.Background(), rc, "no-such-strategy",
 		symbols, map[string][]domain.OHLCV{}, time.Now(), nil) // miss 分支不触碰 tracker
 	if err == nil {
 		t.Fatal("未注册策略应 fail-loud，而不是静默或走（已删除的）HTTP fallback")
@@ -63,7 +64,8 @@ func TestGetSignals_RegisteredStillWorks(t *testing.T) {
 		t.Fatalf("注册失败: %v", err)
 	}
 	tracker := NewTracker(1_000_000, 0.0003, 0.0001, TradingConfig{}, zerolog.Nop())
-	if _, err := eng.getSignals(context.Background(), nil, strat.Name(),
+	rc := newTestRun(t, eng)
+	if _, err := eng.getSignals(context.Background(), rc, strat.Name(),
 		symbols, map[string][]domain.OHLCV{}, time.Now(), tracker); err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "not registered") {

@@ -152,10 +152,10 @@ type dataServices struct {
 
 	// EngineRegistry（K10）—— 内核路由注册表。装配期注册 go 内核
 	// （现有引擎，默认名）；同步 handler / 异步 job / batch 执行期经
-	// Resolve 取 runner。walk-forward 不在此列：它每窗口必须拿**全新**
-	// Engine 实例（引擎级缓存 per-instance，共享会跨窗口污染 —— 见
-	// NewWalkForwardEngine 注释），保留工厂构造；两个编排包的内部
-	// 逻辑零改动。
+	// Resolve 取 runner。walk-forward 走 newEngine 工厂而不是注册表里
+	// 那份共享实例：拿的是每窗口一份干净装配（state store / 桥接组件）。
+	// 这**不是**缓存隔离的要求 —— QT-12 起可变运行态住在 per-run 的
+	// runContext 里，共享实例不会串扰（见 buildDataServices）。
 	EngineRegistry *contracts.EngineRegistry
 }
 
@@ -163,10 +163,11 @@ type dataServices struct {
 // engines, and factor attributor from the store and engine. The HTTP
 // provider is reused for the DataAdapter fallback path.
 //
-// newEngine 为每个 walk-forward 窗口构造一个独立的 Engine。引擎级缓存
-// （OHLCV / 因子 / 基本面 / 上市日历）是 per-instance 的，共享单例会让并发
-// 窗口互相污染 —— 因子缓存是「整体替换」语义，窗口 B 的 Warm 会覆盖窗口 A
-// 正在读取的缓存。传 nil 则退回共享 engine（仅应急，不推荐）。
+// newEngine 为每个 walk-forward 窗口构造一个独立的 Engine。**QT-12 之后
+// 这不再是防缓存串扰的要求**：引擎级可变运行态（OHLCV / 因子 / 基本面 /
+// 上市日历）已经搬进一个 run 一份的 runContext，共享 Engine 只共享装配。
+// 工厂保留下来的理由是「每窗口一份干净装配」（state store / 桥接组件），
+// 传 nil 退回共享 engine 从此是合法装配，不是应急。
 func buildDataServices(
 	store *storage.PostgresStore,
 	engine *backtest.Engine,
@@ -179,6 +180,17 @@ func buildDataServices(
 	// K1 切片 3：DataAdapter 由 data-engine 模块构造（Boot 第 3 位）并经
 	// 参数传入 —— 本函数不再自建（同一进程两条 adapter = 双真相）。
 	engine.SetDataAdapter(dataAdapter)
+
+	// QT-12 ⑤ 监控接线：准入闸的读数（backtest_runs_active /
+	// backtest_runs_queued / backtest_cache_bytes{kind} /
+	// backtest_wasm_bytes）经观察面落到 Prometheus。
+	//
+	// 编译期断言：*observability.Metrics 必须实现 backtest.RunObserver
+	// —— 接口由消费方（pkg/backtest）定义，它不反向依赖 pkg/observability，
+	// 范式与上面 K16 ② 的 nautilus.RunObserver 一致。断言必须用具体类型：
+	// nil 指针同样满足接口，写成变量断言才挡得住签名漂移。
+	var _ backtest.RunObserver = (*observability.Metrics)(nil)
+	engine.SetRunObserver(m)
 
 	// K10：执行器注册表。装配期注册 go 内核（现有实现，默认名）——
 	// 「默认选中」来自 RunSpec.kernel 空值时的 EffectiveKernel 解析，
@@ -260,6 +272,9 @@ func buildDataServices(
 		// 新引擎必须挂上 dataAdapter，否则多源回退路径不生效。
 		eng.SetDataAdapter(dataAdapter)
 		eng.SetStore(store)
+		// 每窗口引擎有自己的一份准入闸，观察面必须同样挂上 ——
+		// 否则 walk-forward 的 run 在指标上是隐形的（主引擎的读数只算主引擎）。
+		eng.SetRunObserver(m)
 		return eng, nil
 	}, store, logger)
 	logger.Info().Msg("Walk-forward engine initialized")

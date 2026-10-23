@@ -602,7 +602,9 @@ func qt04Connect(t *testing.T) *storage.PostgresStore {
 // 那是「数据被改过」的如实报错，不是本单要修的东西，而写新基准等于替共享库做一次
 // 没人要求的冻结。
 //
-// 每 run 一台新引擎：引擎级缓存与持仓状态是 per-instance 的，共用会把上一场带进下一场。
+// 每 run 一台新引擎：这是**测试里的隔离手段**（一台引擎连着一份内存基准 store，
+// 复用会把上一场的持仓与基准状态带进下一场）。它不再是缓存隔离的必需品 ——
+// QT-12 起引擎级可变运行态住在 per-run 的 runContext 里。
 func qt04EngineFor(t *testing.T, store *storage.PostgresStore) *Engine {
 	t.Helper()
 	logger := logging.WithContext(map[string]any{})

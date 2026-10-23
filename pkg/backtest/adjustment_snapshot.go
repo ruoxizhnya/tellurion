@@ -321,7 +321,7 @@ func seriesDigest(bars []domain.OHLCV) string {
 // newAdjustmentRunForRun 在 warmCache 之后调用：从 L1 取全区间序列完成
 // 基准准备。e.store 未注入（无库 / 既有测试路径）时返回 disabled 上下文，
 // 行为与 REV-18 之前逐位一致。
-func (e *Engine) newAdjustmentRunForRun(ctx context.Context, params domain.BacktestParams) (*adjustmentRun, error) {
+func (e *Engine) newAdjustmentRunForRun(ctx context.Context, rc *runContext, params domain.BacktestParams) (*adjustmentRun, error) {
 	store := e.adjustmentStore()
 	if store == nil {
 		return &adjustmentRun{enabled: false}, nil
@@ -332,7 +332,7 @@ func (e *Engine) newAdjustmentRunForRun(ctx context.Context, params domain.Backt
 	sort.Strings(symbols)
 
 	return prepareAdjustmentRun(ctx, store, params.StartDate, symbols,
-		func(symbol string) []domain.OHLCV { return e.cache.Peek(symbol) }, e.logger)
+		func(symbol string) []domain.OHLCV { return rc.peekOHLCV(symbol) }, e.logger)
 }
 
 // adjustmentStore 把具体指针 e.store 适配成快照端口。

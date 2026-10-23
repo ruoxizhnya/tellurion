@@ -364,7 +364,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **验收 ⑤ 对账**：顺序两笔逐位一致 ✓（`TestEngine_SequentialRunsGetSeparateInstances`，含「每笔实例只喂 3×20 根 bar」这条残留状态判据）；并发两笔不串 ✓（`TestEngine_ConcurrentRunsDoNotShareInstances`，同一 Engine、票池互不相交，判据是「没有任何一份实例同时见到两个票池的标的」，与创建顺序无关）；`Registry.Get` 在 `pkg/backtest` 零命中 ✓（护栏执法，非 grep 口径）；14 个插件全部 `NewInstance` 成功 ✓（外加 expression_template）。
 > - **门禁**：`gofmt -l` 0 文件、`go vet ./...` EXIT=0、`go test ./... -count=1` 全仓 EXIT=0（本机 Windows 无 `-race`，沿用既有如实登记口径）。测试侧连带改动：33 处测试注册点从 `Register` 迁到 `RegisterFactory`（工厂返回被测实例本身，状态断言照旧可查）—— 逐条见本 commit 的 `*_test.go`。
 
-### QT-12 · run 级缓存下沉 + 资源准入（A7/A10/N8 一笔账）[P0] ⬜
+### QT-12 · run 级缓存下沉 + 资源准入（A7/A10/N8 一笔账）[P0] ✅
 
 - **① 目标**：引擎级可变缓存不再被并发 run 互相覆盖；并发 run 有内存总闸，不会"跑几个就 OOM"。
 - **② 上下文**：`p0-remediation-design.md` A7/A10；`p0-round2-review.md` N8。证据：`engine.go:783` `warmFactorCache`、`:790→:1245` `e.fundamentals = records`、`:775` `warmCache`；`cache.go:127-140` `mergeBars` 合并且无清理调用点；A10 改 per-run 后内存从"一份账"变"N 份账"，而 `Engine` 无并发上限（`:155` 允许并发）。
@@ -372,6 +372,35 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：**禁止**用全局锁串行化 `RunBacktest` 掩盖问题；不改变单 run 的结果（回归必须逐位一致）；不动 `stateStore` 的 LRU 语义。
 - **⑤ 验收**：A（有财报）/B（无财报）并发两笔，结果与各自串行逐位一致（含"B 先 Warm、A 后读"的确定性交错用例）；连续 50 个不同票池 run 后 RSS 回落基线 ±10%；10 个全市场 run 并发不超预算（其余排队/拒绝），kill 一个后内存回落。
 - **⑥ 边界**：只做"run 级状态隔离 + 内存账"；复权锚点在 QT-13。
+
+> **进度（2026-10-23，①~⑥ 全落，验收 ⑤ 逐条对账，两处未做实已登记）**：
+>
+> - **① 状态下沉**（新文件 `pkg/backtest/run_context.go`）：`fundamentals` / 因子缓存 / `listing` / 日内快照 / L1 OHLCV / 信号供给全部搬进 per-run 的 `runContext`；`runBacktestInternal` 第一件事建它、`defer rc.close()` 收尾。**Engine 上同名字段保留但语义降级为「装配期种子」**（`SetFundamentals` / `SetListingWindows` / `SetIntradaySnapshot` / `LoadOHLCVInMemory` / `LoadFactorCache` 写的是种子，每 run 拷一份自己的）—— 外部注入 API 与测试脚手架一个字没改，改的是「谁在 run 期间能写」。原 `Engine.warmCache` / `warmFactorCache` / `warmFundamentalsIfNeeded` / `warmIntradayIfNeeded` / `loadListingCalendar` / `eligibleUniverse` / `getOHLCV` / `intradaySnapshot` / `newRunSignalProvider` 九个方法从 Engine 删除（不是留个 shim：留着就等于留着那条写引擎的路）。执行链 `getSignals` / `calculatePosition(s)` / `processSignalsAndExecuteTrades` / `fetchMarketDataForDay` / `processStockJob` / `newAdjustmentRunForDay` 一律改成收 `rc`。
+> - **为什么不改成「每 run 一台 Engine」**：Engine 装配要把 store / router / adapter / riskManager / executionBridge 全接一遍（`cmd/analysis/setup.go` 那 60 行），每 run 重建等于把装配期错误推到运行期，且并发 run 各自打一遍连接池。种子 + run 作用域状态是同一个不变量的低成本形态。
+> - **② L1 缓存**：per-run `CacheManager`，区间校验（`coversLocked`）与 map 拷贝发布（`publishLocked`）沿用 P1-16 那套；跨 run 单调合并（A10 的慢性 OOM 原形）随缓存一起变成 run 私有。
+> - **③ 可计量**：`CacheManager.Bytes()/Bars()`、`FactorCacheAccessor.Bytes()/Entries()/Copy()`、包级 `OHLCVMapBytes` / `FundamentalsBytes` / `EstimateOHLCVBytes`。**三种数据形态用同一组常数**（`ohlcvBarBytes` 由 `reflect.TypeOf(domain.OHLCV{}).Size()` 现算，`sliceHeaderBytes` / `mapEntryBytes` / `float64Bytes` 同处定义）—— 分叉的两侧会各自宣称「我的预算没超」。口径互锁由 `cache/sizing_test.go` 的 `TestEstimateOHLCVBytesMatchesLoadedCache` 钉住（实测 = 先验 + symbol 字符串本体，等式对不上就红）。
+> - **④ 准入闸**（新文件 `pkg/backtest/admission.go`）：`maxConcurrentRuns`（默认 `min(GOMAXPROCS,4)`）+ **有界**队列 + 单 run/进程字节预算 + 降级顺序「降 W → 降预加载窗口 → 拒绝」。实现用带缓冲 channel 而非 mutex+cond（cond 不认 `ctx.Done()`，取消一个正在排队的 run 会挂死）；`runs_active/queued` 直接读 `len(chan)`，不再设计数器。**两个哨兵错误可区分**：`ErrRunQueueFull`（→`RATE_LIMIT`，「稍后再试」）与 `ErrRunBudgetExceeded`（→`UNAVAILABLE`，「这台机器装不下」），调用方对两者处理相反。`**禁止全局锁串行化**` 这条约束按原文执行：闸只发凭证，不串行。
+> - **配置**：`backtest.max_concurrent_runs` / `max_queued_runs` / `run_memory_budget_bytes` / `process_memory_budget_bytes` 四个键在 `config/analysis-service.yaml` 里**以注释登记、不写死数值**——把 `min(GOMAXPROCS,4)` 抄成固定 4 会在小机器上悄悄放宽并发（闸只会因此变松）。`max_queued_runs: 0` 是合法档位。
+> - **⑤ 指标命名订正（与任务单 ⑤ 不同，如实登记）**：落的是 `backtest_runs_active` / `backtest_runs_queued` / `backtest_cache_bytes{kind}` / `backtest_wasm_bytes`，**四条都是 Gauge、都不带 `_total`**。任务单写的 `cache_bytes_total/wasm_bytes_total` 里 `_total` 在 Prometheus 约定中专指单调 Counter，挂在会往下走的量上 `rate()` 出鬼值。`pkg/backtest.RunObserver` 是消费方定义的窄接口（口径同 `nautilus.RunObserver`），`*observability.Metrics` 隐式实现，编译期断言在 `cmd/analysis/setup.go:buildDataServices`。
+> - **⑥ repoguard**（新文件 `internal/repoguard/engine_run_state_test.go`）两条腿：**A** Engine 结构体字段名与 27 个冻结白名单逐一对应（新增即红，注释里分类为「装配 / 种子 / 进程级」）；**B** 五个种子字段的**写点**只许落在 7 个函数名（构造 + `Set*` / `Load*` 注入器）里。B 认两种形状：`e.<seed>`（含 `Load/Warm` 调用、索引写、`delete`）与 **`rc.e.<seed>`**（经 runContext 持有的引擎指针写回去）—— 第二种是补牙补出来的：只认第一种的护栏，正好漏掉 run 流程实际能写出的那一种。自证腿 15 形状（8 该红 + 7 该放行，含「注释里写 e.cache.Load 不算」证明是 AST），覆盖面腿要求 5 个注入器的写点必须真被扫到。
+> - **顺带修掉的六个真缺陷**（迁移过程中实测撞出，不是重构装饰）：
+>   1. `max_queued_runs=0` 早期写法（所有 run 先抢排队许可）会让容量 0 时 send 恒失败 ⇒ **槽位空着也进不去**，闸被拧成死闸。改成独立分支：0 档 = 「不排队」而不是「不让跑」。
+>   2. `EstimateOHLCVBytes` 的 int64 乘法会**绕回成一个看起来合理的小正数**（1e9 标的 × 1e9 天 → 9.8e12），比翻负更危险：翻负至少恒真得可疑，绕回的数会顺利过关。现饱和到 `MaxInt64`。
+>   3. `defer rc.close()` 原来挂在 `if e.admission != nil` 里面 ⇒ 关掉闸时**台账不撤**（指标永远停在最后一笔的大小）。现在无条件挂，`lease` 为 nil 时 Release 是 no-op。
+>   4. 指标原设计「每笔 run 收尾时报自己那份」⇒ 看板上留下的是**最后一笔**的读数，既不是当前占用也不是峰值。改成按 run 的台账求和 + 收尾撤账（`retireRun`），两条 run 的余量分步归零有断言。
+>   5. `forceCloseDelisted` 读的是**引擎级** `listing`（迁移漏点）：run 内从库里新读到的上市日历会作用于 universe 过滤却作用于不了退市强平 —— 恰好复现这个函数要修的「持仓挂到回测结束」。已移到 `rc`。
+>   6. 观察面与档位改写直接写 `gate.observer/cfg/slots` 不带锁（与 run 收尾的读构成并发读写）。现统一经 `gate.mu`，`publishCounts` 在锁外调 Prometheus。
+> - **注释订正（那条"必须删"的）**：`cmd/analysis/main.go` 与 `setup.go`、`pkg/backtest/aliases.go`、`walkforward/walkforward.go` 四处把「每窗口/每 run 一台新 Engine」写成**缓存隔离的必要条件**，QT-12 之后那句话为假，已全部改成如实口径（工厂保留的理由换成「每窗口一份干净装配」，并写明传 nil / 返回共享实例都合法）。连带订正 `walkforward_isolation_test.go` 的两条头部说明（今天的判据钉的是工厂契约，不是防污染）。
+> - **代价与登记在案的缺口（如实）**：
+>   1. **多引擎 = 多份闸**：walk-forward 工厂那台引擎有自己的准入账，`runs_active` 是后发布者覆盖、进程预算各算各的 ⇒ 真实并发总账比单看数字宽松。写在 `Engine.SetRunObserver` 与 `cmd/analysis` 注释里；进程级共享账**未做**（本单口径是 Engine 级）。
+>   2. **WF 工厂绕过 bootstrap 装配**：`cmd/analysis/main.go` 那份工厂直接 `backtest.NewEngine(v, ...)` + 3 个 setter，产出的窗口引擎没有 provenance writer、没有 Router（日内预热静默不生效）、没有 adjStore（qfq 基准不冻结）。这不是缓存串扰，换工厂修不掉；**归 QT-13 前置**（补它会同手改掉 walk-forward 的复权基准路径，那是 QT-13 的验收面对象，不在本单偷做）。
+>   3. **验收 ⑤-2 的 RSS ±10% 未做实**：单测里断言堆回落会随 GC 时机飘（堆在 GC 之后才降，不在 `close()` 里）。代之以「50 笔不同票池 run 后账本三项归零」（`TestRunContext_AccountedBytesReturnToBaseline`），堆读数只 `t.Logf` 观察（本次实跑 3,067 KiB）。真实 RSS 曲线要在长时程压测里看。
+>   4. **验收 ⑤-1 的「A 有财报 / B 无财报」没做成端到端**：仓内测试无 store，`warmFundamentalsIfNeeded` 的读库腿不可达 ⇒ 这一维的分歧只能在 `runContext` 层测。该层有牙（下面第 2 条破坏腿）；端到端那条（`TestEngine_ConcurrentRunsOnSharedEngineMatchSoloResults`）只保证「并发跑不动坏、结果与串行一致」，**代码注释里明写它不声称有牙**，不要把它读成财报隔离的证据。
+> - **破坏验证（改坏 → 变红 → 还原，15 腿当场实跑，全部还原后绿）**：Engine 加一个 run 级可变态字段（护栏 A 红）／run 流程写引擎级财报（护栏 B 红）／种子注入器改名（覆盖面腿红，证明扫描面不是装饰）／`rc.e.fundamentals = records`（护栏 B 的红形状）／`newRunContext` 共享因子访问器不 Copy（交错用例红）／先验估算少算 slice header（口径互锁红）／去掉溢出饱和（估算红）／`max_queued_runs=0` 走回排队路径（死闸腿红）／短路掉「降 W」这一档（降级顺序腿红）／收尾不撤台账（账本与端到端两条红）／`runs_active` 收尾不报（端到端红）／Release 不幂等（第二次 Release 卡住，测试 2s 内判红）／槽位数不跟 `maxConcurrentRuns` 走（10 笔压闸腿红）／`rc.cache` 退回引擎那份（并发预热独立腿红）／`Copy` 最内层 map 共享（深拷贝三层腿红）。
+>   **首轮没红、把用例改到有牙之后才红的三处**（这才是这段记录的重点 —— 假绿比红更贵）：① `TestFactorCacheCopyIsDeep` 原来用「Copy 之后再 Load 一份」判深拷贝，而 `Load` 是整体替换语义，对浅拷贝照样绿 ⇒ 改成「拿原始 map 就地改一格 / 加日期 / 加因子」三层各一条；② 台账「求和 vs 覆盖」原来只有单 run 在场，两种写法读数相同 ⇒ 补第二条并发 run 与分步归零断言；③ 引擎预热后那次报账没有任何用例经过 ⇒ 补一条真跑整场回测的端到端腿（删掉那一行即红）。
+>   护栏自身另有 15 形状片段表（8 该红 + 7 该放行）。
+> - **验收 ⑤ 对账**：串扰消失 ✓（`TestRunContext_FactorCacheSeedIsCopiedNotShared`、`TestRunContext_OHLCCacheWarmDoesNotReachOtherRun` 就是「B 先 Warm、A 后读」的确定性交错、`TestRunContext_PerRunSnapshotsAreNotShared`、`TestRunContext_ConcurrentWarmIsIndependentPerRun`）；`Bytes()` 可计量 ✓（含口径互锁）；指标 ✓（四项各有读数、收尾归零）；拒绝路径有测试 ✓（`ErrRunQueueFull` / `ErrRunBudgetExceeded` / 取消 / 幂等 / 10 笔压小闸 = 2 放行 + 3 排队 + 5 拒）；`cmd/analysis/main.go` 那条注释可删 ✓（已订正为真口径，未删成空白）；单 run 结果不变 ✓（`go test ./... -count=1` 全仓绿 + REV-18/QT-02 等既有数值回归不退化）。
+> - **门禁**：`gofmt -l` 0 文件、`go vet ./...` EXIT=0、`go test ./... -count=1` 全仓 EXIT=0（本机 Windows 无 `-race`，沿用既有如实登记口径）。测试侧连带改动：`pkg/backtest` 内 ~30 处内部调用点随签名迁到 `rc`（脚手架 `newTestRun` / `newTestRunSpan` 在 `run_context_test.go`，用例不为了测一份缓存去跑整场回测）。
 
 ### QT-13 · 复权锚点按 run 区间切片（digest 不许覆盖合并缓存）[P0] ⬜
 

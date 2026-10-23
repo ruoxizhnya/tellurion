@@ -72,10 +72,16 @@ func main() {
 
 	authSvc := initAuth(v, store, logger)
 
-	// walk-forward 的每个窗口必须拿到**独立**的 Engine 实例：引擎级缓存
-	// （OHLCV / 因子 / 基本面 / 上市日历）是 per-instance 的，共享单例会让并发
-	// 窗口互相污染 —— 因子缓存是「整体替换」语义，窗口 B 的 Warm 会直接覆盖
-	// 窗口 A 正在读取的缓存。这里复用主 engine 的全部装配参数，只换掉实例。
+	// walk-forward 的每个窗口拿一个**独立装配**的 Engine 实例。
+	//
+	// 这条**不是**缓存隔离的要求（QT-12 已把引擎级可变运行态搬进 per-run 的
+	// runContext，共享单例不再串扰 —— 原来写在这里的理由已经修掉了，别再
+	// 把它读成约束）。保留工厂是因为窗口要一份干净的 state store 与桥接组件。
+	//
+	// 代价如实登记：这里绕过 bootstrap 直接 NewEngine，所以窗口引擎没有
+	// provenance writer、没有 Router、没有 adjStore。缺口登记在
+	// docs/TASKS.md（QT-13 前置），不要顺手在这里补 —— 补了会同时改掉
+	// walk-forward 的复权基准路径，那是 QT-13 的验收面对象。
 	newEngine := func() (*backtest.Engine, error) {
 		eng, err := backtest.NewEngine(v, httpProvider, logger)
 		if err != nil {

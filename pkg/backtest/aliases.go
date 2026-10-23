@@ -206,11 +206,21 @@ type (
 
 // NewWalkForwardEngine 构造 walk-forward 引擎。
 //
-// engineFactory 必须为**每个窗口**返回一个全新构造的 Engine。共享同一个 Engine
-// 实例会让引擎级缓存（OHLCV / 因子 / 基本面 / 上市日历）跨窗口污染 —— 因子缓存
-// 是「整体替换」语义，并发窗口 B 的 Warm 会覆盖窗口 A 正在读取的缓存。
+// engineFactory 为每个窗口返回一个 Engine。**QT-12 之后它不再是正确性要求**：
+// 缓存串扰（并发窗口的 Warm 覆盖彼此正在读的 OHLCV / 因子 / 基本面 /
+// 上市日历）修在了引擎内部 —— 那些可变运行态现在住在一个 run 一个的
+// runContext 里，共享 Engine 只是共享装配（见 pkg/backtest/run_context.go）。
 //
-// 旧签名 `(engine *Engine, store)` 注入的正是那个共享实例，已废弃。
+// 工厂签名保留的原因换成了一条更窄的：窗口各自拿到一份**干净的装配**
+// （state store / 桥接组件），而装配本身有成本与副作用（连接池、留痕写入）。
+// 传 nil 或返回同一实例都是合法装配 —— 不再构成跨窗口污染。
+//
+// ⚠️ 如实登记的既有缺口（QT-13 前置）：cmd/analysis 那份工厂直接
+// `backtest.NewEngine(v, ...)`，绕过 bootstrap 装配，所以它产出的窗口引擎
+// 没有 provenance writer、没有 Router（日内预热静默不生效）、没有
+// adjStore（qfq 基准不冻结）。这些不是缓存串扰，工厂换了也修不掉。
+//
+// 旧签名 `(engine *Engine, store)` 注入的是共享实例，已废弃。
 func NewWalkForwardEngine(
 	engineFactory func() (*Engine, error),
 	store *storage.PostgresStore,

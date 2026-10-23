@@ -27,7 +27,11 @@ func TestEngine_SetFundamentals_RoundTrip(t *testing.T) {
 	}
 	eng.SetFundamentals(want)
 
-	got := eng.fundamentalsSnapshot()
+	// QT-12：引擎级字段是**装配期种子**，run 开工时拷走自己那份。
+	// 所以「存得进、取得出」这条今天的判据是「注入种子 → 新 run 读得到」，
+	// 比原来更强：它同时钉住了种子真的会往下传。
+	rc := newTestRun(t, eng)
+	got := rc.fundamentalsSnapshot()
 	require.NotNil(t, got, "存进去就得取得出来")
 	assert.Equal(t, 12.5, *got["600519.SH"][0].PE)
 }
@@ -38,9 +42,10 @@ func TestEngine_WarmFundamentals_SkippedWhenStrategyNotAware(t *testing.T) {
 	eng := newTestEngine(t)
 	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return &plainStrategy{name: "t_plain"} }))
 
-	err := eng.warmFundamentalsIfNeeded(context.Background(), "t_plain", []string{"A"}, time.Now())
+	rc := newTestRun(t, eng)
+	err := rc.warmFundamentalsIfNeeded(context.Background(), "t_plain", []string{"A"}, time.Now())
 	require.NoError(t, err)
-	assert.Nil(t, eng.fundamentalsSnapshot(), "不要财报的策略，就不该有财报缓存")
+	assert.Nil(t, rc.fundamentalsSnapshot(), "不要财报的策略，就不该有财报缓存")
 }
 
 // 实现了但要不到数据（没有 PostgresStore）时：不报错、不阻断，
@@ -61,9 +66,10 @@ func TestEngine_WarmFundamentals_NoStoreLeavesEmpty(t *testing.T) {
 	// 编译期保证：这个策略确实是要财报的，否则上面的测试等于什么都没测。
 	var _ strategy.FundamentalAware = s
 
-	require.NoError(t, eng.warmFundamentalsIfNeeded(
+	rc := newTestRun(t, eng)
+	require.NoError(t, rc.warmFundamentalsIfNeeded(
 		context.Background(), "t_value_aware", []string{"A"}, time.Now()))
-	assert.Nil(t, eng.fundamentalsSnapshot())
+	assert.Nil(t, rc.fundamentalsSnapshot())
 }
 
 // 本地注册表里没有的策略（未加载 / 拼错名）不参与预热。
@@ -74,9 +80,10 @@ func TestEngine_WarmFundamentals_UnknownStrategyIsNoop(t *testing.T) {
 		"A": {{Symbol: "A", Date: time.Now(), PE: &pe}},
 	})
 
-	require.NoError(t, eng.warmFundamentalsIfNeeded(
+	rc := newTestRun(t, eng)
+	require.NoError(t, rc.warmFundamentalsIfNeeded(
 		context.Background(), "definitely_not_registered", []string{"A"}, time.Now()))
-	assert.Len(t, eng.fundamentalsSnapshot(), 1, "不该被抹掉")
+	assert.Len(t, rc.fundamentalsSnapshot(), 1, "不该被抹掉")
 }
 
 type plainStrategy struct {

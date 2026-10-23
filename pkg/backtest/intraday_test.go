@@ -583,23 +583,25 @@ func TestEngine_DailyOnlyBacktest_UnchangedWithIntradayWiring(t *testing.T) {
 func TestEngine_WarmIntraday_SkippedWhenStrategyNotAware(t *testing.T) {
 	eng := d6Engine(t, nil)
 	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return &plainStrategy{name: "d6_plain"} }))
+	rc := newTestRun(t, eng)
 
-	err := eng.warmIntradayIfNeeded(context.Background(), "d6_plain",
+	err := rc.warmIntradayIfNeeded(context.Background(), "d6_plain",
 		[]string{"600519.SH"}, d6Day, d6Day.AddDate(0, 0, 2))
 	require.NoError(t, err)
-	assert.Nil(t, eng.intradaySnapshot(), "纯日线策略不该触发日内预热")
+	assert.Nil(t, rc.intradaySnapshot(), "纯日线策略不该触发日内预热")
 }
 
 func TestEngine_WarmIntraday_NoRouterIsNoop(t *testing.T) {
 	eng := d6Engine(t, nil)
 	strat := newIntradayMomentumStrategy("d6_warm_norouter", 0.02)
 	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
+	rc := newTestRun(t, eng)
 
 	// IntradayAware 但没接 Router：不报错、不阻断（同财报无 store 语义）。
-	err := eng.warmIntradayIfNeeded(context.Background(), strat.Name(),
+	err := rc.warmIntradayIfNeeded(context.Background(), strat.Name(),
 		[]string{"600519.SH"}, d6Day, d6Day.AddDate(0, 0, 2))
 	require.NoError(t, err)
-	assert.Nil(t, eng.intradaySnapshot(), "无 Router 不预热；策略用到特征会明确失败")
+	assert.Nil(t, rc.intradaySnapshot(), "无 Router 不预热；策略用到特征会明确失败")
 }
 
 func TestEngine_SetIntradaySnapshot_RoundTrip(t *testing.T) {
@@ -607,15 +609,16 @@ func TestEngine_SetIntradaySnapshot_RoundTrip(t *testing.T) {
 	sym := "600519.SH"
 	want := map[string][]domain.OHLCV{sym: d6OpenHalfHourBars(sym)}
 	eng.SetIntradaySnapshot(want)
+	rc := newTestRun(t, eng)
 
-	got := eng.intradaySnapshot()
+	got := rc.intradaySnapshot()
 	require.NotNil(t, got)
 	require.Len(t, got[sym], 30)
 	assert.Equal(t, market.Freq1m, got[sym][0].Frequency, "快照 bar 必须带规范层频率声明")
 	assert.False(t, got[sym][0].VisibleAt.IsZero(), "快照 bar 必须带可见时间点（闸门靠它裁决）")
 
 	// 按日 provider 从快照切当日段并算出特征。
-	prov := eng.intradayFeatureProvider(d6Day)
+	prov := rc.intradayFeatureProvider(d6Day)
 	v, ok := prov.IntradayFeature(context.Background(), sym, featureOpenMomentum30m,
 		market.DailyVisibleAt(d6Day))
 	require.True(t, ok)
@@ -677,10 +680,11 @@ func TestEngine_WarmIntraday_WithRouter_SelfSeed(t *testing.T) {
 	strat := newIntradayMomentumStrategy("d6_warm_router", 0.02)
 	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
 
-	require.NoError(t, eng.warmIntradayIfNeeded(ctx, strat.Name(),
+	rc := newTestRun(t, eng)
+	require.NoError(t, rc.warmIntradayIfNeeded(ctx, strat.Name(),
 		[]string{testSymbol}, d6Day, d6Day))
 
-	snap := eng.intradaySnapshot()
+	snap := rc.intradaySnapshot()
 	require.NotNil(t, snap)
 	require.Len(t, snap[testSymbol], 31, "30 根半小时 + 1 根 10:00")
 
@@ -697,7 +701,7 @@ func TestEngine_WarmIntraday_WithRouter_SelfSeed(t *testing.T) {
 		"10:00 bar 可见点 = 10:01 CST（分钟粒度闸门的数据基础），got %s", last.VisibleAt)
 
 	// 快照 → 特征：手算样本 0.05。
-	prov := eng.intradayFeatureProvider(d6Day)
+	prov := rc.intradayFeatureProvider(d6Day)
 	v, ok := prov.IntradayFeature(ctx, testSymbol, featureOpenMomentum30m, market.DailyVisibleAt(d6Day))
 	require.True(t, ok)
 	assert.InDelta(t, 0.05, v, 1e-12)

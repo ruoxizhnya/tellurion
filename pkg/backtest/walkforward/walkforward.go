@@ -17,14 +17,18 @@ import (
 
 // WalkForwardEngine runs walk-forward validation for a strategy.
 type WalkForwardEngine struct {
-	// runnerFactory 为每个窗口构造一个**独立的**执行引擎。
+	// runnerFactory 为每个窗口提供一个执行引擎。
 	//
-	// 此前这里存的是一个共享的 runner 实例，所有窗口复用同一个 Engine。
-	// 而 Engine 持有引擎级缓存（OHLCV / 因子 / 基本面 / 上市日历），并发窗口
-	// 因此互相污染 —— 因子缓存尤其危险：它是「整体替换」语义
-	// （f.cache = combined），窗口 B 的 Warm 会直接覆盖窗口 A 正在读取的缓存，
-	// 窗口 A 于是读到别的窗口日期区间的因子。窗口之间本应互不共享状态，
-	// 现在由工厂保证。
+	// 历史：这里曾存一个共享 runner，所有窗口复用同一个 Engine，于是引擎级
+	// 缓存（OHLCV / 因子 / 基本面 / 上市日历）跨窗口污染 —— 因子缓存尤其危险，
+	// 它是「整体替换」语义（f.cache = combined），窗口 B 的 Warm 会覆盖窗口 A
+	// 正在读取的缓存，A 于是读到别的窗口日期区间的因子。
+	//
+	// QT-12 把那件事修在了引擎里：可变运行态住在一个 run 一个的 runContext，
+	// Engine 只持装配期种子。所以本工厂**不再是防污染的必要条件**，
+	// 复用同一实例也不会重现那个 bug（防回归的钉子见 run_context_seed_test.go
+	// 「A 带财报 / B 不带」那条，它跑的就是共享 Engine）。
+	// 工厂保留下来是为了另一件事：每窗口一份干净的 state store 与桥接组件。
 	runnerFactory func() (contracts.EngineRunner, error)
 	store         *storage.PostgresStore
 	logger        zerolog.Logger
@@ -32,8 +36,9 @@ type WalkForwardEngine struct {
 
 // NewWalkForwardEngine creates a new WalkForwardEngine.
 //
-// runnerFactory 必须为**每个**窗口返回一个全新的 runner；传入一个复用同一实例的
-// 闭包会重新引入跨窗口污染（历史 bug）。工厂返回错误时该窗口被跳过，不影响其他窗口。
+// runnerFactory 为每个窗口返回一个 runner；返回错误时该窗口被跳过，不影响其他
+// 窗口。工厂可以返回共享实例 —— QT-12 之后那不会造成跨窗口污染（历史上的
+// 污染根因已在引擎内修掉，理由见 WalkForwardEngine.runnerFactory）。
 func NewWalkForwardEngine(runnerFactory func() (contracts.EngineRunner, error), store *storage.PostgresStore, logger zerolog.Logger) *WalkForwardEngine {
 	return &WalkForwardEngine{
 		runnerFactory: runnerFactory,
@@ -170,10 +175,12 @@ func (wf *WalkForwardEngine) runWindowsParallel(
 	// P1-6：固定 worker pool。此前是「每窗口一个 goroutine + 信号量限并发」，
 	// goroutine 数 = 窗口数（长回测可以轻松上千）。
 	//
-	// 窗口之间互不共享状态：每个窗口通过 runnerFactory 拿到自己的引擎实例
-	// （共享单例会让引擎级缓存跨窗口污染）。train + test 的先后在
-	// runSingleWindow 内部保证，二者共用同一窗口的 runner 是刻意的 ——
-	// 它们属于同一次拟合/验证，且 OHLCV 缓存按日期区间合并而非替换。
+	// 窗口之间靠 runContext 隔离（QT-12）：每次 RunBacktest 建一份自己的
+	// 缓存，runner 是共享实例也不会互相覆盖 —— 历史上这里靠「每窗口一个
+	// 引擎实例」防污染，那个根因已经在引擎里修掉了。
+	// train + test 的先后在 runSingleWindow 内部保证，二者共用同一窗口的
+	// runner 是刻意的 —— 它们属于同一次拟合/验证，而 L1 OHLCV 缓存按日期
+	// 区间合并（不替换），train 段已预热的 bar 对 test 段是净收益。
 	const wfConcurrency = 4
 	workers.RunWorkers(ctx, wfConcurrency, windows,
 		func(ctx context.Context, idx int, w wfWindow) {

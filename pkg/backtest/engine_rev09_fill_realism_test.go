@@ -71,13 +71,14 @@ func TestProcessStockJob_FlagsSuspendedOnStaleLastBar(t *testing.T) {
 		rev09Bar("600000.SH", "2024-01-02", 1_000_000),
 	})
 	eng := rev09NewEngine(t, prov)
+	rc := newTestRun(t, eng)
 	params := domain.BacktestParams{StartDate: rev09Day1}
 
-	resDay1 := eng.processStockJob(context.Background(), stockJob{symbol: "600000.SH"}, params, rev09Day1, nil)
+	resDay1 := eng.processStockJob(context.Background(), rc, stockJob{symbol: "600000.SH"}, params, rev09Day1, nil)
 	assert.False(t, resDay1.suspended, "day1 的末根 bar 就是 day1 ⇒ 不停牌")
 	assert.InDelta(t, 10.0, resDay1.price, 1e-9)
 
-	resDay2 := eng.processStockJob(context.Background(), stockJob{symbol: "600000.SH"}, params, rev09Day2, nil)
+	resDay2 := eng.processStockJob(context.Background(), rc, stockJob{symbol: "600000.SH"}, params, rev09Day2, nil)
 	assert.True(t, resDay2.suspended, "day2 缺 bar，末根是 day1 旧 bar ⇒ 停牌")
 }
 
@@ -95,10 +96,11 @@ func TestFetchMarketDataForDay_ExcludesSuspendedAndCounts(t *testing.T) {
 	})
 	prov.SetTradingDays([]time.Time{rev09Day1, rev09Day2})
 	eng := rev09NewEngine(t, prov)
+	rc := newTestRun(t, eng)
 	diag := newFillRunDiag()
 
 	mdc, pc, _, _, suspended := eng.fetchMarketDataForDay(
-		context.Background(), []string{"STALE.SH", "LIVE.SH"},
+		context.Background(), rc, []string{"STALE.SH", "LIVE.SH"},
 		domain.BacktestParams{StartDate: rev09Day1}, rev09Day2, nil, diag, nil, zerolog.Nop(),
 	)
 
@@ -115,13 +117,14 @@ func TestFetchMarketDataForDay_ExcludesSuspendedAndCounts(t *testing.T) {
 func TestProcessSignalsAndExecuteTrades_SkipsSuspendedSignal(t *testing.T) {
 	prov := marketdata.NewInMemoryProvider()
 	eng := rev09NewEngine(t, prov)
+	rc := newTestRun(t, eng)
 
 	tr := tracker.NewTracker(1_000_000, 0.0003, 0, contracts.DefaultTradingConfig(), zerolog.Nop())
 	state := &BacktestState{ID: "rev09-skip", Tracker: tr, TargetPositions: map[string]*domain.TargetPosition{}}
 	diag := newFillRunDiag()
 
 	eng.processSignalsAndExecuteTrades(
-		context.Background(), state,
+		context.Background(), rc, state,
 		[]domain.Signal{{Symbol: "STALE.SH", Direction: domain.DirectionLong, Date: rev09Day2}},
 		map[string][]domain.OHLCV{}, map[string]float64{"STALE.SH": 10},
 		// QT-02：same_close 的成交计划 = 当日收盘可成交价 + 当日新鲜度（既有语义）。

@@ -32,13 +32,17 @@ func (s *stubRunner) RunBacktest(_ context.Context, req contracts.BacktestReques
 	}, nil
 }
 
-// 回归：WalkForwardEngine 此前持有一个**共享**的 runner 实例，所有窗口复用同一个
-// Engine。而 Engine 持有 per-instance 的引擎级缓存（OHLCV / 因子 / 基本面 /
-// 上市日历），并发窗口因此互相污染 —— 因子缓存尤其是「整体替换」语义
-// （f.cache = combined），并发窗口 B 的 Warm 会直接覆盖窗口 A 正在读取的缓存，
-// 窗口 A 于是读到别的窗口日期区间的因子值。
-//
+// 回归（历史缺陷）：WalkForwardEngine 曾持有一个**共享**的 runner 实例，所有窗口
+// 复用同一个 Engine，而 Engine 当时持有 per-instance 的引擎级缓存（OHLCV / 因子 /
+// 基本面 / 上市日历），并发窗口因此互相污染 —— 因子缓存尤其是「整体替换」语义
+// （f.cache = combined），窗口 B 的 Warm 会直接覆盖窗口 A 正在读取的缓存。
 // 代码注释当时还声称「窗口之间互不共享状态」，与实现正好相反。
+//
+// QT-12 之后这条判据**不再是防污染的那一道**：可变运行态已搬进 per-run 的
+// runContext，工厂返回共享实例也不会重现污染（防污染的钉子改在 core 侧
+// pkg/backtest/run_context_seed_test.go，那里跑的就是同一台 Engine）。
+// 本用例今天钉的是工厂契约本身：每个窗口各取一次 runner、工厂报错时该窗口
+// 被跳过而不影响别的窗口 —— 那仍是 walk-forward 自己的承诺。
 func TestRunWindowsParallel_EachWindowGetsOwnRunner(t *testing.T) {
 	var mu sync.Mutex
 	var created []*stubRunner
@@ -100,11 +104,14 @@ func TestRunWindowsParallel_EachWindowGetsOwnRunner(t *testing.T) {
 	}
 }
 
-// 对照组：证明上面的断言**真的能抓到**共享 runner。
+// 对照组：证明上面的断言**真的能抓到**「工厂复用同一实例」这种形状。
 //
 // 假的护栏比没护栏更糟 —— 它会让人以为有人看着。这里故意注入一个复用同一实例
 // 的工厂，确认它确实会让单个 runner 收到 3 个窗口 × 2 次 = 6 次调用，
-// 从而在上一个测试的 `assert.Len(r.calls, 2)` 处失败。
+// 从而在上一个测试的 `assert.False(seen[r.id])` 处失败。
+//
+// ⚠️ 口径：今天「复用同一实例」不再等于缺陷（缓存隔离由 runContext 提供，
+// 见上面的说明）。这组只自证扫描形状看得见，不给复用行为定性。
 func TestRunWindowsParallel_SharedRunnerIsActuallyDetected(t *testing.T) {
 	// 工厂本身会被 4 个 worker 并发调用，必须用锁保证「只创建一个实例」，
 	// 否则两个 goroutine 会各自建出一个 runner，调用被分散计数。
@@ -135,5 +142,5 @@ func TestRunWindowsParallel_SharedRunnerIsActuallyDetected(t *testing.T) {
 	defer mu.Unlock()
 	require.NotNil(t, shared)
 	assert.Len(t, shared.calls, 6,
-		"共享 runner 会被 3 个窗口各调用 2 次 —— 这正是上一个测试要防的情况")
+		"复用同一实例时，单个 runner 会收到 3 窗口 × 2 次调用 —— 上一个测试的断言靠这个计数才抓得住")
 }

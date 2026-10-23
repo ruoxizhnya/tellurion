@@ -180,6 +180,20 @@ backtest:
   slippage_rate: 0.0001
   risk_free_rate: 0.03
 
+  # QT-12 ④ · run 准入闸（并发上限 / 有界队列 / 内存预算）。
+  # 四个键都**可以不写**：缺省 = max_concurrent_runs = min(GOMAXPROCS, 4)、
+  # max_queued_runs = 上面的值 × 4、单 run 预算 1 GiB、进程预算 4 GiB。
+  # 刻意不在这里写死数值：把 min(GOMAXPROCS,4) 抄成一个固定 4，在小机器上
+  # 等于悄悄放宽并发（方向危险 —— 闸只会因此变松，不会变紧）。
+  #
+  # 降级顺序（写死在引擎里，配置改不了）：并行取数度 → 预加载窗口 → 拒绝。
+  # 收缩预加载窗口**不改回测结果**，只让未预加载的那些天退回 provider。
+  #
+  # max_concurrent_runs: 2          # 同时在跑的 run 上限
+  # max_queued_runs: 0              # 0 是合法档位：槽位满即拒（429），不排队
+  # run_memory_budget_bytes: 536870912     # 单 run 缓存预算（估算，非 profiler）
+  # process_memory_budget_bytes: 2147483648  # 在跑 run 的缓存总账
+
 # D7 · 市场 → 内核 路由表（热转换，蓝图 §2.1）
 #
 # 同步回测端点（POST /api/backtest）接受一个可选的 `market` 字段，在**路由

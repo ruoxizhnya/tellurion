@@ -71,6 +71,7 @@ func (e *Engine) loadCorporateActions(ctx context.Context, start, end time.Time,
 
 func (e *Engine) fetchMarketDataForDay(
 	ctx context.Context,
+	rc *runContext,
 	stockPool []string,
 	params domain.BacktestParams,
 	date time.Time,
@@ -95,7 +96,7 @@ func (e *Engine) fetchMarketDataForDay(
 		updatedPrevClose[k] = v
 	}
 
-	workers := e.parallelWorkers
+	workers := rc.workers
 	if workers <= 0 {
 		workers = 1
 	}
@@ -109,7 +110,7 @@ func (e *Engine) fetchMarketDataForDay(
 		go func() {
 			defer stockWg.Done()
 			for job := range jobCh {
-				res := e.processStockJob(ctx, job, params, date, adj)
+				res := e.processStockJob(ctx, rc, job, params, date, adj)
 				resultCh <- res
 			}
 		}()
@@ -167,6 +168,7 @@ func stockNamesFor(stockCache map[string]domain.Stock) map[string]string {
 
 func (e *Engine) processStockJob(
 	ctx context.Context,
+	rc *runContext,
 	job stockJob,
 	params domain.BacktestParams,
 	date time.Time,
@@ -178,7 +180,7 @@ func (e *Engine) processStockJob(
 		res.stock = stock
 	}
 
-	ohlcvData, err := e.getOHLCV(ctx, job.symbol, params.StartDate, date)
+	ohlcvData, err := rc.getOHLCV(ctx, job.symbol, params.StartDate, date)
 	if err != nil {
 		res.err = apperrors.Wrapf(err, apperrors.ErrCodeDataQuality, "fetch_ohlcv", "symbol %s failed to fetch OHLCV", job.symbol)
 		return res
@@ -343,6 +345,7 @@ func sameClosePlan(pricesCache map[string]float64, date time.Time) fillPlan {
 
 func (e *Engine) processSignalsAndExecuteTrades(
 	ctx context.Context,
+	rc *runContext,
 	state *BacktestState,
 	signals []domain.Signal,
 	marketDataCache map[string][]domain.OHLCV,
@@ -383,10 +386,10 @@ func (e *Engine) processSignalsAndExecuteTrades(
 
 	portfolio := state.Tracker.GetPortfolio(pricesCache)
 
-	positionSizes, err := e.calculatePositionsBatch(ctx, validSignals, portfolio, regime, pricesCache, marketDataCache)
+	positionSizes, err := e.calculatePositionsBatch(ctx, rc, validSignals, portfolio, regime, pricesCache, marketDataCache)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Batch position sizing failed, falling back to per-signal")
-		e.processSignalsFallback(ctx, state, validSignals, marketDataCache, pricesCache, plan, regime, date, algo, execAlgoDiag, suspended, fillDiag, logger)
+		e.processSignalsFallback(ctx, rc, state, validSignals, marketDataCache, pricesCache, plan, regime, date, algo, execAlgoDiag, suspended, fillDiag, logger)
 		return
 	}
 
@@ -454,6 +457,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 
 func (e *Engine) processSignalsFallback(
 	ctx context.Context,
+	rc *runContext,
 	state *BacktestState,
 	signals []domain.Signal,
 	marketDataCache map[string][]domain.OHLCV,
@@ -490,7 +494,7 @@ func (e *Engine) processSignalsFallback(
 		}
 		portfolio := state.Tracker.GetPortfolio(pricesCache)
 		currentPrice := pricesCache[signal.Symbol]
-		positionSize, err := e.calculatePosition(ctx, signal, portfolio, regime, currentPrice)
+		positionSize, err := e.calculatePosition(ctx, rc, signal, portfolio, regime, currentPrice)
 		if err != nil || positionSize.Size <= 0 {
 			continue
 		}
@@ -1105,13 +1109,18 @@ func (e *Engine) forceCloseAllPositions(
 //
 // 返回**实际强平落账**的 symbol 列表 —— 调用方（日循环）据此取消这些
 // symbol 的活跃 exec-algo 父单（K18：摘牌强平是「引擎外改仓」）。
-func (e *Engine) forceCloseDelisted(
+//
+// 挂在 runContext 而不是 Engine（QT-12）：判断谁退市读的是上市日历，而那份
+// 日历现在是 run 私有的（种子 or 本 run 从库里读回）。留在 Engine 上等于
+// 让 run 内新读到的日历只作用于 universe 过滤、不强平 —— 恰好复现这个函数
+// 要修的那个「持仓挂到回测结束」的缺陷。
+func (rc *runContext) forceCloseDelisted(
 	state *BacktestState,
 	pricesCache map[string]float64,
 	date time.Time,
 	logger zerolog.Logger,
 ) []string {
-	listing := e.ListingWindows()
+	listing := rc.listingSnapshot()
 	if len(listing) == 0 {
 		return nil // 没有上市日历，无从判断谁退市了
 	}
@@ -1161,7 +1170,7 @@ func (e *Engine) forceCloseDelisted(
 		}
 		// 摘牌强平同样是「引擎外改持仓」（AUD-55）：票已经从 universe 里消失，
 		// 不会再有信号，但那份 `TargetPosition` 账得跟着清掉。
-		e.reconcileTargetPosition(state, symbol, date, logger)
+		rc.e.reconcileTargetPosition(state, symbol, date, logger)
 	}
 	return closedSymbols
 }

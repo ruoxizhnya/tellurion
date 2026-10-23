@@ -601,7 +601,7 @@ func TestQT02FillTimingDifferenceReport(t *testing.T) {
 	var rows []qt02Row
 	for _, strategy := range qt02ReportStrategies {
 		for _, caliber := range []string{"same_close", "next_open"} {
-			eng := qt02EngineFor(t, store) // 每 run 一台新引擎（引擎级缓存 per-instance）
+			eng := qt02EngineFor(t, store) // 每 run 一台新引擎：测试侧的隔离手段（缓存隔离今天由 runContext 提供）
 			rows = append(rows, qt02Measure(t, eng, strategy, caliber, universe, bars))
 		}
 	}
