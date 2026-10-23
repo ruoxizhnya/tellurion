@@ -38,7 +38,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
-| **W2** | QT-20 ⛔ | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash）。**阻塞（2026-10-24）：`BacktestRequest.StrategyParams` 属 tellurion-contracts（QT-05 迁出），v0.3.0 无此字段；G2 不越界改契约仓** |
+| **W2** | QT-20 ⛔ | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash）。**阻塞（2026-10-24）：`BacktestRequest.StrategyParams` 属 tellurion-contracts（QT-05 迁出），v0.3.0 无此字段；G2 不越界改契约仓**。**同日 G13 已切 pin 至 `v0.4.0`：字段已在位，消费腿（G1-QT-20）的前置解除** |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
 | W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
 | W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
@@ -805,12 +805,12 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >   兼容矩阵在册（`matrix:begin/end`：`v0.4` / `v0.3` / `v0.2` / `v0.1` / `main` 五行）；CHANGELOG **5 个版本节 / 48 条**。
 >   `go run ./tools/check_release_matrix` **退出 0**（规则表 3 行 ｜ 矩阵序列 4 ｜ tag 5）。
 > - **kit 仓**：README 同样三件齐全（`v0.1` / `main` 两行矩阵；CHANGELOG **1 节 / 16 条**）；同工具 **退出 0**。
-> - **require 落区间**（实测 `go.mod`，2026-10-24）：core = contracts **`v0.3.0`**（`v0.3` 行写「已切 v0.3.0」）、
->   **无 kit require**（矩阵写「尚无 require」）；agent = contracts **`v0.3.0`** + kit **`v0.1.0`**（两行均在册）。
+> - **require 落区间**（实测 `go.mod`，2026-10-24）：core = contracts **`v0.4.0`**（同日 **G13** 切 pin；`v0.4` 行写「已切 v0.4.0」）、
+>   **无 kit require**（矩阵写「尚无 require」）；agent = contracts **`v0.4.0`** + kit **`v0.1.0`**（两行均在册）。
 >   ⇒ 三个仓的 require 全部落在矩阵声明范围内，⑤ 的判据成立。
 > - **没有另起规则**：两仓 README 的规则表都以本单 ③ 为源头（它们自己写着「改口径先去那张单」），本批未改任何规则文本。
-> - **跨仓观察（不在本仓可改）**：contracts 的 `v0.4` 行把 core/agent 记为「待切 `v0.4.0`」——core 今天仍 pin `v0.3.0`，
->   升 pin 归 **G13**；这不影响本单验收（`v0.3` 行与实际 pin 一致）。
+> - **跨仓观察（已由 G13 收口，2026-10-24）**：contracts 的 `v0.4` 行原把 core/agent 记为「待切 `v0.4.0`」；
+>   G13 已把两仓 `go.mod` 切到 `v0.4.0` 并把矩阵该行改为「已切」（strategy 早已 `v0.4.0`，data 同批 `v0.1.0` → `v0.4.0`）。
 
 ---
 
