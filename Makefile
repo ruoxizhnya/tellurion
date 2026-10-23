@@ -3,7 +3,7 @@
 # Usage: make [target] VERSION=v1.0.0
 # ============================================================
 
-.PHONY: all build push clean test lint agent-compat contracts-pin-check help
+.PHONY: all build push clean test lint agent-compat contracts-pin-check contracts-conformance help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "local")
@@ -137,6 +137,14 @@ contracts-pin-check:
 	python tools/check_contract_pin.py --self-test
 	python tools/check_contract_pin.py
 
+# QT-09 ③：契约一致性 —— 同一组语料喂给 core 与 agent 两侧实现，任一侧语义
+# 漂移即红。语料唯一真相在 tellurion-contracts:conformance/cases.json，两侧
+# 测试各自读取同一份（不复制、不共享加载器）。某侧仓未 checkout 时脚本显式
+# 打印 [skip] + ::warning，**不算通过**；没有 make 时直跑：
+#     python tools/check_contract_conformance.py
+contracts-conformance:
+	python tools/check_contract_conformance.py
+
 help:
 	@echo ""
 	@echo "📦 Quant Trading - Build & Deploy System"
@@ -172,6 +180,7 @@ help:
 	@echo "  lint               Run golangci-lint"
 	@echo "  agent-compat       Shorthand for tools/ci/agent_compat.sh (QT-18 cross-repo compile guard; run the script directly when make is unavailable, e.g. Git Bash on Windows)"
 	@echo "  contracts-pin-check Verify contracts/kit pins are ancestors of their main (QT-09; run the python commands directly when make is unavailable)"
+	@echo "  contracts-conformance Verify core/agent against the shared conformance corpus (QT-09 ③; run the python command directly when make is unavailable)"
 	@echo "  clean              Clean up Docker resources"
 	@echo "  help               Show this help message"
 	@echo ""

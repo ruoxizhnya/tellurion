@@ -140,6 +140,24 @@ jobs:
             echo "::notice title=QT-61 未覆盖面::pkg/backtest 的 csi300 universe 展开 + 破坏验证（TestResolveStockPool_UniverseCsi300Expands / _FailsLoudWhenConstituentsEmpty）默认跳过：需真库灌 csi300 成分快照（2024-10-31~2026-09-30）。设 TEST_UNIVERSE=1 指向已灌库即可真正执行。"
           fi
 
+      # QT-09 ③：契约一致性 —— 同一组语料喂给 core 与 agent 两侧实现，任一侧语义
+      # 漂移即红。语料唯一真相在 contracts 仓的 conformance/cases.json（本仓不复制、
+      # 不改写）。core 侧测试的语料定位顺序是 go list -m → GOROOT/bin/go → 逐级向上
+      # 找同级 tellurion-contracts；CI 只有 core checkout，所以先把 contracts 匿名
+      # clone 成**同级工作树**（public 仓，与 agent-compat job 同款手法）。
+      # agent 侧不在本 job 的 checkout 里 ⇒ 脚本打印 [skip] + ::warning，摘要写
+      # 「1 侧跳过」，**不算通过**；两仓齐的机器上跑才是完整比对。
+      - name: Checkout contracts repo (anonymous https)
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          rm -rf ../tellurion-contracts
+          git clone --quiet --depth 1 --single-branch --branch main \
+            https://github.com/ruoxizhnya/tellurion-contracts ../tellurion-contracts
+
+      - name: Contract conformance (QT-09 ③)
+        run: python3 tools/check_contract_conformance.py
+
   # frontend job 已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
   # 前端 lint / typecheck / test 的 CI 现在由 tellurion-ui 仓自己的
   # workflow 承担（见该仓 .github/workflows/ci.yml）。
