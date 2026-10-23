@@ -106,6 +106,12 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **文档**：`repo-topology-and-naming.md` §6 现状表 core tag 0→1、agent require v0.0.0→v0.1.0（AGENTS/CI 列的陈旧归 QT-08，不在本单混改）。
 > - **CI 观察**（2026-10-21）：本单改动早已在 main 上；后续任何 push 触发的 core `gofmt`/`Doc link check` 与 agent `Build`/`Vet` 若有红，按 QT-61 的 known-fail 口径登记，不回退 tag（tag 指向的提交本身不因后续红而失效）。
 
+> **S2 ⑤ 续（2026-10-23，C2：contracts `v0.1.1` + 双侧切 pin）**：
+> - **发版动因**：`v0.1.0` 的 tag 树里 `conformance/` 命中 0 个文件（tag 打在语料落地之前），下游按 pin 读语料必然落空。contracts 仓发 `v0.1.1`（PATCH 级，导出面零变化）把语料打进 tag，并新增随仓守卫「最新 release tag 必须带语料」（破坏验证先行：打 tag 前红、tag 后绿）。
+> - **双侧切 pin**：core 与 agent 各 `go get …tellurion-contracts@v0.1.1` + `go mod tidy`，**只动 go.mod/go.sum**；agent 的 `replace tellurion => ../tellurion` 保留（S3 删）。⚠️ 实测 `replace` 让本地 core 的 go.mod 参与 agent 模块图：core 先升、agent 未升时 agent 整仓 `go test` 报 `updates to go.mod needed`——两侧必须同批升，这条已写进 contracts README 发版流程的语境。
+> - **三侧 conformance 实跑**：`python tools/check_contract_conformance.py` = core 通过 + agent 通过（语料 33 条 / 9 kind，两侧共 2/2、零 skip）；`python tools/check_contract_pin.py --self-test` 18 腿绿 + 全 workspace 扫描 GREEN（core pin `v0.1.1` = contracts `main` 祖先）。
+> - **跨仓回归（隔离取证归因，与本次切 pin 无关）**：agent `pkg/ai/validation` 5 例红（`回测未完成：status=invalid`）。取证：同一套测试对 core `origin/main`（`ef5985d`，临时 detach worktree + 改 replace 指过去）**全绿**，对本地 core（含未推的 QT-11/12/13）红 ⇒ 红由 core 未推 commit 引入，非 contracts 升级（v0.1.0→v0.1.1 的 engine/domain/fees 逐字节相同）。**QT-11~13 推送前 agent 侧需适配或在 QT-18 的 known-break 白名单登记**，否则 core push 后 agent CI 必红。
+
 ### QT-18 · 过渡期 core↔agent 连体护栏（S0）[P0] ✅
 
 - **① 目标**：S0~S3 期间 agent 编译期依赖 core 源码，而 W0/W1 的改动**全是 breaking**（abi v2 的 host 函数由 8 个扩到 12 个、错误分级改 `getSignals` 返回、per-run 实例改 `Registry.Get` 语义、检查点主键变更）。要让这类破坏**在 core 的 PR 上立刻红**，而不是等两周后有人打开 agent 仓才发现它已经烂了。
