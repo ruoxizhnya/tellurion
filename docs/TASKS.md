@@ -778,8 +778,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **未做（明确留在本单外）**：CI 只 checkout core → agent 侧恒为「跳过」，所以 CI 里的 conformance 只是**单侧防退化**，不是完整双跑；完整比对在本地/多仓环境跑。真正阻断跨仓漂移的仍是 QT-07 ⑥ S3 之后的「只认 tag + HTTP」形态。
 
 > **✅ 结案核对（2026-10-24，只重跑三腿，不改护栏实现）**
-> - **腿 1 `make contracts-pin-check`**：`--self-test` **18 条腿 GREEN**；实扫 **6 个 pin GREEN**（contracts ×5、kit ×1，均判为 `origin/main` 祖先），退出 **0**。
-> - **腿 2 `make contracts-conformance`**：语料 **33 条 / 9 kind**，**core 通过 / agent 通过 / 失败 0 / 跳过 0**，退出 **0**（本次跑在工作区内两仓都已 checkout 的环境）。
+> - **腿 1 `make contracts-pin-check`**（本机无 `make`，按 Makefile 同款命令直跑：`python tools/check_contract_pin.py --self-test` + `python tools/check_contract_pin.py`）：`--self-test` **18 条腿 GREEN**；实扫 **6 个 pin GREEN**（contracts ×5、kit ×1，均判为 `origin/main` 祖先），退出 **0**。
+> - **腿 2 `make contracts-conformance`**（同上，直跑 `python tools/check_contract_conformance.py`）：语料 **33 条 / 9 kind**，**core 通过 / agent 通过 / 失败 0 / 跳过 0**，退出 **0**（本次跑在工作区内两仓都已 checkout 的环境）。
 > - **腿 3 仓边**：`git ls-files` 对 `go.work` / `go.work.sum` **0 命中**（未入库）；`grep -c replace go.mod` = **0**（core 没有 replace）。
 > - ⚠️ **覆盖面限制（写回结案记录，不冒充双跑）**：CI 只 checkout core 时，`contracts-conformance` 的 agent 侧**恒为 skipped**
 >   （脚本打 `[skip]` + `::warning`，摘要里的「跳过 N 侧」不算通过）。所以 **CI 里的 conformance 只是单侧防退化**；
