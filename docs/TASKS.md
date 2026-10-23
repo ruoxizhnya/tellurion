@@ -812,6 +812,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **跨仓观察（已由 G13 收口，2026-10-24）**：contracts 的 `v0.4` 行原把 core/agent 记为「待切 `v0.4.0`」；
 >   G13 已把两仓 `go.mod` 切到 `v0.4.0` 并把矩阵该行改为「已切」（strategy 早已 `v0.4.0`，data 同批 `v0.1.0` → `v0.4.0`）。
 
+### G13 · 协调/发版收口（推送 → 升 pin → 三仓 conformance → QT-19 核对）[P1] ✅（2026-10-24）
+
+- **① 推送（实测 ahead，派工数字是旧快照）**：core 7（`3131d24..c514565`）、strategy 3（`397900a..d3a7019`）、broker 1（`e0a74f5..43c9022`，QT-45 R5）。其余 9 仓实测 ahead=0（派工写的 data 17 / strategy 9 / risk 3 / analytics 1 / orchestration 2 / ui 6 已被各施工组推走或从未存在）。
+  推前每仓在**干净 checkout**取四腿：`gofmt -l .` + `go build ./...` + `go vet ./...` + `go test ./... -count=1`，全绿（core 的 `c514565` 在 detached worktree 里验，避免工作树未提交改动混入）。
+- **② 升 pin（contracts `v0.4.0`）**：core `v0.3.0 → v0.4.0`（`8018eaf`）、agent 同批（`ea97d0a`，`replace tellurion` 在册期间必须与 core 同批）、data `v0.1.0 → v0.4.0`（`d32afcc`）；strategy 早已 `v0.4.0`，未动。agent/data 的验证在隔离 worktree 里取（两仓工作树有并发施工组的未提交改动）。
+- **③ pin 护栏**：`python tools/check_contract_pin.py --self-test` **18 腿 GREEN**；实扫 **退出 0**——6 个 pin 全为 `origin/main` 祖先（core / agent / data / strategy 均为 `v0.4.0`，agent 另 pin kit `v0.1.0`；`tellurion-g3-data` 的 `v0.2.0` 亦绿）。本机无 `make`，按 Makefile 同款命令直跑。
+  **破坏验证**：临时副本给 contracts 造旁支 commit + tag `v0.4.1`，把 data 的 pin 指向它 → **RED**（`不是 origin/main 的祖先`，EXIT=1）；改回 `v0.4.0` → **GREEN**（EXIT=0）。临时副本已删。
+- **④ conformance**：`python tools/check_contract_conformance.py` **退出 0**——语料 33 条 / 9 kind，core 通过、agent 通过，**跳过 0 侧**（不存在「未记录的跳过」）。
+- **⑤ QT-19 四件**：contracts README 版本规则表 / 兼容矩阵 / CHANGELOG（5 节 48 条）/ `check_release_matrix`（退出 0）全部在册；矩阵 `v0.4` 与 `main` 行由「待切」回写「已切」，README 状态栏与 AGENTS §1 同步（contracts `7fb5e80`）。
+- **⑥ 未做 / 边界（如实）**：agent 的 `-race` 本机跑不了（`CGO_ENABLED=0` 且无 C 编译器，exit 2），端点面未取 race 证据；agent（5 个文件）与 data（17 个文件）工作树仍有并发施工组的未提交改动，**未替它们提交**；broker 的 `43c9022` 是并发会话刚提交的，按派工「broker 1」验证后推送。
+
 ---
 
 ## 五、X 线 · 服务拆分（可选部署形态，进程内 port 先行）
