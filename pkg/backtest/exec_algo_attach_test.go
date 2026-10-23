@@ -54,7 +54,9 @@ func TestExecAlgoAttach_BacktestUnknownStyleRunInvalid(t *testing.T) {
 	probe := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k17r1_unknown_style",
 		symbol: "000001.SZ", execAlgo: "twp", slices: 3, strength: 1.0, // 拼错的 TWAP
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	probe.register(t)
 
@@ -108,7 +110,7 @@ func TestExecAlgoAttach_BacktestDuplicateParentCounted(t *testing.T) {
 	eng, _, _ := buildExecAlgoEngine(t, logSink)
 	spy := &recordingExecService{inner: NewBacktestExecutionService(impactExecConfig())}
 	dup := &execAlgoDupStrategy{name: "k17r1_dup_parent"}
-	require.NoError(t, strategy.DefaultRegistry.Register(dup))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return dup }))
 
 	resp, orders := runExecAlgoAttachProbe(t, eng, "k17r1_dup_parent", spy)
 

@@ -604,7 +604,7 @@ func TestValueScreenAutoRegister(t *testing.T) {
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		screenCache: strategy.NewScreenCache(30),
 	}
-	if err := strategy.GlobalRegister(s); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return s }); err != nil {
 		t.Fatalf("failed to register value_screening: %v", err)
 	}
 

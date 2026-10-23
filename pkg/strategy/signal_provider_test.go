@@ -120,11 +120,14 @@ func TestLocalSignalProviderRejectsFutureDatedOutput(t *testing.T) {
 	future := &pvBatch{name: "pv-future", gen: func(map[string][]domain.OHLCV, *domain.Portfolio) ([]Signal, error) {
 		return []Signal{{Symbol: "X", Date: asOf.AddDate(0, 0, 2)}}, nil
 	}}
-	require.NoError(t, reg.Register(future))
+	// 工厂注册（QT-11）：共享实例会在取实例那一步就 fail-closed，
+	// 那样本测试红的是「注册方式」，而不是它声称要测的「防前视拒绝」。
+	require.NoError(t, reg.RegisterFactory(func() Strategy { return future }))
 
 	p := NewLocalSignalProvider(reg)
 	_, err := p.Signals(context.Background(), Scope{Strategy: "pv-future"}, asOf)
 	require.Error(t, err, "未来信号必须被契约拒绝（防前视），而不是静默放行")
+	require.Contains(t, err.Error(), "防前视", "报错必须是前视拒绝，而不是别的失败")
 }
 
 // TestLocalSignalProviderBatchPassthrough 批式路径透传：信号原样返回，
@@ -139,7 +142,7 @@ func TestLocalSignalProviderBatchPassthrough(t *testing.T) {
 	batch := &pvBatch{name: "pv-batch", gen: func(map[string][]domain.OHLCV, *domain.Portfolio) ([]Signal, error) {
 		return want, nil
 	}}
-	require.NoError(t, reg.Register(batch))
+	require.NoError(t, reg.RegisterFactory(func() Strategy { return batch }))
 
 	bars := map[string][]domain.OHLCV{"A": pvBars("A", asOf, 3)}
 	port := &domain.Portfolio{Cash: 1000}
@@ -158,7 +161,7 @@ func TestLocalSignalProviderStreamingFeedsOnlyTodayBars(t *testing.T) {
 	reg := NewRegistry()
 	stream := &pvStream{pvBatch: pvBatch{name: "pv-stream"}}
 	stream.out = []Signal{{Symbol: "AAA", Date: asOf}}
-	require.NoError(t, reg.Register(stream))
+	require.NoError(t, reg.RegisterFactory(func() Strategy { return stream }))
 
 	bars := map[string][]domain.OHLCV{
 		"AAA": pvBars("AAA", asOf, 3),                   // 当日有新 bar
@@ -200,7 +203,7 @@ func TestLocalSignalProviderInjectsFactorAndFundamentals(t *testing.T) {
 	asOf := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
 	reg := NewRegistry()
 	batch := &pvBatch{name: "pv-inject"}
-	require.NoError(t, reg.Register(batch))
+	require.NoError(t, reg.RegisterFactory(func() Strategy { return batch }))
 
 	reader := FactorZScoreReader(func(domain.FactorType, time.Time, string) (float64, bool) { return 0, false })
 	fund := map[string]FundamentalSeries{"A": {}}

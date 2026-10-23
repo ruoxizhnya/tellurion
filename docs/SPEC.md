@@ -243,7 +243,7 @@ citation = { source, dataset, key, as_of, content_hash }
 **一条意图的落地路径是固定的，回测跑的是表达式算出来的信号，不是 LLM 写的 Go 代码**：
 
 ```
-自然语言 → intent（语义类型）→ YAML 配置 → ExpressionStrategy → GlobalRegister → 回测
+自然语言 → intent（语义类型）→ YAML 配置 → ExpressionStrategy → GlobalRegisterFactory → 回测
 ```
 
 | 约束 | 内容 |

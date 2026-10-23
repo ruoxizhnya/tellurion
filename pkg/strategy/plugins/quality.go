@@ -265,7 +265,7 @@ func (s *qualityStrategy) Cleanup() {
 	s.params = QualityConfig{}
 }
 
-func init() {
+func newQualityStrategy() strategy.Strategy {
 	s := &qualityStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("quality", "Quality strategy: buy stocks with strong profitability"),
 		params: QualityConfig{
@@ -275,5 +275,7 @@ func init() {
 			RebalanceFrequency: "weekly",
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newQualityStrategy) }

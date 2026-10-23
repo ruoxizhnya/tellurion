@@ -34,7 +34,7 @@ func runOnce(t *testing.T, nDays int, topN int) *BacktestResponse {
 	if err := ms.Configure(params); err != nil {
 		t.Fatalf("configure momentum: %v", err)
 	}
-	if err := strategy.GlobalRegister(ms); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return ms }); err != nil {
 		existing, getErr := strategy.DefaultRegistry.Get("momentum")
 		if getErr != nil {
 			t.Fatalf("momentum 既注册不上也取不出：register=%v get=%v", err, getErr)

@@ -258,7 +258,7 @@ func (s *valueStrategy) Cleanup() {
 	s.params = ValueConfig{}
 }
 
-func init() {
+func newValueStrategy() strategy.Strategy {
 	s := &valueStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("value", "Value strategy: buy stocks with low PE ratio (high earnings yield)"),
 		params: ValueConfig{
@@ -268,5 +268,7 @@ func init() {
 			RebalanceFrequency: "weekly",
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newValueStrategy) }

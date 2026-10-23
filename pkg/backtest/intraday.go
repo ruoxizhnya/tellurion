@@ -176,7 +176,9 @@ func (e *Engine) intradaySnapshot() map[string][]domain.OHLCV {
 //  3. 失败不阻断 —— 没有快照只是让日内特征策略明确报错，不是回测失败
 //     （同财报预热语义）。
 func (e *Engine) warmIntradayIfNeeded(ctx context.Context, strategyName string, symbols []string, start, end time.Time) error {
-	strat, err := strategy.DefaultRegistry.Get(strategyName)
+	// QT-11：同 warmFundamentalsIfNeeded —— 类型探测也经 NewInstance，
+	// 执行路径不许摸注册表里那份共享实例。
+	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
 	if err != nil {
 		return nil // 本地注册表没有该策略（未加载/拼错）：与日内预热无关，直接返回
 	}

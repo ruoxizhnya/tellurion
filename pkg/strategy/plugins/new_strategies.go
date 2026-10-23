@@ -163,13 +163,15 @@ func (s *tdSequentialStrategy) Weight(signal strategy.Signal, _ float64) float64
 
 func (s *tdSequentialStrategy) Cleanup() {}
 
-func init() {
+func newTDSequentialStrategy() strategy.Strategy {
 	s := &tdSequentialStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("td_sequential", "TD Sequential: Tom DeMark's sequential indicator for trend exhaustion detection"),
 		params:       TDSequentialConfig{SetupCount: 9, CancelDays: 4, CountdownFrom: 13},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newTDSequentialStrategy) }
 
 type BollingerMRConfig struct {
 	Period     int
@@ -318,13 +320,15 @@ func (s *bollingerMRStrategy) Weight(signal strategy.Signal, _ float64) float64 
 
 func (s *bollingerMRStrategy) Cleanup() {}
 
-func init() {
+func newBollingerMRStrategy() strategy.Strategy {
 	s := &bollingerMRStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("bollinger_mr", "Bollinger Mean Reversion: trade band bounces with z-score thresholds"),
 		params:       BollingerMRConfig{Period: 20, StdDev: 2.0, BuyZScore: -1.5, SellZScore: 1.5},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newBollingerMRStrategy) }
 
 type VPTConfig struct {
 	SMALookback int
@@ -503,13 +507,15 @@ func (s *vptStrategy) Weight(signal strategy.Signal, _ float64) float64 {
 
 func (s *vptStrategy) Cleanup() {}
 
-func init() {
+func newVPTStrategy() strategy.Strategy {
 	s := &vptStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("volume_price_trend", "Volume-Price Trend: volume-weighted price momentum indicator"),
 		params:       VPTConfig{SMALookback: 20, TopN: 5},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newVPTStrategy) }
 
 type VolBreakoutConfig struct {
 	ATRPeriod     int
@@ -706,10 +712,12 @@ func (s *volBreakoutStrategy) Weight(signal strategy.Signal, _ float64) float64 
 
 func (s *volBreakoutStrategy) Cleanup() {}
 
-func init() {
+func newVolBreakoutStrategy() strategy.Strategy {
 	s := &volBreakoutStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("volatility_breakout", "Volatility Breakout: ATR Donchian channel breakout system"),
 		params:       VolBreakoutConfig{ATRPeriod: 14, ATRMultiplier: 2.0, Lookback: 20, TopN: 5},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newVolBreakoutStrategy) }

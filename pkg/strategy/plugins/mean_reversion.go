@@ -324,7 +324,7 @@ func (s *meanReversionStrategy) Cleanup() {
 	s.params = MeanReversionConfig{}
 }
 
-func init() {
+func newMeanReversionStrategy() strategy.Strategy {
 	s := &meanReversionStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("mean_reversion", "Bollinger Bands + RSI mean reversion"),
 		params: MeanReversionConfig{
@@ -335,5 +335,7 @@ func init() {
 			RSIOverbought:   70,
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newMeanReversionStrategy) }

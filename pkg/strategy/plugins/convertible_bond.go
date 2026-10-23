@@ -537,7 +537,7 @@ func (s *convertibleBondStrategy) Cleanup() {
 	s.bondMu.Unlock()
 }
 
-func init() {
+func newConvertibleBondStrategy() strategy.Strategy {
 	s := &convertibleBondStrategy{
 		BaseStrategy: strategy.NewBaseStrategy(
 			"convertible_bond",
@@ -554,5 +554,7 @@ func init() {
 		},
 		bonds: make(map[string]ConvertibleBondData),
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newConvertibleBondStrategy) }

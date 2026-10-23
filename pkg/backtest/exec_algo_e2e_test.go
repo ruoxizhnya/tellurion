@@ -262,7 +262,9 @@ func TestExecAlgo_BacktestTWAP7Slices(t *testing.T) {
 	whole := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k17_e2e_whole",
 		symbol: "000001.SZ", execAlgo: "", strength: 1.0,
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	whole.register(t)
 	respA, ordersA := runExecAlgoProbe(t, engA, "k17_e2e_whole", spyA)
@@ -280,7 +282,9 @@ func TestExecAlgo_BacktestTWAP7Slices(t *testing.T) {
 	twap := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k17_e2e_twap7",
 		symbol: "000001.SZ", execAlgo: "twap", slices: 7, strength: 1.0,
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	twap.register(t)
 	_, ordersB := runExecAlgoProbe(t, engB, "k17_e2e_twap7", spyB)
@@ -342,9 +346,11 @@ func TestExecAlgo_BacktestVWAP7Slices(t *testing.T) {
 	vwap := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k17_e2e_vwap7",
 		symbol: "000001.SZ", execAlgo: "vwap", slices: 7,
-		profile:    []float64{1, 2, 3, 4, 5, 6, 7},
-		strength:   1.0,
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		profile:  []float64{1, 2, 3, 4, 5, 6, 7},
+		strength: 1.0,
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	vwap.register(t)
 	_, ordersB := runExecAlgoProbe(t, engB, "k17_e2e_vwap7", spyB)
@@ -374,7 +380,7 @@ func TestExecAlgo_DefaultPathUnchangedWithActiveSiblings(t *testing.T) {
 
 	// 策略：000001.SZ 走 TWAP 7 片；600000.SH 不指定算法。
 	mixed := &execAlgoMixedStrategy{name: "k17_e2e_mixed"}
-	require.NoError(t, strategy.DefaultRegistry.Register(mixed))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return mixed }))
 
 	_, orders := runExecAlgoProbe(t, eng, "k17_e2e_mixed", spy)
 

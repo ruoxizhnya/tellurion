@@ -460,7 +460,7 @@ func (s *valueScreeningStrategy) generateSellSignals(
 	return signals, nil
 }
 
-func init() {
+func newValueScreeningStrategy() strategy.Strategy {
 	s := &valueScreeningStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("value_screening", "Value screening: filter stocks by PE, PB, ROE criteria then rank by momentum"),
 		params: ValueScreeningConfig{
@@ -475,5 +475,7 @@ func init() {
 		screenCache:    strategy.NewScreenCache(30),
 		dataServiceURL: defaultDataServiceURL,
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newValueScreeningStrategy) }

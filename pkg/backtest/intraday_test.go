@@ -456,7 +456,7 @@ func TestEngine_IntradayAwareStrategy_Backtest(t *testing.T) {
 	})
 
 	strat := newIntradayMomentumStrategy("d6_intraday_momentum", 0.02)
-	require.NoError(t, strategy.DefaultRegistry.Register(strat))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
 
 	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
 		Strategy:       strat.Name(),
@@ -516,7 +516,7 @@ func TestEngine_IntradayAwareStrategy_FailsLoudWithoutProvider(t *testing.T) {
 	// 不注快照、不接 Router ⇒ 策略拿不到供给。
 
 	strat := newIntradayMomentumStrategy("d6_intraday_no_provider", 0.02)
-	require.NoError(t, strategy.DefaultRegistry.Register(strat))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
 
 	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
 		Strategy:       strat.Name(),
@@ -582,7 +582,7 @@ func TestEngine_DailyOnlyBacktest_UnchangedWithIntradayWiring(t *testing.T) {
 
 func TestEngine_WarmIntraday_SkippedWhenStrategyNotAware(t *testing.T) {
 	eng := d6Engine(t, nil)
-	require.NoError(t, strategy.DefaultRegistry.Register(&plainStrategy{name: "d6_plain"}))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return &plainStrategy{name: "d6_plain"} }))
 
 	err := eng.warmIntradayIfNeeded(context.Background(), "d6_plain",
 		[]string{"600519.SH"}, d6Day, d6Day.AddDate(0, 0, 2))
@@ -593,7 +593,7 @@ func TestEngine_WarmIntraday_SkippedWhenStrategyNotAware(t *testing.T) {
 func TestEngine_WarmIntraday_NoRouterIsNoop(t *testing.T) {
 	eng := d6Engine(t, nil)
 	strat := newIntradayMomentumStrategy("d6_warm_norouter", 0.02)
-	require.NoError(t, strategy.DefaultRegistry.Register(strat))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
 
 	// IntradayAware 但没接 Router：不报错、不阻断（同财报无 store 语义）。
 	err := eng.warmIntradayIfNeeded(context.Background(), strat.Name(),
@@ -675,7 +675,7 @@ func TestEngine_WarmIntraday_WithRouter_SelfSeed(t *testing.T) {
 	eng := d6Engine(t, nil)
 	eng.SetRouter(marketdata.NewRouter(pool))
 	strat := newIntradayMomentumStrategy("d6_warm_router", 0.02)
-	require.NoError(t, strategy.DefaultRegistry.Register(strat))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return strat }))
 
 	require.NoError(t, eng.warmIntradayIfNeeded(ctx, strat.Name(),
 		[]string{testSymbol}, d6Day, d6Day))

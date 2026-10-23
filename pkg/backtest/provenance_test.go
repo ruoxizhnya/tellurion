@@ -123,7 +123,7 @@ func registerQT63Probe(t *testing.T) {
 		probe := &qt63ProbeStrategy{
 			BaseStrategy: strategy.NewBaseStrategy(qt63ProbeName, "QT-63 provenance 探针"),
 		}
-		require.NoError(t, strategy.GlobalRegister(probe))
+		require.NoError(t, strategy.GlobalRegisterFactory(func() strategy.Strategy { return probe }))
 	})
 }
 

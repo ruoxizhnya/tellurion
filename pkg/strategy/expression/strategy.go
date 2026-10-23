@@ -346,17 +346,25 @@ func (s *ExpressionStrategy) Weight(signal strategy.Signal, portfolioValue float
 // Compile-time interface satisfaction check.
 var _ strategy.Strategy = (*ExpressionStrategy)(nil)
 
-// init self-registers a default "expression_template" strategy so it
-// appears in the registry and passes the compliance test
-// (TestRegisteredStrategies_SatisfyComposite). Users can configure it
-// at runtime via strategy.ConfigureStrategy("expression_template", params)
-// or construct a custom instance with NewExpressionStrategy.
+// init self-registers a **constructor** for the default "expression_template"
+// strategy (QT-11), so it appears in the registry and passes the compliance
+// test (TestRegisteredStrategies_SatisfyComposite) while every run gets its
+// own instance. Users construct custom instances with NewExpressionStrategy.
+//
+// 运行时改参数请走 NewExpressionStrategy 造一份新的：ConfigureStrategy 对
+// 工厂注册的条目会明确报错（它只能碰到注册期那个原型，碰不到 run 用的实例），
+// run 级参数投递是 QT-20。
 func init() {
-	s, err := NewExpressionStrategy("expression_template", defaultExpressionStrategyConfig())
-	if err != nil {
-		// This should never happen with a valid default config; if it
-		// does, the package is broken and should fail loudly.
+	newTemplate := func() strategy.Strategy {
+		s, err := NewExpressionStrategy("expression_template", defaultExpressionStrategyConfig())
+		if err != nil {
+			// This should never happen with a valid default config; if it
+			// does, the package is broken and should fail loudly.
+			panic(fmt.Sprintf("expression: failed to build expression_template: %v", err))
+		}
+		return s
+	}
+	if err := strategy.GlobalRegisterFactory(newTemplate); err != nil {
 		panic(fmt.Sprintf("expression: failed to register expression_template: %v", err))
 	}
-	strategy.GlobalRegister(s)
 }

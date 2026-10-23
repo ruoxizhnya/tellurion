@@ -180,3 +180,34 @@ func TestExpressionStrategy_Weight_ReturnsStrength(t *testing.T) {
 		t.Errorf("Weight() = %.4f, want 0.15 (signal.Strength)", got)
 	}
 }
+
+// ─── Registration (QT-11) ──────────────────────────────────────────────
+
+// TestExpressionTemplate_IsFactoryRegistered 钉住 init 的注册形态：注册表里
+// 存的是构造函数，执行路径每笔 run 拿到新实例，而不是注册期那份原型。
+// 把 init 改回 GlobalRegister(s) → NewInstance 当场红（共享实例 fail-closed）。
+func TestExpressionTemplate_IsFactoryRegistered(t *testing.T) {
+	proto, err := strategy.GlobalGet("expression_template")
+	if err != nil {
+		t.Fatalf("expression_template 未在注册表里（init 没跑到？）：%v", err)
+	}
+
+	first, err := strategy.GlobalNewInstance("expression_template")
+	if err != nil {
+		t.Fatalf("expression_template 拿不到 per-run 实例：%v", err)
+	}
+	second, err := strategy.GlobalNewInstance("expression_template")
+	if err != nil {
+		t.Fatalf("expression_template 第二次取实例失败：%v", err)
+	}
+
+	if first == proto || second == proto {
+		t.Error("NewInstance 把注册期原型递了出来 —— 工厂名存实亡")
+	}
+	if first == second {
+		t.Error("两次 NewInstance 拿到同一份实例 —— A2 的串状态缺陷回来了")
+	}
+	if first.Name() != "expression_template" {
+		t.Errorf("实例名 = %q, want expression_template", first.Name())
+	}
+}

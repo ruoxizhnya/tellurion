@@ -380,7 +380,7 @@ func buildBases(t *testing.T, ctx context.Context, store *storage.PostgresStore,
 func configureAdjMomentum(t *testing.T, params map[string]interface{}) {
 	t.Helper()
 	ms := examples.NewMomentumStrategy()
-	if err := strategy.GlobalRegister(ms); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return ms }); err != nil {
 		existing, getErr := strategy.DefaultRegistry.Get("momentum")
 		if getErr != nil {
 			t.Fatalf("momentum 既注册不上也取不出：register=%v get=%v", err, getErr)

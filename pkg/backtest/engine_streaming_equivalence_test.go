@@ -175,7 +175,7 @@ const (
 // runDualModeBacktest 用一份全新的合成引擎跑一遍回测，绑定给定策略。
 func runDualModeBacktest(t *testing.T, strat strategy.Strategy) *BacktestResponse {
 	t.Helper()
-	if err := strategy.GlobalRegister(strat); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return strat }); err != nil {
 		t.Fatalf("注册策略 %s 失败：%v", strat.Name(), err)
 	}
 	eng, _, symbols := buildSyntheticEngine(t, eqSymbols, eqDays, 1)

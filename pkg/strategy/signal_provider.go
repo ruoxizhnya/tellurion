@@ -16,8 +16,10 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
@@ -77,6 +79,14 @@ func RejectFutureSignals(sigs []Signal, asOf time.Time) error {
 // LocalSignalProvider 是 SignalProvider 的本地实现（K8 ③.2）——包装现有
 // 注册表 + 批式/流式双模式调用，行为与旧 pkg/backtest 的
 // getSignalsFromLocalStrategy 逐字节一致（错误消息、错误码、op 均原样保留）。
+//
+// ⚠️ **一个实例只服务一个 run**（QT-11）。策略实例在本对象里按名字缓存，
+// 所以同一个 provider 跨日复用是刻意的：流式（BarHandler）策略的状态必须
+// 在一个 run 内活着。反过来，**每个 run 必须新建一个**——共享一个
+// LocalSignalProvider 跑两笔，缓存就把第一笔的策略实例递给了第二笔，
+// 正是 QT-11 要消灭的串状态。引擎侧的对应纪律见
+// `Engine.newRunSignalProvider`；注入自定义 provider 的跨 run 生命周期
+// 归 QT-14（BeginRun/EndRun）。
 type LocalSignalProvider struct {
 	registry     *Registry
 	factorReader FactorZScoreReader
@@ -85,12 +95,46 @@ type LocalSignalProvider struct {
 	// （没配 Router / 没预热），IntradayAware 策略拿不到供给，
 	// 用到特征时明确失败（契约注释口径）。
 	intraday IntradayFeatureProvider
+
+	// mu 护 instances：run 内是单线程日循环，但 provider 是导出类型，
+	// 调用方并发用（= 误用）时不能 data race。
+	mu        sync.Mutex
+	instances map[string]Strategy
 }
 
 // NewLocalSignalProvider 构造本地实现。registry 传 nil 表示调用时取
 // DefaultRegistry（延迟取：兼容 Init() 重建 DefaultRegistry 的时序）。
 func NewLocalSignalProvider(registry *Registry) *LocalSignalProvider {
-	return &LocalSignalProvider{registry: registry}
+	return &LocalSignalProvider{
+		registry:  registry,
+		instances: make(map[string]Strategy),
+	}
+}
+
+// strategyFor 取本 run 用的策略实例：首调用经注册表构造函数拿一份新实例，
+// 之后的调用复用同一份（流式状态跨日存活）。
+//
+// 唯一取实例的入口走 `Registry.NewInstance`；以共享实例注册的策略
+// （插件 / 测试替身漏迁移）在这里 fail-closed 报错，错误里点名 remedy——
+// 悄悄退回共享实例等于把 QT-11 白做。
+func (p *LocalSignalProvider) strategyFor(name string) (Strategy, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if s, ok := p.instances[name]; ok {
+		return s, nil
+	}
+
+	reg := p.registry
+	if reg == nil {
+		reg = DefaultRegistry
+	}
+	s, err := reg.NewInstance(name)
+	if err != nil {
+		return nil, err
+	}
+	p.instances[name] = s
+	return s, nil
 }
 
 // SetFactorReader 绑定因子 z-score 读取器（引擎装配期绑 method value，
@@ -118,12 +162,15 @@ func (p *LocalSignalProvider) SetIntradayProvider(ip IntradayFeatureProvider) {
 // 现有批式策略的类型断言恒假、必然落到批式分支——这是类型系统的结构保证，
 // 不靠运行时标志。只有同时实现 Strategy 与 BarHandler 的双模式策略才走流式。
 func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf time.Time) ([]Signal, error) {
-	reg := p.registry
-	if reg == nil {
-		reg = DefaultRegistry
-	}
-	strat, err := reg.Get(scope.Strategy)
+	strat, err := p.strategyFor(scope.Strategy)
 	if err != nil {
+		if errors.Is(err, ErrSharedStrategy) {
+			// 装配错误，不是「策略不存在」：报 NOT_FOUND 会把人引去查名字拼写，
+			// 而真正要改的是注册方式。
+			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+				fmt.Sprintf("strategy %q is registered as a shared instance; per-run execution needs strategy.RegisterFactory (QT-11)",
+					scope.Strategy), "getSignals")
+		}
 		// fail-loud（OBS-11）：未注册策略名是装配错误。错误消息逐字节
 		// 保留旧 getSignals 口径（含 op "getSignals"）。
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeNotFound,

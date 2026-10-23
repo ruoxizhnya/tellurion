@@ -85,7 +85,7 @@ func TestEngine_PortfolioSnapshotCarriesBacktestDate(t *testing.T) {
 	eng, _, symbols := buildSyntheticEngine(t, 5, nDays, 1)
 
 	spy := &asOfSpy{sym: symbols[0]}
-	if err := strategy.GlobalRegister(spy); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return spy }); err != nil {
 		// registry 是全局单例（-count=3 或隔壁用例注册过），
 		// 取出已有的那只复用，先清空它记的日期。
 		existing, getErr := strategy.DefaultRegistry.Get(spy.Name())
@@ -159,7 +159,7 @@ func TestEngine_WeeklyRebalanceTradesRegardlessOfWallClock(t *testing.T) {
 		t.Fatalf("configure momentum: %v", err)
 	}
 	// 全局 registry 是单例；已被注册就取出实例重新配置，不是错误。
-	if err := strategy.GlobalRegister(ms); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return ms }); err != nil {
 		existing, getErr := strategy.DefaultRegistry.Get("momentum")
 		if getErr != nil {
 			t.Fatalf("momentum 既注册不上也取不出：register=%v get=%v", err, getErr)

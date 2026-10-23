@@ -183,7 +183,7 @@ func TestSignalsE2E_PostDrivesOrders(t *testing.T) {
 	}
 
 	s := strategy.NewSignalStrategy("k8_http_e2e_probe", "ml-model", store)
-	if err := strategy.GlobalRegister(s); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return s }); err != nil {
 		t.Fatalf("注册 SignalStrategy 失败：%v", err)
 	}
 

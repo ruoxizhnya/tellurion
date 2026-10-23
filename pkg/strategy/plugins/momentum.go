@@ -215,7 +215,7 @@ func (s *momentumStrategy) Cleanup() {
 	s.params = MomentumConfig{}
 }
 
-func init() {
+func newMomentumStrategy() strategy.Strategy {
 	s := &momentumStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("momentum", "Momentum: buy top N stocks with strongest price momentum over lookback period"),
 		params: MomentumConfig{
@@ -224,5 +224,7 @@ func init() {
 			RebalanceFrequency: "weekly",
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newMomentumStrategy) }

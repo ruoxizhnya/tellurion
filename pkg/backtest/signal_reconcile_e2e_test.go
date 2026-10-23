@@ -84,7 +84,7 @@ func TestSignalReconcile_PaperVsBacktest(t *testing.T) {
 	eng, prov, symbols := buildSyntheticEngine(t, 6, 30, 1)
 
 	backtestStrat := newReconcileProbe("k5_reconcile_probe_a")
-	if err := strategy.GlobalRegister(backtestStrat); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return backtestStrat }); err != nil {
 		t.Fatalf("注册回测策略失败：%v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestSignalReconcile_ClockDivergenceDetected(t *testing.T) {
 	eng, prov, symbols := buildSyntheticEngine(t, 6, 30, 1)
 
 	backtestStrat := newReconcileProbe("k5_reconcile_probe_b")
-	if err := strategy.GlobalRegister(backtestStrat); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return backtestStrat }); err != nil {
 		t.Fatalf("注册回测策略失败：%v", err)
 	}
 	var backtestSignals []domain.Signal

@@ -267,7 +267,7 @@ func (s *eventDrivenStrategy) Cleanup() {
 	s.params = EventDrivenConfig{}
 }
 
-func init() {
+func newEventDrivenStrategy() strategy.Strategy {
 	s := &eventDrivenStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("event_driven", "Event-driven: price jump + volume spike proxy for earnings/analyst events"),
 		params: EventDrivenConfig{
@@ -277,5 +277,7 @@ func init() {
 			HoldingDays:          5,
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newEventDrivenStrategy) }

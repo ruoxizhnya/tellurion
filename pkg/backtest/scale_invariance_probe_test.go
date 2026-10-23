@@ -180,7 +180,7 @@ func scaleBarsBy(bars map[string][]domain.OHLCV, factors map[string]float64) map
 func registerProbeMomentum(t *testing.T) {
 	t.Helper()
 	ms := examples.NewMomentumStrategy()
-	if err := strategy.GlobalRegister(ms); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return ms }); err != nil {
 		existing, getErr := strategy.DefaultRegistry.Get("momentum")
 		if getErr != nil {
 			t.Fatalf("momentum 既注册不上也取不出：register=%v get=%v", err, getErr)

@@ -267,7 +267,7 @@ func (s *sentimentStrategy) Cleanup() {
 	s.aggregator = nil
 }
 
-func init() {
+func newSentimentStrategy() strategy.Strategy {
 	s := &sentimentStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("sentiment", "Contrarian sentiment: fade extreme optimism/pessimism from SentimentAggregator"),
 		params: SentimentConfig{
@@ -276,5 +276,7 @@ func init() {
 			MinConfidence: 0.3,
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newSentimentStrategy) }

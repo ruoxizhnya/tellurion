@@ -693,7 +693,7 @@ func (s *multiFactorStrategy) generateSellSignals(
 // It can be overridden via configuration.
 const defaultDataServiceURL = "http://localhost:8081"
 
-func init() {
+func newMultiFactorStrategy() strategy.Strategy {
 	s := &multiFactorStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("multi_factor", "Multi-factor: rank stocks by weighted combination of value, quality, and momentum scores"),
 		params: MultiFactorConfig{
@@ -708,5 +708,7 @@ func init() {
 		screenCache:    strategy.NewScreenCache(30),
 		dataServiceURL: defaultDataServiceURL,
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newMultiFactorStrategy) }

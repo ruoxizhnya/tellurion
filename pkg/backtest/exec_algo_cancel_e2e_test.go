@@ -145,7 +145,9 @@ func TestExecAlgo_CancelOnStopLossMidWindow(t *testing.T) {
 	whole := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k18_e2e_whole",
 		symbol: sym, execAlgo: "", strength: 1.0,
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	whole.register(t)
 	respA, ordersA := runK18(t, engA, sym, "k18_e2e_whole", spyA)
@@ -170,7 +172,9 @@ func TestExecAlgo_CancelOnStopLossMidWindow(t *testing.T) {
 	twap := &execAlgoProbeStrategy{
 		BaseStrategy: &strategy.BaseStrategy{}, name: "k18_e2e_twap7",
 		symbol: sym, execAlgo: "twap", slices: 7, strength: 1.0,
-		registerFn: func(s *execAlgoProbeStrategy) error { return strategy.DefaultRegistry.Register(s) },
+		registerFn: func(s *execAlgoProbeStrategy) error {
+			return strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s })
+		},
 	}
 	twap.register(t)
 	respB, ordersB := runK18(t, engB, sym, "k18_e2e_twap7", spyB)

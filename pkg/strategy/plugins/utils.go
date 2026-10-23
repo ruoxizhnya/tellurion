@@ -2,12 +2,28 @@
 package plugins
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/strategy"
 )
+
+// registerFactory 是本包 14 个内置策略统一的注册入口（QT-11）。
+//
+// 注册的是**构造函数**而不是实例：回测执行路径经 Registry.NewInstance 各拿
+// 一份自己的实例，同一策略并发跑或连续跑都不再共享流式状态。
+//
+// 注册失败在这里 panic：init 期没有调用方能接住错误，而「悄悄少注册一个
+// 策略」要等到有人跑它才暴露（还可能被读成拼错名字）；启动即失败才是
+// 与表达式包（expression.init 同款 panic）一致的口径。
+func registerFactory(f strategy.StrategyFactory) {
+	if err := strategy.GlobalRegisterFactory(f); err != nil {
+		panic(fmt.Sprintf("plugins: strategy registration failed: %v", err))
+	}
+}
 
 // sortOHLCV sorts OHLCV data by date in ascending order.
 //

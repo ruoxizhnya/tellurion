@@ -91,7 +91,7 @@ func TestExecAlgo_CancelSameDayDueSliceStillSubmitted(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	probe := &k17rv4CancelProbe{BaseStrategy: &strategy.BaseStrategy{}, cancel: cancel}
-	require.NoError(t, strategy.DefaultRegistry.Register(probe))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return probe }))
 
 	_, err := eng.RunBacktest(ctx, BacktestRequest{
 		Strategy:       "k17rv4_ctx_cancel",

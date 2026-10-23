@@ -334,7 +334,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > **落点已核（2026-10-23）**：三类哨兵 + `data_gap_skipped` 落 `tellurion-contracts:engine`（`execution_errors.go` 新建 + `validity.go` 追加稳定 Code）；分类包装与状态映射留 core（`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go`、`pkg/backtest/engine.go`、`engine_daily.go`）。与 QT-14 的接口边界见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.1。
 
-### QT-11 · 策略 per-run 实例（注册工厂 + `NewInstance`）[P0] ⬜
+### QT-11 · 策略 per-run 实例（注册工厂 + `NewInstance`）[P0] ✅
 
 - **① 目标**：同一策略并发/连续跑互不串状态（`SignalStrategy.cursor` 不再跨 run 存活）。
 - **② 上下文**：`p0-remediation-design.md` A2 / BE-21；`registry.go:51-61` 返回注册时同一实例；14 个内置插件 `init()` 里 `Register(&x{})`。
@@ -344,6 +344,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑥ 边界**：只做实例生命周期；状态落库是 QT-16。
 
 > **落点已核（2026-10-23）**：`RegisterFactory` / `NewInstance` 落 core `pkg/strategy`（`registry.go` + 14 个插件 + `signal_provider.go`），**不进 contracts**——`contracts/engine/registry.go` 是内核路由注册表，不可混作本单证据。③ 的 WASM 腿今天仓内无实现（接线是 QT-26），已转记为 QT-26 的验收腿。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.2。
+
+> **进度（2026-10-23，①~④ 全落，验收 ⑤ 四条逐条对账）**：
+>
+> - **① 注册表**（`pkg/strategy/registry.go`）：条目从 `map[string]Strategy` 改成 `map[string]*registryEntry{factory, meta}`。`RegisterFactory(f)` 在注册期构造一次只为取名字与元数据（名字因此**不可能**与 `Strategy.Name()` 漂移）；`NewInstance(name)` 是执行路径唯一入口，遇共享条目返回 `ErrSharedStrategy` 并点名 `RegisterFactory`；`Get` 保留但语义收窄为「仅元数据」；新增 `Describe`（只要 Parameters/Info 的调用方不必再拿实例）与 `IsShared`。`GlobalRegisterFactory` / `GlobalNewInstance` / `GlobalDescribe` 同步补上。
+> - **② 注册点迁移：实测 15 处，不是 14**（订正 ② 上下文的口径）：14 处在 `pkg/strategy/plugins`（`newXxxStrategy() strategy.Strategy` + `init(){ registerFactory(...) }`），第 15 处是 `pkg/strategy/expression/strategy.go` 的 `expression_template` —— 它是内置策略，漏迁就永远拿不到实例，所以一并迁了。清点测试 `plugins/registration_test.go` 按 14 个名字逐个点名（含「NewInstance 拿到的不是注册期原型」这条反查），expression 单独立一条。
+> - **③ provider**（`pkg/strategy/signal_provider.go`）：`LocalSignalProvider` 现在是 **run 级对象**，内部 `map[name]Strategy` 缓存本 run 那份实例 —— 一个 run 内复用（流式 `BarHandler` 的递推状态必须跨交易日活着），换个 run（新 provider）就是全新一份。引擎侧配套：`Engine.newRunSignalProvider()` 每 run 建一份，`getSignals` 改为**接收** provider（原来它自己每交易日 new 一个 —— 那会让今天的实例明天归零）。
+> - **④ repoguard**（`internal/repoguard/registry_instance_test.go`）：AST 扫 `pkg/backtest/**` 生产文件 + `signal_provider.go`，`<注册表>.Get(` 与 `strategy.GlobalGet(` 即红；另有一条正腿要求 provider 里必须出现 `.NewInstance(`（只删 `.Get(` 不接上入口，执行路径会瞎）。`stateStore.Get` / `cache.Get` / `GlobalPluginLoader.Get` 不在射程（接收者名字判定，写在文件头）。
+> - **顺带堵的一个静默空洞**：`ConfigureStrategy` 对工厂注册的条目改为**明确报错**（指 QT-20）。它改的是注册表里那一份，而 run 用的是新造的实例 —— 原来会「返回成功但什么都没改」。实测该函数与 `ReloadFromDB` 在 cmd/pkg **零生产调用点**，故不改变任何现役行为。
+> - **代价与登记在案的缺口（如实）**：
+>   1. **`.so` 插件路径现在拿不到实例**。`PluginLoader.Load` / `LoadPlugins` 导出的符号是一个实例，只能按共享注册 ⇒ 回测执行路径对它明确失败。判据与影响面：`plugins.directory` 在 `config/*.yaml` 里从未设置 ⇒ 默认不自动加载，只有显式 `POST /api/plugins/load` 才碰得到；要让插件也 per-run，插件得导出构造函数（abi v2 / QT-26 的范围，不在本单假装支持）。
+>   2. **两处预热探针各多构造一个实例**：`warmFundamentalsIfNeeded` / `warmIntradayIfNeeded` 原来用 `Get` 做类型探测，现改 `NewInstance`（执行路径不许摸共享实例）⇒ 每 run 多 2 个「只为看它实没实现 FundamentalAware/IntradayAware」的实例，纯构造、无 I/O，run 结束随 GC 释放。内存账归 QT-12 一并核。
+>   3. **注入自定义 provider 的跨 run 生命周期未做**：`WithSignalProvider` 注入的对象仍是引擎级的，它的 per-run 会话属 QT-14（BeginRun/EndRun）。生产路径今天没注入（实测只有 `options.go` 定义与测试），故不构成现役缺陷。
+> - **破坏验证（改坏 → 变红 → 还原，全部当场实跑）**：
+>   - 把 `NewInstance` 的 shared 分支改成「回落共享实例」→ 3 条红（`TestNewInstanceRejectsSharedRegistration`、`TestNewInstanceErrorsAreDistinguishable`、`TestLocalSignalProviderFailsClosedOnSharedRegistration`）。
+>   - 把工厂分支改成返回注册期原型（工厂名存实亡）→ **7 条红跨 4 个包**：`pkg/strategy`（3）、`plugins`（2，含清点与反查原型）、`expression`（1）、`pkg/backtest`（2 —— 顺序与并发两条引擎腿）。
+>   - 往 `pkg/backtest` 放一个写 `strategy.DefaultRegistry.Get(name)` 的文件 → 护栏红并点名文件与调用（扫描面实测 35 个生产文件），删除后还原绿。
+>   - 护栏自身另有 8 形状 + 3 对照腿的片段表（`TestRegistryGetGuardJudgesSnippets`），含「注释里写 Registry.Get 不算」证明是 AST 而非 grep。
+> - **验收 ⑤ 对账**：顺序两笔逐位一致 ✓（`TestEngine_SequentialRunsGetSeparateInstances`，含「每笔实例只喂 3×20 根 bar」这条残留状态判据）；并发两笔不串 ✓（`TestEngine_ConcurrentRunsDoNotShareInstances`，同一 Engine、票池互不相交，判据是「没有任何一份实例同时见到两个票池的标的」，与创建顺序无关）；`Registry.Get` 在 `pkg/backtest` 零命中 ✓（护栏执法，非 grep 口径）；14 个插件全部 `NewInstance` 成功 ✓（外加 expression_template）。
+> - **门禁**：`gofmt -l` 0 文件、`go vet ./...` EXIT=0、`go test ./... -count=1` 全仓 EXIT=0（本机 Windows 无 `-race`，沿用既有如实登记口径）。测试侧连带改动：33 处测试注册点从 `Register` 迁到 `RegisterFactory`（工厂返回被测实例本身，状态断言照旧可查）—— 逐条见本 commit 的 `*_test.go`。
 
 ### QT-12 · run 级缓存下沉 + 资源准入（A7/A10/N8 一笔账）[P0] ⬜
 

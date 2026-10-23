@@ -26,7 +26,7 @@ import (
 func TestGetSignals_FailLoudOnUnregistered(t *testing.T) {
 	eng, _, symbols := buildSyntheticEngine(t, 2, 5, 1)
 
-	_, err := eng.getSignals(context.Background(), "no-such-strategy",
+	_, err := eng.getSignals(context.Background(), nil, "no-such-strategy",
 		symbols, map[string][]domain.OHLCV{}, time.Now(), nil) // miss 分支不触碰 tracker
 	if err == nil {
 		t.Fatal("未注册策略应 fail-loud，而不是静默或走（已删除的）HTTP fallback")
@@ -56,14 +56,21 @@ func TestGetSignals_RegisteredStillWorks(t *testing.T) {
 	eng, _, symbols := buildSyntheticEngine(t, 2, 5, 1)
 
 	strat := newReconcileProbe("obs11_local_probe")
-	if err := strategy.GlobalRegister(strat); err != nil {
+	// 工厂注册（QT-11）：执行路径经 NewInstance 拿本 run 自己的实例。
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy {
+		return newReconcileProbe("obs11_local_probe")
+	}); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
 	tracker := NewTracker(1_000_000, 0.0003, 0.0001, TradingConfig{}, zerolog.Nop())
-	if _, err := eng.getSignals(context.Background(), strat.Name(),
+	if _, err := eng.getSignals(context.Background(), nil, strat.Name(),
 		symbols, map[string][]domain.OHLCV{}, time.Now(), tracker); err != nil {
-		if strings.Contains(err.Error(), "not registered") {
+		msg := err.Error()
+		if strings.Contains(msg, "not registered") {
 			t.Fatalf("已注册策略被误判未注册: %v", err)
+		}
+		if strings.Contains(msg, "shared instance") {
+			t.Fatalf("已注册策略拿不到 per-run 实例（注册方式没迁移）: %v", err)
 		}
 		// 非注册类错误（如空 marketData 的内部问题）不在本测试断言范围。
 	}

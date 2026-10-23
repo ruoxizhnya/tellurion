@@ -36,7 +36,7 @@ func TestEngine_SetFundamentals_RoundTrip(t *testing.T) {
 // 估值数据付查询成本。
 func TestEngine_WarmFundamentals_SkippedWhenStrategyNotAware(t *testing.T) {
 	eng := newTestEngine(t)
-	require.NoError(t, strategy.DefaultRegistry.Register(&plainStrategy{name: "t_plain"}))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return &plainStrategy{name: "t_plain"} }))
 
 	err := eng.warmFundamentalsIfNeeded(context.Background(), "t_plain", []string{"A"}, time.Now())
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestEngine_WarmFundamentals_NoStoreLeavesEmpty(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.NoError(t, strategy.DefaultRegistry.Register(s))
+	require.NoError(t, strategy.DefaultRegistry.RegisterFactory(func() strategy.Strategy { return s }))
 
 	// 编译期保证：这个策略确实是要财报的，否则上面的测试等于什么都没测。
 	var _ strategy.FundamentalAware = s

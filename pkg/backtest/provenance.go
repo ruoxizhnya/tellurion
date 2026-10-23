@@ -232,8 +232,10 @@ func (e *Engine) buildRunProvenance(
 // 引擎看不到它的参数，只能如实记「未登记」。
 func effectiveStrategyParams(name string) (map[string]any, []byte, error) {
 	eff := make(map[string]any)
-	if s, err := strategy.GlobalGet(name); err == nil && s != nil {
-		for _, p := range s.Parameters() {
+	// QT-11：要的是「声明的默认参数」这份元数据，用 Describe 拿——
+	// GlobalGet 的返回值是一个可被拿去算信号的实例，执行路径不该碰它。
+	if info, err := strategy.GlobalDescribe(name); err == nil {
+		for _, p := range info.Parameters {
 			eff[p.Name] = p.Default
 		}
 	}

@@ -895,6 +895,10 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	execAlgoDiag := newExecAlgoRunDiag()
 	fillDiag := newFillRunDiag() // REV-09：停牌跳过 / 流动性截断的 run 级计数
 
+	// QT-11：信号供给本 run 私有 —— 它缓存的那份策略实例因此跟着 run 活，
+	// 流式状态（游标 / EMA）不再残留到下一笔。见 newRunSignalProvider。
+	sigProvider := e.newRunSignalProvider()
+
 	// QT-02 · next_open：T 日收盘决策的信号在 T+1 开盘成交，所以「待成交」
 	// 要跨一天活着。same_close 分支不读它（下面的 else 就是既有调用）。
 	var pendingSignals []domain.Signal
@@ -973,7 +977,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			}
 		}
 
-		signals, err := e.getSignals(ctx, params.StrategyName, universe, marketDataCache, date, state.Tracker)
+		signals, err := e.getSignals(ctx, sigProvider, params.StrategyName, universe, marketDataCache, date, state.Tracker)
 		if err != nil {
 			// REV-22-(3)：信号失败当天交易凭空消失，只留一条 Warn 不够——
 			// 计数进 run 级诊断（复用 execAlgoRunDiag 通道），logSummary 汇总。
@@ -1311,7 +1315,10 @@ func (e *Engine) eligibleUniverse(pool []string, date time.Time, held map[string
 //  3. 失败不阻断 —— 没有财报数据只是让估值表达式跑不起来（明确报错），
 //     不是回测本身失败。
 func (e *Engine) warmFundamentalsIfNeeded(ctx context.Context, strategyName string, symbols []string, asOf time.Time) error {
-	strat, err := strategy.DefaultRegistry.Get(strategyName)
+	// QT-11：这里只为「策略要不要财报」的类型探测，但探测对象必须是执行路径
+	// 真正拿到的那种东西——走 NewInstance（拿不到 = 未注册/共享实例，同样
+	// 不预热），而不是把注册表里那份共享实例摸出来。
+	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
 	if err != nil {
 		return nil // 本地注册表没有该策略（未加载/拼错）：不预热；不存在的策略不付查询成本
 	}
@@ -1444,11 +1451,35 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// newRunSignalProvider 为**本 run** 建一份信号供给（QT-11）。
+//
+// 为什么跟着 run 而不是跟着 Engine：Engine 实例可被多个回测并发共享，而
+// LocalSignalProvider 会缓存它经注册表构造函数拿到的那份策略实例 ——
+// provider 跨 run 复用 = 策略实例跨 run 复用 = `SignalStrategy.cursor`
+// 这类流式状态活到下一笔（K17 派发器同一条纪律）。
+//
+// 调用方经 WithSignalProvider 注入自定义实现时，本方法原样返回那个对象：
+// 它的跨 run 生命周期属 QT-14（BeginRun/EndRun），不在本单里自作主张。
+func (e *Engine) newRunSignalProvider() strategy.SignalProvider {
+	if injected := e.signalProvider; injected != nil {
+		return injected
+	}
+	p := strategy.NewLocalSignalProvider(nil)
+	// 现绑 factor/fundamentals method value，注入节奏同旧实现的每交易日注入。
+	p.SetFactorReader(e.GetFactorZScore)
+	p.SetFundamentalsProvider(e.fundamentalsSnapshot)
+	return p
+}
+
 // getSignals retrieves trading signals via the SignalProvider 契约（K8 ·
 // SignalSpec）。默认供给是 strategy.LocalSignalProvider——注册表 miss 时
 // fail-loud 的 OBS-11 口径与批式/流式双模式逻辑都在那边，行为与旧实现
 // 逐字节一致。
-func (e *Engine) getSignals(ctx context.Context, strategyName string, stockPool []string, marketData map[string][]domain.OHLCV, date time.Time, tracker *Tracker) ([]domain.Signal, error) {
+//
+// sigProvider 由调用方按 run 创建（见 newRunSignalProvider）并在日循环里
+// 传进来：本方法自己不新建，否则每交易日换一份策略实例、流式状态当天就丢。
+// 传 nil 只发生在直接调用本方法的测试里，等价于旧的「每调用一份 provider」。
+func (e *Engine) getSignals(ctx context.Context, sigProvider strategy.SignalProvider, strategyName string, stockPool []string, marketData map[string][]domain.OHLCV, date time.Time, tracker *Tracker) ([]domain.Signal, error) {
 	// 组合快照提前到调用方计算（GetPortfolio 纯读、可提前调用）。tracker
 	// 为 nil（如注册表 miss 的装配错误路径）时 Portfolio 留 nil，流式路径
 	// 本就不用它。
@@ -1457,17 +1488,18 @@ func (e *Engine) getSignals(ctx context.Context, strategyName string, stockPool 
 		portfolio = tracker.GetPortfolio(extractLatestPrices(marketData))
 	}
 
-	// 未注入时用默认 LocalSignalProvider（现绑 factor/fundamentals/intraday
-	// method value，注入节奏同旧实现的每交易日注入）。
-	sigProvider := e.signalProvider
 	if sigProvider == nil {
-		p := strategy.NewLocalSignalProvider(nil)
-		p.SetFactorReader(e.GetFactorZScore)
-		p.SetFundamentalsProvider(e.fundamentalsSnapshot)
-		// D6：绑定「当日」日内特征供给（快照 + 回放日边界）。策略未实现
-		// IntradayAware 时注入被断言挡掉，零成本零行为变化。
-		p.SetIntradayProvider(e.intradayFeatureProvider(date))
-		sigProvider = p
+		sigProvider = e.newRunSignalProvider()
+	}
+
+	// D6：绑定「当日」日内特征供给（快照 + 回放日边界）。策略未实现
+	// IntradayAware 时注入被断言挡掉，零成本零行为变化。
+	// 只对本 run 私有的默认实现做这件事（QT-11）——逐日改写一个跨 run
+	// 共享的 provider，会把上一笔的日内窗口带进这一笔。
+	if e.signalProvider == nil {
+		if local, ok := sigProvider.(*strategy.LocalSignalProvider); ok {
+			local.SetIntradayProvider(e.intradayFeatureProvider(date))
+		}
 	}
 
 	signals, err := sigProvider.Signals(ctx, strategy.Scope{

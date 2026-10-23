@@ -155,12 +155,12 @@ func (db *StrategyDB) GetStrategyParams(ctx context.Context, strategyID string) 
 	}
 
 	// Fall back to registry
-	s, err := DefaultRegistry.Get(strategyID)
+	info, err := DefaultRegistry.Describe(strategyID)
 	if err != nil {
 		return nil, fmt.Errorf("strategy not found: %s", strategyID)
 	}
 	params := make(map[string]any)
-	for _, p := range s.Parameters() {
+	for _, p := range info.Parameters {
 		params[p.Name] = p.Default
 	}
 	return params, nil

@@ -182,7 +182,7 @@ func qt02Run(t *testing.T, name, fillTiming string, wantIdx, wantOpens int) *Bac
 	t.Helper()
 	eng := qt02Engine(t)
 	probe := &qt02Probe{name: name, wantIdx: wantIdx}
-	require.NoError(t, strategy.GlobalRegister(probe), "注册探针策略失败")
+	require.NoError(t, strategy.GlobalRegisterFactory(func() strategy.Strategy { return probe }), "注册探针策略失败")
 
 	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
 		Strategy:       name,

@@ -346,7 +346,7 @@ func (s *riskParityStrategy) Cleanup() {
 	s.params = RiskParityConfig{}
 }
 
-func init() {
+func newRiskParityStrategy() strategy.Strategy {
 	s := &riskParityStrategy{
 		BaseStrategy: strategy.NewBaseStrategy(
 			"risk_parity",
@@ -359,5 +359,7 @@ func init() {
 			RebalanceDays: 5,
 		},
 	}
-	strategy.GlobalRegister(s)
+	return s
 }
+
+func init() { registerFactory(newRiskParityStrategy) }

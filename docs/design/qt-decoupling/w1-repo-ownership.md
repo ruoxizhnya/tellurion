@@ -80,6 +80,8 @@
 
 **WASM 腿的边界**：QT-11 ③ 写「`LocalSignalProvider` 与 WASM provider 都走 `NewInstance`」，但**今天仓内没有 WASM `SignalProvider` 实现**（接线是 W2 的 QT-26，`repo-topology-and-naming.md` 也记它「未接线」）。因此 QT-11 的 WASM 腿在 11 里**无文件可改**；该要求转记为 QT-26 的验收腿（QT-26 落 WASM provider 时必须走 `NewInstance`）。不转记就会变成「验收要求改一个不存在的文件」。
 
+> **已落（2026-10-23）与一处口径订正**：QT-11 ①~④ 全部落地（验收与破坏验证见 `tellurion:docs/TASKS.md` QT-11 进度）。上表与本节写的「14 个注册点」**实测是 15 处**：第 15 处是 `pkg/strategy/expression/strategy.go` 的 `expression_template`（它同样是内置策略，漏迁就永远拿不到 per-run 实例），已一并迁移。本表其余各行（12 / 13 / 14 / 16 / 15）不动。
+
 ### 2.3 QT-14：生命周期类型 → core `pkg/strategy`（**裁决：不进 contracts**）
 
 `p0-remediation-design.md` A1 的原文是「生命周期进入**契约**」，代码注释写 `pkg/strategy（或 contracts）`——仓层面留白，本节定盘。

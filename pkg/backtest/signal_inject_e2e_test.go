@@ -64,7 +64,7 @@ func TestSignalInject_SignalDrivesOrders(t *testing.T) {
 	}}
 
 	s := strategy.NewSignalStrategy("k7_signal_inject_probe", "ml-model", store)
-	if err := strategy.GlobalRegister(s); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return s }); err != nil {
 		t.Fatalf("注册 SignalStrategy 失败：%v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestSignalInject_FutureSignalNotTraded(t *testing.T) {
 	}}
 
 	s := strategy.NewSignalStrategy("k7_signal_future_probe", "ml-model", store)
-	if err := strategy.GlobalRegister(s); err != nil {
+	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return s }); err != nil {
 		t.Fatalf("注册 SignalStrategy 失败：%v", err)
 	}
 
