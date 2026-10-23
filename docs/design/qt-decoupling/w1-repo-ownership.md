@@ -10,7 +10,7 @@
 
 | # | 判据 | 出处 | 对 W1 的直接后果 |
 |---|---|---|---|
-| J1 | 依赖方向 `kit ← contracts(含 domain) ← core`；agent → kit + contracts（编译期）+ HTTP → core（运行期）；服务仓只经 contracts 交互 | [target-module-topology.md](target-module-topology.md) 依赖不变量 | W1 **不得新增任何反向边**；也不得新增指向 `tellurion-data` 的依赖（data 在本项目里只作数据接收方，箭头方向是「四方组件 → data」） |
+| J1 | 依赖方向 `kit ← contracts(含 domain) ← core`；agent → kit + contracts（编译期）+ HTTP → core（运行期）；服务仓只经 contracts 交互 | [target-module-topology.md](target-module-topology.md) 依赖不变量 | W1 **不得新增任何反向边**。注意 `tellurion-data` 的运行期箭头是 **core → data**（`marketdata.NewHTTPProvider(dataServiceURL)` 按 URL 取数），但那是 HTTP 运行期调用、不是编译期 `require`；W1 不得把这条变成编译期依赖 |
 | J2 | `contracts` = port 接口 + 边界 DTO + 哨兵错误；禁止实现、禁止业务规则 | 同上 §module 职责表 | 哨兵错误 / 稳定 Code / canonical hash **进 contracts**；注册表、包装、状态映射 **留 core** |
 | J3 | **住在 core 的 port 不因本表搬仓**——`SignalProvider` 已登记「留 core 至策略资产拆分」 | `tellurion-contracts:docs/API.md` §5.2（`SignalProvider` 行） | QT-14 的生命周期类型**留 core `pkg/strategy`**，与 `SignalProvider` 同域，不拆两处 |
 | J4 | 谁算 hash 谁唯一：canonical 编码器只有 `contracts/engine/canonical.go` 一处；新 hash = 新域标签（**只增不改**） | `tellurion-contracts:engine/canonical.go` 文件头纪律 | 任何仓都不得自写 `json.Marshal + sha256`；QT-16 / QT-22 的新 hash 必须走 `contracts.Canonical` |
@@ -22,7 +22,7 @@
 
 | 单 | 落点仓 | 要改的包 / 文件（只列关键项） | 动 `contracts`？ | 动 `kit`？ | 动 DDL？ | 前置 |
 |---|---|---|---|---|---|---|
-| **QT-10** 错误分级 | **contracts + core** | contracts：`engine/execution_errors.go`（新，三类哨兵）+ `engine/validity.go`（+1 稳定 Code `data_gap_skipped`）；core：`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go`、`pkg/backtest/engine.go`、`pkg/backtest/engine_daily.go` | ✅ 哨兵 + 1 个 Code | ❌ | ❌ | 与 QT-14 同批；QT-10 落「分类 + 状态映射 + 终止判定」，EndRun 本体由 QT-14 补（见 §2.1） |
+| **QT-10** 错误分级 | **contracts + core** | contracts：`engine/execution_errors.go`（新，三类哨兵）+ `engine/validity.go`（+1 稳定 Code `data_gap_skipped`）；core：`pkg/backtest/engine_daily.go`（**今天在此 `Warn + continue` 吞掉取数错误**）、`pkg/backtest/engine.go`（`getSignals` 只 log 的分支 + 已有 failed 分支）、`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go` | ✅ 哨兵 + 1 个 Code | ❌ | ❌ | 与 QT-14 同批；QT-10 落「分类 + 状态映射 + 终止判定」，EndRun 本体由 QT-14 补（见 §2.1） |
 | **QT-11** per-run 实例 | **core** | `pkg/strategy/registry.go`、`pkg/strategy/signal_provider.go`、`pkg/strategy/plugins/*.go`（14 个注册点）、`internal/repoguard/`（新护栏测试） | ❌ | ❌ | ❌ | 无。WASM 腿无落点（今天仓内无 WASM provider，见 §2.2） |
 | **QT-12** 缓存下沉 + 准入 | **core** | `pkg/backtest/engine.go`、`pkg/backtest/cache/cache.go`、`pkg/backtest/options.go`、`internal/repoguard/`（Engine 字段 AST 白名单） | ❌ | ❌ | ❌ | 无 |
 | **QT-13** 复权锚点切片 | **core** | `pkg/backtest/adjustment_snapshot.go`（+ 回归测试） | ❌ | ❌ | ❌ | QT-12（读同一个合并缓存） |
@@ -47,15 +47,24 @@
 
 **为什么在 contracts**：① QT-10 ③-① 原文直接写「`contracts` 定义三类哨兵」；② J2 把哨兵错误划给 contracts；③ 未来外部 provider（策略资产服务 / 远程供给）必须能表达同一分类——它不能 `import tellurion/pkg/...`，否则形成反向边。
 
-**义务边界（防 contracts 膨胀）**：contracts 只放哨兵与 Code。**分类映射是业务判断，必须留在 core 包装侧**：
+**义务边界（防 contracts 膨胀）**：contracts 只放哨兵与 Code。**分类映射是业务判断，必须留在 core 包装侧**——下表是**今天错误实际产生的位置**（照实登记，不是设想）：
 
-| 类 | core 包装点 | 触发源 |
+| 类 | 今天的产生点 / 吞点 | 现状（实测） |
 |---|---|---|
-| `ErrDataGap` | `pkg/backtest/engine_daily.go`（`fetchMarketDataForDay`） | 当日行情缺失（既有「跳过当天」语义保持不变） |
-| `ErrStrategyFault` | `pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go` | wasm trap / 非法信号 / 预算超限 / artifact 校验失败 |
-| `ErrContractBreach` | `pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/host_api*.go` | 前视信号（`RejectFutureSignals` 拒绝）/ 未知参数 / abi 不符 |
+| `ErrDataGap` | `pkg/backtest/engine_daily.go:124-127` | **没有 error 上升路径**：`fetchMarketDataForDay` 返回多值是纯数据、无 `error`；每个标的的取数失败在 `res.err != nil` 处 `logger.Warn(... "Failed to get stock data")` + `continue`，该标的当天**静默从 `marketDataCache` 消失**，run 照常跑完。QT-10 要做的正是把这个吞点改成分类 + 留痕 |
+| `ErrStrategyFault` | `pkg/backtest/engine.go:976-987`（`getSignals` 的 err 只 `Warn` + `recordSignalFailure`）、`pkg/sandbox/wasm/on_bar_session.go` | 单日策略故障只进 run 级诊断、不进 `invalid_reasons`（注释明写）；wasm trap 经 `LocalSignalProvider` 被包成 `ErrCodeInternal`，**类别信息在包装后丢失** |
+| `ErrContractBreach` | `pkg/strategy/signal_provider.go:191-193`（`RejectFutureSignals`）、`pkg/sandbox/wasm/host_api*.go` | `RejectFutureSignals` 返回裸 `fmt.Errorf`，未打类；调用方只能按字符串认 |
 
-**状态映射（单一透传点不动）**：`pkg/backtest/engine.go` 的 `buildResponseFromState` 仍是 status 的唯一来源；`ErrDataGap` 跳天 → `invalid` + `InvalidReasons` 追加 `data_gap_skipped`；另外两类 → `failed` + `error`，`Failures[]` 只作诊断明细（QT-10 ③-④）。
+**取数的现成抓手**：`processStockJob`（`engine_daily.go:177-193`）已把取数失败包成 `apperrors.ErrCodeDataQuality`，op 分别是 `fetch_ohlcv` / `adjustment_snapshot`。QT-10 的分类可以从这两个 op 起手，而不是重新发明一套错误码。
+
+**必须先解决的一个歧义（否则 `data_gap_skipped` 会被灌满）**：`engine_daily.go:196-205` 用一个 `suspended` 布尔同时表达**停牌**与**数据缺口**（注释自述「不是则当日停牌（**或数据缺口**）」）。若不先把两者分开，每个停牌日都会被判成数据缺口、写进 `invalid_reasons`，正常回测也会被判 `invalid`。QT-10 的前置动作是：让 `processStockJob` 区分「当日无 bar 但序列完整（停牌）」与「取数失败 / 序列断裂（缺口）」。
+
+**状态映射（真实符号，非任务单原文的名字）**：任务单 ③-④ 写的 `buildResponseFromState` **在源码里不存在**。实际有两处：
+
+- 写路径：`RunBacktest`（`engine.go:528-546`）——`runBacktestInternal` 返回 err 时**已经** `state.SetStatus(StatusFailed)` + `SetError` + 返回 `Status: StatusFailed` 的响应。QT-10 的 fatal 只需要**让错误真的从 `runBacktestInternal` 返回**（今天在 976-987 被吞），不必新建 failed 分支；
+- 读路径：`ResponseFromState`（`engine.go:732-736`）——只放行 `StatusCompleted` / `StatusInvalid`，**`failed` 返回 `(zero, false)`**，调用方退回 DB job 路径。⇒ QT-10 落 failed 后，必须同步决定「failed 的 run 结果是否要能被读路径读出」，否则 UI/报告看不到失败原因。
+
+**契约硬约束**：`StatusFailed` 在 `contracts/engine/contracts.go:289` 的定义是「`Error` 必填，`InvalidReasons` 必空」。⇒ 走 failed 的分支**不得**再往 `InvalidReasons` 里塞东西；诊断信息只能进 `Failures[]` / `Error`。
 
 **与 QT-14 的接口（本表定盘，防撞车）**：QT-10 要「立刻结束」但 `EndRun` 的创建/销毁属 QT-14（QT-10 ⑥ 边界原文）。两单同批、按序 10 先：QT-10 的终止分支只做「返回 fatal error + `status=failed`」，**不得在 10 里自造 provider 会话销毁逻辑**；QT-14 落 `BeginRun` / `defer EndRun` 后，10 的终止路径自然经 defer 走到 EndRun。
 
@@ -137,4 +146,5 @@ W1 的施工序是 `10 → 11 → 12 → 13 → 14 → 16 → 15`，一单一 co
 - **QT-41 / QT-41b**（strategy 仓资产表与编译服务）：QT-22 只做 hash 算法，不碰表结构。
 - **QT-15 的预算默认值调优**：性能基准另出报告，本表只登记落点。
 - **QT-16 的 `contracts/kernel_modules.schema.sql`**：它是 core 内 K0 冻结数据契约资产。本表只登记「它是必改文件」，**不代表变更已获批准**——PK 改动 + 旧行 `shard_key=''` 迁移必须按 `tellurion:docs/TASKS.md`「维护本文件」节的冻结 schema 变更评审走。
-- **paper 交易路径**（`pkg/live/paper_session.go`）：它也吃 `SignalProvider`，但 QT-14 ⑥ 边界只写回测 run 的生命周期。paper 侧若需同一会话语义，单独立单，不在 14 里顺手改。
+- **paper 交易路径**（`pkg/live/paper_session.go`）：它**不吃 `SignalProvider`**——`PaperSession.Run(..., strat strategy.Strategy)` 收的是策略实例，信号产生由 `PaperSession.generateSignals`（:316-334）**平行重写**了一遍「优先流式 `BarHandler`、否则批式 `GenerateSignals`」。QT-14 ⑥ 边界只写回测 run 的生命周期，paper 侧不在 14 内；但这条平行实现是 QT-11/QT-14 落地的漂移风险：回测侧改成 per-run 实例后，paper 侧的实例来源若仍走 `Registry.Get` 就会重现「共享实例串状态」。paper 侧单独立单，不在 14 里顺手改。
+- **`pkg/backtest/registry.go` 不存在**：策略注册表在 `pkg/strategy/registry.go`（`pkg/backtest` 只有 `engine.go` / `engine_daily.go` 等）。按任务单原文的 `registry.go:51-61` 去 `pkg/backtest` 找会扑空。
