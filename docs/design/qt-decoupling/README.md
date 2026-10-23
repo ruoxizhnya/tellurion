@@ -16,7 +16,7 @@
 | D2 | 契约外置为**只依赖 domain** 的 module `tellurion-contracts` | [project-engineering-file.md](project-engineering-file.md) | 提议 |
 | D3 | 策略解耦走插件/WASM 边界而非 HTTP（⚠️「策略独立」部分已由 D6 细化） | [project-engineering-file.md](project-engineering-file.md) | 提议（部分被 D6 细化） |
 | D4 | 双引擎升级为「能力声明 + 按能力路由」（fail-closed） | [project-engineering-file.md](project-engineering-file.md) | 提议 |
-| D5 | 装配层从 `pkg/kernel` 外移，kernel 只留框架 | [project-engineering-file.md](project-engineering-file.md) | 提议 |
+| D5 | 装配层从 `pkg/kernel` 外移，kernel 只留框架 | [project-engineering-file.md](project-engineering-file.md) | **已实施（2026-10-24，QT-50 ①）** |
 | D6 | 区分「策略资产服务 ✅ 独立」与「策略运行时 ❌ 不做服务」 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 提议（修正 D3） |
 | D7 | 协议分层：contracts（进程内）与 OpenAPI（跨进程）各管一段 | [protocol-and-data-boundary.md](protocol-and-data-boundary.md) | 提议 |
 | D8 | 表归属边界：复用存储能力 ≠ 共享表（⚠️ 两处已被 D10 修正） | [protocol-and-data-boundary.md](protocol-and-data-boundary.md) | 提议（部分被 D10 修正） |

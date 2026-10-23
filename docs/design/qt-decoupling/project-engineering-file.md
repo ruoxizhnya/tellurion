@@ -57,7 +57,19 @@
 - 决策：把 analysis 侧的装配代码移到 `cmd/analysis/wiring`（或独立 `pkg/wiring`），`pkg/kernel` 只保留：Module 接口、BootOrder 编排、生命周期、port 装配槽位。
 - 理由：框架包必须零业务依赖，否则 kernel 不可复用也不可测试；装配外置后「换一套装配 = 换一个应用」成为可能（正是用户要的应用层独立）。
 - 代价：一次性搬运 + 需要补装配守卫护栏（已有 `package_wiring_test.go` 可复用）。
-- 状态：**提议**
+- 状态：**已实施（2026-10-24，QT-50 ①）**
+
+**实施落点（2026-10-24）**：
+
+| 项 | 结果 |
+|---|---|
+| 搬运 | `pkg/kernel/modules_analysis.go` / `marketdata_wiring.go`（含测试）→ **`cmd/analysis/wiring/`**（装配属应用层，不放 `pkg/wiring`；refactor-plan-review L6） |
+| kernel 剩余 | `kernel.go` / `interfaces.go` / `adapters.go`：Module / BootOrder / 生命周期 / 槽位 |
+| 调用方 | `cmd/analysis/kernel_wiring.go`、`main.go` 改调 `wiring.*` |
+| 护栏 | `pkg/kernel/import_boundary_test.go`（AST 扫非测试 import，业务族命中即红；`clock`/`msgbus`/`eventstore` 作为框架返回类型显式放行）；`internal/repoguard/{engine_router_wiring,module_lifecycle_callback}_test.go` 路径断言同步 |
+| 判据归属 | 鉴权 / 请求级回环门（`httpserver.LoopbackOnly`，由 `bootstrap.BuildRouter` 在 insecure+回环时挂）留在应用装配层，**不进 kernel** |
+
+> 破坏验证：给 `pkg/kernel/adapters.go` 临时加 `_ "tellurion/pkg/backtest"` → 护栏红；逐字节还原后绿（详见 `docs/TASKS.md` QT-50 ⑥）。
 
 ## 4. 目标架构（端口化模块化单体）
 

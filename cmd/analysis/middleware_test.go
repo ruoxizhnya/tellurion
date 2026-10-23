@@ -86,7 +86,10 @@ logging:
   level: info
 `)
 	w := httptest.NewRecorder()
-	open.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	// QT-50 ④：insecure 模式还有逐请求回环门，来源必须是本机。
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	open.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 有密钥：鉴权中间件必须生效，未带 token 的请求应被挡下。

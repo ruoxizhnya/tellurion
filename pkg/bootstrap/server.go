@@ -175,6 +175,13 @@ func BuildRouter(authSvc *auth.Service, v *viper.Viper, logger zerolog.Logger) *
 	if authSvc.Enabled() {
 		router.Use(authSvc.Middleware())
 		router.Use(authSvc.AuditMiddleware())
+	} else if IsLoopbackHost(v.GetString("server.host")) {
+		// QT-50 ③-④：insecure 模式逐请求回环门。启动期 DecideAuthStartup
+		// 只判绑定网卡；监听 127.0.0.1 时，同机进程 / 端口转发 / 错配代理
+		// 仍能打到管理面，所以运行期还要逐请求判来源（fail-closed）。
+		// 容器 loopback-published 形态（bind 0.0.0.0）不走这道门——见
+		// httpserver.LoopbackOnly 的文件头说明。
+		router.Use(httpserver.LoopbackOnly())
 	}
 	return router
 }
