@@ -1296,28 +1296,68 @@ var AuditSchemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_message_log_topic_ts ON audit.message_log (topic, ts)`,
 }
 
-// StrategyStateSchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引的
-// 建表 DDL——migrate() 的 Migration 055 执行的就是这组语句（SPEC-R-01）。
+// StrategyStateSchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引 +
+// QT-16 身份迁移（加列 + PK 扩三元组）的 DDL——migrate() 的 Migration 055（建表）
+// 与 058（旧库迁移）执行的就是这组语句（SPEC-R-01）。
 //
-// 表结构逐字取自 contracts/kernel_modules.schema.sql 第 184-197 行（K0 冻结），
-// 零变更；pkg/strategy.SchemaDDL 是它的别名（同一底层数组），EnsureSchema 仅作
-// 「独立可安装 / 测试自证」的幂等兜底入口。
+// 表结构与 contracts/kernel_modules.schema.sql 的 strategy_state 节同步修订
+// （QT-16，冻结 schema 变更评审随该工单走）；pkg/strategy.SchemaDDL 是它的别名
+// （同一底层数组），EnsureSchema 仅作「独立可安装 / 测试自证」的幂等兜底入口。
 var StrategyStateSchemaDDL = []string{
 	`CREATE SCHEMA IF NOT EXISTS quant`,
-	// 一个 run 可跑多个策略，状态按「策略 × run」定位；同一个 (策略, run)
-	// 只保留最新一份（upsert）。列清单是 K0 冻结契约，改列 = 改契约。
+	// 一个 run 可跑多个策略，状态按「策略 × run × 分片」定位；同一个
+	// (策略, run, shard) 只保留最新一份（upsert）。列清单是 K0 冻结契约，
+	// 改列 = 改契约（QT-16 的 PK 扩三元组 + 信封五列按该工单的冻结评审走）。
 	//   ts    —— **状态对应时刻**（回测 = VirtualClock 虚拟时间，
-	//            实盘 = 墙钟），续跑按它跳过已处理的 bar 前缀。
+	//            实盘 = 墙钟），续跑按它跳过已处理的 bar 前缀；同一行内
+	//            单调不减，回退写入被拒绝。
 	//   state —— SaveState() 的原始字节，不解释内容。
+	//   shard_key          —— market scope = ''；symbol scope = 标的（与
+	//                         RunUniverse 同一符号口径）。symbol scope 的
+	//                         N 个分片状态不再互相覆盖（N3）。
+	//   信封四列            —— 恢复校验用（A9 + N3）：全部匹配才恢复，任一
+	//                         不符 fail-closed 并点名。DEFAULT '' 让 QT-16
+	//                         之前的旧行平滑拿到空信封——旧行不再是新格式，
+	//                         恢复时被点名拒绝（不做「尽力解释旧格式」）。
 	`CREATE TABLE IF NOT EXISTS quant.strategy_state (
-		strategy_id TEXT NOT NULL,
-		run_id      TEXT NOT NULL,
-		ts          TIMESTAMPTZ NOT NULL,
-		state       BYTEA NOT NULL,
-		created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-		PRIMARY KEY (strategy_id, run_id)
+		strategy_id          TEXT NOT NULL,
+		run_id               TEXT NOT NULL,
+		shard_key            TEXT NOT NULL DEFAULT '',
+		ts                   TIMESTAMPTZ NOT NULL,
+		state                BYTEA NOT NULL,
+		state_schema_version TEXT NOT NULL DEFAULT '',
+		artifact_hash        TEXT NOT NULL DEFAULT '',
+		abi_version          TEXT NOT NULL DEFAULT '',
+		run_identity_hash    TEXT NOT NULL DEFAULT '',
+		created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (strategy_id, run_id, shard_key)
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_strategy_state_run ON quant.strategy_state (run_id)`,
+
+	// ── Migration 058（QT-16）：旧库迁移。新库由上面的 CREATE TABLE 直接
+	// 建成新形状，以下语句在新库上全部幂等 no-op。 ──
+	// 加列（旧行 shard_key='' 落 market 分片；信封列落空串哨兵）。
+	`ALTER TABLE quant.strategy_state ADD COLUMN IF NOT EXISTS shard_key TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE quant.strategy_state ADD COLUMN IF NOT EXISTS state_schema_version TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE quant.strategy_state ADD COLUMN IF NOT EXISTS artifact_hash TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE quant.strategy_state ADD COLUMN IF NOT EXISTS abi_version TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE quant.strategy_state ADD COLUMN IF NOT EXISTS run_identity_hash TEXT NOT NULL DEFAULT ''`,
+	// PK 扩三元组：先核对现存 PK 的实际列集（同名的旧 PK 是
+	// (strategy_id, run_id)，只按约束名判断会把「列集没变」误判成「已迁移」），
+	// 不符才 DROP + ADD——ADD CONSTRAINT 无 IF NOT EXISTS，靠这层判断幂等。
+	`DO $$
+	DECLARE
+		pk_cols TEXT;
+	BEGIN
+		SELECT string_agg(a.attname, ',' ORDER BY a.attnum) INTO pk_cols
+		FROM pg_index i
+		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+		WHERE i.indrelid = 'quant.strategy_state'::regclass AND i.indisprimary;
+		IF pk_cols IS DISTINCT FROM 'strategy_id,run_id,shard_key' THEN
+			ALTER TABLE quant.strategy_state DROP CONSTRAINT IF EXISTS strategy_state_pkey;
+			ALTER TABLE quant.strategy_state ADD CONSTRAINT strategy_state_pkey PRIMARY KEY (strategy_id, run_id, shard_key);
+		END IF;
+	END $$`,
 }
 
 // ExternalSignalsSchemaDDL 是 quant.external_signals（schema + 表 + 消费索引）

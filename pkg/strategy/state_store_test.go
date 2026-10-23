@@ -31,6 +31,11 @@ func stTestTS(i int) time.Time {
 	return time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i) * time.Minute)
 }
 
+// stKey 造 market scope（shard_key=""）的行坐标——绝大多数既有用例的形态。
+func stKey(sid, rid string) StateKey {
+	return StateKey{StrategyID: sid, RunID: rid}
+}
+
 // stNewStore 建一个独占 (strategy_id, run_id) 的 store + 连接池，并把清理挂到
 // t.Cleanup。返回 pool 是为了让用例能直接执行 SQL（查行数、造垃圾字节）。
 // 连接走 TEST_DATABASE_DSN 统一契约（REV-21，pkg/testenv/dbenv.go）。
@@ -113,9 +118,9 @@ func TestPGStateStoreRoundtrip(t *testing.T) {
 
 	ts := stTestTS(7)
 	state := []byte(`{"version":1,"sum":42.5,"n":3}`)
-	require.NoError(t, store.Save(ctx, sid, rid, ts, state))
+	require.NoError(t, store.Save(ctx, stKey(sid, rid), ts, state, StateEnvelope{}))
 
-	got, gotTS, err := store.Load(ctx, sid, rid)
+	got, gotTS, _, err := store.Load(ctx, stKey(sid, rid))
 	require.NoError(t, err)
 	require.Equal(t, state, got, "Load 必须原样返回 Save 的字节（不解释内容）")
 	require.True(t, gotTS.Equal(ts), "ts = %s, want %s", gotTS, ts)
@@ -127,8 +132,8 @@ func TestPGStateStoreUpsertKeepsLatest(t *testing.T) {
 	store, pool, sid, rid := stNewStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, store.Save(ctx, sid, rid, stTestTS(1), []byte("first")))
-	require.NoError(t, store.Save(ctx, sid, rid, stTestTS(2), []byte("second")))
+	require.NoError(t, store.Save(ctx, stKey(sid, rid), stTestTS(1), []byte("first"), StateEnvelope{}))
+	require.NoError(t, store.Save(ctx, stKey(sid, rid), stTestTS(2), []byte("second"), StateEnvelope{}))
 
 	var count int
 	require.NoError(t, pool.QueryRow(ctx,
@@ -136,7 +141,7 @@ func TestPGStateStoreUpsertKeepsLatest(t *testing.T) {
 		sid, rid).Scan(&count))
 	require.Equal(t, 1, count, "PK/upsert 语义下同一 (策略, run) 只能有一行")
 
-	got, gotTS, err := store.Load(ctx, sid, rid)
+	got, gotTS, _, err := store.Load(ctx, stKey(sid, rid))
 	require.NoError(t, err)
 	require.Equal(t, []byte("second"), got, "upsert 后应保留最新一份")
 	require.True(t, gotTS.Equal(stTestTS(2)), "ts = %s, want %s", gotTS, stTestTS(2))
@@ -148,7 +153,7 @@ func TestPGStateStoreLoadNotFound(t *testing.T) {
 	store, _, sid, rid := stNewStore(t)
 	ctx := context.Background()
 
-	_, _, err := store.Load(ctx, sid, rid)
+	_, _, _, err := store.Load(ctx, stKey(sid, rid))
 	require.Error(t, err, "无检查点必须返回 error，不得静默返回空状态")
 	require.ErrorIs(t, err, ErrStateNotFound, "Load = %v, want errors.Is(err, ErrStateNotFound)", err)
 }
@@ -172,11 +177,100 @@ func TestPGStateStoreSaveRejectsBadInput(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Error(t, store.Save(ctx, sid, rid, tc.ts, tc.state), "非法输入必须被拒（fail-loud）")
+			require.Error(t, store.Save(ctx, stKey(sid, rid), tc.ts, tc.state, StateEnvelope{}), "非法输入必须被拒（fail-loud）")
 		})
 	}
 
 	// 三次都被拒 => 一行都没落（无痕迹）。
-	_, _, err := store.Load(ctx, sid, rid)
+	_, _, _, err := store.Load(ctx, stKey(sid, rid))
 	require.ErrorIs(t, err, ErrStateNotFound, "被拒的 Save 竟然留下了痕迹: %v", err)
+}
+
+// ─── QT-16：身份与分片 ─────────────────────────────────────────────
+
+// TestPGStateStoreShardIsolation 同一 (strategy, run) 的两个分片各占一行、
+// 各自 UPSERT 互不覆盖——N3 的病根（「5000 分片写同一行」）被 PK 三元组钉死。
+func TestPGStateStoreShardIsolation(t *testing.T) {
+	ctx := context.Background()
+	store, pool, sid, rid := stNewStore(t)
+
+	market := stKey(sid, rid) // shard_key = ""
+	sym := StateKey{StrategyID: sid, RunID: rid, ShardKey: "600000.SH"}
+
+	require.NoError(t, store.Save(ctx, market, stTestTS(1), []byte("market-state"), StateEnvelope{RunIdentityHash: "h-market"}))
+	require.NoError(t, store.Save(ctx, sym, stTestTS(1), []byte("sym-state"), StateEnvelope{RunIdentityHash: "h-sym"}))
+
+	// 两行并存（行数按 strategy_id + run_id 圈定，不碰别人的行）。
+	var n int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM quant.strategy_state WHERE strategy_id = $1 AND run_id = $2`,
+		sid, rid).Scan(&n))
+	require.Equal(t, 2, n, "两个分片应各占一行")
+
+	// 各自 UPSERT 只覆盖自己那一行。
+	require.NoError(t, store.Save(ctx, market, stTestTS(2), []byte("market-v2"), StateEnvelope{RunIdentityHash: "h-market"}))
+	require.NoError(t, store.Save(ctx, sym, stTestTS(2), []byte("sym-v2"), StateEnvelope{RunIdentityHash: "h-sym"}))
+
+	gotM, _, envM, err := store.Load(ctx, market)
+	require.NoError(t, err)
+	require.Equal(t, "market-v2", string(gotM))
+	require.Equal(t, "h-market", envM.RunIdentityHash)
+
+	gotS, _, envS, err := store.Load(ctx, sym)
+	require.NoError(t, err)
+	require.Equal(t, "sym-v2", string(gotS))
+	require.Equal(t, "h-sym", envS.RunIdentityHash)
+
+	// 仍是两行（不是一行被互相覆盖成四份写入的幸存者）。
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM quant.strategy_state WHERE strategy_id = $1 AND run_id = $2`,
+		sid, rid).Scan(&n))
+	require.Equal(t, 2, n)
+}
+
+// TestPGStateStoreRejectsTsRegression 同一行内 ts 回退被 fail-loud 拒绝
+// （QT-16 ③-④）；相等 ts 是合法重写（单调**不减**），且拒绝不留痕迹。
+func TestPGStateStoreRejectsTsRegression(t *testing.T) {
+	ctx := context.Background()
+	store, _, sid, rid := stNewStore(t)
+	key := stKey(sid, rid)
+
+	require.NoError(t, store.Save(ctx, key, stTestTS(5), []byte("v5"), StateEnvelope{}))
+	require.NoError(t, store.Save(ctx, key, stTestTS(5), []byte("v5-again"), StateEnvelope{}),
+		"相等 ts 是合法重写（单调不减）")
+
+	err := store.Save(ctx, key, stTestTS(4), []byte("v4"), StateEnvelope{})
+	require.Error(t, err, "ts 回退必须被拒")
+	require.Contains(t, err.Error(), "回退", "错误要能让人看出是 ts 回退而非其它失败")
+
+	// 拒绝后的行仍是最后一次合法写入。
+	got, ts, _, err := store.Load(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, "v5-again", string(got))
+	require.True(t, ts.Equal(stTestTS(5)))
+
+	// 分片维度各自独立记账：market 行 ts=5，symbol 行从 ts=1 起步合法。
+	sym := StateKey{StrategyID: sid, RunID: rid, ShardKey: "000001.SZ"}
+	require.NoError(t, store.Save(ctx, sym, stTestTS(1), []byte("sym-v1"), StateEnvelope{}))
+}
+
+// TestPGStateStoreEnvelopeRoundtrip 信封四列随行落库、原样读回（store 层不
+// 解释、不裁决——匹配与否是 Verify 的事）。
+func TestPGStateStoreEnvelopeRoundtrip(t *testing.T) {
+	ctx := context.Background()
+	store, _, sid, rid := stNewStore(t)
+	key := stKey(sid, rid)
+
+	env := StateEnvelope{
+		StateSchemaVersion: "v3",
+		ArtifactHash:       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		AbiVersion:         "v2",
+		RunIdentityHash:    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	require.NoError(t, store.Save(ctx, key, stTestTS(1), []byte("state"), env))
+	require.NoError(t, store.Save(ctx, key, stTestTS(2), []byte("state-v2"), env))
+
+	_, _, gotEnv, err := store.Load(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, env, gotEnv, "UPSERT 后信封应随最新一份原样读回")
 }

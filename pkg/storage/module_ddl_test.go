@@ -128,9 +128,10 @@ func findForeignDDL(root string) ([]string, error) {
 	return offenders, err
 }
 
-// TestModuleSchemaDDLComplete 钉住三条 DDL 变量本身完整（schema + 表 + 索引），
-// 作为「模块侧别名指向的数组确实完整」的基线。跨包的别名身份断言放在
-// pkg/eventstore / pkg/strategy 各自包内（避免本包反向导入模块包）。
+// TestModuleSchemaDDLComplete 钉住三条 DDL 变量本身完整（schema + 表 + 索引，
+// 以及随数组一并执行的迁移语句），作为「模块侧别名指向的数组确实完整」的基线。
+// 跨包的别名身份断言放在 pkg/eventstore / pkg/strategy 各自包内（避免本包反
+// 向导入模块包）。
 func TestModuleSchemaDDLComplete(t *testing.T) {
 	t.Parallel()
 
@@ -140,7 +141,9 @@ func TestModuleSchemaDDLComplete(t *testing.T) {
 		want int
 	}{
 		{"AuditSchemaDDL", AuditSchemaDDL, 4},
-		{"StrategyStateSchemaDDL", StrategyStateSchemaDDL, 3},
+		// strategy_state：schema + 表 + 索引 + 5 条加列 ALTER + 1 条 PK 扩三元组
+		// 的 DO 块（QT-16 身份迁移，与建表同数组、migrate() 一并执行）。
+		{"StrategyStateSchemaDDL", StrategyStateSchemaDDL, 9},
 		{"ExternalSignalsSchemaDDL", ExternalSignalsSchemaDDL, 3},
 	}
 	for _, c := range cases {

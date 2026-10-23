@@ -18,12 +18,13 @@
 // 空库），不依赖「服务先跑过一遍 migrate」这种隐式前提。
 //
 // ─── 裁决：contracts 里「历史版本」那句话与 PK/upsert 矛盾 ──────────
-// contracts 第 184-197 行的注释写「同一个 (策略, run) 只保留最新一份（upsert），
-// 历史版本留断点续跑时按 created_at 取」——后半句与 PRIMARY KEY
-// (strategy_id, run_id) + upsert 语义**自相矛盾**：PK 决定了一个 (策略, run)
+// contracts（kernel_modules.schema.sql）strategy_state 节的注释曾写「同一个
+// (策略, run) 只保留最新一份（upsert），历史版本留断点续跑时按 created_at 取」
+// ——后半句与 PK + upsert 语义**自相矛盾**：PK 决定了一个 (策略, run, 分片)
 // 在表里只能有一行，upsert 只保留最新，历史版本根本不存在，无从「按
 // created_at 取」。**以 PK/upsert 为准**（本次裁决，见 Save 注释）：只保留最新
 // 一份；断点续跑读到的就是最新检查点，不需要也不存在历史版本检索。
+// 该句已随 QT-16 的冻结 schema 修订一并移除。
 package strategy
 
 import (
@@ -37,10 +38,11 @@ import (
 	"tellurion/pkg/storage"
 )
 
-// SchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引的建表语句，
-// 为 storage.StrategyStateSchemaDDL 的别名（同一底层数组）——表结构逐字取自
-// contracts/kernel_modules.schema.sql 第 184-197 行（K0 冻结），文本唯一真相
-// 在 pkg/storage/postgres.go 的 migrate() 路径（Migration 055）。
+// SchemaDDL 是 quant schema + quant.strategy_state 表 + 1 个索引 + QT-16 身份
+// 迁移语句的合集，为 storage.StrategyStateSchemaDDL 的别名（同一底层数组）——
+// 表结构与 contracts/kernel_modules.schema.sql 的 strategy_state 节同步修订
+// （QT-16），文本唯一真相在 pkg/storage/postgres.go 的 migrate() 路径
+// （Migration 055 建表 + 058 旧库迁移）。
 //
 // 每条都必须幂等（IF NOT EXISTS）——EnsureSchema 会被反复调用（每个测试的
 // setup、每次 kernel 装配），不等价于 no-op 的语句迟早会炸在一次不该炸的
@@ -60,24 +62,36 @@ const (
 	loadTimeout = 10 * time.Second
 )
 
-// ErrStateNotFound：Load 在 quant.strategy_state 里查不到 (strategy_id, run_id)
-// 对应的检查点。fail-loud 哨兵——调用方用 errors.Is 判定，**不要**把它当成
-// 「空状态从头跑」的静默信号：断点续跑路径必须显式区分「首次运行（无行）」
-// 与「数据丢失 / 键写错（也无行但语义完全不同）」。
-var ErrStateNotFound = errors.New("strategy: 指定 (strategy_id, run_id) 无检查点")
+// ErrStateNotFound：Load 在 quant.strategy_state 里查不到 (strategy_id, run_id,
+// shard_key) 对应的检查点。fail-loud 哨兵——调用方用 errors.Is 判定，**不要**
+// 把它当成「空状态从头跑」的静默信号：断点续跑路径必须显式区分「首次运行
+// （无行）」与「数据丢失 / 键写错（也无行但语义完全不同）」。
+var ErrStateNotFound = errors.New("strategy: 指定 (strategy_id, run_id, shard_key) 无检查点")
+
+// StateKey 是检查点的行坐标（QT-16：PK = (strategy_id, run_id, shard_key)）。
+type StateKey struct {
+	StrategyID string
+	RunID      string
+	// ShardKey：market scope 恒 ""；symbol scope = 标的（与 RunUniverse 同一
+	// 符号口径）。分片调度本身归 QT-25，本字段先把行身份钉住——symbol scope
+	// 的 N 份状态不再互相覆盖（N3）。
+	ShardKey string
+}
 
 // StateStore 持久化流式策略检查点（quant.strategy_state）。
 //
 // 落位理由：strategy-runtime 模块的 DB 归属（蓝图 §5 矩阵），不走 pkg/storage
 // 应用层 store——与 pkg/eventstore 同为「内核模块自带 store」先例。
 type StateStore interface {
-	// Save 落库一份检查点：ts 是状态对应时刻，state 是 SaveState() 的原始字节。
-	// 同一 (strategyID, runID) 重复 Save 是 UPSERT（只保留最新一份）。
-	Save(ctx context.Context, strategyID, runID string, ts time.Time, state []byte) error
+	// Save 落库一份检查点：ts 是状态对应时刻，state 是 SaveState() 的原始
+	// 字节，env 是身份信封（QT-16，随行落库）。同一 StateKey 重复 Save 是
+	// UPSERT（只保留最新一份）；同一行内 ts 回退（新 ts 早于已存 ts）被
+	// fail-loud 拒绝。
+	Save(ctx context.Context, key StateKey, ts time.Time, state []byte, env StateEnvelope) error
 
-	// Load 读出 (strategyID, runID) 的最新检查点。无行时返回 ErrStateNotFound
+	// Load 读出 StateKey 的最新检查点及其信封。无行时返回 ErrStateNotFound
 	// （fail-loud，不静默返回空）。
-	Load(ctx context.Context, strategyID, runID string) (state []byte, ts time.Time, err error)
+	Load(ctx context.Context, key StateKey) (state []byte, ts time.Time, env StateEnvelope, err error)
 }
 
 // PGStateStore 是 quant.strategy_state 的 PostgreSQL 实现（pgxpool）。
@@ -118,68 +132,112 @@ func (s *PGStateStore) EnsureSchema(ctx context.Context) error {
 	return nil
 }
 
-// saveSQL —— UPSERT 一份检查点。参数顺序：$1 strategyID / $2 runID / $3 ts / $4 state。
+// saveSQL —— UPSERT 一份检查点。参数顺序：$1 strategyID / $2 runID /
+// $3 shardKey / $4 ts / $5 state / $6..$9 信封四列。
 //
-// ON CONFLICT (strategy_id, run_id) DO UPDATE：PK 决定一个 (策略, run) 只有一行，
-// 重复 Save 覆盖 ts / state / created_at——**只保留最新**。contracts 注释里
-// 「历史版本按 created_at 取」那句与 PK/upsert 矛盾，本实现以 PK/upsert 为准
-// （见文件头裁决）。
-const saveSQL = `INSERT INTO quant.strategy_state (strategy_id, run_id, ts, state)
-	VALUES ($1, $2, $3, $4)
-	ON CONFLICT (strategy_id, run_id)
-	DO UPDATE SET ts = EXCLUDED.ts, state = EXCLUDED.state, created_at = now()`
+// ON CONFLICT (strategy_id, run_id, shard_key) DO UPDATE：PK 决定一个
+// (策略, run, 分片) 只有一行，重复 Save 覆盖 ts / state / 信封 /
+// created_at——**只保留最新**。contracts 注释里「历史版本按 created_at 取」
+// 那句与 PK/upsert 矛盾，本实现以 PK/upsert 为准（见文件头裁决）。
+const saveSQL = `INSERT INTO quant.strategy_state
+	(strategy_id, run_id, shard_key, ts, state,
+	 state_schema_version, artifact_hash, abi_version, run_identity_hash)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	ON CONFLICT (strategy_id, run_id, shard_key)
+	DO UPDATE SET ts = EXCLUDED.ts, state = EXCLUDED.state,
+		state_schema_version = EXCLUDED.state_schema_version,
+		artifact_hash = EXCLUDED.artifact_hash,
+		abi_version = EXCLUDED.abi_version,
+		run_identity_hash = EXCLUDED.run_identity_hash,
+		created_at = now()`
 
-// loadSQL —— 取 (strategy_id, run_id) 的最新检查点。
-const loadSQL = `SELECT ts, state
+// tsPeekSQL —— Save 前锁行读已存 ts（QT-16 ③-④：同一行的 ts 必须单调不减，
+// 回退写入当场拒绝）。回退的 ts 会让续跑的「跳过前缀 Date <= ts」跳错段落
+// ——宁 Fail 不脏写。事务 + FOR UPDATE：并发的两次 Save 各自串行拿到行锁，
+// 后到者对先到者的 ts 作校验。
+const tsPeekSQL = `SELECT ts FROM quant.strategy_state
+	WHERE strategy_id = $1 AND run_id = $2 AND shard_key = $3
+	FOR UPDATE`
+
+// loadSQL —— 取 StateKey 的最新检查点及其身份信封。
+const loadSQL = `SELECT ts, state, state_schema_version, artifact_hash, abi_version, run_identity_hash
 	FROM quant.strategy_state
-	WHERE strategy_id = $1 AND run_id = $2`
+	WHERE strategy_id = $1 AND run_id = $2 AND shard_key = $3`
 
-// Save 落库一份检查点（UPSERT，只保留最新）。
+// Save 落库一份检查点（UPSERT，只保留最新；ts 回退拒绝）。
 //
 // Fail-loud 拒绝（宁 Fail 不脏写）：
 //   - state 为 nil / 空：空状态读出来会让续跑**静默从头跑**（Load 拿到空字节
 //     交给 LoadState，若实现不校验就会当成初始态），错误发生在很远的地方；
 //   - ts 为零值时间：零值 ts 写库后，续跑按 `Date <= ts` 跳过前缀会一根都不跳
-//     （或跳得莫名其妙），跳过逻辑失效。
+//     （或跳得莫名其妙），跳过逻辑失效；
+//   - key 的 StrategyID / RunID 为空：空坐标的行谁也找不回来；
+//   - ts 回退：新 ts 早于该行已存 ts（见 tsPeekSQL）。
 //
 // ts 归一到 UTC 后落库（TIMESTAMPTZ 存瞬时、与时区无关，归一只是让传参确定）。
-func (s *PGStateStore) Save(ctx context.Context, strategyID, runID string, ts time.Time, state []byte) error {
+func (s *PGStateStore) Save(ctx context.Context, key StateKey, ts time.Time, state []byte, env StateEnvelope) error {
+	if key.StrategyID == "" || key.RunID == "" {
+		return fmt.Errorf("strategy: PGStateStore.Save 拒绝空坐标 (strategy=%q run=%q)——空坐标的行谁也找不回来", key.StrategyID, key.RunID)
+	}
 	if len(state) == 0 {
-		return fmt.Errorf("strategy: PGStateStore.Save 拒绝空 state (strategy=%s run=%s)——空状态会让续跑静默从头跑", strategyID, runID)
+		return fmt.Errorf("strategy: PGStateStore.Save 拒绝空 state (strategy=%s run=%s shard=%q)——空状态会让续跑静默从头跑", key.StrategyID, key.RunID, key.ShardKey)
 	}
 	if ts.IsZero() {
-		return fmt.Errorf("strategy: PGStateStore.Save 拒绝零值 ts (strategy=%s run=%s)——零值 ts 会让续跑跳过逻辑失效", strategyID, runID)
+		return fmt.Errorf("strategy: PGStateStore.Save 拒绝零值 ts (strategy=%s run=%s shard=%q)——零值 ts 会让续跑跳过逻辑失效", key.StrategyID, key.RunID, key.ShardKey)
 	}
 
 	ctx, cancel := mergeTimeout(ctx, saveTimeout)
 	defer cancel()
 
-	if _, err := s.pool.Exec(ctx, saveSQL, strategyID, runID, ts.UTC(), state); err != nil {
-		return fmt.Errorf("strategy: PGStateStore.Save 落库失败 (strategy=%s run=%s): %w", strategyID, runID, err)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("strategy: PGStateStore.Save 开事务失败 (strategy=%s run=%s shard=%q): %w", key.StrategyID, key.RunID, key.ShardKey, err)
 	}
-	return nil
+	defer tx.Rollback(context.Background()) // 提交成功后是 no-op
+
+	var existing time.Time
+	err = tx.QueryRow(ctx, tsPeekSQL, key.StrategyID, key.RunID, key.ShardKey).Scan(&existing)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("strategy: PGStateStore.Save 读已存 ts 失败 (strategy=%s run=%s shard=%q): %w", key.StrategyID, key.RunID, key.ShardKey, err)
+	}
+	if err == nil && existing.After(ts.UTC()) {
+		return fmt.Errorf("strategy: PGStateStore.Save 拒绝 ts 回退 (strategy=%s run=%s shard=%q): 已存 %s > 新值 %s —— 同一行的 ts 必须单调不减，回退会让续跑的跳过前缀跳错段落（QT-16 ③-④）",
+			key.StrategyID, key.RunID, key.ShardKey, existing.UTC().Format(time.RFC3339Nano), ts.UTC().Format(time.RFC3339Nano))
+	}
+
+	if _, err := tx.Exec(ctx, saveSQL,
+		key.StrategyID, key.RunID, key.ShardKey, ts.UTC(), state,
+		env.StateSchemaVersion, env.ArtifactHash, env.AbiVersion, env.RunIdentityHash); err != nil {
+		return fmt.Errorf("strategy: PGStateStore.Save 落库失败 (strategy=%s run=%s shard=%q): %w", key.StrategyID, key.RunID, key.ShardKey, err)
+	}
+	return tx.Commit(ctx)
 }
 
-// Load 读出 (strategy_id, run_id) 的最新检查点。无行 → ErrStateNotFound。
+// Load 读出 StateKey 的最新检查点及其信封。无行 → ErrStateNotFound。
 //
 // 返回的 state 是 SaveState() 当初写进去的原始字节（深拷贝，pgx 的行缓冲在
 // rows 之后会被复用，这里 QueryRow.Scan 已拷进我们自己的切片），ts 归一 UTC。
-func (s *PGStateStore) Load(ctx context.Context, strategyID, runID string) ([]byte, time.Time, error) {
+// 信封**原样读回不解释**——匹配与否是 checkpoint 层 Verify 的事（QT-16 ③-③），
+// store 层不做策略裁决。
+func (s *PGStateStore) Load(ctx context.Context, key StateKey) ([]byte, time.Time, StateEnvelope, error) {
 	ctx, cancel := mergeTimeout(ctx, loadTimeout)
 	defer cancel()
 
 	var (
 		ts    time.Time
 		state []byte
+		env   StateEnvelope
 	)
-	err := s.pool.QueryRow(ctx, loadSQL, strategyID, runID).Scan(&ts, &state)
+	err := s.pool.QueryRow(ctx, loadSQL,
+		key.StrategyID, key.RunID, key.ShardKey).
+		Scan(&ts, &state, &env.StateSchemaVersion, &env.ArtifactHash, &env.AbiVersion, &env.RunIdentityHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, time.Time{}, fmt.Errorf("%w (strategy=%s run=%s)", ErrStateNotFound, strategyID, runID)
+			return nil, time.Time{}, StateEnvelope{}, fmt.Errorf("%w (strategy=%s run=%s shard=%q)", ErrStateNotFound, key.StrategyID, key.RunID, key.ShardKey)
 		}
-		return nil, time.Time{}, fmt.Errorf("strategy: PGStateStore.Load 查询失败 (strategy=%s run=%s): %w", strategyID, runID, err)
+		return nil, time.Time{}, StateEnvelope{}, fmt.Errorf("strategy: PGStateStore.Load 查询失败 (strategy=%s run=%s shard=%q): %w", key.StrategyID, key.RunID, key.ShardKey, err)
 	}
-	return state, ts.UTC(), nil
+	return state, ts.UTC(), env, nil
 }
 
 // mergeTimeout 给调用方传来的 ctx 套一个上限（模式来源：pkg/eventstore 的

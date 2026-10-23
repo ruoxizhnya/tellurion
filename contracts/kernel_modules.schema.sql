@@ -66,8 +66,9 @@ CREATE INDEX IF NOT EXISTS idx_message_log_topic_ts ON audit.message_log (topic,
 -- 通用约定（冻结）：
 --   * 每张业务表都带 run_id —— 一次回测 / 实盘 run 一个 id，所有落库数据
 --     可归因到同一 run（回测-实盘同构的比对锚点）；
---     quant.strategy_state 例外地以 (strategy_id, run_id) 为复合主键——
---     一个 run 里可跑多个策略，状态按「策略 × run」定位；
+--     quant.strategy_state 例外地以 (strategy_id, run_id, shard_key) 为复合
+--     主键——一个 run 里可跑多个策略且 symbol scope 按标的分片，状态按
+--     「策略 × run × 分片」定位（QT-16 / N3）；
 --   * 每张表都带时间戳：业务发生时间（ts / submitted_at / as_of）与
 --     落库时间（created_at / updated_at）分开记，不混为一列；
 --   * 半结构化 / 明细类字段一律 JSONB（detail），结构化列只留查询与
@@ -184,16 +185,26 @@ CREATE TABLE IF NOT EXISTS quant.recon_report (
 CREATE INDEX IF NOT EXISTS idx_recon_report_run_asof ON quant.recon_report (run_id, as_of);
 
 -- ── strategy-runtime：L2/L3 流式策略状态（BarHandler.SaveState 的落点） ──
--- 复合主键 (strategy_id, run_id)：一个 run 可跑多个策略，状态按
--- 「策略 × run」定位；同一个 (策略, run) 只保留最新一份（upsert），
--- 历史版本留断点续跑时按 created_at 取。
+-- 复合主键 (strategy_id, run_id, shard_key)：一个 run 可跑多个策略，状态按
+-- 「策略 × run × 分片」定位；同一个 (策略, run, shard) 只保留最新一份
+-- （upsert）。shard_key：market scope = ''；symbol scope = 标的（与
+-- RunUniverse 同一符号口径）——symbol scope 的 N 个分片状态不再互相覆盖
+-- （QT-16 / N3；分片调度本身归 QT-25）。
+-- 信封四列是恢复校验（A9 + N3）：全部匹配才恢复，任一不符 fail-closed 并
+-- 点名；DEFAULT '' 让 QT-16 之前的旧行平滑迁移——旧行不再是新格式，恢复时
+-- 被点名拒绝（不做「尽力解释旧格式」）。
 CREATE TABLE IF NOT EXISTS quant.strategy_state (
-    strategy_id TEXT NOT NULL,
-    run_id      TEXT NOT NULL,
-    ts          TIMESTAMPTZ NOT NULL,      -- 状态对应时刻（回测=虚拟时间，实盘=墙钟）
-    state       BYTEA NOT NULL,            -- SaveState() 的原始字节，不解释内容
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (strategy_id, run_id)
+    strategy_id          TEXT NOT NULL,
+    run_id               TEXT NOT NULL,
+    shard_key            TEXT NOT NULL DEFAULT '',
+    ts                   TIMESTAMPTZ NOT NULL,      -- 状态对应时刻（回测=虚拟时间，实盘=墙钟）；同行单调不减，回退写入被拒
+    state                BYTEA NOT NULL,            -- SaveState() 的原始字节，不解释内容
+    state_schema_version TEXT NOT NULL DEFAULT '',  -- 策略清单声明的状态结构版本
+    artifact_hash        TEXT NOT NULL DEFAULT '',  -- 写这份状态的策略 artifact
+    abi_version          TEXT NOT NULL DEFAULT '',
+    run_identity_hash    TEXT NOT NULL DEFAULT '',  -- {run_universe_hash, scope, shard_key, param_effective_hash} 复合身份
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (strategy_id, run_id, shard_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_strategy_state_run ON quant.strategy_state (run_id);

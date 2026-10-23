@@ -49,13 +49,21 @@ const bestEffortSaveTimeout = 10 * time.Second
 type Checkpoint struct {
 	// Store 是落库后端。nil → RunCheckpointed 退化为 Run（无保存、无恢复）。
 	Store StateStore
-	// StrategyID / RunID 是 quant.strategy_state 的复合主键（策略 × run）。
+	// StrategyID / RunID / ShardKey 是 quant.strategy_state 的复合主键
+	// （策略 × run × 分片，QT-16）：market scope 的 ShardKey 恒 ""，symbol
+	// scope = 标的（分片调度归 QT-25）。
 	StrategyID string
 	RunID      string
+	ShardKey   string
+	// Envelope 是本 run 的身份信封（QT-16 ③-③）：保存时随行落库；Resume=true
+	// 时与库中存出的信封全量对照，任一不符 → ErrStateIdentityMismatch
+	// fail-closed，绝不静默从头跑。各分量的计算材料见 state_identity.go。
+	Envelope StateEnvelope
 	// Every：>0 时，每攒够 Every 根已处理 bar **且到达日期边界**才保存一次
 	//（保存后计数清零）；<=0 时只在终局保存。
 	Every int
-	// Resume：true 时开跑前尝试恢复（Load + LoadState + 跳过已处理 bar 前缀）。
+	// Resume：true 时开跑前尝试恢复（Load + 信封对照 + LoadState + 跳过已处理
+	// bar 前缀）。
 	Resume bool
 }
 
@@ -132,24 +140,33 @@ func (r *StreamRunner) RunCheckpointed(ctx context.Context, h BarHandler, bars [
 //
 //   - Resume=false → 0（从头跑）。
 //   - Resume=true：Load 库中状态；ErrStateNotFound → 0（首次运行，正常）；
-//     其它 error → 返回 error；有状态 → h.LoadState（失败即返回 error，绝不
-//     静默从头跑），然后 start = skipPrefix(bars, 存储 ts)。
+//     其它 error → 返回 error；有状态 → **先做信封对照**（ckpt.Envelope 对
+//     存出的信封，任一不符 → ErrStateIdentityMismatch，fail-closed，绝不
+//     静默从头跑——A9 ④「不做尽力解释旧格式」），再 h.LoadState（失败即
+//     返回 error），然后 start = skipPrefix(bars, 存储 ts)。
 func (r *StreamRunner) resumeStart(ctx context.Context, h BarHandler, bars []domain.OHLCV, ckpt Checkpoint) (int, error) {
 	if !ckpt.Resume {
 		return 0, nil
 	}
-	state, ts, err := ckpt.Store.Load(ctx, ckpt.StrategyID, ckpt.RunID)
+	key := StateKey{StrategyID: ckpt.StrategyID, RunID: ckpt.RunID, ShardKey: ckpt.ShardKey}
+	state, ts, env, err := ckpt.Store.Load(ctx, key)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			// 首次运行：库中无检查点，从头跑是正常情况，不报错。
 			return 0, nil
 		}
-		return 0, fmt.Errorf("strategy: RunCheckpointed 恢复失败 (strategy=%s run=%s): %w", ckpt.StrategyID, ckpt.RunID, err)
+		return 0, fmt.Errorf("strategy: RunCheckpointed 恢复失败 (strategy=%s run=%s shard=%q): %w", ckpt.StrategyID, ckpt.RunID, ckpt.ShardKey, err)
+	}
+	// 身份对照先于 LoadState：宁可让这次续跑当场失败，也不能把「别个 run /
+	// 别版 artifact 的状态字节」喂给本 run 的 handler——那是静默错误
+	//（A9 的典型病症：换个版本跑，前两天结果奇怪然后恢复正常）。
+	if err := ckpt.Envelope.Verify(env); err != nil {
+		return 0, fmt.Errorf("strategy: RunCheckpointed 检查点身份不符 (strategy=%s run=%s shard=%q): %w", ckpt.StrategyID, ckpt.RunID, ckpt.ShardKey, err)
 	}
 	// fail-loud：LoadState 失败必须终止——静默从头跑会让「续跑」变成「悄悄
 	// 重来」，结果错了还查不出来（BarHandler.LoadState 契约明确要求）。
 	if err := h.LoadState(state); err != nil {
-		return 0, fmt.Errorf("strategy: RunCheckpointed LoadState 失败 (strategy=%s run=%s): %w", ckpt.StrategyID, ckpt.RunID, err)
+		return 0, fmt.Errorf("strategy: RunCheckpointed LoadState 失败 (strategy=%s run=%s shard=%q): %w", ckpt.StrategyID, ckpt.RunID, ckpt.ShardKey, err)
 	}
 	return skipPrefix(bars, ts), nil
 }
@@ -212,11 +229,12 @@ func saveCheckpoint(ctx context.Context, h BarHandler, ckpt Checkpoint, ts time.
 	}
 	state, err := h.SaveState()
 	if err != nil {
-		return fmt.Errorf("strategy: 检查点 SaveState 失败 (strategy=%s run=%s): %w", ckpt.StrategyID, ckpt.RunID, err)
+		return fmt.Errorf("strategy: 检查点 SaveState 失败 (strategy=%s run=%s shard=%q): %w", ckpt.StrategyID, ckpt.RunID, ckpt.ShardKey, err)
 	}
-	if err := ckpt.Store.Save(ctx, ckpt.StrategyID, ckpt.RunID, ts, state); err != nil {
-		return fmt.Errorf("strategy: 检查点落库失败 (strategy=%s run=%s ts=%s): %w",
-			ckpt.StrategyID, ckpt.RunID, ts.UTC().Format(time.RFC3339Nano), err)
+	key := StateKey{StrategyID: ckpt.StrategyID, RunID: ckpt.RunID, ShardKey: ckpt.ShardKey}
+	if err := ckpt.Store.Save(ctx, key, ts, state, ckpt.Envelope); err != nil {
+		return fmt.Errorf("strategy: 检查点落库失败 (strategy=%s run=%s shard=%q ts=%s): %w",
+			ckpt.StrategyID, ckpt.RunID, ckpt.ShardKey, ts.UTC().Format(time.RFC3339Nano), err)
 	}
 	return nil
 }

@@ -188,7 +188,7 @@ func TestRunCheckpointedResumeEquivalence(t *testing.T) {
 			require.Equal(t, failAt, hBroken.n, "故障前应恰好成功处理 failAt 根")
 
 			// 断点落在日期边界：库内 ts == 最后成功处理那根的日期。
-			_, ts, err := store.Load(ctx, sid, rid)
+			_, ts, _, err := store.Load(ctx, stKey(sid, rid))
 			require.NoError(t, err, "故障后应有断点落库")
 			require.True(t, ts.Equal(bars[failAt-1].Date),
 				"库内 ts = %s, want %s（第 %d 根，最后日期边界）", ts, bars[failAt-1].Date, failAt)
@@ -248,7 +248,7 @@ func TestRunCheckpointedBoundaryAlignmentMultiSymbol(t *testing.T) {
 
 	// 库内 ts 停在 d1（上一个完整日期块），不是 d2sA 的日期。
 	d1 := bars[0].Date
-	_, ts, err := store.Load(ctx, sid, rid)
+	_, ts, _, err := store.Load(ctx, stKey(sid, rid))
 	require.NoError(t, err)
 	require.True(t, ts.Equal(d1),
 		"库内 ts = %s, want %s（保存点必须落在日期边界 d1，绝不能停在同一日期块中间）", ts, d1)
@@ -276,7 +276,7 @@ func TestRunCheckpointedLoadStateFailsLoud(t *testing.T) {
 	store, _, sid, rid := stNewStore(t)
 
 	// 直接塞一段非法 JSON（Save 只拒空/零 ts，非空脏字节可落库——模拟损坏）。
-	require.NoError(t, store.Save(ctx, sid, rid, stTestTS(0), []byte("{not-json")))
+	require.NoError(t, store.Save(ctx, stKey(sid, rid), stTestTS(0), []byte("{not-json"), StateEnvelope{}))
 
 	h := &ckptFakeHandler{}
 	ck := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Every: 1, Resume: true}
@@ -358,7 +358,7 @@ func TestRunCheckpointedNoBarsToRun(t *testing.T) {
 	require.NoError(t, NewStreamRunner().Run(ctx, hDone, bars, clock.NewVirtualClock(bars[0].Date)))
 	blob, err := hDone.SaveState()
 	require.NoError(t, err)
-	require.NoError(t, store.Save(ctx, sid, rid, bars[len(bars)-1].Date, blob))
+	require.NoError(t, store.Save(ctx, stKey(sid, rid), bars[len(bars)-1].Date, blob, StateEnvelope{}))
 
 	h := &ckptFakeHandler{}
 	ck := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Every: 1, Resume: true}
@@ -367,7 +367,7 @@ func TestRunCheckpointedNoBarsToRun(t *testing.T) {
 	require.Empty(t, h.processed, "断点已覆盖全部输入，不该再处理任何 bar")
 
 	// 库内 ts 未被改写（仍是最初那根最后 bar 的日期）。
-	_, ts, err := store.Load(ctx, sid, rid)
+	_, ts, _, err := store.Load(ctx, stKey(sid, rid))
 	require.NoError(t, err)
 	require.True(t, ts.Equal(bars[len(bars)-1].Date), "无 bar 可跑不得改写断点")
 }
@@ -395,4 +395,99 @@ func TestIsDateBoundary(t *testing.T) {
 	require.True(t, isDateBoundary(bars, 1), "d0B 下一根跨日 → 边界")
 	require.False(t, isDateBoundary(bars, 2), "d1A 下一根同日 → 非边界")
 	require.True(t, isDateBoundary(bars, 3), "末根恒为边界")
+}
+
+// ─── 8. 检查点身份（QT-16） ─────────────────────────────────────────
+
+// TestRunCheckpointedResumeRejectsEnvelopeMismatch 恢复前先做信封对照：
+// 存出的信封与本 run 期望不符 → ErrStateIdentityMismatch fail-closed，
+// **一根 bar 都不处理**（绝不静默从头跑 / 拿别个 run 的字节接着算）。
+func TestRunCheckpointedResumeRejectsEnvelopeMismatch(t *testing.T) {
+	ctx := context.Background()
+	bars := ckptSeqBars(6)
+
+	t.Run("run identity changed", func(t *testing.T) {
+		store, _, sid, rid := stNewStore(t)
+		savedEnv := StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "artifact-a", AbiVersion: "v1", RunIdentityHash: "ident-old"}
+		ck := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Envelope: savedEnv}
+		h := &ckptFakeHandler{}
+		require.NoError(t, NewStreamRunner().RunCheckpointed(ctx, h, bars, clock.NewVirtualClock(bars[0].Date), ck))
+
+		hResume := &ckptFakeHandler{}
+		ckResume := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Resume: true,
+			Envelope: StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "artifact-a", AbiVersion: "v1", RunIdentityHash: "ident-new"}}
+		err := NewStreamRunner().RunCheckpointed(ctx, hResume, bars, clock.NewVirtualClock(bars[0].Date), ckResume)
+		require.ErrorIs(t, err, ErrStateIdentityMismatch)
+		require.Contains(t, err.Error(), "run_identity_hash")
+		require.Empty(t, hResume.processed, "身份不符一根 bar 都不该被处理")
+		require.False(t, hResume.loaded, "LoadState 根本不该被执行")
+	})
+
+	t.Run("artifact changed", func(t *testing.T) {
+		store, _, sid, rid := stNewStore(t)
+		ck := Checkpoint{Store: store, StrategyID: sid, RunID: rid,
+			Envelope: StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "artifact-a", AbiVersion: "v1", RunIdentityHash: "ident"}}
+		require.NoError(t, NewStreamRunner().RunCheckpointed(ctx, &ckptFakeHandler{}, bars, clock.NewVirtualClock(bars[0].Date), ck))
+
+		ckResume := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Resume: true,
+			Envelope: StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "artifact-b", AbiVersion: "v1", RunIdentityHash: "ident"}}
+		err := NewStreamRunner().RunCheckpointed(ctx, &ckptFakeHandler{}, bars, clock.NewVirtualClock(bars[0].Date), ckResume)
+		require.ErrorIs(t, err, ErrStateIdentityMismatch)
+		require.Contains(t, err.Error(), "artifact_hash", "artifact 变了要被点名")
+	})
+
+	t.Run("legacy empty envelope rejected", func(t *testing.T) {
+		// 旧行信封为空串（迁移 DEFAULT ''）：对上非空期望必须拒绝——
+		// 不做「尽力解释旧格式」。
+		store, _, sid, rid := stNewStore(t)
+		require.NoError(t, store.Save(ctx, stKey(sid, rid), stTestTS(0), []byte("{}"), StateEnvelope{}))
+		ckResume := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Resume: true,
+			Envelope: StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "a", AbiVersion: "v1", RunIdentityHash: "h"}}
+		err := NewStreamRunner().RunCheckpointed(ctx, &ckptFakeHandler{}, bars, clock.NewVirtualClock(bars[0].Date), ckResume)
+		require.ErrorIs(t, err, ErrStateIdentityMismatch)
+	})
+}
+
+// TestRunCheckpointedEnvelopeMatchResumes 信封全匹配 → 正常恢复（正证腿：
+// 门只拦不对的，不拦对的）。
+func TestRunCheckpointedEnvelopeMatchResumes(t *testing.T) {
+	ctx := context.Background()
+	bars := ckptSeqBars(6)
+	store, _, sid, rid := stNewStore(t)
+
+	env := StateEnvelope{StateSchemaVersion: "v1", ArtifactHash: "artifact-a", AbiVersion: "v1", RunIdentityHash: "ident"}
+	ck := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Envelope: env}
+	hBroken := &ckptFakeHandler{failOn: true, failAt: 3}
+	require.Error(t, NewStreamRunner().RunCheckpointed(ctx, hBroken, bars, clock.NewVirtualClock(bars[0].Date), ck))
+
+	hResume := &ckptFakeHandler{}
+	ckResume := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Resume: true, Envelope: env}
+	require.NoError(t, NewStreamRunner().RunCheckpointed(ctx, hResume, bars, clock.NewVirtualClock(bars[0].Date), ckResume))
+	require.Equal(t, ckptBarIDs(bars[3:]), hResume.processed, "信封匹配的续跑不受身份门影响")
+}
+
+// TestRunCheckpointedShardScopedResume 分片行各归各（QT-16 ③-①）：market
+// 分片（shard_key=”）的断点对 symbol 分片的 resume 是 ErrStateNotFound →
+// 从头跑；反过来也一样。状态不跨分片泄漏。
+func TestRunCheckpointedShardScopedResume(t *testing.T) {
+	ctx := context.Background()
+	bars := ckptSeqBars(6)
+	store, _, sid, rid := stNewStore(t)
+
+	// market 分片跑到一半崩，留下断点。
+	ckMarket := Checkpoint{Store: store, StrategyID: sid, RunID: rid}
+	hBroken := &ckptFakeHandler{failOn: true, failAt: 3}
+	require.Error(t, NewStreamRunner().RunCheckpointed(ctx, hBroken, bars, clock.NewVirtualClock(bars[0].Date), ckMarket))
+
+	// symbol 分片 resume：查的是另一行 → 无状态 → 从头跑全量（不报错）。
+	ckSym := Checkpoint{Store: store, StrategyID: sid, RunID: rid, ShardKey: "600000.SH", Resume: true}
+	hSym := &ckptFakeHandler{}
+	require.NoError(t, NewStreamRunner().RunCheckpointed(ctx, hSym, bars, clock.NewVirtualClock(bars[0].Date), ckSym))
+	require.Equal(t, ckptBarIDs(bars), hSym.processed, "symbol 分片第一次跑应处理全量 bar")
+
+	// market 分片仍从自己的断点续跑（未被 symbol 行干扰）。
+	ckMarketResume := Checkpoint{Store: store, StrategyID: sid, RunID: rid, Resume: true}
+	hMarketResume := &ckptFakeHandler{}
+	require.NoError(t, NewStreamRunner().RunCheckpointed(ctx, hMarketResume, bars, clock.NewVirtualClock(bars[0].Date), ckMarketResume))
+	require.Equal(t, ckptBarIDs(bars[3:]), hMarketResume.processed, "market 分片续跑应跳过自己已处理的前缀")
 }
