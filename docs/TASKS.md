@@ -36,7 +36,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-13 ✅ | 复权锚点按 run 区间切片 | P0 | **已完成（2026-10-23）**；依赖 QT-12（读的是同一个缓存）；digest 覆盖范围写进摘要串而非加列（W1 唯一 DDL 单是 QT-16） |
 | W1 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热通道） | P1 | QT-12 缺口 2 的**订正产物**：主引擎与窗口引擎是同一组 setter，缺的是同一条取数通道，不是「WF 少三件」 |
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
-| W1 | QT-16 | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
+| W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 | 不可终止执行 + 重放语义 | P0 | 依赖 QT-14（会话）+ **QT-16（身份）**；两者不再「同批」，16 先落 DDL |
 | **W2** | QT-20 | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash） |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
@@ -484,7 +484,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：同一策略并发两笔（不同 universe）与单独跑逐位一致；连续两次同参一致；有状态未实现 lifecycle 的 provider 装配失败。
 - **⑥ 边界**：只做生命周期；终止后的重建在 QT-15。
 
-### QT-16 · 检查点身份与版本（shard_key + run_identity_hash）[P0] ⬜
+### QT-16 · 检查点身份与版本（shard_key + run_identity_hash）[P0] ✅
 
 - **① 目标**：恢复检查点时能回答"这份字节属于哪个实例、哪个票池、哪版参数"；symbol scope 的 N 个分片状态不再互相覆盖。
 - **② 上下文**：`p0-remediation-design.md` A9 + `p0-round2-review.md` N3；`pkg/strategy/state_store.go:60-69`：PK `(strategy_id, run_id)` + UPSERT 只留最新一份；`BarContext.State` 是裸 `map[string][]byte`；状态里的 `symbol_idx` 由 `RunUniverse` 决定。
@@ -492,6 +492,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不删旧检查点；不改 `checkpoint.go` 的"日期边界"裁决（那是正确设计）；不做"尽力解释旧格式"。
 - **⑤ 验收**：symbol scope 5000 分片 → 5000 行且 `shard_key` 唯一；中断续跑与一次跑完逐位一致；换票池/换参数/换 artifact 三场景恢复均被拒且错误可读；market 旧行平滑迁移。
 - **⑥ 边界**：只做状态身份；分片调度是 QT-25。
+
+**完成记录（2026-10-23，9c1c265；contracts 侧 DomainRunIdentityHash = 3e5e5a8，core pin 升伪版本）**：
+
+- **落地形状**：① 行坐标 `StateKey = (strategy_id, run_id, shard_key)`（`state_store.go`），PK 扩三元组，Migration 058 幂等迁移（5 条 `ADD COLUMN IF NOT EXISTS` + 按实际列集判断的 PK 扩展 DO 块——同名的旧 PK 是二元组，只按约束名判断会把「列集没变」误判成已迁移）；② 复合身份 `StateIdentity.RunIdentityHash()`（`state_identity.go`）走 `contracts.Canonical` + 新域标签 `DomainRunIdentityHash`（w1-repo-ownership §2.5 裁决：常量住 contracts，计算函数留 core；J4 不自写 json.Marshal+sha256）；③ 信封 `StateEnvelope.Verify` 点名全部差异项后包 `ErrStateIdentityMismatch`；④ Save 的 ts 单调校验 = 事务 + `FOR UPDATE` 锁行读已存 ts，回退 fail-loud（并发两次 Save 各自串行校验）；⑤ 恢复路径 `resumeStart` **先信封对照再 LoadState**。冻结 schema（`contracts/kernel_modules.schema.sql` strategy_state 节）随本工单同步修订，「历史版本按 created_at 取」的自相矛盾句一并移除。
+- **测试**：身份 hash 确定性/顺序不敏感/四轴区分/scope 组合拒绝；信封全点名 + 旧行空哨兵拒绝；分片隔离（同 run 两 shard 独立 upsert）；ts 回退拒绝（等值放行）；信封往返；checkpoint 三场景（信封不符拒绝×3 子场景 / 匹配续跑逐位一致 / shard 隔离续跑）；Migration 058 迁移测试（临时 schema 跑**真实 DDL 文本**：旧形状→新形状 + 二次执行幂等）；`TestModuleSchemaDDLComplete` 基线 3→9（数组现含迁移语句，migrate() 一并执行）。**六腿破坏验证全红**（Verify 返 nil / checkpoint 跳过对照 / ts 校验关闭 / conflict 目标退二元组 / hash 漏 scope / 迁移比较串错），逐字节还原。
+- **如实登记（设计边界，非缺陷）**：
+  - `run_identity_hash` 是复合项，行内不存子分量 ⇒ mismatch 只能点到「复合身份变了」+ 覆盖轴清单（票池/scope/分片/生效参数）+ 从零跑指引，**不反解哪个子项变了**；要精确到子项需加列（各分量独立落列），归后续按需立单。
+  - 引擎侧传参（装配 `Checkpoint.Envelope` 的调用点把 `RunIdentityHash` 算出来传进去）归 QT-15（它就是重放路径的消费者），本单只落身份层。
+  - `state_schema_version` 的**清单声明 + 源码 hash 告警**机制归 QT-22（策略清单）；本单由调用方如实声明，旧行/未声明者落空串哨兵。
+  - 冻结 schema（kernel_modules.schema.sql）变更评审随本单走（W1 唯一 DDL 单，工单派工时已授权）。
+  - Migration 058 无 `migrations/` / `docs/migrations/` 镜像文件——那两个目录只读不维护，唯一执行路径仍是 `pkg/storage/postgres.go` 内联 DDL（SPEC-R-01）。
 
 ### QT-15 · 不可终止执行 + 重放语义（`state_only`）[P0] ⬜
 

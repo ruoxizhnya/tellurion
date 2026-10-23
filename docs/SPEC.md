@@ -2038,7 +2038,7 @@ SELECT create_hypertable('factor_cache', 'date');
 
 ### 模块化内核新表（2026-10-08，目标形态）
 
-> 以下表为模块化内核的目标 schema，遵循单一事实源、禁止双写。**尚未实施**者见表；`quant.strategy_state` **已随 SPEC-R-01 实施**（2026-10-21，Migration 055，DDL 文本 `storage.StrategyStateSchemaDDL`，已并入 `migrate()`）；`audit.message_log` 同样已收编（Migration 054，`storage.AuditSchemaDDL`）；`quant.external_signals` **已随 K8 实施**（2026-10-12，见下节），不再列入本表。
+> 以下表为模块化内核的目标 schema，遵循单一事实源、禁止双写。**尚未实施**者见表；`quant.strategy_state` **已随 SPEC-R-01 实施**（2026-10-21，Migration 055，DDL 文本 `storage.StrategyStateSchemaDDL`，已并入 `migrate()`；2026-10-23 随 QT-16 修订——PK 扩 `(strategy_id, run_id, shard_key)` + 身份信封四列，旧库由 Migration 058 幂等迁移，冻结 schema 的 strategy_state 节同步修订）；`audit.message_log` 同样已收编（Migration 054，`storage.AuditSchemaDDL`）；`quant.external_signals` **已随 K8 实施**（2026-10-12，见下节），不再列入本表。
 
 | 表 | 归属模块 | 用途 |
 |---|---|---|
@@ -2048,7 +2048,7 @@ SELECT create_hypertable('factor_cache', 'date');
 | `quant.orders` | exec-engine | 订单生命周期 |
 | `quant.fills` | exec-engine | 成交回报 |
 | `quant.recon_report` | exec-engine | 对账差异报告 |
-| `quant.strategy_state` | strategy-runtime | L2/L3 流式策略状态（`SaveState`）——**已实施**（SPEC-R-01，Migration 055） |
+| `quant.strategy_state` | strategy-runtime | L2/L3 流式策略状态（`SaveState`）——**已实施**（SPEC-R-01，Migration 055；QT-16 扩分片 + 信封，Migration 058） |
 | `audit.message_log` | eventstore | 模块间消息（先记录后分发，BusTap 语义）——**已收编**（SPEC-R-01，Migration 054） |
 
 ### 外部模型信号注入（K8，已实施 — 2026-10-12）
