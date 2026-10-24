@@ -40,13 +40,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
 | **W2** | QT-20 ✅ | 参数投递两层 | P0 | **已完成（2026-10-24）**；`strategy_params` = 清单默认 ⊕ run 覆写，未知键/类型/范围 400 点名，`RunMeta.Params` + provenance 同源，内置 provider 经 `Configure` 真正生效；`StrategyRef` 仅形状校验（资产解析属 strategy 仓） |
 | W2 | QT-21 ✅ | 信号排序 + 重复语义 | P0 | **已完成（2026-10-24）**；应用前按 `(Symbol, Direction 固定序, Strength desc, CompositeScore desc)` 稳定排序；`close` 优先 + 同向 strength 求和 clamp + `duplicate_signals_merged` 进 run 诊断；`pkg/execalgo` 的 duplicate-parent 引擎路径被合并前移（守卫仍在 dispatcher 层） |
-| W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
+| W2 | QT-22 ✅ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**已完成（2026-10-24，contracts `v0.5.0`）**：契约腿落 `engine/provenance.go` + `canonical.go`，六项口径；core 按 §2.4 不接线，本仓无剩余动作 |
 | W2 | QT-23 ✅ | `RunUniverse`（run 级稳定） | P0 | **已完成（2026-10-24）**；`Scope` 拆 `RunUniverse`（索引来源，run 前一次算完）+ `Universe`（当日可交易）；`RunUniverse` 进 dataset/run_spec hash；停牌/调出只减当日名单、不重排索引 |
 | W2 | QT-24 ✅ | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | **已完成（2026-10-24）**；`BarContext` 改 `{T, Axis, Symbols, Bars, State, Signals}`，`get_bar2` 五字段/停牌 NaN/`get_series_len2` 可见长度/`get_date2` 接线；finalize 的 close 留 `bc.Signals`、long/short trap |
-| W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
+| W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24；**前置已全绿（2026-10-25 实测），可开工** |
 | W2 | QT-26 ✅ | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | **已完成（2026-10-24）**；`pkg/backtest` 的 `wasmSignalProvider` 走五道门 → 逐 bar → `emit_signal`/`emit_target2` → 成交；`pkg/sandbox/wasm` 已从 repoguard 未接线白名单移出 |
-| **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
-| W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
+| **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26；**十项前置全绿（2026-10-25 实测），可开工**（需 TinyGo 0.34.0） |
+| W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30；**两前置均未开工** |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
@@ -595,9 +595,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 三、W2 · 协议落地
 
-> **G2 串行施工状态（2026-10-24 复核）**：QT-20 **已解阻**（contracts `v0.4.0` 落 `StrategyRef` / `StrategyParams`，core 已 pin `v0.4.0`）→ 可开工；QT-22 仍缺契约腿（`StrategyVersionInput` 在 contracts 仓未落，属 contracts 仓可独立开工的单）。按「顺序不可换」的派工约束，QT-21 仍排在 QT-20 之后。已完成项：QT-64（`73440a5`）、QT-10（`1e21054`）。
+> **G2 施工状态（2026-10-25 按代码对齐）**：QT-20（`943f65f`）、QT-21（`2677782`）**均已实现并推送**；QT-22 的契约腿已随 contracts `v0.5.0` 落地，按 `w1-repo-ownership.md` §2.4「core 不接线」，本仓无剩余动作，**本单结案**。另已完成 QT-64（`73440a5`）、QT-10（`1e21054`）。
 
-### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ⬜
+### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ✅（2026-10-24，`943f65f`）
 
 > **✅ 解阻记录（2026-10-24 实测；原 ⛔ 阻塞记录作废）**
 >
@@ -633,7 +633,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
-### QT-21 · 信号顺序规范化 + 重复语义落地 [P0] ⬜
+### QT-21 · 信号顺序规范化 + 重复语义落地 [P0] ✅（2026-10-24，`2677782`）
 
 - **① 目标**：同一输入 20 次跑信号序列完全一致；Go 与 WASM 顺序差异不再造成假失败。
 - **② 上下文**：`p0-remediation-design.md` A8/A12 + `p0-round2-review.md` §8.3（**QT-04 已扫，branch=`merge`**，证据 `docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md`）。`engine.go:1263` 只排序 `tradingDays`；`examples/value_momentum.go:366` `for symbol := range map` 已证非确定。QT-04 的两条实测订正直接影响本单形状：① 覆盖发生在 `positionSizes[symbol]`（**仓位尺寸**，`pkg/risk/manager.go:254` / `engine.go:1621`），订单循环 `engine_daily.go:393` 走信号切片本身 ⇒ 现状是「两条意图都下单、共用最后一条的仓位」，不是「只有一条活」；② 同参复跑里重复组**内部**顺序与末条都稳，不稳的是「这一对当天是否存在」（它读 `portfolio.Positions`，随当天跨标的执行序漂）⇒ **排序先行是本单的前置而非并列项**，它同时消掉 A12 的一半症状。
@@ -661,13 +661,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
-### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⛔（core 侧等契约腿；contracts 仓可独立开工）
+### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ✅（2026-10-24，契约腿随 contracts `v0.5.0`）
 
-> **⛔ 阻塞记录（2026-10-24 复核，证据更新到 v0.4.0）**
+> **✅ 结案记录（2026-10-25 按代码对齐；原 ⛔ 阻塞记录作废）**
 >
-> ③ 的落点已由 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 裁到 `tellurion-contracts:engine/provenance.go`（`StrategyVersionInput` + `Hash()`）与 `canonical.go`（`DomainStrategyVersionHash`），core 不接线。实测 contracts **v0.4.0** 两处仍**不存在**（`grep StrategyVersionInput` / `DomainStrategyVersionHash` 零命中）。本仓不能越界定义同名算法——那会造出两份 version_hash 真源。
+> ③ 的落点按 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 归 contracts：`engine/provenance.go` 的 `StrategyVersionInput` + `Hash()` / `MustHash()`、`canonical.go` 的 `DomainStrategyVersionHash = "tellurion.strategy_version_hash.v1"`。contracts **`v0.5.0`（`70d9040`，已推远端）** 已落两者，六项口径 `strategy_id + carrier + abi_version + scope + entry + source`，并钉黄金向量 `0e6ad536…`；本仓 pin 已随 G4 升 `v0.5.0`。
 >
-> **解除条件**：contracts 发布含 `StrategyVersionInput` + 域标签的 tag；core 升 pin 后只做「消费 + 对拍」腿。**该契约腿本身不依赖任何裁决**（6 项口径已定，见 §2.4），可由 contracts 仓直接开工。
+> **core 侧无剩余动作**：§2.4 明确「core 不接线」，本仓不得自算第二份 version_hash。strategy 仓的本地定义已随 G5 ③ 收编（`9788196`）。
 
 - **① 目标**：改 scope / 改源码，任一都产生新 hash；只改 run 覆写不产生新 hash；序列化顺序被人改动会立刻红。
 - **② 上下文**：`p0-remediation-design.md` A4；canonical 集合（**6 项，2026-10-24 定**）= `strategy_id + carrier + abi_version + scope + entry + source`（不含 `capability`、不含 `params_defaults`）；`factor_definitions.version_hash` 是可复用样板（`factor_def.go:151`）。
@@ -678,7 +678,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > **落点已核（2026-10-23）**：`StrategyVersionInput` + `Hash()` 落 `tellurion-contracts:engine/provenance.go`（hash 体系唯一正文），域标签 `DomainStrategyVersionHash` 加在 `canonical.go`；消费方不止 core（`tellurion-strategy` 资产服务需算同一 hash）。本单只在 contracts 定算法 + 向量测试，core 不接线。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4。
 
-### QT-23 · `RunUniverse`（run 级稳定票池）[P0] ⬜
+### QT-23 · `RunUniverse`（run 级稳定票池）[P0] ✅（2026-10-24，`b4f4f27`）
 
 - **① 目标**：`symbol_idx` 全 run 稳定，不再随当日可交易名单漂移。
 - **② 上下文**：`p0-remediation-design.md` B4 + `p0-round2-review.md` §2.6；`engine.go:916` 把 `eligibleUniverse(date)` 当日结果直接当 `Scope.Universe`；`engine_daily.go:130-141` 停牌标的不进 map。
@@ -709,7 +709,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
-### QT-24 · host 数据模型 v2 落地（Bars / Axis / T）+ `finalize` 归属 [P0] ⬜
+### QT-24 · host 数据模型 v2 落地（Bars / Axis / T）+ `finalize` 归属 [P0] ✅（2026-10-24，`50c368b`）
 
 - **① 目标**：market scope 能取到 5 个字段、停牌返回 NaN、`get_series_len2` 只返回可见长度；`finalize` 里的平仓信号不再静默丢。
 - **② 上下文**：`p0-remediation-design.md` B1/B5 + `adr-029` §7.1；`host_api.go:65-72` `Series []float64` 只有 close，`CrossSection` 也是 close；`OnBarSession.Finalize` 返回 `[]byte`（`on_bar_session.go:95-113`）。数据源：`marketDataCache[sym]` 是"截至当日"的整段切片（`engine_daily.go:181-194`），可直接零拷贝引用。
