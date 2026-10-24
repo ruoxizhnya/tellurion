@@ -67,7 +67,6 @@ var directTableAccessBaseline = map[string]string{
 	"pkg/storage/postgres.go":    "D1 ④约束钦定的 DDL 唯一合法位置（migrationStatements 内联数组）：规范层 schema 的建表语句只加在这里，别处开新表 = 红",
 	"pkg/storage/ohlcv.go":       "遗留日线存取（SaveOHLCV/GetOHLCV）；D1 回归红线对拍的另一半——router_integration_test.go 与它逐字段比对。消费方全部切 Router 后删本条",
 	"pkg/storage/bulk_insert.go": "同步写入路径的表名注册表（DataType→物理表名映射）。属 connector 侧写入，D2 接 connector 契约时收编",
-	"pkg/data/source/adapter.go": "DataTypeOHLCMinute 常量：同步链路的数据类型标识（写路径），非取数路径；随 D2 收编",
 	"pkg/expression/registry.go": "TableOHLCV 常量：表达式层把「日线表」当数据源名引用；表达式层接规范层时收编",
 	// cmd/data/handlers_stocks.go 的条目已于 2026-10-16 DATA-03/DATA-07 删除：
 	// 它原来有 3 处就地 SQL（latest_date 的 MAX、每个指数两趟 close 查询），

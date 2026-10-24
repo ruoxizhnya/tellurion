@@ -24,6 +24,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ruoxizhnya/tellurion-contracts/dataprotocol"
 )
 
 // AdapterType categorizes the transport/protocol of a source.
@@ -40,33 +42,39 @@ const (
 
 // Common data type constants used across adapters.
 //
-// Keep these in sync with the `data_fallback_chain.data_type` table
+// The values are defined once in `tellurion-contracts:dataprotocol` (QT-40
+// X1a, contract v0.6.0). These names stay as aliases so every call site in
+// this package and its consumers keeps compiling unchanged; because each
+// alias names the contract symbol, a value change in the contract flows
+// here at compile time (no second copy to drift).
+//
+// Keep these values in sync with the `data_fallback_chain.data_type` table
 // seeded in migration 015.
 const (
-	DataTypeOHLCDaily   = "ohlcv_daily"
-	DataTypeOHLCMinute  = "ohlcv_minute"
-	DataTypeRealtime    = "realtime_quote"
-	DataTypeCapitalFlow = "capital_flow"
-	DataTypeFundamental = "fundamentals"
-	DataTypeSectors     = "sectors"
-	DataTypeStockSector = "stock_sector"
-	DataTypeTopList     = "top_list"
-	DataTypeLimitUpPool = "limit_up_pool"
-	DataTypeAnnounce    = "announcements"
-	DataTypeNews        = "news"
-	DataTypeHotSearch   = "hot_search"
-	DataTypeGlobalOHLCV = "global_ohlcv"
+	DataTypeOHLCDaily   = dataprotocol.DataTypeOHLCDaily
+	DataTypeOHLCMinute  = dataprotocol.DataTypeOHLCMinute
+	DataTypeRealtime    = dataprotocol.DataTypeRealtime
+	DataTypeCapitalFlow = dataprotocol.DataTypeCapitalFlow
+	DataTypeFundamental = dataprotocol.DataTypeFundamental
+	DataTypeSectors     = dataprotocol.DataTypeSectors
+	DataTypeStockSector = dataprotocol.DataTypeStockSector
+	DataTypeTopList     = dataprotocol.DataTypeTopList
+	DataTypeLimitUpPool = dataprotocol.DataTypeLimitUpPool
+	DataTypeAnnounce    = dataprotocol.DataTypeAnnounce
+	DataTypeNews        = dataprotocol.DataTypeNews
+	DataTypeHotSearch   = dataprotocol.DataTypeHotSearch
+	DataTypeGlobalOHLCV = dataprotocol.DataTypeGlobalOHLCV
 	// DataTypeMacro is the domestic macro indicator series layer (P2-1):
 	// CPI / PPI / PMI / M2 / TSF / LPR / FX, persisted in
 	// quant.macro_series. Served by the tushare_macro adapter
 	// (TUSHARE_TOKEN, 0 new keys).
-	DataTypeMacro = "macro_series"
+	DataTypeMacro = dataprotocol.DataTypeMacro
 	// DataTypeDailyBasic is the per-stock daily market activity layer (D5):
 	// turnover rate / free-float turnover rate / volume ratio, persisted in
 	// market_activity (Migration 056). Served by the tushare_daily_basic
 	// adapter (same TUSHARE_TOKEN, 0 new keys). Declaration: after_close
 	// (blueprint §4.2 high-risk PIT scenario — see declarations.go).
-	DataTypeDailyBasic = "daily_basic"
+	DataTypeDailyBasic = dataprotocol.DataTypeDailyBasic
 )
 
 // ErrUnsupported indicates the adapter cannot serve the requested data type.
