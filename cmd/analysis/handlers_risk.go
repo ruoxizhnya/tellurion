@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"tellurion/pkg/httpserver"
 	"time"
 
@@ -29,6 +32,15 @@ import (
 type RiskHandler struct {
 	manager *risk.RiskManager
 	logger  zerolog.Logger
+	// ohlcv 是 detect_regime 粗粒度形状（symbol + 日期区间）的取数面。
+	// nil = 未接线：请求该形状时 503 fail-closed，不回退到「没有数据」。
+	ohlcv riskOHLCVStore
+}
+
+// riskOHLCVStore 是 detect_regime 粗粒度形状的最小取数接口
+// （*storage.PostgresStore 满足）。窄接口让 handler 单测不必拖真库。
+type riskOHLCVStore interface {
+	GetOHLCV(ctx context.Context, symbol string, startDate, endDate time.Time) ([]domain.OHLCV, error)
 }
 
 // NewRiskHandler constructs a RiskHandler. The manager MUST be the
@@ -39,6 +51,13 @@ func NewRiskHandler(manager *risk.RiskManager, logger zerolog.Logger) *RiskHandl
 		manager: manager,
 		logger:  logger.With().Str("component", "risk_handler").Logger(),
 	}
+}
+
+// WithOHLCVStore 注入 detect_regime 粗粒度形状的取数面（QT-70）。
+// 返回 h 便于链式装配；store 为 nil 时保持「未接线 ⇒ 503」。
+func (h *RiskHandler) WithOHLCVStore(store riskOHLCVStore) *RiskHandler {
+	h.ohlcv = store
+	return h
 }
 
 // RegisterRoutes wires the risk endpoints under /api/risk on the
@@ -109,20 +128,31 @@ func (h *RiskHandler) calculatePosition(c *gin.Context) {
 	})
 }
 
-// detectRegimeRequestData is the new format used by the backtest
-// engine — passes OHLCV directly so the risk manager can compute
-// the regime without re-fetching from data-service.
-type detectRegimeRequestData struct {
-	Data []domain.OHLCV `json:"data"`
+// detectRegimeRequest accepts two shapes:
+//
+//  1. inline `{"data": [OHLCV...]}` — the backtest engine path, unchanged;
+//  2. coarse `{"symbol": "...", "start_date": "...", "end_date": "..."}` —
+//     QT-70: the handler fetches the bars server-side (qfq daily), so agent
+//     callers do not have to round-trip 200+ rows through the prompt.
+//
+// Inline wins when both are present (it is the pre-existing contract).
+type detectRegimeRequest struct {
+	Data      []domain.OHLCV `json:"data"`
+	Symbol    string         `json:"symbol"`
+	StartDate string         `json:"start_date"`
+	EndDate   string         `json:"end_date"`
 }
 
 func (h *RiskHandler) detectRegime(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	var dataReq detectRegimeRequestData
-	if err := c.ShouldBindJSON(&dataReq); err == nil && len(dataReq.Data) > 0 {
-		regime, err := h.manager.DetectRegime(ctx, dataReq.Data)
+	var req detectRegimeRequest
+	bindErr := c.ShouldBindJSON(&req)
+
+	// ① 存量形状：内联 OHLCV（回测引擎与旧客户端）。
+	if bindErr == nil && len(req.Data) > 0 {
+		regime, err := h.manager.DetectRegime(ctx, req.Data)
 		if err != nil {
 			httpserver.Error(c, http.StatusInternalServerError, err)
 			return
@@ -131,14 +161,73 @@ func (h *RiskHandler) detectRegime(c *gin.Context) {
 		return
 	}
 
-	// Legacy fallback — old format accepted symbol + lookback_days
-	// and risk-service generated mock OHLCV. The merged service
-	// intentionally does NOT keep the mock generator: callers
-	// should send real OHLCV. We return 400 to signal the schema
-	// change is now strict.
+	// ② QT-70 粗粒度形状：symbol + 日期区间，服务端取数。
+	if bindErr == nil && (strings.TrimSpace(req.Symbol) != "" || req.StartDate != "" || req.EndDate != "") {
+		h.detectRegimeByRange(c, ctx, req)
+		return
+	}
+
+	if bindErr != nil && !errors.Is(bindErr, io.EOF) {
+		httpserver.Fail(c, http.StatusBadRequest, "invalid request body: "+bindErr.Error())
+		return
+	}
+
+	// 两种形状都没给全：明确点名可选形状，不猜。
 	c.JSON(http.StatusBadRequest, gin.H{
-		"error": "data field is required (legacy mock-OHLCV generator removed in P1-15)",
+		"error": "provide either data (inline OHLCV) or symbol + start_date + end_date (YYYY-MM-DD)",
 	})
+}
+
+// detectRegimeByRange 实现 QT-70 的粗粒度形状：服务端按 symbol + 区间取
+// 前复权日线，再交给进程内 RiskManager 判定 regime。取数面未接线 ⇒ 503
+// （fail-closed）；区间内无行 ⇒ 404（「没有数据」不是一份看似合理的 regime）。
+func (h *RiskHandler) detectRegimeByRange(c *gin.Context, ctx context.Context, req detectRegimeRequest) {
+	symbol := strings.TrimSpace(req.Symbol)
+	if symbol == "" || req.StartDate == "" || req.EndDate == "" {
+		httpserver.Fail(c, http.StatusBadRequest,
+			"symbol, start_date and end_date are all required for the coarse shape (YYYY-MM-DD)")
+		return
+	}
+	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		httpserver.Fail(c, http.StatusBadRequest, "invalid start_date: use YYYY-MM-DD")
+		return
+	}
+	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		httpserver.Fail(c, http.StatusBadRequest, "invalid end_date: use YYYY-MM-DD")
+		return
+	}
+	if startDate.After(endDate) {
+		httpserver.Fail(c, http.StatusBadRequest, "start_date must not be after end_date")
+		return
+	}
+	if h.ohlcv == nil {
+		httpserver.Fail(c, http.StatusServiceUnavailable,
+			"OHLCV store unavailable for detect_regime range shape; send inline data instead")
+		return
+	}
+
+	rows, err := h.ohlcv.GetOHLCV(ctx, symbol, startDate, endDate)
+	if err != nil {
+		h.logger.Error().Err(err).Str("symbol", symbol).
+			Str("start_date", req.StartDate).Str("end_date", req.EndDate).
+			Msg("detect_regime range query failed")
+		httpserver.FailCause(c, http.StatusInternalServerError, "failed to load OHLCV for detect_regime", err)
+		return
+	}
+	if len(rows) == 0 {
+		httpserver.Failf(c, http.StatusNotFound,
+			"no OHLCV rows for symbol %q between %s and %s", symbol, req.StartDate, req.EndDate)
+		return
+	}
+
+	regime, err := h.manager.DetectRegime(ctx, rows)
+	if err != nil {
+		httpserver.Error(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, regime)
 }
 
 // checkStopLossRequest mirrors the original cmd/risk request shape.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
 )
 
@@ -23,6 +24,23 @@ func runWalkForwardHandler(wfEngine *backtest.WalkForwardEngine, logger zerolog.
 		var req backtest.WalkForwardRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			httpserver.Wrap(c, http.StatusBadRequest, err, "invalid request: ")
+			return
+		}
+
+		// QT-68：strategy_params 与同步回测共用 QT-20 的两层校验。
+		//   ① 形状（嵌套对象/数组拒绝）由 contracts 的 ValidateRunSpec 判；
+		//   ② 未知键 / 类型 / 范围由策略清单（manifest.params[]）判。
+		// 必须在启动窗口之前拒绝：runSingleWindow 对单个窗口的失败是
+		// Warn + 跳过，否则非法参数会伪装成「所有窗口都失败」（500）。
+		if err := (contracts.BacktestRequest{
+			Strategy:       req.Strategy,
+			StrategyParams: req.StrategyParams,
+		}).ValidateRunSpec(); err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "invalid strategy_params: "+err.Error())
+			return
+		}
+		if _, err := backtest.ResolveStrategyParams(req.Strategy, req.StrategyParams); err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, err.Error())
 			return
 		}
 

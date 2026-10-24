@@ -614,6 +614,36 @@ func AvailableOperators() []string {
 	return names
 }
 
+// OperatorDefView 是 OperatorDef 的**只读快照**（QT-69）：跨包目录 / 诊断
+// 只需要声明本身（七项 Spec + 语法维度），不需要求值绑定，也不能让调用方
+// 拿到内部函数字段。
+type OperatorDefView struct {
+	Name         string
+	Category     OpCategory
+	Arity        int
+	Spec         indicator.OperatorSpec
+	ScalarParams []int
+	// Found 为 false 表示名字未登记；此时其余字段为零值。
+	Found bool
+}
+
+// LookupOperator 返回算子声明的只读快照。未登记 → Found=false（不 panic、
+// 不编造声明）。
+func LookupOperator(name string) OperatorDefView {
+	def, ok := operatorRegistry[name]
+	if !ok {
+		return OperatorDefView{}
+	}
+	return OperatorDefView{
+		Name:         def.Name,
+		Category:     def.Category,
+		Arity:        def.Arity,
+		Spec:         def.Spec,
+		ScalarParams: append([]int(nil), def.ScalarParams...),
+		Found:        true,
+	}
+}
+
 // AvailableFields 返回全部已知字段名（升序，**含 group 标签**）——即
 // 「DSL 里语法合法的字段名」全集。签名与语义与 OBS-08 之前保持一致。
 func AvailableFields() []string {
@@ -659,6 +689,16 @@ func FieldSourceOf(name string) (FieldSource, bool) {
 		return "", false
 	}
 	return def.Source, true
+}
+
+// FieldDependsOn 返回字段依赖的物理表（可用性探测对象）；未登记 →
+// ("", false)。空串 + true 表示该字段无物理表依赖（纯派生）。
+func FieldDependsOn(name string) (string, bool) {
+	def, ok := fieldRegistry[name]
+	if !ok {
+		return "", false
+	}
+	return def.DependsOn, true
 }
 
 // ─── 可用性声明（OBS-08 切片 2）─────────────────────────────────────

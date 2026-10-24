@@ -1050,9 +1050,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ### QT-50 · 装配外移（`pkg/kernel` 只留框架）+ agent ↔ core HTTP 粗粒度 [P1] ✅（2026-10-24，本仓侧）
 
 - **① 目标**：框架包零业务依赖；agent 与 core 的边界只剩"粗粒度 HTTP + contracts"。
-- **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记/**交易日历与上市窗口只读查询** ← 2026-10-24 用户确认补为第 7 类），禁止 per-bar/per-symbol/per-order 远程调用。
-- **③ 要求**：① 装配代码移到 **`cmd/*/wiring`**（**落点定死，不再二选一**——装配属应用层不属库，不放 `pkg/wiring`；refactor-plan-review L6），kernel 只留 Module/BootOrder/生命周期/槽位；② 定义 agent 侧 HTTP 客户端（六类粗粒度动作；第 7 类「日历/上市窗口查询」待 QT-17 ③-③ 用户确认后并入）；③ **wire 契约落 `docs/openapi.yaml`**：每类动作的 endpoint + DTO 写入 `docs/openapi.yaml`，纳入既有「生产路由表与 yaml 双向对拍」机制（D7 单一真相源规则，`protocol-and-data-boundary.md`）；`contracts/dto` 由 `oapi-codegen` 生成、**禁手改**（CI 重新生成后 diff 必须为空）；④ **鉴权模型**：复用既有 JWT + RBAC（敏感操作走 `RequireRole`），CORS 沿白名单；本地开发 insecure 模式 **loopback-only 且 fail-closed**（非环回一律拒）；⑤ 错误码与限流语义随 endpoint 成文（进 openapi.yaml 描述面）；⑥ 护栏：kernel 禁止 import 业务族；agent 禁止 import core 实现包、禁止逐 bar 远程调用（AST）。
-- **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义；**不绕过 `docs/openapi.yaml` 手写 dto**（生成物禁手改）；不为图省事把七类动作拆成 per-bar/per-symbol 细粒度端点。
+- **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记/**交易日历与上市窗口只读查询** ← 2026-10-24 裁-04 补为第 7 类，**整段 walk-forward 提交与整段区间 regime 识别** ← 2026-10-25 裁-12 补为第 8 类），禁止 per-bar/per-symbol/per-order 远程调用。
+- **③ 要求**：① 装配代码移到 **`cmd/*/wiring`**（**落点定死，不再二选一**——装配属应用层不属库，不放 `pkg/wiring`；refactor-plan-review L6），kernel 只留 Module/BootOrder/生命周期/槽位；② 定义 agent 侧 HTTP 客户端（八类粗粒度动作；第 7 类「日历/上市窗口查询」裁-04 已并入、第 8 类「walkforward/regime」裁-12 已并入）；③ **wire 契约落 `docs/openapi.yaml`**：每类动作的 endpoint + DTO 写入 `docs/openapi.yaml`，纳入既有「生产路由表与 yaml 双向对拍」机制（D7 单一真相源规则，`protocol-and-data-boundary.md`）；`contracts/dto` 由 `oapi-codegen` 生成、**禁手改**（CI 重新生成后 diff 必须为空）；④ **鉴权模型**：复用既有 JWT + RBAC（敏感操作走 `RequireRole`），CORS 沿白名单；本地开发 insecure 模式 **loopback-only 且 fail-closed**（非环回一律拒）；⑤ 错误码与限流语义随 endpoint 成文（进 openapi.yaml 描述面）；⑥ 护栏：kernel 禁止 import 业务族；agent 禁止 import core 实现包、禁止逐 bar 远程调用（AST）。
+- **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义；**不绕过 `docs/openapi.yaml` 手写 dto**（生成物禁手改）；不为图省事把八类动作拆成 per-bar/per-symbol 细粒度端点。
 - **⑤ 验收**：kernel 的非测试 import 里零业务族；搬运前后 `package_wiring_test.go`/`module_lifecycle_callback_test.go` 各跑一次全绿；agent 侧 grep 无 per-bar 远程调用；`docs/openapi.yaml` 含全部新端点且**路由表对拍绿**；`contracts/dto` 与生成物一致（重生成 diff 为空）；**fail-closed 用例**：无 token / 越权角色 / 非白名单来源 / 非环回 insecure 请求全部被拒且报错可检索。
 - **⑥ 边界**：只做装配与边界；module 拆分是 QT-05。
 
@@ -1110,8 +1110,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    agent 仓的「禁 import core / 禁逐 bar 远程调用」AST 护栏亦随 G10。
 > 2. **`contracts/dto` 生成物**：QT-50 ③ 的 `oapi-codegen` 前提是 contracts 新增 `dto` 包，
 >    **contracts v0.3.0 无此包** → 报 **G0D-C5**；本批**没有**手写或伪造生成物，openapi 仍是唯一 wire 真相。
-> 3. **第 7 类动作**（交易日历 / 上市窗口查询）已由 **裁-04**（2026-10-24）确认，落两条只读端点（QT-67 ✅）；`coarseActionCount` 现为 **8**（七类 / 八条）。
-> 4. **第 8 类动作**（`POST /api/walkforward` + `POST /api/risk/detect_regime`）由 **裁-12**（2026-10-25）确认登记：两条都是「一次请求覆盖整段范围」的粗粒度查询，S3-c-1 / S3-c-3 的 HTTP 化以此为前提。**实现未落**：`agentCoarseActions` 仍是 8 条，落地面（代码 2 条 + openapi 标注 + `coarseActionCount` 8→10 + SPEC D24「七类」→「八类」+ 对拍测试）见批次四 W1。口径订正：按**类**算是第 8 类、按**条目**是第 9~10 条（此前口述的「第 9 类」是条目数）。
+> 3. **第 7 类动作**（交易日历 / 上市窗口查询）已由 **裁-04**（2026-10-24）确认，落两条只读端点（QT-67 ✅）。
+> 4. **第 8 类动作**（`POST /api/walkforward` + `POST /api/risk/detect_regime`）由 **裁-12**（2026-10-25）确认登记：两条都是「一次请求覆盖整段范围」的粗粒度查询，S3-c-1 / S3-c-3 的 HTTP 化以此为前提。**已落（2026-10-25）**：`agentCoarseActions` 10 条（第 7/8 类各两条）+ openapi `x-agent-coarse-action` 双标 + `coarseActionCount` 10 + SPEC D24「八类 / 10 条」；`go test ./cmd/analysis -run TestAgentCoarseActions` 四条腿全绿（双向对拍 / 粒度 / 权限层 / 401）。口径订正：按**类**算是第 8 类、按**条目**是第 9~10 条（此前口述的「第 9 类」是条目数）。
 >
 > ⚠️ **对 S3 的含义（不夸大）**：本单把 agent↔core 的 wire 面与鉴权落齐了，但**不等于** agent 现在就能删
 > `replace ../tellurion` —— 客户端尚未实现（G10），且 agent 仍有 **64 处 core 实现包 import（43 文件：生产 23 + 测试 20，15 个包）**（2026-10-25 实测，见 QT-17 / QT-07 ⑥ 记录）。
@@ -1349,6 +1349,96 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⑦ 文档同步**：`docs/SPEC.md` 加「Reference Data (QT-67)」端点块 +
 > 粗粒度动作表补两行（六类 → 七类）+ `readonly-post` 档补一条 +
 > route_policy 条数按实测改 77；`docs/openapi.yaml` 加 path/schema/tag。
+
+### QT-68 · S3 交接件：`POST /api/walkforward` 补 `strategy_params` [P1] ✅（2026-10-24）
+
+- **① 目标**：walk-forward 能收 run 级策略参数覆写，且与同步 `/api/backtest` 共用 QT-20 的两层校验；非法参数 400 点名。
+- **② 上下文**：`tellurion-agent:docs/s3-decoupling-plan.md` §5 #1（S3-c-3 卡点）：`/api/backtest` 的绑定结构已嵌入 `contracts.BacktestRequest`（运行时能收 `strategy_ref` / `strategy_params`，只是 openapi 未登记），但 `walkforward.WalkForwardRequest` 是 core 自有类型、只有策略名。agent 删 `replace` 后不能再用进程内引擎，只能提交 HTTP 请求。
+- **③ 要求**：① `WalkForwardRequest` 加 `strategy_params`；② 两层校验复用 QT-20：形状走 `contracts.ValidateRunSpec`，语义（未知键 / 类型 / 范围）走 `backtest.ResolveStrategyParams`，都在启动窗口之前 ⇒ 400 点名；③ 每个窗口的 train / test 两段原样带上同一份 map；④ openapi 为 `/api/backtest` 补登 `strategy_ref` / `strategy_params`（模板 = `contracts/engine.BacktestRequest`），为 `/api/walkforward` 补登 `strategy_params`；⑤ **不改 contracts**。
+- **④ 约束与非目标**：不复制引擎的参数合并逻辑（生效值仍由 `RunBacktest` 入口解析）；不改「单窗口失败 = 跳过」的语义（它是稳健性概览的一部分）；不做参数扫描器（属编排）；本轮**不**新增 `x-agent-coarse-action` —— D24 动作条目数固定 8，新增一条要单独裁决并改 `coarseActionCount`，不夹带在参数面里。
+- **⑤ 验收**：窗口内实际发出的 train/test 请求与内联调用者同参同日期的请求逐字段相等；未知键 / 类型 / 范围 / 嵌套一律 400 且点名；`docs/openapi.yaml` 与路由表双向对拍绿。
+- **⑥ 边界**：core 侧只补参数面与文档；agent 侧消费与删装配归 S3-c-3（agent 仓）。
+
+> **✅ 完成记录（2026-10-24，本仓侧）**
+>
+> **落点与行为**
+> - [`pkg/backtest/walkforward/walkforward.go`](../pkg/backtest/walkforward/walkforward.go)：`WalkForwardRequest` 加 `StrategyParams map[string]any`；`RunWalkForward` 在**任何取数之前**跑 `contracts.BacktestRequest.ValidateRunSpec()`（形状闸门，直接调用方也能拿到点名错误）；`runSingleWindow` 的 `trainReq` / `testReq` 都带上 `req.StrategyParams`。
+> - [`cmd/analysis/handlers_walkforward.go`](../cmd/analysis/handlers_walkforward.go)：handler 先跑形状校验 + `backtest.ResolveStrategyParams`（语义：清单默认 ⊕ 覆写，未知键/类型/范围点名），失败 400。放在窗口启动之前是必要的：单窗口失败是 Warn + 跳过，否则非法参数会伪装成「所有窗口都失败」（500）。
+> - 生效值仍由 `RunBacktest` 入口解析（QT-20），本层**不复制**合并逻辑；因此同参数下 walkforward 的每个窗口与一次内联回测收到的输入相同。
+>
+> **验收证据**
+> - `TestRunSingleWindow_PropagatesStrategyParamsToBothSegments`：train / test 两个 `BacktestRequest` 与内联同参数请求**逐字段相等**（除日期区间），报告两段结果等于这两次回测的直接换算 —— 这是「同参数下与内联一致」的机制面。
+> - `TestRunWalkForward_RejectsNestedStrategyParamsBeforeTouchingStore`：嵌套参数在 store 为 nil 时返回点名错误（没有走到取数，否则会 panic）。
+> - `TestRunWalkForwardHandler_InvalidStrategyParamsIs400NamingKey`：未知键 / 类型 / 范围 / 嵌套四例均 400，且响应含出错键名。
+> - **破坏验证**：把 `trainReq` 的 `StrategyParams: req.StrategyParams` 改成 `nil`（丢弃透传）⇒ 透传用例 `EXIT=1`（`expected ... StrategyParams ... actual <nil>`）；逐字节还原（`sha256sum -c` OK）后 `EXIT=0`。
+>
+> **如实登记（未做）**
+> 1. `x-agent-coarse-action: run_walkforward` **未加**：D24 动作条目数固定 8（`coarseActionCount`），新增要单独裁决并改断言；本轮派工只要求参数面。agent S3-c-3 若要求粗粒度动作登记，需另立一笔。
+> 2. openapi 的 `strategy_ref` / `strategy_params` 是**文档补登**：运行时早已由 `contracts.BacktestRequest` 收下，本单没有改绑定代码。
+> 3. 未起真库：walkforward 的窗口取数依赖 `*storage.PostgresStore`，本单的透传与校验腿全部在纯函数/HTTP 层取证；日历与窗口聚合逻辑不在本单改动范围内。
+
+### QT-69 · 表达式静态校验 / 目录端点（S3-c-4 交接件）[P1] ✅（2026-10-24）
+
+- **① 目标**：给 agent 两条只读端点 —— `POST /api/expression/validate`、`GET /api/expression/catalog`，让 agent 不再 import core 的 `pkg/expression`（删 `replace` 的剩余前置）。
+- **② 上下文**：`tellurion-agent:docs/s3-decoupling-plan.md` §2 #13 / §5 #3：agent 的 `validate_factor` 与研究提示词从 `pkg/expression` 派生算子 / 字段清单；core 当前**没有任何表达式端点**。目录必须能表达「字段不可用 ≠ 返回空」（OBS-08 切片 2：`stock_fundamentals` / `stock_sector_map` 实测 0 行，若被静默省略，AI 会反复撞墙）。
+- **③ 要求**：① 校验复用 `pkg/expression` 的 `Parse` + `Expression.Validate`（**同一条实现**，不复制闸门）；② 目录复用 `OperatorDef` 的声明七项 + `AvailableOperators()`；③ 字段三态（available / unavailable / unknown），`?fields=` 点名的未登记字段返回结构化 unavailable，**不从数组里消失**；④ openapi 登记 + 鉴权（validate 为 readonly-post，GET 已认证）；⑤ 探测失败 fail-closed（503），不降级成「没有数据」。
+- **④ 约束与非目标**：不做逐 bar / 逐笔求值（求值只在引擎进程内）；不把表达式 parser/evaluator 搬进 agent；不在本单删 agent 的依赖与 `replace`（那归 S3-c-4 / S3-d）；不新增 D24 粗粒度动作（目录是元数据，不是行情/回测动作）。
+- **⑤ 验收**：校验结论与 core `Validate` 逐例一致（含 parse 失败）；目录算子数 = 注册表全集且声明逐字段可读；未登记字段结构化返回；未装探测报 unknown、探测失败 503；openapi 与路由双向对拍绿；viewer 可过 validate 的鉴权层。
+- **⑥ 边界**：core 侧端点 + 只读探测；agent 侧消费归 S3-c-4。
+
+> **✅ 完成记录（2026-10-24，本仓侧）**
+>
+> **落点与行为**
+> - [`cmd/analysis/handlers_expression.go`](../cmd/analysis/handlers_expression.go)：
+>   - `POST /api/expression/validate`：每次请求新建 Parser（Parser 持有可变 tokens/pos，不并发安全），Parse 失败与闸门失败都返回 **200 + `valid:false`**（`stage=parse|gate` + 点名错误），只有请求体非法 / expression 为空才 400；`inputs` 排序后输出（`ExtractInputs` 来自 map，顺序不稳定）。
+>   - `GET /api/expression/catalog`：算子从 `AvailableOperators()` + `LookupOperator` 派生，字段带 `status` 三态与机器可读 `reason`；`?fields=` 逐个返回（未登记的也给一条 `unavailable + field_not_registered`）；`thresholds` 说明 lookback/warmup 的 0 哨兵（参数化 / state=true 时 ∞）。
+> - [`pkg/expression/registry.go`](../pkg/expression/registry.go)：新增 `OperatorDefView` + `LookupOperator`（只读快照，不泄漏求值绑定）与 `FieldDependsOn`；注册表仍是唯一事实源，目录不复制清单。
+> - [`pkg/storage/postgres.go`](../pkg/storage/postgres.go)：新增 `TableHasRows`（`SELECT EXISTS (... LIMIT 1)`，表名经 `pgx.Identifier.Sanitize`；池未装配 / 查询失败返回 error）。
+> - [`cmd/analysis/route_policy.go`](../cmd/analysis/route_policy.go)：`POST /api/expression/validate` 进 `readonly-post`（纯计算、不写库，viewer 可用）；GET 由全局认证覆盖。
+> - [`cmd/analysis/main.go`](../cmd/analysis/main.go)：与 QT-67 同款接线 —— 池真装配时才注入探测；否则目录字段报 `unknown`，不冒充 available。
+>
+> **验收证据**
+> - `TestExpressionValidate_MatchesCoreValidate`：8 例（合法 / 未知算子 / 参数个数 / 标量位 / 未知字段 / parse 失败）逐例对比 **core 的 Parse + Validate 结论**，valid、AST、inputs、stage 全一致。
+> - `TestExpressionCatalog_FieldsAreThreeStateAndUnknownIsNotDropped`：fake 探测（OHLCV 有数据、基本面空）下 `close=available`、`pe=unavailable(source_table_empty)`、`nope=unavailable(field_not_registered)`，且 `nope` **在数组里**（`len==3`）。
+> - `TestExpressionCatalog_OperatorsComeFromRegistry`：算子数 = `len(AvailableOperators())`；`ts_mean` 的 category/arity/scalar_params/spec 逐项可读。
+> - `TestExpressionCatalog_AvailabilityUnknownWithoutProbe`：无探测 ⇒ `availability=unknown`、字段 `unknown`（不是 available）。
+> - `TestExpressionCatalog_ProbeFailureIs503`：探测报错 ⇒ 503。
+> - `TestExpressionValidate_ViewerCanUseReadonlyPost`：viewer 过鉴权层并拿到 200。
+> - **破坏验证**：把 `validate` 里的 `parsed.Validate()` 换成 `error(nil)`（跳过闸门）⇒ `CROSS(MA(...))` 与未知字段从 invalid 变 valid，`TestExpressionValidate_MatchesCoreValidate` `EXIT=1`；逐字节还原（`sha256sum -c` OK）后 `EXIT=0`。
+>
+> **如实登记（未做 / 偏差）**
+> 1. **没有 oapi-codegen 生成物**：与 QT-67 同因 —— 本仓无该依赖、contracts 无 `dto` 包（G0D-C5）；wire DTO 是 handler 内普通结构，靠 openapi 双向对拍与测试钉住形状。
+> 2. **agent 侧消费未做**：改调两条端点、删 `pkg/expression` import 与 `replace` 归 S3-c-4 / S3-d（agent 仓）。
+> 3. **D24 粗粒度动作未新增**：目录/校验不是行情或回测动作，`coarseActionCount` 保持 8。
+> 4. `thresholds` 的 0 哨兵语义是从注册表注释搬来的**约定说明**，不是新增的调用期校验；参数化的真实 lookback/warmup 由实参推导（`selfLookback` / `selfWarmup`），目录没有替调用方实例化。
+
+### QT-70 · `POST /api/risk/detect_regime` 粗粒度形状（symbol + 日期区间）[P2] ✅（2026-10-24）
+
+- **① 目标**：detect_regime 除内联 OHLCV 外，再收 `symbol + start_date + end_date`，由服务端取前复权日线 —— agent 不必把 200+ 行塞进上下文再回传。
+- **② 上下文**：`tellurion-agent:docs/s3-decoupling-plan.md` §5 #4（S3-c-1 的**可选**优化）：agent 的 risk 工具为省 token 在本地算 regime，而 core 端点只收内联 OHLCV；接 HTTP 一次会把省下的 token 还回去。不做也能过 S3，故本单标注可选。
+- **③ 要求**：① 保留内联 `data` 形状（存量契约不变，内联非空时优先）；② 新形状三字段缺一 / 日期坏 / `start > end` ⇒ 400 点名；③ 服务端按 symbol + 区间取 `ohlcv_daily_qfq`；④ 取数面未接线 ⇒ **503**（不退回「data field is required」这种误导性 400）；⑤ 区间内无行 ⇒ **404**（不拿空序列编一份看似合理的 regime）；⑥ openapi 登记两种形状与 404/503。
+- **④ 约束与非目标**：不做逐 bar / 逐笔远程调用（一次区间查询）；不改 `RiskManager.DetectRegime` 的算法与阈值；不新增 D24 动作（`query_market_regime` 已存在）；不把取数做成 data-service 级联调用（core 自己的只读库就够了）。
+- **⑤ 验收**：粗粒度请求真取数并返回 regime；五个校验例 400 点名；未接线 503；无行 404；内联 data 优先且不触发取数。
+- **⑥ 边界**：core 侧端点形状与取数；agent 侧改调归 S3-c-1。
+
+> **✅ 完成记录（2026-10-24，本仓侧）**
+>
+> **落点与行为**
+> - [`cmd/analysis/handlers_risk.go`](../cmd/analysis/handlers_risk.go)：`detectRegimeRequest` 扩为 `{data, symbol, start_date, end_date}`；内联 `data` 非空走原路径（逐字节不变），否则有任一粗粒度字段时走 `detectRegimeByRange`（三字段齐全 + 日期解析 + `start ≤ end`；未接线 503；无行 404）。新增 `WithOHLCVStore` 注入窄接口 `riskOHLCVStore`（`*storage.PostgresStore` 满足，复用 `GetOHLCV` 的 `ORDER BY trade_date ASC`）。
+> - [`cmd/analysis/main.go`](../cmd/analysis/main.go)：池真装配时才注入取数面；否则保持 nil ⇒ 粗粒度形状 503。
+> - 鉴权不变：`POST /api/risk/detect_regime` 已在 `readonly-post`（纯计算；粗粒度形状只读库）。
+>
+> **验收证据**
+> - `TestDetectRegime_CoarseShapeFetchesBars`：fake store 收到 `symbol=600000.SH`、`start=1990-01-01`、`end=1990-06-30`，响应 200 且 regime 的 Trend/Volatility 非空。
+> - `TestDetectRegime_CoarseShapeValidation`：缺日期 / 缺 symbol / 坏 start / 坏 end / 区间倒置五例均 400 且点名。
+> - `TestDetectRegime_CoarseShapeFailClosed`：未接线 503（`unavailable`）、无行 404（`no OHLCV rows`）。
+> - `TestDetectRegime_InlineDataStillWins`：内联 data + symbol 同时给，store 调用次数为 0。
+> - **破坏验证**：把 `if len(rows) == 0` 改成 `if false` ⇒ 空区间落到检测器「insufficient data」→ 500，`TestDetectRegime_CoarseShapeFailClosed/区间内无行` `EXIT=1`；逐字节还原（`sha256sum -c` OK）后 `EXIT=0`。
+>
+> **如实登记**
+> 1. 取数用 `ohlcv_daily_qfq`（前复权日线），与回测口径一致；不带复权基准冻结 / 快照 hash —— 这是「看一眼 regime」的粗粒度快照，不是可复现 run。
+> 2. 未起真库：取数腿用 fake store；`GetOHLCV` 本身已有既有的存储集成测试。
+> 3. 区间行数不足检测器 warmup（`SlowMAPeriod`）时，仍是检测器返回的 DataQuality → handler 500（与内联形状同口径），本单未改错误分级。
 
 ---
 

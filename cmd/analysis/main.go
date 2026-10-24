@@ -291,6 +291,14 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		refDataStore = deps.Store
 	}
 	NewReferenceDataHandler(refDataStore, deps.Logger).RegisterRoutes(router)
+	// QT-69：表达式静态校验 + 算子/字段目录（agent 的 pkg/expression 依赖
+	// 交接件）。可用性探测只在池真装配时注入；否则目录字段报 unknown ——
+	// 不把「没探测」冒充成「有数据」。与上面同款：nil store 路由照常注册。
+	var exprAvailStore expressionAvailabilityStore
+	if deps.Store != nil && deps.Store.DB() != nil {
+		exprAvailStore = deps.Store
+	}
+	NewExpressionHandler(exprAvailStore, deps.Logger).RegisterRoutes(router)
 	registerPluginRoutes(router, deps.PluginLoader, deps.AuthSvc)
 	// AI 拆仓阶段 1（ADR-027 §5 第 8 步前置切片）：copilot / pipeline /
 	// explore / tools 四族路由改反代到 ai-service。原进程内注册（registerCopilotRoutes
@@ -305,7 +313,13 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	// Both backends are in-process (risk.RiskManager and
 	// live.MockTrader) so the HTTP layer is a thin shim — no
 	// service-to-service hop.
-	NewRiskHandler(deps.RiskManager, deps.Logger).RegisterRoutes(router)
+	// QT-70：detect_regime 的粗粒度形状（symbol + 日期区间）需要服务端取数；
+	// 池未装配时保持 nil ⇒ 请求该形状 503，内联 data 形状不受影响。
+	var riskOHLCV riskOHLCVStore
+	if deps.Store != nil && deps.Store.DB() != nil {
+		riskOHLCV = deps.Store
+	}
+	NewRiskHandler(deps.RiskManager, deps.Logger).WithOHLCVStore(riskOHLCV).RegisterRoutes(router)
 	// P2-3 (ODR-026): pass the emergency-flatten bearer token
 	// through to the execution handler. Empty token disables the
 	// kill-switch endpoint (returns 503 instead of 404).

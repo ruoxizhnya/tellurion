@@ -361,7 +361,12 @@ paths:
         （反映 B 段相对 A 段的衰减程度），`overfit_score` / `prob_no_overfit`
         是该衰减的分档启发式分数，**均不是过拟合的统计度量**。真正的
         train-上优化→test-上验证流水线另立设计单。
+
+        `strategy_params`（QT-68）是 run 级覆写：每个窗口的 train / test 两段
+        都带上同一份 map，生效值仍由引擎按「清单默认 ⊕ 覆写」解析（QT-20）。
+        非法参数（未知键 / 类型 / 范围 / 嵌套）在启动任何窗口之前 400 点名。
       operationId: runWalkForward
+      x-agent-coarse-action: submit_walkforward
       requestBody:
         required: true
         content:
@@ -1693,20 +1698,47 @@ paths:
     post:
       tags: [Risk]
       summary: Detect market regime
-      description: Analyzes OHLCV data to determine the current market regime (bull/bear/sideways).
+      description: |
+        Analyzes OHLCV data to determine the current market regime
+        (bull/bear/sideways). Two request shapes (QT-70):
+
+        1. **inline** `{"data": [OHLCV...]}` — the backtest engine path,
+           unchanged; the caller supplies the bars.
+        2. **coarse** `{"symbol": "...", "start_date": "...", "end_date": "..."}`
+           — the handler fetches qfq daily bars server-side (symbol is
+           required; dates are YYYY-MM-DD, start ≤ end). This keeps agent
+           callers from round-tripping the whole series through the prompt.
+
+        Inline wins when both are present. The coarse shape is fail-closed:
+        store not wired → `503`; no rows in the range → `404` (never a
+        plausible-looking regime computed from an empty series). Both shapes
+        are pure computation (read-only POST, viewer allowed).
       operationId: detectRegime
+      x-agent-coarse-action: query_market_regime
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [data]
               properties:
                 data:
                   type: array
+                  description: Inline OHLCV bars (existing shape). Takes precedence when non-empty.
                   items:
                     $ref: '#/components/schemas/OHLCV'
+                symbol:
+                  type: string
+                  description: Symbol for the coarse shape (e.g. `600000.SH`).
+                  example: 600000.SH
+                start_date:
+                  type: string
+                  format: date
+                  description: Coarse shape only. YYYY-MM-DD.
+                end_date:
+                  type: string
+                  format: date
+                  description: Coarse shape only. YYYY-MM-DD; must not be before start_date.
       responses:
         '200':
           description: Market regime
@@ -1716,6 +1748,18 @@ paths:
                 $ref: '#/components/schemas/MarketRegime'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          description: No OHLCV rows for the requested symbol/range (coarse shape).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: OHLCV store not wired for the coarse shape (fail-closed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/risk/check_stoploss:
     post:
@@ -2484,6 +2528,103 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           description: Store not wired (fail-closed; no empty-window fallback).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/expression/validate:
+    post:
+      tags: [Expression]
+      summary: Statically validate a factor expression (parse + operator/field gate)
+      description: |
+        QT-69：把 agent 侧的 `pkg/expression` 静态校验搬到 core（删 `replace`
+        的交接件）。行为与 core 内 `Parse(...)` + `(*Expression).Validate()`
+        **同一条实现**，不复制闸门；不求值、不读行情、不写库。
+
+        **判定走 200 的 `valid` 字段**：语法错误与闸门失败都是
+        `valid=false` + `stage=parse|gate` + 错误文案（点名未知算子/字段或
+        参数个数），不是 HTTP 4xx。`400` 只用于「请求体非法 / expression 为空」。
+      operationId: validateExpression
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpressionValidateRequest'
+      responses:
+        '200':
+          description: Validation verdict (valid=false is a normal result, not an HTTP error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpressionValidateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Authenticated caller rejected by the route policy (fail-closed tier lookup).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/expression/catalog:
+    get:
+      tags: [Expression]
+      summary: Operator / field catalog (declarations + current field availability)
+      description: |
+        QT-69：算子目录从 `pkg/expression` 的注册表派生（`AvailableOperators()`
+        + `OperatorDef` 的声明七项），字段目录带**三态可用性**：
+
+        - `available`：已登记且源表有数据（或无物理表依赖）；
+        - `unavailable`：已登记但源表为空（`reason: source_table_empty`），
+          **或**请求的名字未登记（`reason: field_not_registered`）；
+        - `unknown`：已登记但服务端未装可用性探测（不冒充 available）。
+
+        「字段不可用 ≠ 返回空」：`?fields=a,b` 点名的名字**逐个**返回一条
+        记录，未登记的名字也在数组里（结构化 unavailable），不会被悄悄丢掉。
+        探测失败（库连不上 / 查询报错）一律 `503` fail-closed，不降级成
+        「字段没数据」。`thresholds` 说明注册表里 lookback/warmup 的 0 哨兵
+        （参数化）以及 `state=true` 时 lookback=0 表示 ∞。
+      operationId: getExpressionCatalog
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          description: Comma-separated field names to look up. Omitted = every registered field. Unknown names are returned as structured `unavailable` entries.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Operator + field catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpressionCatalogResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Field availability probe failed (fail-closed; not degraded to "no data").
           content:
             application/json:
               schema:
@@ -4183,6 +4324,29 @@ components:
             QT02_FILL_TIMING_REPORT.md). Declaring a value this kernel does
             not implement is rejected with 400, never silently defaulted —
             the caliber decides whether two results are comparable at all.
+        strategy_ref:
+          type: string
+          description: >-
+            Strategy asset reference (QT-20): `id` (latest) or `id@hash`.
+            Shape is validated by the contracts-level ValidateRunSpec; asset
+            resolution (id@hash lookup / version selection) belongs to the
+            strategy asset service. Omitted = the `strategy` registry key is
+            used as before.
+          example: momentum
+        strategy_params:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+          description: >-
+            Run-level strategy parameter overrides (QT-20). Effective params =
+            manifest defaults ⊕ these overrides (shallow merge). Unknown keys,
+            wrong types and out-of-range values are rejected with 400 and the
+            key named — never silently ignored. Nested objects/arrays are
+            rejected at the contracts layer. Every key must be a scalar; the
+            map may be empty/omitted.
+          example:
+            lookback_days: 40
+            top_n: 5
 
     CreateJobRequest:
       type: object
@@ -4361,6 +4525,25 @@ components:
           type: string
         end_date:
           type: string
+        initial_capital:
+          type: number
+          default: 1000000
+        risk_free_rate:
+          type: number
+          default: 0.03
+        strategy_params:
+          type: object
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+          description: >-
+            Run-level strategy parameter overrides (QT-68). Both the train and
+            test segment of every window carry the same map; effective params
+            are resolved by the engine at the RunBacktest entry (manifest
+            defaults ⊕ overrides, QT-20). Unknown keys / wrong types /
+            out-of-range values are rejected with 400 before any window runs,
+            and the offending key is named. Nested objects/arrays are rejected.
+          example:
+            lookback_days: 40
         walk_forward_params:
           type: object
           properties:
@@ -4956,3 +5139,118 @@ components:
           description: Windows for the requested symbols (or all symbols); ordered by symbol.
           items:
             $ref: '#/components/schemas/ListingWindow'
+
+    ExpressionValidateRequest:
+      type: object
+      required: [expression]
+      properties:
+        expression:
+          type: string
+          description: Factor DSL expression, e.g. `ts_rank(close, 20)`.
+          example: (close - ts_mean(close, 20)) / ts_std(close, 20)
+
+    ExpressionValidateResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          description: Equals core's `(*Expression).Validate()` verdict (parse failure counts as invalid).
+        inputs:
+          type: array
+          description: Required data fields, sorted. Empty when invalid.
+          items:
+            type: string
+        ast:
+          type: string
+          description: Parsed AST rendering. Empty when invalid.
+        error:
+          type: string
+          description: Present only when valid=false; names the offending operator/field/arity.
+        stage:
+          type: string
+          enum: [parse, gate]
+          description: Which stage rejected the expression. Absent when valid=true.
+
+    ExpressionOperatorSpec:
+      type: object
+      description: The seven ADR-028 §4 declaration items. Lookback/warmup are 0 sentinels for parameterized operators; lookback=0 with state=true means infinite.
+      properties:
+        name:
+          type: string
+        signature:
+          type: string
+        lookback:
+          type: integer
+        causal:
+          type: boolean
+        state:
+          type: boolean
+        warmup:
+          type: integer
+        init:
+          type: string
+        nan_policy:
+          type: string
+
+    ExpressionOperator:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+          enum: [ts, cs, unary, binary]
+        arity:
+          type: integer
+        scalar_params:
+          type: array
+          description: Argument indices that must be constant scalar expressions.
+          items:
+            type: integer
+        spec:
+          $ref: '#/components/schemas/ExpressionOperatorSpec'
+
+    ExpressionField:
+      type: object
+      properties:
+        name:
+          type: string
+        source:
+          type: string
+          description: market / fundamentals / activity / group. Empty for an unregistered name.
+        depends_on:
+          type: string
+          description: Physical table backing the field (availability probe target).
+        status:
+          type: string
+          enum: [available, unavailable, unknown]
+        reason:
+          type: string
+          description: Machine-readable reason for unavailable/unknown (source_table_empty / field_not_registered / availability_probe_not_mounted).
+
+    ExpressionCatalogResponse:
+      type: object
+      properties:
+        availability:
+          type: string
+          enum: [probed, unknown]
+          description: Whether field availability was actually probed. unknown = no probe mounted (fields are NOT claimed available).
+        operators:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpressionOperator'
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExpressionField'
+        thresholds:
+          type: object
+          properties:
+            lookback_unit:
+              type: string
+            warmup_unit:
+              type: string
+            zero_lookback_means:
+              type: string
+            zero_warmup_means:
+              type: string

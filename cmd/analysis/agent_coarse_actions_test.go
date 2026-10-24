@@ -35,10 +35,11 @@ import (
 	"tellurion/pkg/authz"
 )
 
-// coarseActionCount 是 D24 允许的**动作条目数**。D24 是七类（第 7 类
+// coarseActionCount 是 D24 允许的**动作条目数**。D24 是八类（第 7 类
 // 「交易日历 / 上市窗口查询」于 2026-10-24 由用户裁-04 确认，落两条只读
-// 端点 ⇒ 六类各一条 + 第 7 类两条 = 8 条）。加表要连带改本断言并留裁决记录。
-const coarseActionCount = 8
+// 端点；第 8 类「walkforward 提交 / regime 识别」于 2026-10-25 由用户裁-12
+// 确认，落两条端点 ⇒ 八类共 10 条）。加表要连带改本断言并留裁决记录。
+const coarseActionCount = 10
 
 // openapiCoarseActions 返回 yaml 里标了 x-agent-coarse-action 的
 // "METHOD 路径" → 动作名。
@@ -84,7 +85,7 @@ func TestAgentCoarseActions_DeclareAndDocumentExactlyTheSameSet(t *testing.T) {
 	t.Parallel()
 
 	require.Len(t, agentCoarseActions, coarseActionCount,
-		"D24 允许七类粗粒度动作（第 7 类落两条端点）；加表要连带改本断言并留裁决记录")
+		"D24 允许八类粗粒度动作（第 7/8 类各落两条端点）；加表要连带改本断言并留裁决记录")
 
 	documented := openapiCoarseActions(t)
 	registered := registeredRouteKeys(t)

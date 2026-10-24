@@ -66,6 +66,12 @@ type WalkForwardRequest struct {
 	InitialCapital float64  `json:"initial_capital"`
 	RiskFreeRate   float64  `json:"risk_free_rate"`
 
+	// StrategyParams 是本次 walk-forward 的 run 级参数覆写（QT-68；与
+	// contracts.BacktestRequest.StrategyParams 同形）。每个窗口的 train/test
+	// 两段回测都**原样带上**它 —— 生效值仍由引擎在 RunBacktest 入口按
+	// 「清单默认 ⊕ run 覆写」解析（QT-20），本层不复制合并逻辑。
+	StrategyParams map[string]any `json:"strategy_params,omitempty"`
+
 	WalkForwardParams domain.WalkForwardParams `json:"walk_forward_params"`
 }
 
@@ -88,6 +94,17 @@ type WalkForwardRequest struct {
 //  4. Compute oosVsTrain = segmentB_Sharpe / segmentA_Sharpe for each window
 //  5. Aggregate: avg segment-B Sharpe, avg ratio, pass rate, heuristic scores
 func (wf *WalkForwardEngine) RunWalkForward(ctx context.Context, req WalkForwardRequest) (*domain.WalkForwardReport, error) {
+	// QT-68：strategy_params 的形状校验与同步回测同一道闸门（contracts 的
+	// ValidateRunSpec：只接受浅层标量）。放在任何取数之前，直接调用方也能
+	// 在启动窗口之前拿到点名错误；HTTP 侧另有 handler 的语义校验（未知键 /
+	// 类型 / 范围），二者合起来就是 QT-20 的两层口径。
+	if err := (contracts.BacktestRequest{
+		Strategy:       req.Strategy,
+		StrategyParams: req.StrategyParams,
+	}).ValidateRunSpec(); err != nil {
+		return nil, fmt.Errorf("walk-forward: %w", err)
+	}
+
 	params := req.WalkForwardParams
 
 	if params.TrainDays <= 0 {
@@ -234,6 +251,7 @@ func (wf *WalkForwardEngine) runSingleWindow(
 		EndDate:        win.trainEnd.Format("2006-01-02"),
 		InitialCapital: capital,
 		RiskFreeRate:   riskFree,
+		StrategyParams: req.StrategyParams,
 	}
 
 	testReq := contracts.BacktestRequest{
@@ -243,6 +261,7 @@ func (wf *WalkForwardEngine) runSingleWindow(
 		EndDate:        win.testEnd.Format("2006-01-02"),
 		InitialCapital: capital,
 		RiskFreeRate:   riskFree,
+		StrategyParams: req.StrategyParams,
 	}
 
 	if runner == nil {

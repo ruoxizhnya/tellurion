@@ -66,6 +66,10 @@ var analysisRoutePolicy = authz.Policy{
 		// QT-67 第 7 类粗粒度动作：上市窗口查询（整批 symbol 一次取回，
 		// 纯读、不写库）。同样只因参数是集合才用 POST。
 		"POST /api/v1/listing-windows",
+
+		// QT-69：表达式静态校验（Parse + 闸门）。纯计算、不写库、不触行情，
+		// viewer 也应能做——与风险三条同一档。
+		"POST /api/expression/validate",
 	},
 
 	// ── Trader：其余全部变更端点 ──

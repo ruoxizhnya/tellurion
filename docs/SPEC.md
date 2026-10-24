@@ -2578,6 +2578,12 @@ GET  /signals/:date               - Get signals for date        [removed, OBS-11
 POST /api/risk/calculate_position   - Calculate position size
      {"portfolio_value": 1000000, "signal": {...}, "market_regime": {...}}
 POST /api/risk/detect_regime        - Detect current market regime
+     // 形状一（存量）：内联 OHLCV，回测引擎用
+     {"data": [{symbol, date, open, high, low, close, volume, ...}, ...]}
+     // 形状二（QT-70）：symbol + 日期区间，服务端取前复权日线
+     {"symbol": "600000.SH", "start_date": "2024-01-01", "end_date": "2024-12-31"}
+     // 内联 data 非空时优先。粗粒度形状：三字段缺一/日期坏/start>end ⇒ 400；
+     // 取数面未接线 ⇒ 503；区间内无行 ⇒ 404（不拿空序列编一份看似合理的 regime）。
 POST /api/risk/check_stoploss       - Check stop-loss triggers
      {"positions": [...], "current_prices": {...}}
 GET  /api/risk/metrics              - Get current risk metrics
@@ -2809,8 +2815,9 @@ REV-13 从 `main()` 抽出的 alerts / reconciliation 第二批接线），与�
 
 #### Agent 粗粒度动作（QT-50 ②③）
 
-agent ↔ core 的 wire 面**只有七类粗粒度动作**（D24 白名单，不是示例；
-第 7 类于 2026-10-24 由用户裁-04 确认，落两条只读端点 ⇒ 动作条目 8 条）。
+agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不是示例；
+第 7 类于 2026-10-24 由用户裁-04 确认、第 8 类于 2026-10-25 由用户裁-12 确认，
+两类各落两条端点 ⇒ 动作条目 10 条）。
 声明处：`cmd/analysis/agent_actions.go`；每条的 openapi operation 带
 `x-agent-coarse-action: <name>`，与 `docs/openapi.yaml` 双向对拍
 （`cmd/analysis/agent_coarse_actions_test.go`）。
@@ -2825,12 +2832,20 @@ agent ↔ core 的 wire 面**只有七类粗粒度动作**（D24 白名单，不
 | `register_factor` | `POST /api/factor/registrations` | admin | 一版定义一次登记（治理账本，非行情写） |
 | `query_trading_calendar` | `GET /api/v1/trading-calendar` | 已认证（GET） | 整个 `[start, end]` 区间一次返回 |
 | `query_listing_windows` | `POST /api/v1/listing-windows` | 已认证（readonly-post） | 整批 symbol 一次取回；不是 per-symbol 端点 |
+| `submit_walkforward` | `POST /api/walkforward` | trader | 整段 walk-forward 一次提交，窗口切分与逐窗派生在 core 内 |
+| `query_market_regime` | `POST /api/risk/detect_regime` | 已认证（readonly-post） | 整段区间一次识别（纯函数、不落库），不按交易日逐次调用 |
 
 **硬否决**：任何 per-bar / per-symbol / per-order 远程调用；策略执行、风控裁决、
 撮合永远在 core 进程内。护栏（`TestAgentCoarseActions_AreCoarseGrain`）拒绝通配
 路由，并拒绝路径里出现 `{bar}` / `{symbol}` / `{order_id}` 这类 per-item 参数。
 **第 7 类**（交易日历 / 上市窗口查询）已落地（QT-67）——它解锁 agent 侧删除
 最后一处 `tellurion/pkg/storage` 生产 import（消费与删 import 归 QT-17 ③）。
+**第 8 类**（作业提交与裁决查询，2026-10-25 裁-12）已落地：`POST /api/walkforward`
+把「窗口切分 + 逐窗派生」收在一次请求内（agent 不自己切窗、不逐窗发请求）；
+`POST /api/risk/detect_regime` 对整段区间做 regime 识别，故 agent 侧 S3-c 只需 HTTP
+客户端、不必 import `pkg/risk` / `pkg/backtest`。注意口径：按**类**是第 8 类，
+按**条目**是第 9~10 条。表达式元数据两端点（QT-69）**不**登记为粗粒度动作——
+它们是目录/校验，不是作业。
 
 鉴权：JWT + `route_policy.go` 的端点 × 最低角色表（`authz.Middleware` 全局一次，
 查不到即 403 fail-closed）；本地 insecure 模式仍由 `DecideAuthStartup` 限定为
@@ -2915,10 +2930,51 @@ GET  /api/batch/:batch_id/export/:format - Export batch report (json/csv)
 #### Walk-Forward Analysis (Phase 3)
 ```
 POST /api/walkforward             - Run rolling-origin segmented backtest (no param optimization; REV-20)
-     {"strategy_id": "value_momentum", "in_sample_months": 12, "out_of_sample_months": 3}
+     {"strategy": "momentum", "stock_pool": ["600000.SH"],
+      "start_date": "2024-01-01", "end_date": "2024-12-31",
+      "strategy_params": {"lookback_days": 40},      // QT-68：run 级覆写（可选）
+      "walk_forward_params": {"train_days": 250, "test_days": 60, "step_days": 60}}
+     strategy_params 与同步 /api/backtest 共用 QT-20 的两层校验：
+       ① 形状（嵌套对象/数组拒绝，contracts.ValidateRunSpec）；
+       ② 语义（未知键 / 类型 / 范围按策略清单判定，点名出错的键）。
+     两层都在启动任何窗口之前完成 ⇒ 非法参数 400；每个窗口的 train / test
+     两段都原样带上同一份 map，生效值由引擎在 RunBacktest 入口解析
+     （清单默认 ⊕ 覆写）。窗口内单个回测失败仍是跳过语义（Warn + 略过），
+     与「参数非法」的 400 不是同一条路径。
 GET  /api/walkforward             - List all walk-forward reports
 GET  /api/walkforward/:strategy_id - Get walk-forward report for strategy
 ```
+
+#### Expression Validation / Catalog (QT-69 — S3 交接件)
+
+agent 的 `validate_factor` 与研究提示词不再 import core 的 `pkg/expression`，
+改走两条只读端点（求值仍只在引擎进程内，**不做逐 bar 远程调用**）。校验端点
+与 core 内的 `Parse(...)` + `(*Expression).Validate()` 是**同一条实现**，不复制
+闸门；目录从注册表派生（`AvailableOperators()` + `OperatorDef` 的声明七项）。
+
+```
+POST /api/expression/validate     - 静态校验（Parse + 算子/字段闸门）  [readonly-post]
+     {"expression": "ts_rank(close, 20)"}
+     ⇒ {"valid": true, "inputs": ["close"], "ast": "..."}
+     invalid 是 200 的正常判定（不是 HTTP 4xx）：
+     ⇒ {"valid": false, "error": "…未知算子/字段/参数个数…", "stage": "parse"|"gate",
+        "inputs": [], "ast": ""}
+     `400` 只用于请求体非法 / expression 为空。
+GET  /api/expression/catalog      - 算子 + 字段目录（含可用性）  [已认证]
+     ?fields=close,pe,nope         // 省略 = 全部已登记字段
+     ⇒ {"availability": "probed"|"unknown",
+        "operators": [{name, category, arity, scalar_params,
+                       spec: {signature, lookback, causal, state, warmup, init, nan_policy}}],
+        "fields": [{name, source, depends_on,
+                    status: "available"|"unavailable"|"unknown", reason}],
+        "thresholds": {lookback_unit, warmup_unit, zero_lookback_means, zero_warmup_means}}
+```
+
+「字段不可用 ≠ 返回空」（OBS-08 切片 2）：`?fields=` 点名的名字**逐个**返回
+一条记录；未登记的名字是 `status=unavailable, reason=field_not_registered`
+（不是从数组里消失），已登记但源表为空是 `unavailable + source_table_empty`，
+未装探测是 `unknown + availability_probe_not_mounted`（**不冒充 available**）。
+探测本身失败（库连不上 / 查询报错）⇒ `503` fail-closed，不降级成「没有数据」。
 
 #### Data Source Management (Phase 3 — ODR-011 multi-source)
 ```
@@ -3085,12 +3141,12 @@ GET  /api/pipeline/jobs/:id       - Get specific pipeline job result
 | `public` | 无 token 可达（同时在 `pkg/auth` 的 publicPaths 白名单里） | `POST /api/auth/{login,refresh,bootstrap}` |
 | `admin` | admin | 用户管理、插件 load/unload/reload/watch-dir、同步排程的增删改启停 |
 | `trader` | trader 或 admin | 下单/撤单/kill-switch、回测/批量/走查、策略 CRUD、因子计算、合规动作、同步触发、ingest 写门、反代族的写方法 |
-| `readonly-post` | 任意已认证角色 | `POST /screen`、`POST /api/v1/ohlcv/bulk`、`POST /api/v1/listing-windows`、`POST /api/risk/{calculate_position,check_stoploss,detect_regime}`（及 legacy 别名）——**用 POST 承载查询/纯计算，不写库** |
+| `readonly-post` | 任意已认证角色 | `POST /screen`、`POST /api/v1/ohlcv/bulk`、`POST /api/v1/listing-windows`、`POST /api/expression/validate`、`POST /api/risk/{calculate_position,check_stoploss,detect_regime}`（及 legacy 别名）——**用 POST 承载查询/纯计算，不写库** |
 
 **执法位置**：`pkg/authz.Middleware`，在 `auth.Service.Middleware()` **之后**、
 **注册路由之前**挂载（gin 在注册时快照 handler 链）。规则表逐条写在服务里：
 
-- `cmd/analysis/route_policy.go` —— 77 条（analysis 全部变更端点，2026-10-24 实测）
+- `cmd/analysis/route_policy.go` —— 78 条（analysis 全部变更端点，2026-10-24 实测）
 - `cmd/data/route_policy.go` —— 28 条（data 全部变更端点）
 
 **为什么逐条列而不是前缀批量生成**：批量规则会在新端点落进来时**自动放行**，

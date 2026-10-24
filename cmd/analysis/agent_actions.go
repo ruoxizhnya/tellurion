@@ -2,9 +2,10 @@ package main
 
 // agent_actions.go —— agent ↔ core 的**粗粒度动作**清单（QT-50 ②③）。
 //
-// 为什么要有这张表：D24 允许 agent 经 HTTP 调用 core，但只允许六类粗粒度
+// 为什么要有这张表：D24 允许 agent 经 HTTP 调用 core，但只允许八类粗粒度
 // 动作（提交回测 / 批量回测 / 因子求值查询 / 行情查询 / 策略定义拉取 /
-// 因子登记），**禁止** per-bar / per-symbol / per-order 粒度。允许清单若只
+// 因子登记 / 参考数据查询 / 作业提交与裁决查询），**禁止** per-bar /
+// per-symbol / per-order 粒度。允许清单若只
 // 写在设计文档里，下一个人新增一条 `/api/ohlcv/{symbol}/bar` 时没有任何
 // 机械判据会红。
 //
@@ -14,9 +15,10 @@ package main
 // 声明）也红。粒度判据（禁通配、禁 per-bar/per-order 路径参数）同在那个测试里。
 //
 // 第 7 类「交易日历 / 上市窗口查询」**已由用户裁-04 于 2026-10-24 确认**，
-// 落两条只读端点（QT-67）：日历按区间查、上市窗口按标的集合查。一条动作
-// 对应一个 operation，所以第 7 类让本表从 6 条变成 8 条 —— 别把「类数」
-// 当成「条目数」。
+// 落两条只读端点（QT-67）：日历按区间查、上市窗口按标的集合查。第 8 类
+// 「作业提交与裁决查询」**由用户裁-12 于 2026-10-25 确认**，落两条端点：
+// 整段 walk-forward 提交、整段区间 regime 识别。一条动作对应一个 operation，
+// 所以两类让本表从 6 条变成 10 条 —— 别把「类数」当成「条目数」。
 
 import "net/http"
 
@@ -36,7 +38,7 @@ type agentCoarseAction struct {
 	Rationale string
 }
 
-// agentCoarseActions 是 D24 的六类动作。顺序与 D24 原文一致，便于对读。
+// agentCoarseActions 是 D24 的八类动作。顺序与 D24 原文一致，便于对读。
 var agentCoarseActions = []agentCoarseAction{
 	{
 		Name:      "submit_backtest",
@@ -94,5 +96,20 @@ var agentCoarseActions = []agentCoarseAction{
 		Route:     "/api/v1/listing-windows",
 		MinRole:   "readonly-post（任意已认证）",
 		Rationale: "一次请求取回整批 symbol 的上市/摘牌窗口（symbols 为空即全部）；POST 只因参数是集合，不是 per-symbol 端点",
+	},
+	// ── 第 8 类（2026-10-25 裁-12）：作业提交与裁决查询 ──
+	{
+		Name:      "submit_walkforward",
+		Method:    http.MethodPost,
+		Route:     "/api/walkforward",
+		MinRole:   "trader",
+		Rationale: "一次请求提交整段 walk-forward（窗口切分与逐窗派生在 core 内完成），进出都是作业/摘要，不是逐 bar",
+	},
+	{
+		Name:      "query_market_regime",
+		Method:    http.MethodPost,
+		Route:     "/api/risk/detect_regime",
+		MinRole:   "readonly-post（任意已认证）",
+		Rationale: "一次请求对整段区间做 regime 识别（纯函数、不落库），不按交易日逐次调用",
 	},
 }

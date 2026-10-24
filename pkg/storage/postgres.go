@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"tellurion/pkg/logging"
@@ -115,6 +116,26 @@ func (s *PostgresStore) DB() *pgxpool.Pool {
 // Ping checks the database connection.
 func (s *PostgresStore) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
+}
+
+// TableHasRows 报告某张表当前是否有数据（只读可用性探测）。
+//
+// 用途：表达式字段目录要回答「已登记但源表为空」与「字段不存在」是两件事
+// （OBS-08 切片 2 的可用性层）。表名按标识符转义后拼进 SQL
+// （pgx.Identifier.Sanitize），调用方仍只应传注册表常量，不透传用户输入。
+//
+// 池未装配 / 查询失败时返回 error（fail-closed）：把「探测失败」当成
+// 「表是空的」会让字段不可用与探测故障混为一谈。
+func (s *PostgresStore) TableHasRows(ctx context.Context, table string) (bool, error) {
+	if s == nil || s.pool == nil {
+		return false, fmt.Errorf("storage: TableHasRows(%q): connection pool is not configured", table)
+	}
+	var has bool
+	query := "SELECT EXISTS (SELECT 1 FROM " + pgx.Identifier{table}.Sanitize() + " LIMIT 1)"
+	if err := s.pool.QueryRow(ctx, query).Scan(&has); err != nil {
+		return false, fmt.Errorf("storage: TableHasRows(%q): %w", table, err)
+	}
+	return has, nil
 }
 
 // migrationStatements 返回 migrate() 按序执行的全部建表 DDL：基础数组 +
