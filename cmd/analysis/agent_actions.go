@@ -13,8 +13,10 @@ package main
 // 对拍 —— 少一条（代码声明了、yaml 没登记）红，多一条（yaml 标了、这里没
 // 声明）也红。粒度判据（禁通配、禁 per-bar/per-order 路径参数）同在那个测试里。
 //
-// 第 7 类「交易日历 / 上市窗口查询」**不在本表**：QT-17 ③-③ 的增补要等
-// 用户裁-04 确认，未确认前不得在 wire 面上开口子（D24 是白名单，不是示例）。
+// 第 7 类「交易日历 / 上市窗口查询」**已由用户裁-04 于 2026-10-24 确认**，
+// 落两条只读端点（QT-67）：日历按区间查、上市窗口按标的集合查。一条动作
+// 对应一个 operation，所以第 7 类让本表从 6 条变成 8 条 —— 别把「类数」
+// 当成「条目数」。
 
 import "net/http"
 
@@ -77,5 +79,20 @@ var agentCoarseActions = []agentCoarseAction{
 		Route:     "/api/factor/registrations",
 		MinRole:   "admin",
 		Rationale: "一次请求登记一版因子定义（四样校验 + 版本哈希在 core 侧派生），写的是治理账本不是行情",
+	},
+	// ── 第 7 类（2026-10-24 裁-04）：交易日历 / 上市窗口查询，两条只读端点 ──
+	{
+		Name:      "query_trading_calendar",
+		Method:    http.MethodGet,
+		Route:     "/api/v1/trading-calendar",
+		MinRole:   "any-authenticated（GET 未认证拒绝）",
+		Rationale: "一次请求返回整个 [start, end] 区间，不按交易日逐次调用；只读、不写表",
+	},
+	{
+		Name:      "query_listing_windows",
+		Method:    http.MethodPost,
+		Route:     "/api/v1/listing-windows",
+		MinRole:   "readonly-post（任意已认证）",
+		Rationale: "一次请求取回整批 symbol 的上市/摘牌窗口（symbols 为空即全部）；POST 只因参数是集合，不是 per-symbol 端点",
 	},
 }

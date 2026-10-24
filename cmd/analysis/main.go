@@ -284,6 +284,13 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		factorRegStore = deps.Store
 	}
 	NewFactorRegistrationHandler(factorRegStore, deps.AuthSvc, deps.Logger).RegisterRoutes(router)
+	// QT-67（D24 第 7 类动作）：交易日历 / 上市窗口只读端点。与上面同款约束
+	// ——未接库时路由照常注册、请求时 503，不返回空日历冒充「没有数据」。
+	var refDataStore referenceDataStore
+	if deps.Store != nil && deps.Store.DB() != nil {
+		refDataStore = deps.Store
+	}
+	NewReferenceDataHandler(refDataStore, deps.Logger).RegisterRoutes(router)
 	registerPluginRoutes(router, deps.PluginLoader, deps.AuthSvc)
 	// AI 拆仓阶段 1（ADR-027 §5 第 8 步前置切片）：copilot / pipeline /
 	// explore / tools 四族路由改反代到 ai-service。原进程内注册（registerCopilotRoutes

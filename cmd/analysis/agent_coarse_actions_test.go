@@ -1,6 +1,6 @@
 package main
 
-// QT-50 ②③⑥ 护栏：agent ↔ core 的六类粗粒度动作**代码声明 = openapi 登记 =
+// QT-50 ②③⑥ 护栏：agent ↔ core 的粗粒度动作**代码声明 = openapi 登记 =
 // 生产路由**，且粒度、鉴权与 fail-closed 行为都可机械核对。
 //
 // 三条腿：
@@ -35,9 +35,10 @@ import (
 	"tellurion/pkg/authz"
 )
 
-// coarseActionCount 是 D24 允许的动作数。第 7 类（交易日历 / 上市窗口查询）
-// 待用户裁-04 确认，未确认前**不得**出现在本表 —— 这条断言就是那道闸。
-const coarseActionCount = 6
+// coarseActionCount 是 D24 允许的**动作条目数**。D24 是七类（第 7 类
+// 「交易日历 / 上市窗口查询」于 2026-10-24 由用户裁-04 确认，落两条只读
+// 端点 ⇒ 六类各一条 + 第 7 类两条 = 8 条）。加表要连带改本断言并留裁决记录。
+const coarseActionCount = 8
 
 // openapiCoarseActions 返回 yaml 里标了 x-agent-coarse-action 的
 // "METHOD 路径" → 动作名。
@@ -83,7 +84,7 @@ func TestAgentCoarseActions_DeclareAndDocumentExactlyTheSameSet(t *testing.T) {
 	t.Parallel()
 
 	require.Len(t, agentCoarseActions, coarseActionCount,
-		"D24 只允许六类粗粒度动作；第 7 类等裁-04，加表要连带改本断言并留裁决记录")
+		"D24 允许七类粗粒度动作（第 7 类落两条端点）；加表要连带改本断言并留裁决记录")
 
 	documented := openapiCoarseActions(t)
 	registered := registeredRouteKeys(t)
@@ -171,6 +172,11 @@ func TestAgentCoarseActions_RoutePolicyTiers(t *testing.T) {
 	role, ok = analysisRoutePolicy.Role(bulk.Method + " " + bulk.Route)
 	require.True(t, ok, "POST /api/v1/ohlcv/bulk 必须在 route_policy.go 里表态")
 	assert.Equal(t, authz.RoleAnyAuthenticated(), role, "批量行情查询是纯读，不得被抬成 trader 档")
+
+	windows := findAction(t, "query_listing_windows")
+	role, ok = analysisRoutePolicy.Role(windows.Method + " " + windows.Route)
+	require.True(t, ok, "POST /api/v1/listing-windows 必须在 route_policy.go 里表态")
+	assert.Equal(t, authz.RoleAnyAuthenticated(), role, "上市窗口查询是纯读，不得被抬成 trader 档")
 }
 
 // TestAgentCoarseActions_FailClosed 行为腿：真 router + 真 JWT + 真策略执法。

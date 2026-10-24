@@ -392,7 +392,7 @@ X1a 协议冻结进 contracts → X1b aggregator 面（PIT/频率/票池/快照 
 | **无单**（3） | ① **agent 数据自持（D10）**：agent 用 storage 16 符号 / 14 文件，此前零任务——而这是 S3 删 replace 的必要条件；② **过渡期 core↔agent 连体**：core CI 无任何 agent 检查（实测 0 命中），W0/W1 的 breaking 会静默烂掉 agent 仓；③ **契约版本策略**：C5「保留旧接口一个版本周期」无定义、无兼容矩阵 | 新增 **QT-17 / QT-18 / QT-19** |
 | **单里缺要求**（7） | QT-05：agent 侧 replace（**Go replace 不传递**，漏则 S1 即编不过）、`contracts/engine` 包名策略、core-only 类型清单；QT-06：tag 需 push 才可 `go get`；QT-08：按仓类型分派、docs 跨仓链接必断、脚本归属；QT-07：S3 依赖补 QT-17 | 逐条写入对应单 |
 | **设计内部不一致**（2） | §1「一仓一 module」与 S1 期 core 仓内 3 module 冲突；§5「domain 整包迁」与 C4「只收 ≥2 仓使用」冲突（实测 `screen/sector/supply_chain/macro/mining` 在 agent 侧 0 命中） | §1 加过渡期澄清；新增 §5.1（包名/replace）与 §5.2（core-only 清单 + S2 回收） |
-| **D24 清单缺一类动作** | agent 需要 `TradingCalendar` / `ListingWindow`，但 D24 允许的六类粗粒度动作里没有「交易日历/上市窗口查询」 | 记入 QT-17 要求③，S3 前补进 D24 清单 |
+| **D24 清单缺一类动作** | agent 需要 `TradingCalendar` / `ListingWindow`，但 D24 允许的六类粗粒度动作里没有「交易日历/上市窗口查询」 | **✅ 已裁（2026-10-24）：补为第 7 类只读动作**；core 侧端点单号 QT-67，agent 侧消费归 QT-17 ③ |
 
 - 审查后工单总数：30 → **33**（+QT-17/18/19）；执行顺序细化为「S0（06→18→08）→ W0 → S1(05) → S2（17→07→19→09）→ W1 → W2 → W3」，并落为**合入门禁**：QT-18 未合入前 QT-01 不得合入（第一个 breaking 在 abi v2）；QT-05 未合入前 QT-07 不得开工。
 - 状态：**已裁决 + 已补遗**；仍未实施。

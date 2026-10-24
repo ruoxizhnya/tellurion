@@ -63,6 +63,8 @@ tags:
     description: Proxied data-service endpoints (OHLCV, screen, calendar, sync gateway) and ai-service 反代族（copilot / pipeline / explore / tools）
   - name: Reconciliation
     description: 资金对账（K16 ⑤）— 最新/历史报告、强制对账、当前配置
+  - name: Reference
+    description: Read-only instrument reference data — trading calendar and listing windows (QT-67, D24 action class 7)
   - name: Evidence
     description: L0 evidence service — resolves a citation's content_hash to its archived source response
   - name: Industry
@@ -2359,6 +2361,129 @@ paths:
                 $ref: '#/components/schemas/Error'
         '502':
           description: data-service unreachable or returned a non-JSON body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
+  # Reference data (QT-67 — D24 action class 7: calendar / listing windows)
+  # ============================================================
+  /api/v1/trading-calendar:
+    get:
+      tags: [Reference]
+      summary: Query the trading calendar for a date range
+      description: |
+        QT-67 的「交易日历」只读动作（D24 第 7 类，2026-10-24 裁-04）。
+        一次请求返回 `[start, end]` 区间内的**全部**日历行（含
+        `is_trading_day: false` 的休市日），不是逐日查询。
+
+        只读：不写任何表。日期只认 `YYYY-MM-DD`；缺失 / 不可解析 /
+        `start > end` 一律 `400` 点名原因。存储未装配时 `503`
+        （fail-closed —— 不拿空日历冒充「这段时间没有数据」）。
+        限流：走服务全局限流，超限 `429`（`code: rate_limited`）。
+      operationId: queryTradingCalendar
+      x-agent-coarse-action: query_trading_calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start
+          in: query
+          required: true
+          description: Inclusive start date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: end
+          in: query
+          required: true
+          description: Inclusive end date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Calendar rows in the requested range, ordered by trade_date.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TradingCalendarResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Authenticated caller rejected by the route policy (fail-closed tier lookup).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: Store not wired (fail-closed; no empty-calendar fallback).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/listing-windows:
+    post:
+      tags: [Reference]
+      summary: Query listing / delisting windows for a batch of symbols
+      description: |
+        QT-67 的「上市窗口」只读动作（D24 第 7 类，2026-10-24 裁-04）。
+        一次请求取回整批 symbol 的上市/摘牌窗口；`symbols` 为空或缺省
+        即返回 `stocks` 里的全部标的。**不是** per-symbol 端点（D24 禁
+        per-symbol 远程调用）——POST 只因为参数是集合。
+
+        只读：不写任何表。`list_date` / `delist_date` 在库里为 NULL 时
+        响应为 `null`（未知 ≠ 一个看起来合理的日期）。未知 symbol 会被
+        **省略**，调用方按请求集对差即可。存储未装配时 `503`。
+        限流：走服务全局限流，超限 `429`（`code: rate_limited`）。
+      operationId: queryListingWindows
+      x-agent-coarse-action: query_listing_windows
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingWindowsRequest'
+      responses:
+        '200':
+          description: Windows for the requested symbols (or all symbols), ordered by symbol.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingWindowsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Authenticated caller rejected by the route policy (fail-closed tier lookup).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: "Rate limited (`code: rate_limited`); retry after the window."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: Store not wired (fail-closed; no empty-window fallback).
           content:
             application/json:
               schema:
@@ -4763,3 +4888,71 @@ components:
           type: object
           additionalProperties:
             type: integer
+
+    # ============================================================
+    # Reference data (QT-67) — shapes are pinned to the handler's
+    # json tags by reference_data_wire_test.go (both directions).
+    # ============================================================
+    TradingCalendarEntry:
+      type: object
+      properties:
+        trade_date:
+          type: string
+          format: date
+        exchange:
+          type: string
+        is_trading_day:
+          type: boolean
+
+    TradingCalendarResponse:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        count:
+          type: integer
+        entries:
+          type: array
+          description: Calendar rows in the requested range (including closed days); ordered by trade_date.
+          items:
+            $ref: '#/components/schemas/TradingCalendarEntry'
+
+    ListingWindowsRequest:
+      type: object
+      properties:
+        symbols:
+          type: array
+          description: Exchange-qualified symbols (e.g. `600000.SH`). Empty or omitted = every symbol in `stocks`.
+          items:
+            type: string
+
+    ListingWindow:
+      type: object
+      properties:
+        symbol:
+          type: string
+        list_date:
+          type: string
+          format: date
+          nullable: true
+          description: NULL when the source has no listing date (unknown, not "always listed").
+        delist_date:
+          type: string
+          format: date
+          nullable: true
+          description: NULL while the symbol is still listed.
+
+    ListingWindowsResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        windows:
+          type: array
+          description: Windows for the requested symbols (or all symbols); ordered by symbol.
+          items:
+            $ref: '#/components/schemas/ListingWindow'

@@ -62,6 +62,10 @@ var analysisRoutePolicy = authz.Policy{
 		// 纯读、不写库）。POST 只因参数是集合；agent 的「行情查询」走这一条，
 		// 不走 per-symbol 的 GET /api/ohlcv/{symbol}（D24 禁 per-symbol）。
 		"POST /api/v1/ohlcv/bulk",
+
+		// QT-67 第 7 类粗粒度动作：上市窗口查询（整批 symbol 一次取回，
+		// 纯读、不写库）。同样只因参数是集合才用 POST。
+		"POST /api/v1/listing-windows",
 	},
 
 	// ── Trader：其余全部变更端点 ──

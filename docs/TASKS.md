@@ -51,6 +51,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
 | **横切** | QT-66 ⬜ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | 依赖 QT-42 的规则 hash / 快照端点（已落）；只动 core 的取 hash 与写入路径，与 W1 可并行 |
+| **横切** | QT-67 ✅ | 日历 / 上市窗口只读端点（D24 第 7 类动作，2026-10-24 已裁） | P1 | **已完成（2026-10-24）**；`GET /api/v1/trading-calendar` + `POST /api/v1/listing-windows`，只读、JWT/RBAC 复用、存储未装配 503；openapi 双向对拍 + wire 形状反射互锁；agent 侧删 import 与白名单收窄归 QT-17 ③ |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
 **并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 新增 4 个 host 函数（8 → 12），那第一个会打穿 agent 编译的改动点在它身上，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
@@ -941,7 +942,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 ### QT-50 · 装配外移（`pkg/kernel` 只留框架）+ agent ↔ core HTTP 粗粒度 [P1] ✅（2026-10-24，本仓侧）
 
 - **① 目标**：框架包零业务依赖；agent 与 core 的边界只剩"粗粒度 HTTP + contracts"。
-- **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记），禁止 per-bar/per-symbol/per-order 远程调用。
+- **② 上下文**：ADR-D5/D24；`pkg/kernel/modules_analysis.go:43` import `pkg/backtest`（实测仍在）；D24 允许的粗粒度动作清单（提交回测/批量/因子求值/行情查询/策略定义拉取/因子登记/**交易日历与上市窗口只读查询** ← 2026-10-24 用户确认补为第 7 类），禁止 per-bar/per-symbol/per-order 远程调用。
 - **③ 要求**：① 装配代码移到 **`cmd/*/wiring`**（**落点定死，不再二选一**——装配属应用层不属库，不放 `pkg/wiring`；refactor-plan-review L6），kernel 只留 Module/BootOrder/生命周期/槽位；② 定义 agent 侧 HTTP 客户端（六类粗粒度动作；第 7 类「日历/上市窗口查询」待 QT-17 ③-③ 用户确认后并入）；③ **wire 契约落 `docs/openapi.yaml`**：每类动作的 endpoint + DTO 写入 `docs/openapi.yaml`，纳入既有「生产路由表与 yaml 双向对拍」机制（D7 单一真相源规则，`protocol-and-data-boundary.md`）；`contracts/dto` 由 `oapi-codegen` 生成、**禁手改**（CI 重新生成后 diff 必须为空）；④ **鉴权模型**：复用既有 JWT + RBAC（敏感操作走 `RequireRole`），CORS 沿白名单；本地开发 insecure 模式 **loopback-only 且 fail-closed**（非环回一律拒）；⑤ 错误码与限流语义随 endpoint 成文（进 openapi.yaml 描述面）；⑥ 护栏：kernel 禁止 import 业务族；agent 禁止 import core 实现包、禁止逐 bar 远程调用（AST）。
 - **④ 约束与非目标**：不拆进程（仍在同一可执行体内可选装配）；不改 BootOrder 语义；**不绕过 `docs/openapi.yaml` 手写 dto**（生成物禁手改）；不为图省事把七类动作拆成 per-bar/per-symbol 细粒度端点。
 - **⑤ 验收**：kernel 的非测试 import 里零业务族；搬运前后 `package_wiring_test.go`/`module_lifecycle_callback_test.go` 各跑一次全绿；agent 侧 grep 无 per-bar 远程调用；`docs/openapi.yaml` 含全部新端点且**路由表对拍绿**；`contracts/dto` 与生成物一致（重生成 diff 为空）；**fail-closed 用例**：无 token / 越权角色 / 非白名单来源 / 非环回 insecure 请求全部被拒且报错可检索。
@@ -1162,6 +1163,80 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改 QT-03 / QT-63 已冻结的 canonical 与列清单；不动 QT-42 仓内的规则算法与快照端点；不新增 per-run 远程读规则正文（逐 bar / 逐笔裁决仍进程内，硬否决）；不做 QT-44 的对外 provenance 端点。
 - **⑤ 验收**：真 PG 集成腿——同一 run 经 `quant.run_provenance` 读回的 `risk_rules_hash` 非空，且等于 risk 仓对同一规则快照算出的值；改规则快照后新 run 的该列变化；取 hash 失败路径按 ADR 口径表现（`failed` 或可查询的 `unavailable`），日志点名原因；生产代码 `grep 'RiskRulesHash: ""'` 零命中。
 - **⑥ 边界**：只做 core 侧「取 hash + 写入」；规则版本算法、快照内容寻址与端点归 `tellurion-risk`（QT-42）；对外查询面归 QT-44。
+
+---
+
+### QT-67 · 日历 / 上市窗口只读端点（D24 第 7 类动作）[P1] ✅（2026-10-24）
+
+- **① 目标**：给 agent 一条粗粒度只读通道取 `TradingCalendar` / `ListingWindow`，让 agent 侧最后一处 `tellurion/pkg/storage` 生产 import 可以删掉（QT-17 ③ 的前置）。
+- **② 上下文（2026-10-24 实测）**：agent `handlers_explore.go` 仍 import core 的 `pkg/storage` 读这两类数据；D24 原六类粗粒度动作里没有它们，`tellurion:docs/design/qt-decoupling/project-engineering-file.md:395` 把这条登记为「D24 清单缺一类动作」。**2026-10-24 用户确认补为第 7 类**。
+- **③ 要求**：① 在 `docs/openapi.yaml` 定义只读端点（日历按区间查、上市窗口按标的查），DTO 走 `oapi-codegen` 生成，禁手改；② 实现落 `cmd/analysis` 的 handler + core 领域查询，**只读**，不写任何表；③ 复用既有 JWT + RBAC，本地 insecure 模式仍 loopback-only + fail-closed；④ 限流与错误码随 endpoint 成文；⑤ 护栏：agent 侧删 import 后，`internal/repoguard/storage_import_test.go` 白名单同步收窄（QT-17 ④ 的交接件）。
+- **④ 约束与非目标**：不把日历/上市窗口数据搬出 core（不归 data 服务）；不做 per-symbol 逐 bar 查询；不改 D24 其余六类动作的语义；不在本单删 agent 的 `replace`（那是 QT-07 ⑥）。
+- **⑤ 验收**：agent 用该端点取到与本地 `pkg/storage` 读到的同一份日历/窗口数据（对拍）；生产代码 `grep "tellurion/pkg/storage"` 在 agent 侧归零；端点鉴权缺失时 401/403 而非 200；`docs/openapi.yaml` 与路由表双向对拍绿。
+- **⑥ 边界**：core 侧只出端点与 DTO；agent 侧消费与删 import 归 QT-17 ③；删 `replace` 归 QT-07 ⑥。
+
+> **✅ 完成记录（2026-10-24，本仓侧）**
+>
+> **① 前提复核**：成立。agent 侧生产代码只剩一处 core `pkg/storage` import：
+> `tellurion-agent:cmd/ai/handlers_explore.go:22`，且是**类型用途**
+> （`map[string]storage.ListingWindow`，数据来自 `engine.ListingWindows()`）。
+> 但工单 ③-⑤ 写的 `internal/repoguard/storage_import_test.go` **不在本仓** ——
+> 它在 agent 仓（`tellurion-agent:internal/repoguard/storage_import_test.go`，
+> 白名单里正好是这一条）。故「白名单收窄」与「删 import」都是 agent 侧动作。
+>
+> **② 落地**：
+> - `cmd/analysis/handlers_reference_data.go`：两条只读端点
+>   `GET /api/v1/trading-calendar`（区间；返回全部日历行，含休市日）与
+>   `POST /api/v1/listing-windows`（整批 symbol，省略 = 全量）。
+>   上市窗口用 POST 只因参数是集合（同 bulk OHLCV），**不是** per-symbol 端点。
+> - 只读：复用 `pkg/storage` 的 `GetTradingCalendar` / `GetListingWindows`，
+>   不写任何表；存储未装配（`Store == nil` 或 pool nil）⇒ **503 fail-closed**，
+>   不返回空集合冒充「没有数据」。
+> - 鉴权：全局 `auth.Middleware` 覆盖（无 token 401）；`POST /api/v1/listing-windows`
+>   进 `route_policy.go` 的 `readonly-post`（纯读，viewer 可读）；GET 天然已认证。
+>   限流沿用服务全局闸（超限 429），错误码逐条写进 openapi。
+> - 契约：`docs/openapi.yaml` 加两条 path + 5 个 schema + `Reference` tag；
+>   `cmd/analysis/agent_actions.go` 加第 7 类的两条动作
+>   （`query_trading_calendar` / `query_listing_windows`），`coarseActionCount`
+>   6 → 8（七类、第 7 类落两条端点 —— 类数 ≠ 条目数）。
+>
+> **③ 与工单 ③-① 的偏差（如实）**：要求「DTO 走 `oapi-codegen` 生成，禁手改」，
+> 但本仓**没有** oapi-codegen 依赖/配置，contracts 也**没有 `dto` 包**
+> （QT-50 记录里的 **G0D-C5**；今日 contracts 最新 v0.5.0 仍无）。
+> 本单没有手写/伪造「生成物」：wire DTO 是 handler 内的普通 Go 结构，另加
+> `TestReferenceData_WireShapeMatchesSpec` 用反射把 yaml schema 属性集与
+> Go json tag 集**双向**对拍（单向改动当场红）。等 contracts 出 `dto` 包后再切生成物。
+>
+> **④ 验收实跑**（本机 Windows / Go 1.25.0；`go` 不在 PATH）：
+> - `go build ./...` EXIT=0；`go vet ./...` EXIT=0；`gofmt -l .` 空；
+> - `go test ./... -count=1` EXIT=0（含 `internal/repoguard`）。首跑时 AUD-62
+>   日历安检把新测试的 `time.Date(2026…)` 夹具判红，已改为
+>   `parseDate("1990-01-02")` 的隔离纪元素材 —— 护栏按设计生效，不是绕过；
+> - 定向：`go test ./cmd/analysis -run 'TestReferenceData|TestAgentCoarseActions|TestRouteContract|TestRoutePolicy' -count=1` EXIT=0。
+>
+> **⑤ 破坏验证四腿**（每腿 `sha256sum` 基线 → 改坏 → 真退出码 → 逐字节还原 → `sha256sum -c` OK）：
+> 1. 响应结构体 `json:"trade_date"` → `tradeDate` ⇒ `TestReferenceData_WireShapeMatchesSpec` **EXIT=1**（属性集差异点名）；
+> 2. 删 `route_policy.go` 的 `POST /api/v1/listing-windows` ⇒ `TestRoutePolicy_CoversEveryMutatingRoute` **EXIT=1**（点名缺失端点）；
+> 3. 删 openapi 的 `/api/v1/trading-calendar` path ⇒ `TestRouteContract_CodeToSpec` **EXIT=1**（`GET /api/v1/trading-calendar` 未登记），wire 测试同红；
+> 4. 日历日期格式 `2006-01-02` → `time.RFC3339` ⇒ `TestReferenceData_Calendar_ReturnsEntries` **EXIT=1**（`1990-01-02` vs `1990-01-02T00:00:00Z`）。
+> 四腿还原后均 EXIT=0。
+>
+> **⑥ 未落（跨仓，如实，不计作本单完成的部分）**：
+> 1. **agent 侧消费 + 删 import**（`handlers_explore.go` 改调本端点、删
+>    `tellurion/pkg/storage`）归 **QT-17 ③**；agent 仓的
+>    `internal/repoguard/storage_import_test.go` 白名单收窄随那次一起做。
+>    在 core 仓提前收窄没有意义（文件不在这里），且会让 agent 的护栏在
+>    「还没删 import」时假红。
+> 2. **`oapi-codegen` 生成物**（G0D-C5，同上 ③）。
+> 3. **跨仓对拍**（agent 用端点取到与本地 `pkg/storage` 同一份数据）要等
+>    agent 侧接线；本仓侧证据是「handler 直接委托同一个 storage 方法、仅做
+>    日期格式化与稳定排序」，变换本身由单测钉住。
+> 4. 未起真库：两条端点的存储腿沿用 `pkg/storage` 既有集成测试；本单单元
+>    测试用 fake store（与 factor registration 同款）。
+>
+> **⑦ 文档同步**：`docs/SPEC.md` 加「Reference Data (QT-67)」端点块 +
+> 粗粒度动作表补两行（六类 → 七类）+ `readonly-post` 档补一条 +
+> route_policy 条数按实测改 77；`docs/openapi.yaml` 加 path/schema/tag。
 
 ---
 
