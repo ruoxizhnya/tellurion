@@ -1355,7 +1355,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **① 目标**：walk-forward 能收 run 级策略参数覆写，且与同步 `/api/backtest` 共用 QT-20 的两层校验；非法参数 400 点名。
 - **② 上下文**：`tellurion-agent:docs/s3-decoupling-plan.md` §5 #1（S3-c-3 卡点）：`/api/backtest` 的绑定结构已嵌入 `contracts.BacktestRequest`（运行时能收 `strategy_ref` / `strategy_params`，只是 openapi 未登记），但 `walkforward.WalkForwardRequest` 是 core 自有类型、只有策略名。agent 删 `replace` 后不能再用进程内引擎，只能提交 HTTP 请求。
 - **③ 要求**：① `WalkForwardRequest` 加 `strategy_params`；② 两层校验复用 QT-20：形状走 `contracts.ValidateRunSpec`，语义（未知键 / 类型 / 范围）走 `backtest.ResolveStrategyParams`，都在启动窗口之前 ⇒ 400 点名；③ 每个窗口的 train / test 两段原样带上同一份 map；④ openapi 为 `/api/backtest` 补登 `strategy_ref` / `strategy_params`（模板 = `contracts/engine.BacktestRequest`），为 `/api/walkforward` 补登 `strategy_params`；⑤ **不改 contracts**。
-- **④ 约束与非目标**：不复制引擎的参数合并逻辑（生效值仍由 `RunBacktest` 入口解析）；不改「单窗口失败 = 跳过」的语义（它是稳健性概览的一部分）；不做参数扫描器（属编排）；本轮**不**新增 `x-agent-coarse-action` —— D24 动作条目数固定 8，新增一条要单独裁决并改 `coarseActionCount`，不夹带在参数面里。
+- **④ 约束与非目标**：不复制引擎的参数合并逻辑（生效值仍由 `RunBacktest` 入口解析）；不改「单窗口失败 = 跳过」的语义（它是稳健性概览的一部分）；不做参数扫描器（属编排）；**本单本身不改** D24 动作表 —— `submit_walkforward` 的登记属**裁-12**（2026-10-25 确认，与本批同次落盘），不混在参数面的口径里。
 - **⑤ 验收**：窗口内实际发出的 train/test 请求与内联调用者同参同日期的请求逐字段相等；未知键 / 类型 / 范围 / 嵌套一律 400 且点名；`docs/openapi.yaml` 与路由表双向对拍绿。
 - **⑥ 边界**：core 侧只补参数面与文档；agent 侧消费与删装配归 S3-c-3（agent 仓）。
 
@@ -1373,7 +1373,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **破坏验证**：把 `trainReq` 的 `StrategyParams: req.StrategyParams` 改成 `nil`（丢弃透传）⇒ 透传用例 `EXIT=1`（`expected ... StrategyParams ... actual <nil>`）；逐字节还原（`sha256sum -c` OK）后 `EXIT=0`。
 >
 > **如实登记（未做）**
-> 1. `x-agent-coarse-action: run_walkforward` **未加**：D24 动作条目数固定 8（`coarseActionCount`），新增要单独裁决并改断言；本轮派工只要求参数面。agent S3-c-3 若要求粗粒度动作登记，需另立一笔。
+> 1. 参数面**本身不新增**粗粒度动作：`POST /api/walkforward` 的 `x-agent-coarse-action: submit_walkforward` 是**裁-12**（D24 第 8 类）的独立裁决，与本批同次落盘（`coarseActionCount` 8 → 10）；两者不要互相引用成前提。
 > 2. openapi 的 `strategy_ref` / `strategy_params` 是**文档补登**：运行时早已由 `contracts.BacktestRequest` 收下，本单没有改绑定代码。
 > 3. 未起真库：walkforward 的窗口取数依赖 `*storage.PostgresStore`，本单的透传与校验腿全部在纯函数/HTTP 层取证；日历与窗口聚合逻辑不在本单改动范围内。
 
@@ -1409,7 +1409,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **如实登记（未做 / 偏差）**
 > 1. **没有 oapi-codegen 生成物**：与 QT-67 同因 —— 本仓无该依赖、contracts 无 `dto` 包（G0D-C5）；wire DTO 是 handler 内普通结构，靠 openapi 双向对拍与测试钉住形状。
 > 2. **agent 侧消费未做**：改调两条端点、删 `pkg/expression` import 与 `replace` 归 S3-c-4 / S3-d（agent 仓）。
-> 3. **D24 粗粒度动作未新增**：目录/校验不是行情或回测动作，`coarseActionCount` 保持 8。
+> 3. **D24 粗粒度动作**：本单不改动作表；表达式目录/校验是元数据，不是行情或回测动作（`coarseActionCount` 的 8 → 10 归裁-12 的第 8 类，与本单无关）。
 > 4. `thresholds` 的 0 哨兵语义是从注册表注释搬来的**约定说明**，不是新增的调用期校验；参数化的真实 lookback/warmup 由实参推导（`selfLookback` / `selfWarmup`），目录没有替调用方实例化。
 
 ### QT-70 · `POST /api/risk/detect_regime` 粗粒度形状（symbol + 日期区间）[P2] ✅（2026-10-24）
