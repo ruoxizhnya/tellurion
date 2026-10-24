@@ -101,6 +101,12 @@ type OnBarSession struct {
 	mu         sync.Mutex
 	terminated bool
 	termErr    error
+
+	// QT-26：v2 artifact 自己声明的宿主区（params / scratch）。
+	// v1 走 legacy 布局（params@0 / scratch@4096），hasHostRegion=false。
+	family        contracts.HostAbiVersion
+	hostDecl      contracts.HostRegionDeclaration
+	hasHostRegion bool
 }
 
 // NewOnBarSession compiles wasmBytes and instantiates an on_bar-protocol session.
@@ -164,6 +170,20 @@ func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes [
 		// artifact 校验失败（宿主区声明缺失等）⇒ StrategyFault（QT-10 ③-②）。
 		return nil, classifyExecutionError(contracts.ErrStrategyFault, err)
 	}
+	// QT-26：v2 的 params/scratch 写点必须用模块自己声明的地址，不能假设
+	// 「0 / 4096」这两个 legacy 常量。ValidateLoadedArtifact 已经读过一次；
+	// 这里再读一次是为了把声明留在会话上供 Initialize 与 provider 使用
+	// （ReadHostRegion 是纯自省，无副作用）。
+	var hostDecl contracts.HostRegionDeclaration
+	hasHostRegion := false
+	if family == contracts.HostAbiV2 {
+		decl, derr := ReadHostRegion(inst.(*wazeroInstance))
+		if derr != nil {
+			_ = inst.Close()
+			return nil, classifyExecutionError(contracts.ErrStrategyFault, derr)
+		}
+		hostDecl, hasHostRegion = decl, true
+	}
 	for _, d := range diagnostics {
 		s.log.Warn().Str("abi_diagnostic", d).Str("abi_version", family.String()).
 			Msg("wasm artifact uses the legacy host memory layout (params at offset 0, scratch at 4096) — " +
@@ -176,7 +196,25 @@ func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes [
 	// run 级 deadline 派生自请求 ctx（C1：deadline 来自请求 ctx，默认 10min）。
 	// 调用方取消 ctx 同样会把模块关闭——那也是一次终止，不是普通错误。
 	runCtx, runCancel := context.WithTimeout(ctx, deadline)
-	return &OnBarSession{inst: inst, sandbox: s, budget: budget, runCtx: runCtx, runCancel: runCancel}, nil
+	return &OnBarSession{
+		inst:          inst,
+		sandbox:       s,
+		budget:        budget,
+		runCtx:        runCtx,
+		runCancel:     runCancel,
+		family:        family,
+		hostDecl:      hostDecl,
+		hasHostRegion: hasHostRegion,
+	}, nil
+}
+
+// Family 返回 artifact 自证的协议族（QT-26：provider 用它交叉校验声明的
+// abi_version，且必须在 Initialize 之前）。
+func (sp *OnBarSession) Family() contracts.HostAbiVersion { return sp.family }
+
+// HostRegion 返回 v2 artifact 声明的宿主区；v1 返回 ok=false（legacy 布局）。
+func (sp *OnBarSession) HostRegion() (contracts.HostRegionDeclaration, bool) {
+	return sp.hostDecl, sp.hasHostRegion
 }
 
 // checkAlive 在每次协议调用前守门：terminated 会话禁止任何调用（QT-15 ③）。
@@ -240,16 +278,24 @@ func (sp *OnBarSession) guardedCall(ctx context.Context, invoke func(context.Con
 // 给策略一份残缺 JSON，表现是「参数没生效」这种最难查的静默错；而旧实现里
 // params > 4096 还会被后续 state 写入直接盖住尾巴（A6 点名的病）。
 //
-// 写入地址目前仍是 legacy 的绝对偏移 0；abi v2 应按模块声明的
-// __host_params_ptr 写并用 contracts.ValidateParamsWrite 复核可用区间，
-// 那一步属 QT-26。上限本身与地址无关，所以现在就能生效。
+// 写入地址：v2 按模块声明的 __host_params_ptr；v1 仍是 legacy 的绝对偏移 0。
+// v2 还要用 contracts.ValidateParamsWrite 复核「不越上限、不塞进 scratch」——
+// 地址与长度是两件事，少了这一步等于只防了一半。
+// 上限本身与地址无关，所以 v1 也照样生效。
 func (sp *OnBarSession) Initialize(ctx context.Context, params []byte) error {
 	if len(params) > contracts.MaxParamsBytes {
 		// 参数超限是跨边界的约定被违反（A6）⇒ ContractBreach，不是策略跑坏。
 		return classifyExecutionError(contracts.ErrContractBreach, fmt.Errorf("%w: params is %d bytes > MaxParamsBytes=%d (rejected, not truncated)",
 			contracts.ErrParamsTooLarge, len(params), contracts.MaxParamsBytes))
 	}
-	if err := sp.inst.WriteMemory(0, params); err != nil {
+	offset := uint32(0)
+	if sp.hasHostRegion {
+		if err := contracts.ValidateParamsWrite(len(params), sp.hostDecl); err != nil {
+			return classifyExecutionError(contracts.ErrContractBreach, err)
+		}
+		offset = sp.hostDecl.ParamsPtr
+	}
+	if err := sp.inst.WriteMemory(offset, params); err != nil {
 		return fmt.Errorf("write params: %w", err)
 	}
 	return sp.guardedCall(ctx, func(c context.Context) error {

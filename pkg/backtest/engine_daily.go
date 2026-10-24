@@ -443,7 +443,12 @@ func (e *Engine) processSignalsAndExecuteTrades(
 		}
 
 		positionSize, hasSize := positionSizes[signal.Symbol]
-		if !hasSize || positionSize.Size <= 0 {
+		if !hasSize {
+			positionSize = domain.PositionSize{}
+		}
+		// QT-26：emit_target2 的信号按目标权重算手数，policy cap 优先。
+		positionSize = e.applyTargetWeightSizing(positionSize, signal, portfolio, pricesCache[signal.Symbol], fillDiag)
+		if positionSize.Size <= 0 {
 			continue
 		}
 
@@ -517,7 +522,12 @@ func (e *Engine) processSignalsFallback(
 		portfolio := state.Tracker.GetPortfolio(pricesCache)
 		currentPrice := pricesCache[signal.Symbol]
 		positionSize, err := e.calculatePosition(ctx, rc, signal, portfolio, regime, currentPrice)
-		if err != nil || positionSize.Size <= 0 {
+		if err != nil {
+			continue
+		}
+		// QT-26：目标权重信号先在 policy 上限内落到目标手数。
+		positionSize = e.applyTargetWeightSizing(positionSize, signal, portfolio, currentPrice, fillDiag)
+		if positionSize.Size <= 0 {
 			continue
 		}
 		targetQty := positionSize.Size

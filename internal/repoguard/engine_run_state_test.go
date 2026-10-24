@@ -85,6 +85,8 @@ var engineFieldWhitelist = []string{
 	"stateStore", "riskManager", "dataAdapter", "store", "adjStore",
 	"provWriter", "provenanceOff", "liveBridge", "executionBridge", "rng",
 	"signalObserver", "signalProvider", "router", "parallelWorkers",
+	// QT-26：WASM 制品映射是装配期只读配置（不是 run 私有可变态）。
+	"wasmArtifacts",
 	// 种子（run 各拷一份）
 	"cache", "factor", "fundamentals", "listing", "intraday",
 	// 进程级

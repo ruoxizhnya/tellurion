@@ -127,7 +127,7 @@ func newRunContext(e *Engine, params domain.BacktestParams) *runContext {
 			rc.cache.Load(snap)
 		}
 	}
-	rc.provider = rc.newSignalProvider()
+	rc.provider = rc.newSignalProvider(params.StrategyName)
 	return rc
 }
 
@@ -390,8 +390,17 @@ func (rc *runContext) intradayFeatureProvider(day time.Time) strategy.IntradayFe
 //
 // 注入自定义 provider 时原样返回那个对象：它的会话由 beginProviderSession
 // 随 run 开关（QT-14），本方法只负责选出对象。
-func (rc *runContext) newSignalProvider() strategy.SignalProvider {
-	if injected := rc.e.signalProvider; injected != nil {
+func (rc *runContext) newSignalProvider(strategyName string) strategy.SignalProvider {
+	// QT-26：显式注入了同名 WASM 制品 ⇒ 走 WASM provider。制品是装配期
+	// 只读配置，命中即选；本地注册表不再参与该 run 的信号生成。
+	rc.e.mu.RLock()
+	artifact, hasArtifact := rc.e.wasmArtifacts[strategyName]
+	injected := rc.e.signalProvider
+	rc.e.mu.RUnlock()
+	if hasArtifact {
+		return newWASMSignalProvider(artifact, rc.e.logger)
+	}
+	if injected != nil {
 		return injected
 	}
 	p := strategy.NewLocalSignalProvider(nil)
@@ -415,7 +424,7 @@ func (rc *runContext) newSignalProvider() strategy.SignalProvider {
 // 返回的收尾函数把 EndRun 的错误原样上交：End 失败 = finalize/Close 没做成，
 // 结果不可信 —— 调用方（runBacktestInternal）在本 run 尚无更早错误时把它
 // 接管为 run 失败。
-func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestState) (func() error, error) {
+func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestState, axis []time.Time) (func() error, error) {
 	p := rc.provider
 	meta := strategy.RunMeta{
 		RunID:    state.ID,
@@ -423,10 +432,13 @@ func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestS
 		// QT-20：生效参数（默认 ⊕ 覆写）随 run 身份一次性交给 provider。
 		// 这是**本 run 私有**的 map：state 由 RunBacktest 每笔新建，并发 run
 		// 各持一份，provider 拿到的是自己的那份而不是共享引用。
-		Params:   state.Params.Params,
-		Start:    state.Params.StartDate,
-		End:      state.Params.EndDate,
-		Universe: state.Params.StockPool,
+		Params: state.Params.Params,
+		Start:  state.Params.StartDate,
+		End:    state.Params.EndDate,
+		// QT-23/QT-26：WASM 的 symbol_idx 只能由 RunUniverse 派生。
+		Universe:    state.Params.StockPool,
+		RunUniverse: rc.stableUniverse(state.Params.StockPool),
+		Axis:        axis,
 	}
 	if lc, ok := p.(strategy.SessionLifecycle); ok {
 		if err := lc.BeginRun(ctx, meta); err != nil {

@@ -45,6 +45,12 @@ type fillRunDiag struct {
 	// 合并本身是正确行为（QT-04 结论），但要可见 —— 「今天少了两条意图」
 	// 不能只存在于策略作者的脑子里。
 	duplicateSignalsMerged int
+
+	// QT-26：emit_target2 的目标权重 sizing 诊断。
+	//   - sizingByTarget：走目标权重路径的信号数；
+	//   - sizingClamped：目标手数被 RiskPolicy cap 截断的次数（§8.2）。
+	sizingByTarget int
+	sizingClamped  int
 }
 
 func newFillRunDiag() *fillRunDiag {
@@ -99,10 +105,22 @@ func (d *fillRunDiag) recordDuplicateSignalsMerged(n int) {
 	d.duplicateSignalsMerged += n
 }
 
+// recordTargetSizing 记一次 emit_target2 的 sizing；clamped=true 表示
+// 目标手数被 policy cap 截断（QT-26）。
+func (d *fillRunDiag) recordTargetSizing(clamped bool) {
+	if d == nil {
+		return
+	}
+	d.sizingByTarget++
+	if clamped {
+		d.sizingClamped++
+	}
+}
+
 // logSummary 在回测收尾时打一行汇总（无拦截则不打扰日志）。
 func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
 	if d == nil || (d.suspendedTotal == 0 && d.truncations == 0 && d.noOpenPriceSkips == 0 &&
-		d.pendingAtRunEnd == 0 && d.duplicateSignalsMerged == 0) {
+		d.pendingAtRunEnd == 0 && d.duplicateSignalsMerged == 0 && d.sizingByTarget == 0) {
 		return
 	}
 	logger.Info().
@@ -113,8 +131,10 @@ func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
 		Int("next_open_no_fill_price", d.noOpenPriceSkips).
 		Int("next_open_unfilled_at_run_end", d.pendingAtRunEnd).
 		Int("duplicate_signals_merged", d.duplicateSignalsMerged).
+		Int("sizing_source_emit_target2", d.sizingByTarget).
+		Int("sizing_clamped_total", d.sizingClamped).
 		Str("first_truncation", d.truncSample).
-		Msg("Fill realism (REV-09 / QT-02 / QT-21): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor, next_open rejects recorded, duplicate signals merged")
+		Msg("Fill realism (REV-09 / QT-02 / QT-21 / QT-26): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor, next_open rejects recorded, duplicate signals merged, emit_target2 sizing clamped by policy")
 }
 
 // liquidityFactor 返回配置的流动性系数：

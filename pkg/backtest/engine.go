@@ -224,9 +224,15 @@ type Engine struct {
 	admission *runAdmission
 
 	// wasmBytesAccounting 上报 wasm 会话占用的线性内存字节
-	// （QT-12 ⑤ 的 backtest_wasm_bytes 生产者）。nil = 今天仓内的真实形态
-	// （没有 wasm 信号供给，接线是 QT-26），指标报 0 而不是不报。
+	// （QT-12 ⑤ 的 backtest_wasm_bytes 生产者）。nil = 装配方没有注入取数
+	// 闭包；QT-26 起 WASM SignalProvider 已接线，但按 run 的字节聚合仍由
+	// 装配方决定（WithWasmMemoryAccounting）。
 	wasmBytesAccounting func() int64
+
+	// wasmArtifacts 是策略名 → WASM 制品的装配期映射（QT-26）。
+	// 只读；nil = 本进程没有手工/资产服务取回的制品，所有策略走本地注册表。
+	// 经 WithWASMArtifacts 注入；runContext 在 newSignalProvider 里按名字选。
+	wasmArtifacts map[string]WASMArtifact
 }
 
 // BacktestState is defined in state.go (P1-20) with internal locking
@@ -964,19 +970,8 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// 把它写在 if 里面，等于「闸关着的时候 run 的缓存账永远留在看板上」。
 	defer rc.close()
 
-	// QT-14：provider 会话随 run 创建与销毁 —— 拿到 backtestID（state.ID）
-	// 之后、任何取信号之前 BeginRun，收尾挂 defer（错误路径同样走到）。
-	// 顺序 run 也走 Begin/End，不做「复用会话」优化（A1 规则 5）。
-	endSession, err := rc.beginProviderSession(ctx, state)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if serr := endSession(); serr != nil && runErr == nil {
-			runErr = apperrors.Wrap(serr, apperrors.ErrCodeInternal,
-				"provider EndRun failed — 会话收尾（finalize/Close）没做成，本 run 的结果不可信（QT-14 fail-closed）", "runBacktestInternal")
-		}
-	}()
+	// QT-14：provider 会话的 Begin/End 在 RunUniverse 冻结之后（QT-26 的 WASM
+	// provider 需要 Axis + RunUniverse 才能建立 symbol_idx）。收尾 defer 见下。
 
 	if e.admission != nil {
 		lease, err := e.admission.acquire(ctx)
@@ -1067,6 +1062,20 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	logger.Info().
 		Int("run_universe", len(runUniverse)).
 		Msg("RunUniverse frozen — symbol indexing is stable for the whole run (QT-23)")
+
+	// QT-14/QT-26：provider 会话随 run 创建与销毁 —— 此刻 Axis 与 RunUniverse
+	// 都已就位（WASM 的 symbol_idx/T 需要它们），且仍在任何取信号之前。
+	// 顺序 run 也走 Begin/End，不做「复用会话」优化（A1 规则 5）。
+	endSession, err := rc.beginProviderSession(ctx, state, tradingDays)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if serr := endSession(); serr != nil && runErr == nil {
+			runErr = apperrors.Wrap(serr, apperrors.ErrCodeInternal,
+				"provider EndRun failed — 会话收尾（finalize/Close）没做成，本 run 的结果不可信（QT-14 fail-closed）", "runBacktestInternal")
+		}
+	}()
 
 	// QT-63（③-②）：日历与复权锚点都就位后、日循环之前，一次性算出生效输入的
 	// 身份并落库。留痕的是**输入**，所以失败/无效 run 同样落（status 的权威
@@ -1819,12 +1828,14 @@ func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal d
 	rm := e.riskManager
 	e.mu.RUnlock()
 
+	riskSignal := signalForRiskSizing(signal)
+
 	if rm != nil {
 		// P1-16 (ADR-020): read cached snapshot via CacheManager.Peek
 		// (peek-only — no provider fallback; calculatePosition is a
 		// best-effort read of already-warmed data).
 		ohlcv := rc.peekOHLCV(signal.Symbol)
-		pos, err := rm.CalculatePosition(ctx, signal, portfolio, regime, currentPrice, ohlcv)
+		pos, err := rm.CalculatePosition(ctx, riskSignal, portfolio, regime, currentPrice, ohlcv)
 		if err != nil {
 			return domain.PositionSize{}, apperrors.Wrap(err, apperrors.ErrCodeInternal, "in-process position calculation failed", "calculatePosition")
 		}
@@ -1839,7 +1850,7 @@ func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal d
 		Regime       domain.MarketRegime `json:"regime"`
 		CurrentPrice float64             `json:"current_price"`
 	}{
-		Signal:       signal,
+		Signal:       riskSignal,
 		Portfolio:    *portfolio,
 		Regime:       *regime,
 		CurrentPrice: currentPrice,
@@ -1878,7 +1889,11 @@ func (e *Engine) calculatePositionsBatch(
 	e.mu.RUnlock()
 
 	if rm != nil {
-		return rm.CalculatePositionsBatch(ctx, signals, portfolio, regime, pricesCache, marketDataCache)
+		riskSignals := make([]domain.Signal, len(signals))
+		for i, sig := range signals {
+			riskSignals[i] = signalForRiskSizing(sig)
+		}
+		return rm.CalculatePositionsBatch(ctx, riskSignals, portfolio, regime, pricesCache, marketDataCache)
 	}
 
 	results := make(map[string]domain.PositionSize, len(signals))
@@ -1890,6 +1905,84 @@ func (e *Engine) calculatePositionsBatch(
 		results[sig.Symbol] = ps
 	}
 	return results, nil
+}
+
+// targetWeightOf 读 emit_target2 写进 Signal.Metadata 的目标权重（QT-26）。
+func targetWeightOf(sig domain.Signal) (float64, bool) {
+	if sig.Metadata == nil {
+		return 0, false
+	}
+	raw, ok := sig.Metadata[signalMetaTargetWeight]
+	if !ok {
+		return 0, false
+	}
+	w, ok := numericParamValue(raw)
+	return w, ok
+}
+
+// signalForRiskSizing 把「目标权重」信号折成风险层能正确理解的形态。
+//
+// emit_target2 的 weight 本身就是目标仓位；风险层还会把 Strength 当置信度
+// 再乘一次（RiskManager：weight = baseWeight × Strength）。如果原样传
+// Strength=|w|，同一个权重会被折两次，policy cap 变成 0.5%~0.9%，
+// 分层加仓永远加不上去。这里把置信度置满（1.0），让风险层只回答
+// 「policy 允许多大的仓位」，最终手数由 applyTargetWeightSizing 取 min。
+func signalForRiskSizing(sig domain.Signal) domain.Signal {
+	if _, ok := targetWeightOf(sig); !ok {
+		return sig
+	}
+	if sig.Direction != domain.DirectionLong && sig.Direction != domain.DirectionShort {
+		return sig // close 走全平路径，不经目标手数
+	}
+	out := sig
+	out.Strength = 1
+	out.CompositeScore = 1
+	return out
+}
+
+// applyTargetWeightSizing 是 emit_target2 的 sizing 落地（§8.2 / N9）：
+//
+//	qty = floor(|w| × equity / price / lot) × lot
+//
+// **RiskPolicy cap 优先**：最终手数 = min(目标手数, policy 给的上限)；被截断
+// 计入 sizing_clamped_total。没有目标权重的信号原样返回（零行为变化）。
+//
+// 只处理 long/short；close 是全平，不走目标手数（与 computeEffectiveTarget
+// 的 close 口径一致）。
+func (e *Engine) applyTargetWeightSizing(
+	ps domain.PositionSize,
+	sig domain.Signal,
+	portfolio *domain.Portfolio,
+	price float64,
+	diag *fillRunDiag,
+) domain.PositionSize {
+	tw, ok := targetWeightOf(sig)
+	if !ok {
+		return ps
+	}
+	if sig.Direction != domain.DirectionLong && sig.Direction != domain.DirectionShort {
+		return ps
+	}
+
+	out := ps
+	w := math.Abs(tw)
+	if w == 0 || price <= 0 || portfolio == nil || portfolio.TotalValue <= 0 {
+		out.Size = 0
+		diag.recordTargetSizing(false)
+		return out
+	}
+	lot := float64(risk.LotSize)
+	target := math.Floor(w*portfolio.TotalValue/price/lot) * lot
+
+	capQty := ps.Size
+	if capQty < 0 {
+		capQty = 0
+	}
+	final := math.Min(target, capQty)
+	diag.recordTargetSizing(final < target)
+	out.Size = final
+	out.Weight = w
+	return out
 }
 
 // checkStopLosses checks and triggers stop losses using risk service.

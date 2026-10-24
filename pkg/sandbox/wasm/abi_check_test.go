@@ -469,45 +469,6 @@ func (stubInstance) Call(context.Context, string, ...uint64) ([]uint64, error) {
 }
 func (stubInstance) Close() error { return nil }
 
-// ─── pending 函数体：注册了但没接线，调用必须 trap ────────────
-
-// TestPendingV2HostFunctions_Trap 钉住「注册 ≠ 可用」。
-//
-// QT-24 之后 v2 数据面三个已接线，只剩 emit_target2 仍为骨架（QT-26）。
-// 本测试用它证明：契约里有名字、运行时能实例化，但函数体仍 trap ——
-// 任何 v2 artifact 在 QT-26 落地前都不能把目标权重路径当成可用能力。
-func TestPendingV2HostFunctions_Trap(t *testing.T) {
-	ctx := context.Background()
-	m := &wasmModule{
-		types: []wasmFuncType{
-			{params: []byte{valI32, valF64}}, // emit_target2(symbol_idx, weight)
-			{},                               // run()
-		},
-		imports: []wasmImport{{module: HostModuleName, name: contracts.HostFnEmitTarget2, typeIdx: 0}},
-		funcs:   []uint32{1},
-		codes: [][]byte{
-			appendF64Const([]byte{opI32Const, 0x00}, 0.5),
-		},
-	}
-	// 上面的 appendF64Const 把 f64.const 接在 i32.const 之后，再接 call。
-	m.codes[0] = append(m.codes[0], opCall, 0x00, opEnd)
-	m.export = []wasmExport{{name: "run", kind: expKindFunc, idx: m.funcIndexBase()}}
-
-	r := newHostRuntime(t)
-	mod, err := r.Compile(ctx, m.encode())
-	require.NoError(t, err)
-	inst, err := mod.Instantiate(ctx, DefaultMaxMemory)
-	require.NoError(t, err)
-	defer inst.Close()
-
-	bc := bcWithCloses([]float64{1}, 0)
-	bc.Symbols = []string{"A"}
-	_, err = inst.Call(withBarContext(ctx, bc), "run")
-	require.Error(t, err, "emit_target2 函数体没接线，调用必须 trap 而不是静默")
-	assert.Contains(t, err.Error(), contracts.HostFnEmitTarget2)
-	assert.Contains(t, err.Error(), "QT-26")
-}
-
 // ─── params 上限 ────────────────────────────────────────────
 
 // TestInitialize_RejectsParamsOverFrozenLimit 是 A6 的「params 4097 字节 → 拒绝

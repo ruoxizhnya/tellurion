@@ -83,6 +83,11 @@ type BarContext struct {
 	// 发 long/short 会 trap（A5/§2.2-14：禁止用最后已知价开新仓）。
 	inFinalize bool
 
+	// ScratchPtr / ScratchSize 是 v2 artifact 声明的 state 返回 scratch
+	// （QT-26）。0 表示 legacy 布局（固定 4096）。
+	ScratchPtr  uint32
+	ScratchSize uint32
+
 	// ─── 延迟索引（QT-24 ④：不做每次二分）───────────────────────────
 	axisDays []int32
 	barDays  [][]int32
@@ -418,10 +423,20 @@ func hostGetState(ctx context.Context, m api.Module, keyPtr, keyLen uint32) uint
 	if !exists {
 		return PackPtrLen(0, 0)
 	}
-	if !m.Memory().Write(4096, val) {
+	if len(val) > contracts.MaxStateValueBytes {
+		panic(fmt.Sprintf("wasm: state value %d bytes > MaxStateValueBytes=%d", len(val), contracts.MaxStateValueBytes))
+	}
+	dest := bc.ScratchPtr
+	if dest == 0 {
+		dest = 4096 // v1 legacy 布局
+	}
+	if bc.ScratchSize > 0 && uint32(len(val)) > bc.ScratchSize {
+		panic(fmt.Sprintf("wasm: state value %d bytes > declared scratch %d", len(val), bc.ScratchSize))
+	}
+	if !m.Memory().Write(dest, val) {
 		panic("wasm: get_state write out of range")
 	}
-	return PackPtrLen(4096, uint32(len(val)))
+	return PackPtrLen(dest, uint32(len(val)))
 }
 
 // hostSetState 实现 set_state(key_ptr, key_len, val_ptr, val_len) → void。
@@ -562,4 +577,30 @@ func hostGetDate2(ctx context.Context) int32 {
 		panic(fmt.Sprintf("wasm: %s called outside the replay axis (T=%d)", contracts.HostFnGetDate2, bc.T))
 	}
 	return dayKey(date)
+}
+
+// hostEmitTarget2 实现 emit_target2(symbol_idx i32, weight f64) → void。
+//
+// weight 语义冻结（§8.2）：-1 = 不动、0 = 清仓、正数 = 目标多头权重 ∈ (0,1]。
+// 非 finite / 越界 → trap。finalize 期间只允许 0（清仓）与 -1（不动）：
+// 用最后已知价开新仓是前视/自欺，trap 掉。
+//
+// 与 emit_signal 同 bar 同 symbol 混用 → trap（两套 sizing 不许打架）。
+func hostEmitTarget2(ctx context.Context, symbolIdx int32, weight float64) {
+	bc := barContextFrom(ctx)
+	if bc == nil {
+		trapNoContext(contracts.HostFnEmitTarget2)
+	}
+	if err := contracts.ValidateTargetWeight(weight); err != nil {
+		panic("wasm: " + err.Error())
+	}
+	if bc.inFinalize && weight != 0 && weight != -1 {
+		panic(fmt.Sprintf("wasm: emit_target2 weight=%v is not allowed during finalize (only 0=clear / -1=hold; §2.2-14)", weight))
+	}
+	bc.beginEmission(symbolIdx, contracts.EmitSourceTarget)
+	if bc.SuppressSignals {
+		bc.SuppressedSignals++
+		return
+	}
+	bc.Targets = append(bc.Targets, EmittedTarget{SymbolIdx: symbolIdx, Weight: weight})
 }

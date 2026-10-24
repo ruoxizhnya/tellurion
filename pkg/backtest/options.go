@@ -205,6 +205,29 @@ func WithStateStoreCapacity(capacity int) EngineOption {
 	}
 }
 
+// WithWASMArtifacts 注入 WASM 策略制品（QT-26）。制品按策略名匹配：
+// 命中该名字的 run 走 wasmSignalProvider（从 artifact 加载 → 逐 bar →
+// 信号），其余策略仍走本地注册表。传空表 = 关闭（默认）。
+//
+// 为什么是「装配期 map」而不是运行时加载器：今天是手工 artifact 验收
+// （无需编译服务），内循环零网络；资产服务的 Resolve/Fetch 门（QT-41）
+// 落地后由装配方预取成同一张表。
+func WithWASMArtifacts(artifacts ...WASMArtifact) EngineOption {
+	return func(e *Engine) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.wasmArtifacts == nil {
+			e.wasmArtifacts = make(map[string]WASMArtifact, len(artifacts))
+		}
+		for _, a := range artifacts {
+			if a.Name == "" {
+				continue
+			}
+			e.wasmArtifacts[a.Name] = a
+		}
+	}
+}
+
 // ─── 资源准入（QT-12 ④⑤）─────────────────────────────────────────────
 //
 // 这一族选项改的是**准入闸**，不是引擎行为：闸只决定「这笔现在能不能开工、

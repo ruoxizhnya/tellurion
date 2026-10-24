@@ -68,6 +68,12 @@ type RunMeta struct {
 	Start, End time.Time
 	// Universe 是本 run 的标的池。
 	Universe []string
+	// RunUniverse 是 run 级稳定票池（QT-23/QT-26）：WASM 的 symbol_idx
+	// **只能**由它派生，不能由每日 MarketData 的 keys 派生。
+	RunUniverse []string
+	// Axis 是本 run 的交易日轴（Engine.getTradingDays 的返回值）。
+	// market scope 的 T 就是它的下标；provider 不得自行由数据日期合成。
+	Axis []time.Time
 }
 
 // SessionLifecycle 是有状态 provider 必须实现的生命周期契约（QT-14）。

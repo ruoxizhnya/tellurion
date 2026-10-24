@@ -44,7 +44,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W2 | QT-23 ✅ | `RunUniverse`（run 级稳定） | P0 | **已完成（2026-10-24）**；`Scope` 拆 `RunUniverse`（索引来源，run 前一次算完）+ `Universe`（当日可交易）；`RunUniverse` 进 dataset/run_spec hash；停牌/调出只减当日名单、不重排索引 |
 | W2 | QT-24 ✅ | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | **已完成（2026-10-24）**；`BarContext` 改 `{T, Axis, Symbols, Bars, State, Signals}`，`get_bar2` 五字段/停牌 NaN/`get_series_len2` 可见长度/`get_date2` 接线；finalize 的 close 留 `bc.Signals`、long/short trap |
 | W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
-| W2 | QT-26 | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | 依赖 QT-01/QT-24 |
+| W2 | QT-26 ✅ | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | **已完成（2026-10-24）**；`pkg/backtest` 的 `wasmSignalProvider` 走五道门 → 逐 bar → `emit_signal`/`emit_target2` → 成交；`pkg/sandbox/wasm` 已从 repoguard 未接线白名单移出 |
 | **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
 | W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30 |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
@@ -750,7 +750,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：5000 标的跑完不超预算；预算调到很小仍跑完；跨批恢复与单批结果逐位一致；每分片状态行唯一（QT-16）。
 - **⑥ 边界**：只做分片调度与预算；单实例内存上限仍由 runtime 管。
 
-### QT-26 · WASM `SignalProvider` 接线 + `EmittedSignal` 转换 [P0] ⬜
+### QT-26 · WASM `SignalProvider` 接线 + `EmittedSignal` 转换 [P0] ✅
 
 - **① 目标**：一条真实回测能从 artifact 加载 → 逐 bar 执行 → 产出信号 → 成交，且 `emit_target2` 的 sizing 与 policy cap 正确。
 - **② 上下文**：`implementation-plan-mvp.md` G2/G3；`pkg/sandbox/wasm` 整包仍在 repoguard 未接线白名单。
@@ -758,6 +758,34 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：内循环零网络（resolve/fetch 只在 run 前一次）；不实现编译服务（**QT-41b**，其归属已于 2026-10-21 D 裁决落 `tellurion-strategy:cmd/compiler`）；不绕过 `ValidateImports`。
 - **⑤ 验收**：手工 artifact（无需服务）能跑通一次真实回测；分层加仓在 Go/WASM 下逐位一致；混用 `emit_signal`/`emit_target2` 被 trap。
 - **⑥ 边界**：只做接线与转换；M0 的验收是 QT-30。
+
+> **✅ 完成记录（2026-10-24，G1/core 续）**
+>
+> **落点与行为**
+> - 新增 [`pkg/backtest/wasm_signal_provider.go`](../pkg/backtest/wasm_signal_provider.go)：`WASMArtifact{Name, Bytes, ABI, Scope}` + `wasmSignalProvider`（`SignalProvider` / `Stateful` / `SessionLifecycle`）。`BeginRun` 依次过 `Compile`（import 白名单）→ `ValidateArtifactAbi`（声明的 `abi_version` 与 import 区自证族交叉校验）→ `ResolveScope`（只接受 `market`）→ `BudgetForScope` → `NewOnBarSessionWithBudget` → `Initialize(params)`；params 写模块声明的 `__host_params_ptr`。
+> - 数据面按 QT-24：`BarContext{Axis, Symbols=RunUniverse, Bars, State, Scratch}`，`T` = `Axis` 下标，`Bars[sym]` 直接引用引擎当日累积切片；停牌缺 symbol 时保留上一份，`get_bar2` 查不到日期返回 NaN，索引不重排。最后交易日 `on_bar` 后调用 `Finalize`，finalize 信号并入最后一日批次（在期末强平之前）。
+> - `convertWASEmission`：`emit_signal` Action→Direction（hold 跳过、Strength 原样）；`emit_target2` −1 跳过、0=close、>0 long、<0 short，`Metadata` 带 `target_weight` 与 `sizing_source=emit_target2`（键在 core 侧定义，不进 contracts）。
+> - [`pkg/backtest/engine.go`](../pkg/backtest/engine.go)：`Engine.wasmArtifacts` + `WithWASMArtifacts`；`runContext.newSignalProvider` 按策略名命中即走 WASM provider（未命中行为不变）。`applyTargetWeightSizing` 落 §8.2：`qty = floor(|w|×equity/price/lot)×lot`，最终 `min(目标手数, policy cap)`，截断计 `sizing_clamped_total`；`signalForRiskSizing` 把目标权重信号的 Strength/CompositeScore 置 1，避免风险层把权重折两次（`RiskManager` 的 `weight = baseWeight × Strength`）。
+> - [`pkg/backtest/engine_daily.go`](../pkg/backtest/engine_daily.go)：batch 与 fallback 两条路径都在 policy 结果上叠加目标手数（close 不走该路径）。
+> - [`pkg/sandbox/wasm/host_api.go`](../pkg/sandbox/wasm/host_api.go)：`hostEmitTarget2` 接线（weight 校验、finalize 只允许 0/−1、`SuppressSignals` 压制计数、混用 trap）；删除 `host_api_v2_pending.go` 的 trap 骨架。
+> - [`internal/repoguard/package_wiring_test.go`](../internal/repoguard/package_wiring_test.go)：`tellurion/pkg/sandbox/wasm` 从 `unwiredPackages` 移出（生产导入者已存在）。
+>
+> **验收证据**
+> - `TestWASMProvider_RealBacktestFromArtifactMatchesGo`：手工 v2 market artifact 跑真实回测；Go 实现与 WASM 实现的分层加仓（t=5 目标 5%、t=8 加到 9%）成交日期/方向/数量/价格与逐日净值**逐位一致**（两笔买入 + 期末强平）；日志含 `sizing_source_emit_target2=7`、`sizing_clamped_total=0`。
+> - `TestWASMProvider_SymbolScopeRejected`：`scope=symbol` fail-closed，错误点名 QT-25。
+> - `TestTargetWeightSizing_FormulaAndCap`：公式取整（5%×100 万/10 元 = 5000 股）、policy cap 优先（3000 截断）、手数向下取整（900 股）。
+> - `pkg/sandbox/wasm/qt26_emit_test.go`：`emit_target2` 的 weight 域、finalize 限制、同 bar 混用 trap、`emit_signal` 参数校验。
+> - **破坏验证**：① 在 `convertWASEmission` 的 target 分支插入无条件 `continue`（等于剪断 emit_target2 → 成交）⇒ parity 测试红（WASM run 未完成）；逐字节还原后绿。② 把 `tellurion/pkg/sandbox/wasm` 重新加回 `unwiredPackages` ⇒ `TestEveryPackageHasAConsumer` 以 `stale` 红；删除后绿。
+>
+> **如实登记（未做/边界）**
+> 1. **symbol scope 未接线**：`ResolveScope` 判定为 `symbol` 时 fail-closed 指向 QT-25；本单只完成 market scope。
+> 2. **artifact 只从装配期 map 取**：`WithWASMArtifacts` 是手工注入（验收无需编译服务）；资产服务的 Resolve/Fetch 与编译器属 QT-41/QT-41b，不在本单。
+> 3. **一次 Verify + 一次 Load = 两次编译**：`Compile` 只为在 instantiate 前判定声明/自证不符；代价是编译两次，未做缓存。
+> 4. **`BeginRun` 的装配错误未分类**：artifact 校验/scope 失败返回普通 error（run 终止、不落 `ErrStrategyFault`）；运行期 trap / 预算终止由沙箱层归 `ErrStrategyFault`（QT-10 已有测试）。
+> 5. **混用 trap 只在 host 层有测试**：契约的族互斥让「真 artifact 同时 import 两族」在 `Compile` 阶段就失败，运行时混用无法由真实 artifact 构造。
+> 6. **目标权重与风险层的口径**：`signalForRiskSizing` 把置信度置 1，风险层只回答「policy 允许多大」，手数由 `applyTargetWeightSizing` 取 min；该口径只作用于带 `target_weight` 的 long/short 信号，其它策略零行为变化。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）；`go test ./pkg/backtest ./pkg/sandbox/wasm ./internal/repoguard -count=1` 全 PASS。
 
 ---
 
