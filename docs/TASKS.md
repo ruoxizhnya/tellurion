@@ -963,7 +963,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
 | QT-45 | X6 交易通道网关（XTPTrader / MockTrader 两实现） | `tellurion-broker:docs/TASKS.md` |
 
-> **QT-40 X1a 的 core 腿 ✅（2026-10-25，`go build/vet/test ./...` 全绿）**：contracts **`v0.6.0`**（2026-10-24 发版、远端 tag 已推）新增 `dataprotocol/`（`UnifiedDataPoint` 七字段含 `VisibleAt` + `ToJSON` / `DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465）。本仓 `require v0.6.0`；`pkg/data/source/unified.go` 的本地类型**改别名**（读墙钟的 `NewUnifiedDataPoint` 留 core——契约刻意不读时钟，ADR-0004；`Deduplicate` / `DeduplicateWithCount` 这两个切片助手也留 core）；`pkg/storage/bulk_insert.go:17` 那份「为避开 import 环」的存储副本同步改别名，`pkg/data/source/etl.go` 的身份投影 `toStoragePoints` 删除。守卫：`pkg/data/source/unified_contract_test.go` / `pkg/storage/bulk_insert_projection_test.go`（类型必须 == 契约类型；破坏验证：改回本地 struct ⇒ 红，逐字节还原 ⇒ 绿）。数据仓侧见 `tellurion-data:docs/TASKS.md` X1a（✅）。
+> **QT-40 X1a 的 core 腿 ✅（2026-10-25，`go build/vet/test ./...` 全绿）**：contracts **`v0.6.0`**（2026-10-24 发版、远端 tag 已推）新增 `dataprotocol/`（`UnifiedDataPoint` 七字段含 `VisibleAt` + `ToJSON` / `DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465）。本仓 `require v0.6.0`；`pkg/data/source/unified.go` 的本地类型**改别名**（读墙钟的 `NewUnifiedDataPoint` 留 core——契约刻意不读时钟，ADR-0004；`Deduplicate` / `DeduplicateWithCount` 这两个切片助手也留 core）；`pkg/storage/bulk_insert.go:17` 那份「为避开 import 环」的存储副本同步改别名，`pkg/data/source/etl.go` 的身份投影 `toStoragePoints` 删除。守卫：`pkg/data/source/unified_contract_test.go` / `pkg/storage/bulk_insert_projection_test.go`（类型必须 == 契约类型；破坏验证：改回本地 struct ⇒ 红，逐字节还原 ⇒ 绿）。数据仓侧见 `tellurion-data:docs/TASKS.md` X1a（✅）。**未顺手做（如实）**：`pkg/data/source/adapter.go` 的 15 个 `DataType*` 常量仍是本地字面量（与契约定值逐字一致），常量收编未随本单。
 
 ---
 
