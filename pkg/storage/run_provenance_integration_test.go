@@ -88,6 +88,62 @@ func TestIntegration_RunProvenance_RoundTripAndJoin(t *testing.T) {
 	assert.Equal(t, int64(42), seed)
 }
 
+// TestIntegration_RunProvenance_RiskRulesHashRoundTrip 是 QT-66 的真 PG 腿：
+// 非空 risk_rules_hash 必须原样落库、经 join 读回；空串（not_configured）
+// 读回仍是空串（库里的 NULL 被 COALESCE 折回 ”）。
+func TestIntegration_RunProvenance_RiskRulesHashRoundTrip(t *testing.T) {
+	store, ctx := setUp(t)
+	const (
+		runID       = "qt66-risk-hash-run"
+		emptyRunID  = "qt66-risk-empty-run"
+		riskHashHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	)
+
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(ctx, `DELETE FROM quant.run_provenance WHERE run_id = ANY($1)`,
+			[]string{runID, emptyRunID})
+	})
+
+	for _, id := range []string{runID, emptyRunID} {
+		require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
+			"id":          id,
+			"strategy_id": "momentum",
+			"params":      `{"backtest_id":"` + id + `"}`,
+			"universe":    "600000.SH",
+			"start_date":  "2024-01-02",
+			"end_date":    "2024-06-28",
+			"status":      "completed",
+		}))
+	}
+
+	filled := qt63Record(runID)
+	filled.RiskRulesHash = riskHashHex
+	require.NoError(t, store.SaveRunProvenance(ctx, filled))
+
+	empty := qt63Record(emptyRunID)
+	empty.RiskRulesHash = ""
+	require.NoError(t, store.SaveRunProvenance(ctx, empty))
+
+	got, err := store.GetRunProvenance(ctx, runID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, riskHashHex, got.RiskRulesHash, "非空规则快照 hash 必须原样读回")
+
+	gotEmpty, err := store.GetRunProvenance(ctx, emptyRunID)
+	require.NoError(t, err)
+	require.NotNil(t, gotEmpty)
+	assert.Empty(t, gotEmpty.RiskRulesHash, "not_configured 的空串读回仍是空串")
+
+	var joined string
+	err = store.pool.QueryRow(ctx, `
+		SELECT r.risk_rules_hash
+		FROM quant.run_provenance r
+		JOIN backtest_jobs b ON b.id = r.run_id
+		WHERE r.run_id = $1`, runID).Scan(&joined)
+	require.NoError(t, err)
+	assert.Equal(t, riskHashHex, joined)
+}
+
 func TestIntegration_RunProvenance_ConflictFailsLoud(t *testing.T) {
 	store, ctx := setUp(t)
 	const runID = "qt63-conflict-run"

@@ -50,7 +50,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
-| **横切** | QT-66 ⬜ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | 依赖 QT-42 的规则 hash / 快照端点（已落）；**裁决已落（裁-10/11，2026-10-25），可开工**；只动 core 的取 hash 与写入路径，与 W1 可并行 |
+| **横切** | QT-66 ✅ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | **已完成（2026-10-25）**；裁-10 provider 每次 run 调 `POST /api/risk/resolve`（`cmd/analysis/wiring` 注入），裁-11 空串只留 `not_configured`、其余 run `failed` + `risk_rules_unavailable`；两引擎共用同一装配函数 |
 | **横切** | QT-67 ✅ | 日历 / 上市窗口只读端点（D24 第 7 类动作，2026-10-24 已裁） | P1 | **已完成（2026-10-24）**；`GET /api/v1/trading-calendar` + `POST /api/v1/listing-windows`，只读、JWT/RBAC 复用、存储未装配 503；openapi 双向对拍 + wire 形状反射互锁；agent 侧删 import 与白名单收窄归 QT-17 ③ |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
@@ -1263,7 +1263,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
-### QT-66 · `risk_rules_hash` 生产接线（provenance 恒空串）[P1] ⬜
+### QT-66 · `risk_rules_hash` 生产接线（provenance 恒空串）[P1] ✅（2026-10-25）
 
 - **① 目标**：真实 run 的 `quant.run_provenance.risk_rules_hash` 写进 risk 仓算出的内容寻址 hash —— 「同 hash 不同结果」的最后一列不再恒空。
 - **② 上下文（2026-10-24 实测）**：`pkg/backtest/provenance.go:194` 恒写 `""`；`tellurion-risk:internal/rule` 已有 `version_hash` / `risk_rules_hash` 内容寻址、`snapshots/{hash}` 与 `bundle` 端点、进程内 `ParseBundle`，但 core 侧消费接线未做（risk 仓 `AGENTS.md` §1 已如实登记「core 侧消费接线未做，F3」）。QT-63 ⑦ 的列清单把这列标为「可空，QT-42 预留」；QT-42 已落，预留至今没兑现。
@@ -1275,6 +1275,20 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不改 QT-03 / QT-63 已冻结的 canonical 与列清单；不动 QT-42 仓内的规则算法与快照端点；不新增 per-run 远程读规则正文（逐 bar / 逐笔裁决仍进程内，硬否决）；不做 QT-44 的对外 provenance 端点。
 - **⑤ 验收**：真 PG 集成腿——同一 run 经 `quant.run_provenance` 读回的 `risk_rules_hash` 非空，且等于 risk 仓对同一规则快照算出的值；改规则快照后新 run 的该列变化；取 hash 失败路径按裁-11：未接入 → 空串 + `not_configured`，其余 → run `failed` + `risk_rules_unavailable`（日志点名原因）；生产代码 `grep 'RiskRulesHash: ""'` 只在 `not_configured` 分支命中，其余零命中。
 - **⑥ 边界**：只做 core 侧「取 hash + 写入」；规则版本算法、快照内容寻址与端点归 `tellurion-risk`（QT-42）；对外查询面归 QT-44。
+
+> **✅ 完成记录（2026-10-25）**
+>
+> **① 取值路径（裁-10）**：`pkg/backtest.RiskRulesProvider`（`ResolveRiskRulesHash(ctx, pinnedHash)`）由 `recordRunProvenance` 在日循环之前调一次；provider 由 `cmd/analysis/wiring.AttachRiskRulesFromConfig` 在装配期注入，**主引擎（`StrategyRuntimeModule.Init`）与 walk-forward 窗口引擎（`main.go` 的 newEngine 工厂）共用同一个装配函数**（与 QT-64 的 Router 接线同型）。生产实现 `wiring.HTTPRiskRulesProvider` 调 `POST {resolve_url}/api/risk/resolve`：pin 非空 ⇒ `{"hash": pin}`，否则 `{"ruleset":"latest"}`（形态与 risk 仓 `rule.ResolveRequest` 一致）；响应 hash 必须 64 位小写 hex（与 `risk.rule_snapshots` 的 CHECK 同口径）。
+>
+> **② 失败口径（裁-11）**：provider 未注入 ⇒ `risk_rules_hash` 空串 + 日志 `risk_rules_status=not_configured`（**唯一**允许空串的分支）；provider 报错 / 返回空串 ⇒ `ErrRiskRulesUnavailable`（错误码 `risk_rules_unavailable`），`RunBacktest` 返回 `failed`，且**不写** provenance。`resolve_enabled=false` 是显式开关（默认），`config/analysis-service.yaml` 已登记；启用而配置不合法在装配期 fail-fast。
+>
+> **③ 钉 hash 的现状（如实登记）**：core 的 `RunSpec`（QT-03 冻结面）今天没有「锁定规则 hash」字段，引擎侧恒传空串走 `latest`。provider 的锁定分支已实现并由单测覆盖（`TestHTTPRiskRulesProvider_SendsPinnedHash`）；接字段是一次契约变更，不在本单。
+>
+> **④ 测试**：`pkg/backtest/qt66_risk_rules_test.go`（真 `RunBacktest`）：接入 ⇒ 记录等于 provider 值、每 run 调一次、换快照 ⇒ `run_spec_hash` 变；未接入 ⇒ 空串 + `not_configured`（结构腿 + 行为腿）；报错 / 空串 ⇒ run `failed` + 可按 `ErrRiskRulesUnavailable` 分诊且不写 provenance。`cmd/analysis/wiring/risk_rules_test.go`：latest / pinned 请求体、404 双码、5xx、空/大写 hash、坏 JSON、超时、坏 base URL、装配开关。`pkg/storage/run_provenance_integration_test.go`（`-tags integration`，真 PG）：非空 hash 原样落库并经 `⋈ backtest_jobs` 读回，空串读回仍为空。
+>
+> **⑤ 破坏验证（一条腿）**：把 `provenance.go` 的 `RiskRulesHash: riskRulesHash` 改成 `RiskRulesHash: ""` ⇒ `TestQT66_RiskRulesHashIsRecordedAndMovesRunSpec` 三处断言红（hash 为空 + 换快照 `run_spec_hash` 不变）；逐字节还原后 sha256 与改前**完全相同**（`9acc013e…`）且测试转绿。
+>
+> **⑥ 边界遵守**：未改 QT-03 / QT-63 的 canonical 与列清单；未动 risk 仓端点与规则算法；未加 per-run 远程读规则正文（逐 bar 裁决仍进程内）；未做 QT-44 的对外 provenance 端点。
 
 ---
 

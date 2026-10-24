@@ -18,6 +18,7 @@ package backtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -42,6 +43,83 @@ import (
 // 测试 / 非 PG 后端经 WithRunProvenanceWriter 注入替身。
 type RunProvenanceWriter interface {
 	SaveRunProvenance(ctx context.Context, rec *storage.RunProvenanceRecord) error
+}
+
+// RiskRulesProvider 是 risk 仓规则快照 hash 的取数口（QT-66 · 裁-10）。
+//
+// 生产实现是 `cmd/analysis/wiring` 注入的 HTTP 客户端（run 提交时调
+// `POST /api/risk/resolve`）；测试注入确定性替身。core **不得**按规则文件
+// 自己算 hash —— 规则版本算法与内容寻址的真相在 tellurion-risk。
+type RiskRulesProvider interface {
+	// ResolveRiskRulesHash 返回本次 run 生效的规则快照 hash。
+	//
+	// pinnedHash 非空 ⇒ 按锁定 hash 解析（不存在就失败，不回退 latest）；
+	// 空串 ⇒ latest。今天 core 的 RunSpec 没有 pin 字段（QT-03 冻结面不含），
+	// 引擎侧恒传空串；锁定分支的实现与测试在 HTTP provider 上。
+	ResolveRiskRulesHash(ctx context.Context, pinnedHash string) (string, error)
+}
+
+// SetRiskRulesProvider 注入 risk 规则快照 hash 的取数口（QT-66 · 裁-10）。
+//
+// nil = 本部署未接入 risk 服务：provenance 的 risk_rules_hash 记空串并标
+// not_configured。装配层（cmd/analysis/wiring）在启动时调用一次。
+func (e *Engine) SetRiskRulesProvider(p RiskRulesProvider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.riskRulesProvider = p
+}
+
+// HasRiskRulesProvider 报告规则 hash 取数口是否已接线（装配自证 / 测试用）。
+func (e *Engine) HasRiskRulesProvider() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.riskRulesProvider != nil
+}
+
+// risk_rules_hash 的两种合法状态。空串只对应 not_configured（裁-11）。
+const (
+	riskRulesStatusResolved      = "resolved"
+	riskRulesStatusNotConfigured = "not_configured"
+)
+
+// ErrRiskRulesUnavailable 表示「配置了 risk 服务，但取不到规则快照 hash」。
+//
+// 裁-11：这类失败一律让 run = failed，错误码 `risk_rules_unavailable`；
+// 只有「本部署未接入 risk 服务」才允许空串并记 `not_configured`。
+var ErrRiskRulesUnavailable = errors.New("risk_rules_unavailable")
+
+// riskRulesResolution 是一次 run 的规则 hash 取值结果。
+type riskRulesResolution struct {
+	Hash   string
+	Status string
+}
+
+// resolveRiskRulesForRun 调 provider 取本次 run 的规则快照 hash。
+//
+// 失败口径（裁-11）：
+//   - provider 未注入 ⇒ not_configured（唯一允许空串的分支）；
+//   - provider 报错 / 返回空串 ⇒ ErrRiskRulesUnavailable，run 失败。
+func (e *Engine) resolveRiskRulesForRun(ctx context.Context) (riskRulesResolution, error) {
+	e.mu.RLock()
+	p := e.riskRulesProvider
+	e.mu.RUnlock()
+
+	if p == nil {
+		return riskRulesResolution{Status: riskRulesStatusNotConfigured}, nil
+	}
+
+	// pin 今天恒为空：RunSpec 里还没有「锁定规则 hash」的字段（QT-03 冻结面）。
+	// provider 的锁定分支已实现并有单测，接字段是未来的契约变更。
+	hash, err := p.ResolveRiskRulesHash(ctx, "")
+	if err != nil {
+		return riskRulesResolution{}, fmt.Errorf("%w: %v", ErrRiskRulesUnavailable, err)
+	}
+	if strings.TrimSpace(hash) == "" {
+		// 「接了但返回空」不是「没接入」：空串的合法含义只有 not_configured，
+		// 这里静默放行会让两次 run 一个空、一个有值却都算成功。
+		return riskRulesResolution{}, fmt.Errorf("%w: provider returned an empty hash", ErrRiskRulesUnavailable)
+	}
+	return riskRulesResolution{Hash: hash, Status: riskRulesStatusResolved}, nil
 }
 
 // 本引擎当前**固定**的执行口径。它们是常量而不是配置项：写在这里是为了让
@@ -97,7 +175,16 @@ func (e *Engine) recordRunProvenance(
 		return nil
 	}
 
-	rec, err := e.buildRunProvenance(state, tradingDays, runUniverse, adj)
+	// QT-66：规则快照 hash 在 run 提交时取一次（裁-10）。取值失败 = run 失败：
+	// 记一个空的、或者拿旧规则顶替的 hash，都会让「同 hash 不同结果」无声发生。
+	riskRules, err := e.resolveRiskRulesForRun(ctx)
+	if err != nil {
+		logger.Error().Err(err).Str("risk_rules_status", "unavailable").
+			Msg("risk rules resolve failed — refusing to run without a rules identity")
+		return err
+	}
+
+	rec, err := e.buildRunProvenance(state, tradingDays, runUniverse, adj, riskRules.Hash)
 	if err != nil {
 		return err
 	}
@@ -109,6 +196,8 @@ func (e *Engine) recordRunProvenance(
 		Str("run_spec_hash", rec.RunSpecHash).
 		Str("dataset_snapshot_hash", rec.DatasetSnapshotHash).
 		Str("version_hash", rec.VersionHash).
+		Str("risk_rules_hash", rec.RiskRulesHash).
+		Str("risk_rules_status", riskRules.Status).
 		Str("kernel", rec.Kernel).
 		Msg("Run provenance recorded")
 	return nil
@@ -122,6 +211,7 @@ func (e *Engine) buildRunProvenance(
 	tradingDays []time.Time,
 	runUniverse []string,
 	adj *adjustmentRun,
+	riskRulesHash string,
 ) (*storage.RunProvenanceRecord, error) {
 	params := state.Params
 
@@ -202,8 +292,11 @@ func (e *Engine) buildRunProvenance(
 		TPlus:          provenanceTPlus,
 		PriceLimitRule: provenancePriceLimitRule,
 
-		// QT-42 之前没有风控规则版本化，填不出真实值。空串 = 未登记。
-		RiskRulesHash:       "",
+		// QT-66（裁-11）：run 起始时刻生效的规则快照 hash，来源只有
+		// tellurion-risk。空串只剩一种合法含义 —— 本部署未接入 risk 服务
+		// （status = not_configured）；「接了但取不到」已在
+		// recordRunProvenance 里以 ErrRiskRulesUnavailable 终止本次 run。
+		RiskRulesHash:       riskRulesHash,
 		DatasetSnapshotHash: datasetHash,
 
 		AdjustmentAnchorDigests: digests,

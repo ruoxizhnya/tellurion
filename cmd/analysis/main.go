@@ -105,6 +105,10 @@ func main() {
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
 		wiring.AttachMarketDataRouter(eng, ak.Wiring.Router, logger)
+		// QT-66：与主引擎同一条规则 hash 取数接线（裁-10 / 裁-11）。
+		if err := wiring.AttachRiskRulesFromConfig(eng, v, logger); err != nil {
+			return nil, err
+		}
 		return eng, nil
 	}
 

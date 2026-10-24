@@ -147,6 +147,11 @@ type Engine struct {
 	// provenanceOff = true 时完全不写 provenance（只读 / 演示装配）。
 	provenanceOff bool
 
+	// riskRulesProvider 是 QT-66 的规则快照 hash 取数口（裁-10）。
+	// nil = 本部署未接入 risk 服务（provenance 记 not_configured + 空串）；
+	// 非 nil 时每次 run 提交调用一次，取不到 hash 即 run 失败（裁-11）。
+	riskRulesProvider RiskRulesProvider
+
 	// L1 基本面缓存（P2-12）：symbol → 按可用日升序的财报序列。
 	//
 	// 只在策略声明需要（strategy.FundamentalAware）时预热一次，回测期间只读。

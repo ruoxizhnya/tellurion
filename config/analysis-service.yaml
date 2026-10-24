@@ -106,6 +106,15 @@ data_service:
 # sections below are the single source of truth.
 risk_service:
   url: "http://localhost:8085"  # legacy fallback only
+  # QT-66（裁-10 / 裁-11）：run 提交时向 tellurion-risk 取规则快照 hash。
+  # resolve_enabled=false ⇒ 本部署视为「未接入 risk 服务」，provenance 的
+  # risk_rules_hash 记空串 + not_configured（唯一允许空串的情形）。
+  # 启用后取不到（no_approved_rules / snapshot_not_found / 5xx / 超时）⇒
+  # run 直接 failed（risk_rules_unavailable），不会用默认限额继续跑。
+  # resolve_url 为空时回落上面的 url；resolve_timeout 缺省 10s。
+  resolve_enabled: false
+  resolve_url: "http://localhost:8083"
+  resolve_timeout: "10s"
 
 # In-process risk manager config (absorbed from risk-service.yaml).
 # Used by the backtest engine via WithRiskManager(rm) so all risk

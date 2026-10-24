@@ -114,6 +114,15 @@ func WithoutRunProvenance() EngineOption {
 	}
 }
 
+// WithRiskRulesProvider 注入 risk 规则快照 hash 的取数口（QT-66）。
+// 传 nil 恢复「未接入 risk 服务」语义（provenance 的 risk_rules_hash 为空 +
+// not_configured）；非 nil 时每次 run 提交取一次 hash，取不到即 run 失败。
+func WithRiskRulesProvider(p RiskRulesProvider) EngineOption {
+	return func(e *Engine) {
+		e.SetRiskRulesProvider(p)
+	}
+}
+
 // WithLiveTrader 注入 live / paper trading trader。等价于 SetLiveTrader。
 func WithLiveTrader(trader live.LiveTrader) EngineOption {
 	return func(e *Engine) {

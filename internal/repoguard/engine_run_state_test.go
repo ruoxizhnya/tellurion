@@ -84,6 +84,9 @@ var engineFieldWhitelist = []string{
 	"mu", "config", "provider", "riskServiceURL", "httpClient", "logger",
 	"stateStore", "riskManager", "dataAdapter", "store", "adjStore",
 	"provWriter", "provenanceOff", "liveBridge", "executionBridge", "rng",
+	// QT-66：规则快照 hash 取数口是装配期只读依赖（run 提交时读一次，
+	// 不写；生命期与 store / router 同型）。
+	"riskRulesProvider",
 	"signalObserver", "signalProvider", "router", "parallelWorkers",
 	// QT-26：WASM 制品映射是装配期只读配置（不是 run 私有可变态）。
 	"wasmArtifacts",

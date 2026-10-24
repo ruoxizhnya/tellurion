@@ -230,6 +230,11 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	// D6：日内预热的取数通道（QT-64）。与 walk-forward 窗口工厂走
 	// 同一个装配函数；nil 时该函数显式 Warn，不留静默出口。
 	AttachMarketDataRouter(engine, d.Router, m.logger)
+	// QT-66：规则快照 hash 的取数口。关闭 = not_configured（provenance 记空串）；
+	// 启用但取不到 = run failed + risk_rules_unavailable（裁-11）。
+	if err := AttachRiskRulesFromConfig(engine, m.v, m.logger); err != nil {
+		return fmt.Errorf("kernel: risk rules resolve 装配失败: %w", err)
+	}
 
 	m.Engine = engine
 	return nil
