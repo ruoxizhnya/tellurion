@@ -4335,15 +4335,14 @@ components:
           example: momentum
         strategy_params:
           type: object
-          additionalProperties:
-            type: [string, number, boolean, "null"]
+          additionalProperties: {}
           description: >-
             Run-level strategy parameter overrides (QT-20). Effective params =
             manifest defaults ⊕ these overrides (shallow merge). Unknown keys,
             wrong types and out-of-range values are rejected with 400 and the
-            key named — never silently ignored. Nested objects/arrays are
-            rejected at the contracts layer. Every key must be a scalar; the
-            map may be empty/omitted.
+            key named — never silently ignored. Every value must be a scalar
+            (string / number / boolean / null); nested objects/arrays are
+            rejected at the contracts layer. The map may be empty/omitted.
           example:
             lookback_days: 40
             top_n: 5
@@ -4533,15 +4532,16 @@ components:
           default: 0.03
         strategy_params:
           type: object
-          additionalProperties:
-            type: [string, number, boolean, "null"]
+          additionalProperties: {}
           description: >-
             Run-level strategy parameter overrides (QT-68). Both the train and
             test segment of every window carry the same map; effective params
             are resolved by the engine at the RunBacktest entry (manifest
             defaults ⊕ overrides, QT-20). Unknown keys / wrong types /
             out-of-range values are rejected with 400 before any window runs,
-            and the offending key is named. Nested objects/arrays are rejected.
+            and the offending key is named. Every value must be a scalar
+            (string / number / boolean / null); nested objects/arrays are
+            rejected.
           example:
             lookback_days: 40
         walk_forward_params:
