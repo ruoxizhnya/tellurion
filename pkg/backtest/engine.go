@@ -25,6 +25,7 @@ import (
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
+	"tellurion/pkg/sandbox/wasm"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
@@ -233,6 +234,15 @@ type Engine struct {
 	// 只读；nil = 本进程没有手工/资产服务取回的制品，所有策略走本地注册表。
 	// 经 WithWASMArtifacts 注入；runContext 在 newSignalProvider 里按名字选。
 	wasmArtifacts map[string]WASMArtifact
+
+	// wasmShardBudget 是 symbol scope 的分片预算（QT-25）。零值 =
+	// 引擎默认：W 取本 run 的 parallelWorkers，预算 512 MiB，每实例 64 MiB。
+	// 经 WithWASMShardBudget 注入。
+	wasmShardBudget wasm.ShardBudget
+
+	// wasmShardObserver 是分片三项指标的观察面（QT-25 ③）。
+	// 装配期只读；nil = 不上报（日志仍有）。
+	wasmShardObserver WASMShardObserver
 }
 
 // BacktestState is defined in state.go (P1-20) with internal locking
@@ -521,6 +531,15 @@ func (e *Engine) SetRunObserver(ob RunObserver) {
 		return
 	}
 	gate.attachObserver(ob)
+}
+
+// SetWASMShardObserver 把 symbol scope 分片指标（QT-25 ③）的观察面挂到
+// 本引擎。与 SetRunObserver 同理是 setter：装配方先建引擎、再建 metrics。
+// nil = 不上报（日志仍有）。
+func (e *Engine) SetWASMShardObserver(ob WASMShardObserver) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.wasmShardObserver = ob
 }
 
 func (e *Engine) DataAdapter() *marketdata.DataAdapter {
@@ -1062,6 +1081,16 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	logger.Info().
 		Int("run_universe", len(runUniverse)).
 		Msg("RunUniverse frozen — symbol indexing is stable for the whole run (QT-23)")
+
+	// QT-25：symbol scope 的分片调度需要整段行情（按标的跑完再换下一批）。
+	// 预热 RunUniverse（此前只预热了 StockPool；指数成分可能更多）。预热失败
+	// 不在这里吞掉——BeginRun 会按缺失标的 fail-closed，错误点更近。
+	if fp, ok := rc.provider.(strategy.FullMarketDataProvider); ok && fp.NeedsFullMarketData() {
+		if err := rc.warmCache(ctx, runUniverse); err != nil {
+			logger.Warn().Err(err).Int("run_universe", len(runUniverse)).
+				Msg("symbol-scope warm-up failed — BeginRun will fail closed on missing OHLCV")
+		}
+	}
 
 	// QT-14/QT-26：provider 会话随 run 创建与销毁 —— 此刻 Axis 与 RunUniverse
 	// 都已就位（WASM 的 symbol_idx/T 需要它们），且仍在任何取信号之前。

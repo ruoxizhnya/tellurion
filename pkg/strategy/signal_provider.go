@@ -74,6 +74,21 @@ type RunMeta struct {
 	// Axis 是本 run 的交易日轴（Engine.getTradingDays 的返回值）。
 	// market scope 的 T 就是它的下标；provider 不得自行由数据日期合成。
 	Axis []time.Time
+	// MarketData 是 RunUniverse 在回放区间内的完整行情（QT-25）。只对
+	// NeedsFullMarketData()==true 的 provider 填充；其余 provider 拿到 nil。
+	//
+	// 为什么 symbol scope 需要它：分片要「把一个标的跑完再换下一个」，
+	// 而 SignalProvider.Signals 是逐日调用的——逐日喂只能让所有分片同时
+	// 活着，或每天重建实例丢状态。一次性给全区间数据，分片才能按批起停。
+	// 数据是引擎 L1 缓存的快照，只读约定，provider 不得修改。
+	MarketData map[string][]domain.OHLCV
+}
+
+// FullMarketDataProvider 声明 provider 需要在 BeginRun 时拿到整段行情
+// （QT-25 symbol scope 的分片调度）。引擎只在返回 true 时预热 RunUniverse
+// 并填充 RunMeta.MarketData —— 其余 provider 的行为零变化。
+type FullMarketDataProvider interface {
+	NeedsFullMarketData() bool
 }
 
 // SessionLifecycle 是有状态 provider 必须实现的生命周期契约（QT-14）。

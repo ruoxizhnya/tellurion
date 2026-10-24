@@ -64,11 +64,14 @@ type WASMArtifact struct {
 // wasmSignalProvider 是 strategy.SignalProvider 的 WASM 实现。
 type wasmSignalProvider struct {
 	artifact WASMArtifact
+	shardCfg wasmShardConfig
 	logger   zerolog.Logger
 
 	mu      sync.Mutex
 	rt      *wasm.WazeroRuntime
+	factory *wasm.OnBarSessionFactory
 	sess    *wasm.OnBarSession
+	scope   contracts.StrategyScope
 	meta    strategy.RunMeta
 	axis    []time.Time
 	symbols []string
@@ -76,6 +79,18 @@ type wasmSignalProvider struct {
 	bc      *wasm.BarContext
 	final   bool
 	closed  bool
+
+	// ─── QT-25 symbol scope ─────────────────────────────────────────
+	// buffered 是 BeginRun 里按批跑完所有分片后、按交易日缓冲的信号。
+	// 空 map 的 nil 判定用于区分「未 BeginRun」与「某日无信号」。
+	buffered     map[int64][]strategy.Signal
+	checks       map[string]shardCheckpoint
+	checksMu     sync.Mutex
+	lastAxisDate time.Time
+	lastAxisDay  int64
+	symbolBudget wasm.SessionBudget
+	runCancel    context.CancelFunc
+	stats        wasm.ShardStats
 }
 
 var (
@@ -84,8 +99,8 @@ var (
 	_ strategy.SessionLifecycle = (*wasmSignalProvider)(nil)
 )
 
-func newWASMSignalProvider(artifact WASMArtifact, logger zerolog.Logger) *wasmSignalProvider {
-	return &wasmSignalProvider{artifact: artifact, logger: logger}
+func newWASMSignalProvider(artifact WASMArtifact, shardCfg wasmShardConfig, logger zerolog.Logger) *wasmSignalProvider {
+	return &wasmSignalProvider{artifact: artifact, shardCfg: shardCfg, logger: logger}
 }
 
 // Stateful 声明为有状态：会话随 run 开关（QT-14 强制实现 SessionLifecycle）。
@@ -124,53 +139,68 @@ func (p *wasmSignalProvider) BeginRun(ctx context.Context, meta strategy.RunMeta
 	sb.SetLogger(p.logger)
 
 	// Verify（先于实例化）：import 白名单 + 协议族自证 + 声明版本交叉校验。
-	// 单独编译一次是为了把「声明与自证不符」在 instantiate 之前判定（§7.2-3）。
-	cm, err := sb.Compile(ctx, p.artifact.Bytes)
+	// QT-25 起用工厂：编译 / 族判定 / 静态镜像只做一次，symbol scope 的
+	// 每个分片共享这份编译产物（各自实例化、各自内存）。
+	factory, err := sb.NewOnBarSessionFactory(ctx, p.artifact.Bytes)
 	if err != nil {
 		_ = rt.Close(ctx)
 		return fmt.Errorf("wasm provider: verify artifact %q: %w", p.artifact.Name, err)
 	}
-	abiMod, ok := cm.(wasm.AbiModule)
-	if !ok {
-		_ = cm.Close(ctx)
-		_ = rt.Close(ctx)
-		return fmt.Errorf("wasm provider: compiled module %T does not expose the import section", cm)
-	}
-	family, err := wasm.ValidateArtifactAbi(abiMod, p.artifact.ABI)
-	_ = cm.Close(ctx)
-	if err != nil {
+	family := factory.Family()
+	if err := wasm.CrossCheckAbiVersion(family, p.artifact.ABI); err != nil {
+		_ = factory.Close(ctx)
 		_ = rt.Close(ctx)
 		return fmt.Errorf("wasm provider: verify artifact %q: %w", p.artifact.Name, err)
 	}
 	scope, err := contracts.ResolveScope(family, p.artifact.Scope)
 	if err != nil {
+		_ = factory.Close(ctx)
 		_ = rt.Close(ctx)
 		return fmt.Errorf("wasm provider: resolve scope: %w", err)
-	}
-	if scope != contracts.ScopeMarket {
-		_ = rt.Close(ctx)
-		return fmt.Errorf("wasm provider: scope=%s is not wired yet (symbol-scope sharding is QT-25); compile the artifact as scope=market", scope)
-	}
-
-	budget, err := wasm.BudgetForScope(scope)
-	if err != nil {
-		_ = rt.Close(ctx)
-		return err
-	}
-	sess, err := sb.NewOnBarSessionWithBudget(ctx, p.artifact.Bytes, budget)
-	if err != nil {
-		_ = rt.Close(ctx)
-		return fmt.Errorf("wasm provider: load artifact %q: %w", p.artifact.Name, err)
 	}
 
 	paramsJSON, err := json.Marshal(meta.Params)
 	if err != nil {
-		_ = sess.Close()
+		_ = factory.Close(ctx)
 		_ = rt.Close(ctx)
 		return fmt.Errorf("wasm provider: marshal params: %w", err)
 	}
+
+	if scope == contracts.ScopeSymbol {
+		p.rt = rt
+		p.factory = factory
+		p.scope = scope
+		p.meta = meta
+		if err := p.beginSymbolRun(ctx, meta, factory, paramsJSON); err != nil {
+			if p.runCancel != nil {
+				p.runCancel()
+				p.runCancel = nil
+			}
+			_ = factory.Close(ctx)
+			_ = rt.Close(ctx)
+			p.rt, p.factory = nil, nil
+			return err
+		}
+		p.final = true
+		p.closed = false
+		return nil
+	}
+
+	budget, err := wasm.BudgetForScope(scope)
+	if err != nil {
+		_ = factory.Close(ctx)
+		_ = rt.Close(ctx)
+		return err
+	}
+	sess, err := factory.NewSession(ctx, budget)
+	if err != nil {
+		_ = factory.Close(ctx)
+		_ = rt.Close(ctx)
+		return fmt.Errorf("wasm provider: load artifact %q: %w", p.artifact.Name, err)
+	}
 	if err := sess.Initialize(ctx, paramsJSON); err != nil {
 		_ = sess.Close()
+		_ = factory.Close(ctx)
 		_ = rt.Close(ctx)
 		return fmt.Errorf("wasm provider: initialize: %w", err)
 	}
@@ -187,7 +217,9 @@ func (p *wasmSignalProvider) BeginRun(ctx context.Context, meta strategy.RunMeta
 	}
 
 	p.rt = rt
+	p.factory = factory
 	p.sess = sess
+	p.scope = scope
 	p.meta = meta
 	p.axis = append([]time.Time(nil), meta.Axis...)
 	p.symbols = append([]string(nil), meta.RunUniverse...)
@@ -204,6 +236,17 @@ func (p *wasmSignalProvider) Signals(ctx context.Context, scope strategy.Scope, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// QT-25：symbol scope 的信号在 BeginRun 里按批跑完并按交易日缓冲；
+	// 这里只是按日取货（取走即删，避免同一日被重复消费）。
+	if p.scope == contracts.ScopeSymbol {
+		if p.buffered == nil {
+			return nil, fmt.Errorf("wasm provider: Signals before BeginRun")
+		}
+		day := dayKeyUTC(asOf)
+		out := p.buffered[day]
+		delete(p.buffered, day)
+		return out, nil
+	}
 	if p.sess == nil || p.bc == nil {
 		return nil, fmt.Errorf("wasm provider: Signals before BeginRun")
 	}
@@ -260,12 +303,23 @@ func (p *wasmSignalProvider) EndRun(ctx context.Context, _ string) error {
 		return nil
 	}
 	p.closed = true
+	if p.runCancel != nil {
+		p.runCancel()
+		p.runCancel = nil
+	}
 	var firstErr error
 	if p.sess != nil {
 		if err := p.sess.Close(); err != nil {
 			firstErr = err
 		}
 		p.sess = nil
+	}
+	if p.factory != nil {
+		// 编译产物在会话关闭之后释放；已实例化会话的 Close 不依赖它。
+		if err := p.factory.Close(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		p.factory = nil
 	}
 	if p.rt != nil {
 		if err := p.rt.Close(ctx); err != nil && firstErr == nil {

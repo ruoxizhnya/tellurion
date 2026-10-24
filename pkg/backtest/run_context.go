@@ -396,9 +396,16 @@ func (rc *runContext) newSignalProvider(strategyName string) strategy.SignalProv
 	rc.e.mu.RLock()
 	artifact, hasArtifact := rc.e.wasmArtifacts[strategyName]
 	injected := rc.e.signalProvider
+	budget := rc.e.wasmShardBudget
+	observer := rc.e.wasmShardObserver
 	rc.e.mu.RUnlock()
 	if hasArtifact {
-		return newWASMSignalProvider(artifact, rc.e.logger)
+		// QT-25：分片并发默认跟随本 run 的取数并行度（configured_workers）；
+		// 预算由 WithWASMShardBudget 覆盖，零值走 512 MiB / 64 MiB 默认。
+		if budget.Workers <= 0 {
+			budget.Workers = rc.workers
+		}
+		return newWASMSignalProvider(artifact, wasmShardConfig{Budget: budget, Observer: observer}, rc.e.logger)
 	}
 	if injected != nil {
 		return injected
@@ -439,6 +446,12 @@ func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestS
 		Universe:    state.Params.StockPool,
 		RunUniverse: rc.stableUniverse(state.Params.StockPool),
 		Axis:        axis,
+	}
+	// QT-25：symbol scope 的分片跑完一个再换下一个，需要整段行情。数据来自
+	// 本 run 的 L1 缓存快照（引擎已在 runUniverse 冻结后预热 RunUniverse），
+	// 只读引用；其余 provider 不填充，行为零变化。
+	if fp, ok := p.(strategy.FullMarketDataProvider); ok && fp.NeedsFullMarketData() {
+		meta.MarketData = rc.cache.Snapshot()
 	}
 	if lc, ok := p.(strategy.SessionLifecycle); ok {
 		if err := lc.BeginRun(ctx, meta); err != nil {

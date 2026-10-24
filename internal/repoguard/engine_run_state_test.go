@@ -87,6 +87,9 @@ var engineFieldWhitelist = []string{
 	"signalObserver", "signalProvider", "router", "parallelWorkers",
 	// QT-26：WASM 制品映射是装配期只读配置（不是 run 私有可变态）。
 	"wasmArtifacts",
+	// QT-25：分片预算/并发与指标观察面都是装配期只读配置；
+	// runContext 只在建 provider 时读它们。
+	"wasmShardBudget", "wasmShardObserver",
 	// 种子（run 各拷一份）
 	"cache", "factor", "fundamentals", "listing", "intraday",
 	// 进程级

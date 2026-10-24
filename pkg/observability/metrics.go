@@ -63,6 +63,14 @@ type Metrics struct {
 	CacheBytes *prometheus.GaugeVec
 	WasmBytes  prometheus.Gauge
 
+	// QT-25 · symbol scope 分片的三项调参指标。名字是任务单 ③ 的冻结口径；
+	// 口径是「最近一批分片实际在跑的并发实例 / 线性内存 / 批大小」——
+	// 调度器是同步分批的，最后一批结束后实例已关闭，所以这三条读的
+	// 是**最近一批的观测值**，不是此刻的瞬时值（help 里写明）。
+	WASMInstancesLive prometheus.Gauge
+	WASMBytesLive     prometheus.Gauge
+	WASMBatchSize     prometheus.Gauge
+
 	registry *prometheus.Registry
 }
 
@@ -129,6 +137,19 @@ func NewMetrics() *Metrics {
 			Help: "Estimated linear-memory bytes used by WASM strategy sessions. 0 until the WASM provider is wired (QT-26); the series exists so 'empty' and 'zero' stay distinguishable.",
 		}),
 
+		WASMInstancesLive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wasm_instances_live",
+			Help: "Symbol-scope shard instances that were in flight in the most recent batch (QT-25; batches are synchronous, so the last value is the observed concurrency).",
+		}),
+		WASMBytesLive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wasm_bytes_live",
+			Help: "Linear-memory bytes held by the most recent symbol-scope shard batch (QT-25; the runner closes instances between batches).",
+		}),
+		WASMBatchSize: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wasm_batch_size",
+			Help: "Effective W for symbol-scope sharding: min(configured_workers, run_budget/per_instance_estimate) (QT-25).",
+		}),
+
 		registry: prometheus.NewRegistry(),
 	}
 }
@@ -150,6 +171,9 @@ func (m *Metrics) Register() {
 		m.RunsQueued,
 		m.CacheBytes,
 		m.WasmBytes,
+		m.WASMInstancesLive,
+		m.WASMBytesLive,
+		m.WASMBatchSize,
 	)
 }
 
@@ -271,4 +295,27 @@ func (m *Metrics) SetWasmBytes(v float64) {
 		return
 	}
 	m.WasmBytes.Set(v)
+}
+
+// SetWASMInstancesLive / SetWASMBytesLive / SetWASMBatchSize 是 QT-25
+// symbol scope 分片的观察面（*Metrics 隐式实现 backtest.WASMShardObserver）。
+func (m *Metrics) SetWASMInstancesLive(v float64) {
+	if m == nil || m.WASMInstancesLive == nil {
+		return
+	}
+	m.WASMInstancesLive.Set(v)
+}
+
+func (m *Metrics) SetWASMBytesLive(v float64) {
+	if m == nil || m.WASMBytesLive == nil {
+		return
+	}
+	m.WASMBytesLive.Set(v)
+}
+
+func (m *Metrics) SetWASMBatchSize(v float64) {
+	if m == nil || m.WASMBatchSize == nil {
+		return
+	}
+	m.WASMBatchSize.Set(v)
 }

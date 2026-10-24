@@ -56,8 +56,14 @@ type qt26Module struct {
 	funcs    []uint32
 	memPages uint32
 	globals  []int32
-	exports  []qt26Export
-	codes    [][]byte
+	// globalMutable 与 globals 一一对应（可缺省）：缺省 = 不可变（旧用例的
+	// 宿主区声明）。状态机需要的可写 globals 在这里标 true。
+	globalMutable []bool
+	exports       []qt26Export
+	codes         [][]byte
+	// funcLocals 与 codes 一一对应（可缺省）：每项是 code section 的 locals
+	// 声明原文。缺省 = 0 组（旧用例全是无局部变量的模块）。
+	funcLocals [][]byte
 }
 
 func (m *qt26Module) encode() []byte {
@@ -101,8 +107,12 @@ func (m *qt26Module) encode() []byte {
 	})
 	buf = qt26Section(buf, 6, func(s []byte) []byte {
 		s = qt26Uleb(s, uint32(len(m.globals)))
-		for _, g := range m.globals {
-			s = append(s, 0x7f, 0x00, 0x41)
+		for i, g := range m.globals {
+			mut := byte(0x00)
+			if i < len(m.globalMutable) && m.globalMutable[i] {
+				mut = 0x01
+			}
+			s = append(s, 0x7f, mut, 0x41)
 			s = qt26Sleb(s, int64(g))
 			s = append(s, 0x0b)
 		}
@@ -120,8 +130,14 @@ func (m *qt26Module) encode() []byte {
 	})
 	buf = qt26Section(buf, 10, func(s []byte) []byte {
 		s = qt26Uleb(s, uint32(len(m.codes)))
-		for _, body := range m.codes {
-			fn := append([]byte{0x00}, body...)
+		for i, body := range m.codes {
+			var locals []byte
+			if i < len(m.funcLocals) && len(m.funcLocals[i]) > 0 {
+				locals = m.funcLocals[i]
+			} else {
+				locals = []byte{0x00}
+			}
+			fn := append(append([]byte{}, locals...), body...)
 			s = qt26Uleb(s, uint32(len(fn)))
 			s = append(s, fn...)
 		}
@@ -377,18 +393,24 @@ func TestWASMProvider_RealBacktestFromArtifactMatchesGo(t *testing.T) {
 	assert.Contains(t, wasmLog.String(), "sizing_clamped_total")
 }
 
-func TestWASMProvider_SymbolScopeRejected(t *testing.T) {
+// TestWASMProvider_SymbolScopeRunsThroughShards 钉 QT-25 的接线：同一个
+// 分层加仓 artifact 以 scope=symbol 跑完，成交与 market scope 版本逐位一致
+// （单标的时两种实例模型在语义上等价；分片细节见 qt25_* 用例）。
+func TestWASMProvider_SymbolScopeRunsThroughShards(t *testing.T) {
 	prov := provenanceProvider(t, []string{"600000.SH"}, qt26Days)
 	eng, err := NewEngine(provenanceViper(42, 0.0003, 0.001, 0.001), prov, zerolog.Nop())
 	require.NoError(t, err)
-	applyOptions(eng, append(provenanceBaseOptions(t), WithWASMArtifacts(WASMArtifact{
-		Name:  qt26WasmName,
-		Bytes: qt26LayeredArtifact(),
-		ABI:   contracts.HostAbiV2,
-		Scope: contracts.ScopeSymbol,
-	})))
+	applyOptions(eng, append(provenanceBaseOptions(t),
+		WithWASMArtifacts(WASMArtifact{
+			Name:  qt26WasmName,
+			Bytes: qt26LayeredArtifact(),
+			ABI:   contracts.HostAbiV2,
+			Scope: contracts.ScopeSymbol,
+		}),
+		WithWASMShardBudget(wasmShardTestBudget(2)),
+	))
 
-	_, err = eng.RunBacktest(context.Background(), BacktestRequest{
+	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
 		Strategy:       qt26WasmName,
 		StockPool:      []string{"600000.SH"},
 		StartDate:      provenanceTestStart.Format("2006-01-02"),
@@ -397,8 +419,15 @@ func TestWASMProvider_SymbolScopeRejected(t *testing.T) {
 		InitialCapital: 1_000_000,
 		RiskFreeRate:   0.03,
 	})
-	require.Error(t, err, "symbol scope 归 QT-25，未接线必须 fail-closed")
-	assert.Contains(t, err.Error(), "QT-25")
+	require.NoError(t, err, "QT-25 起 symbol scope 已接线，不应再 fail-closed")
+	require.Equal(t, StatusCompleted, resp.Status)
+	var buys []domain.Trade
+	for _, tr := range resp.Trades {
+		if tr.Direction == domain.DirectionLong {
+			buys = append(buys, tr)
+		}
+	}
+	require.GreaterOrEqual(t, len(buys), 2, "分层加仓在 symbol scope 下同样成交")
 }
 
 // TestTargetWeightSizing_FormulaAndCap 是 sizing 公式与 policy cap 的纯函数腿。

@@ -192,6 +192,11 @@ func buildDataServices(
 	var _ backtest.RunObserver = (*observability.Metrics)(nil)
 	engine.SetRunObserver(m)
 
+	// QT-25 ③：symbol scope 分片的三项指标（wasm_instances_live /
+	// wasm_bytes_live / wasm_batch_size）走同一条「消费方定义窄接口」范式。
+	var _ backtest.WASMShardObserver = (*observability.Metrics)(nil)
+	engine.SetWASMShardObserver(m)
+
 	// K10：执行器注册表。装配期注册 go 内核（现有实现，默认名）——
 	// 「默认选中」来自 RunSpec.kernel 空值时的 EffectiveKernel 解析，
 	// 不来自注册表预设。运行期不改（无热插拔）。
@@ -275,6 +280,7 @@ func buildDataServices(
 		// 每窗口引擎有自己的一份准入闸，观察面必须同样挂上 ——
 		// 否则 walk-forward 的 run 在指标上是隐形的（主引擎的读数只算主引擎）。
 		eng.SetRunObserver(m)
+		eng.SetWASMShardObserver(m)
 		return eng, nil
 	}, store, logger)
 	logger.Info().Msg("Walk-forward engine initialized")

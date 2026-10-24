@@ -107,6 +107,11 @@ type OnBarSession struct {
 	family        contracts.HostAbiVersion
 	hostDecl      contracts.HostRegionDeclaration
 	hasHostRegion bool
+
+	// moduleCloser 只在「单次会话自己编译的模块」上非 nil（
+	// NewOnBarSessionWithBudget 的兼容路径）。共享工厂的会话不关闭编译产物
+	// —— 它还可能被同批其它分片使用。
+	moduleCloser func() error
 }
 
 // NewOnBarSession compiles wasmBytes and instantiates an on_bar-protocol session.
@@ -130,82 +135,22 @@ func (s *WASMSandbox) NewOnBarSession(ctx context.Context, wasmBytes []byte) (*O
 // NewOnBarSessionWithBudget 带**双层预算**构造会话（QT-15 ②）。budget.PerCall
 // ≤ 0 沿用 sandbox 配置；budget.RunDeadline ≤ 0 沿用 DefaultRunDeadline。run
 // 级 deadline 从本调用起算——它管的是「整个 run 的墙钟」，不是单次调用。
+//
+// QT-25 起实现走 OnBarSessionFactory：编译 / 族判定 / 静态镜像只做一次。
+// 单会话路径由会话自己关闭编译产物；symbol scope 的多分片路径共享工厂，
+// 见 session_factory.go。
 func (s *WASMSandbox) NewOnBarSessionWithBudget(ctx context.Context, wasmBytes []byte, budget SessionBudget) (*OnBarSession, error) {
-	module, err := s.Compile(ctx, wasmBytes)
+	factory, err := s.NewOnBarSessionFactory(ctx, wasmBytes)
 	if err != nil {
 		return nil, err
 	}
-	abiMod, ok := module.(AbiModule)
-	if !ok {
-		_ = module.Close(ctx)
-		return nil, fmt.Errorf("wasm: runtime %T does not expose the import section, so the abi family cannot be self-proved", s.runtime)
-	}
-	family, err := DetectHostAbiFamily(abiMod)
+	sess, err := factory.NewSession(ctx, budget)
 	if err != nil {
-		_ = module.Close(ctx)
-		// abi 族判定失败 = 跨边界约定不符（QT-10 ③-②）⇒ ContractBreach。
-		return nil, classifyExecutionError(contracts.ErrContractBreach, err)
-	}
-	inst, err := s.InstantiateModule(ctx, module)
-	if err != nil {
-		module.Close(ctx)
+		_ = factory.Close(ctx)
 		return nil, err
 	}
-	// QT-62：v2 的宿主区判定要拿模块自己的数据段，而 wazero 的 CompiledModule
-	// 不暴露 Data section ⇒ 从原始字节解一次（纯静态、不执行、无副作用）。
-	// v1 不解析：它的宿主区走 legacy 布局，声明校验整体跳过。
-	var dataImage contracts.StaticDataImage
-	if family == contracts.HostAbiV2 {
-		img, perr := ParseStaticDataImage(wasmBytes)
-		if perr != nil {
-			_ = inst.Close()
-			// artifact 静态镜像校验失败 = 策略制品坏了 ⇒ StrategyFault。
-			return nil, classifyExecutionError(contracts.ErrStrategyFault, perr)
-		}
-		dataImage = img
-	}
-	diagnostics, err := ValidateLoadedArtifact(inst, family, dataImage)
-	if err != nil {
-		_ = inst.Close()
-		// artifact 校验失败（宿主区声明缺失等）⇒ StrategyFault（QT-10 ③-②）。
-		return nil, classifyExecutionError(contracts.ErrStrategyFault, err)
-	}
-	// QT-26：v2 的 params/scratch 写点必须用模块自己声明的地址，不能假设
-	// 「0 / 4096」这两个 legacy 常量。ValidateLoadedArtifact 已经读过一次；
-	// 这里再读一次是为了把声明留在会话上供 Initialize 与 provider 使用
-	// （ReadHostRegion 是纯自省，无副作用）。
-	var hostDecl contracts.HostRegionDeclaration
-	hasHostRegion := false
-	if family == contracts.HostAbiV2 {
-		decl, derr := ReadHostRegion(inst.(*wazeroInstance))
-		if derr != nil {
-			_ = inst.Close()
-			return nil, classifyExecutionError(contracts.ErrStrategyFault, derr)
-		}
-		hostDecl, hasHostRegion = decl, true
-	}
-	for _, d := range diagnostics {
-		s.log.Warn().Str("abi_diagnostic", d).Str("abi_version", family.String()).
-			Msg("wasm artifact uses the legacy host memory layout (params at offset 0, scratch at 4096) — " +
-				"host writes are not covered by a module declaration")
-	}
-	deadline := budget.RunDeadline
-	if deadline <= 0 {
-		deadline = DefaultRunDeadline
-	}
-	// run 级 deadline 派生自请求 ctx（C1：deadline 来自请求 ctx，默认 10min）。
-	// 调用方取消 ctx 同样会把模块关闭——那也是一次终止，不是普通错误。
-	runCtx, runCancel := context.WithTimeout(ctx, deadline)
-	return &OnBarSession{
-		inst:          inst,
-		sandbox:       s,
-		budget:        budget,
-		runCtx:        runCtx,
-		runCancel:     runCancel,
-		family:        family,
-		hostDecl:      hostDecl,
-		hasHostRegion: hasHostRegion,
-	}, nil
+	sess.moduleCloser = func() error { return factory.Close(context.Background()) }
+	return sess, nil
 }
 
 // Family 返回 artifact 自证的协议族（QT-26：provider 用它交叉校验声明的
@@ -372,9 +317,53 @@ func (sp *OnBarSession) Finalize(ctx context.Context, bc *BarContext) ([]byte, e
 	return out, nil
 }
 
+// SnapshotMemory 返回当前线性内存的完整镜像（QT-25 分片检查点）。
+//
+// 为什么是「整段线性内存」而不是 bc.State：v2 协议族没有 get_state/set_state
+// （那是 v1 家族，族互斥禁止混导），TinyGo 的包级变量也落在线性内存里。
+// 所以对 v2 分片，唯一与编译器无关的状态载体就是内存镜像本身。
+//
+// 终止会话不提供快照：模块已被关闭，读到的只是误导性的底层错误。
+func (sp *OnBarSession) SnapshotMemory() ([]byte, error) {
+	if err := sp.checkAlive(); err != nil {
+		return nil, err
+	}
+	size := sp.inst.MemorySize()
+	if size == 0 {
+		return nil, fmt.Errorf("wasm: session has no linear memory to snapshot")
+	}
+	return sp.inst.ReadMemory(0, size)
+}
+
+// RestoreMemory 把一份内存镜像写回**新实例**（QT-25 跨批恢复）。
+//
+// 调用时机：Initialize 之后、第一次 OnBar 之前。镜像里包含 params/scratch
+// 区域，但同一个 run 的 params 相同，覆盖回去的内容与刚写入的一致。
+func (sp *OnBarSession) RestoreMemory(state []byte) error {
+	if err := sp.checkAlive(); err != nil {
+		return err
+	}
+	if len(state) == 0 {
+		return fmt.Errorf("wasm: RestoreMemory received an empty snapshot")
+	}
+	return sp.inst.WriteMemory(0, state)
+}
+
+// MemorySize 返回会话当前线性内存字节数（供分片预算的 wasm_bytes_live 指标）。
+func (sp *OnBarSession) MemorySize() uint32 {
+	return sp.inst.MemorySize()
+}
+
 // Close releases the underlying instance. Close 不走 checkAlive：关闭一个已被
 // wazero 关掉的模块是幂等清理，终止会话同样需要能被释放。run 级 ctx 一并取消。
+// 单会话路径还会关闭自己编译的模块（moduleCloser）；共享工厂的会话不关。
 func (sp *OnBarSession) Close() error {
 	sp.runCancel()
-	return sp.inst.Close()
+	err := sp.inst.Close()
+	if sp.moduleCloser != nil {
+		if merr := sp.moduleCloser(); err == nil {
+			err = merr
+		}
+	}
+	return err
 }

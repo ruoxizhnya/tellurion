@@ -35,6 +35,7 @@ import (
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
+	"tellurion/pkg/sandbox/wasm"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
@@ -225,6 +226,32 @@ func WithWASMArtifacts(artifacts ...WASMArtifact) EngineOption {
 			}
 			e.wasmArtifacts[a.Name] = a
 		}
+	}
+}
+
+// WithWASMShardBudget 注入 symbol scope 的分片预算（QT-25）。
+//
+// 只影响 scope=symbol 的 WASM 制品：market scope 是单实例模型，预算与
+// 并发没有可调项。零值字段沿用 wasm.ShardBudget 的默认（Workers 取本 run
+// 的 parallelWorkers，预算 512 MiB，每实例 64 MiB）。
+//
+// 这条选项只改「同时起几个实例」，不改信号与成交 —— W 变小只是变慢。
+func WithWASMShardBudget(b wasm.ShardBudget) EngineOption {
+	return func(e *Engine) {
+		e.mu.Lock()
+		e.wasmShardBudget = b
+		e.mu.Unlock()
+	}
+}
+
+// WithWASMShardObserver 注入 symbol scope 分片指标的观察面（QT-25 ③）。
+// 接口与 RunObserver 同口径：pkg/backtest 只定义窄接口，不 import
+// pkg/observability；*observability.Metrics 隐式实现。
+func WithWASMShardObserver(ob WASMShardObserver) EngineOption {
+	return func(e *Engine) {
+		e.mu.Lock()
+		e.wasmShardObserver = ob
+		e.mu.Unlock()
 	}
 }
 

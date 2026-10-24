@@ -453,6 +453,11 @@ func hostSetState(ctx context.Context, m api.Module, keyPtr, keyLen, valPtr, val
 	if !ok {
 		panic("wasm: set_state value out of range")
 	}
+	// v2 分片不预分配 State（它用不到 v1 家族的 get/set_state）；第一次写时
+	// 再建，避免 5000 个分片各带一张空 map。
+	if bc.State == nil {
+		bc.State = make(map[string][]byte)
+	}
 	keyCount := len(bc.State)
 	nextBytes := stateBytes(bc.State) + len(val)
 	if old, exists := bc.State[string(key)]; exists {
