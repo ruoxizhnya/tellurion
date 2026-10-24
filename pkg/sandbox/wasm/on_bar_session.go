@@ -80,7 +80,7 @@ var ErrSessionTerminated = errors.New("wasm: session terminated")
 //	sess, _ := sandbox.NewOnBarSession(ctx, wasmBytes)
 //	defer sess.Close()
 //	sess.Initialize(ctx, paramsJSON)
-//	bc := &BarContext{Series: series, State: map[string][]byte{}, ...}
+//	bc := &BarContext{Axis: axis, Symbols: runUniverse, Bars: bars, State: map[string][]byte{}, ...}
 //	for t := 0; t < len(series); t++ {
 //	    bc.T = int32(t)
 //	    sess.OnBar(ctx, bc)          // 内部把 bc 注入 ctx，调 on_bar(t)
@@ -273,19 +273,32 @@ func (sp *OnBarSession) OnBar(ctx context.Context, bc *BarContext) error {
 		return classifyExecutionError(contracts.ErrContractBreach,
 			errors.New("wasm: OnBar requires non-nil BarContext"))
 	}
+	// 单 bar 发射预算按「一次 on_bar 调用」重置（QT-26）：重放与重新执行
+	// 是两次调用，各自受一次 MaxSignalsPerBar 约束。
+	bc.resetEmissionBar()
 	return sp.guardedCall(ctx, func(c context.Context) error {
 		_, err := sp.sandbox.CallWithTimeout(withBarContext(c, bc), sp.inst, "on_bar", uint64(uint32(bc.T)))
 		return err
 	})
 }
 
-// Finalize 调用 wasm 的 finalize()，返回打包 (ptr,len) 的最终信号（可能是
-// pack(0,0) 表示无信号）。bc 注入 ctx 使 finalize 内也能 get_state 冲刷状态。
+// Finalize 调用 wasm 的 finalize()。
+//
+// QT-24 之后语义写死（§2.2-14）：
+//   - finalize 期间 emit 的信号归**最后一个交易日**，由调用方在期末强平
+//     **之前**应用；它们落在 `bc.Signals` / `bc.Targets`，**不是**返回值。
+//   - 返回值是**诊断字节**（可选的人类可读诊断），不能当信号通道用 ——
+//     旧注释把它写成「最终信号」正是平仓信号被静默丢掉的来源。
+//   - finalize 里发 long/short 会被 host trap（只允许 close / 清仓）。
+//
+// bc 注入 ctx 使 finalize 内也能 get_state 冲刷状态。
 func (sp *OnBarSession) Finalize(ctx context.Context, bc *BarContext) ([]byte, error) {
 	if bc == nil {
 		return nil, classifyExecutionError(contracts.ErrContractBreach,
 			errors.New("wasm: Finalize requires non-nil BarContext"))
 	}
+	bc.inFinalize = true
+	defer func() { bc.inFinalize = false }()
 	var out []byte
 	err := sp.guardedCall(ctx, func(c context.Context) error {
 		results, err := sp.sandbox.CallWithTimeout(withBarContext(c, bc), sp.inst, "finalize")

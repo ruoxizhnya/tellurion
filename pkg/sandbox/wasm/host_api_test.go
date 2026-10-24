@@ -90,14 +90,10 @@ func TestHostGetBar_PastAndCurrent(t *testing.T) {
 	require.NoError(t, err)
 	defer inst.Close()
 
-	bc := &BarContext{
-		T:      3,
-		Series: []float64{10, 11, 12, 13, 14},
-		State:  map[string][]byte{},
-	}
+	bc := bcWithCloses([]float64{10, 11, 12, 13, 14}, 3)
 	ctx := withBarContext(context.Background(), bc)
 
-	// get_bar(0, 0) → 当前 bar close = Series[3] = 13
+	// get_bar(0, 0) → 当前 bar close = Bars[0][3] = 13
 	res, err := inst.Call(ctx, "run")
 	require.NoError(t, err)
 	require.Len(t, res, 1)
@@ -113,14 +109,10 @@ func TestHostGetBar_NegativeOffset(t *testing.T) {
 	require.NoError(t, err)
 	defer inst.Close()
 
-	bc := &BarContext{
-		T:      3,
-		Series: []float64{10, 11, 12, 13, 14},
-		State:  map[string][]byte{},
-	}
+	bc := bcWithCloses([]float64{10, 11, 12, 13, 14}, 3)
 	ctx := withBarContext(context.Background(), bc)
 
-	// get_bar(-2, 0) → Series[1] = 11。wasm 的 i32 参数经 uint64 传，-2 需
+	// get_bar(-2, 0) → Bars[0][1] = 11。wasm 的 i32 参数经 uint64 传，-2 需
 	// 转成 32 位补码（0xfffffffe），再零扩展成 uint64。
 	var tOffset int32 = -2
 	res, err := inst.Call(ctx, "run", uint64(uint32(tOffset)))
@@ -138,11 +130,7 @@ func TestHostGetBar_FutureTraps(t *testing.T) {
 	require.NoError(t, err)
 	defer inst.Close()
 
-	bc := &BarContext{
-		T:      3,
-		Series: []float64{10, 11, 12, 13, 14, 15, 16},
-		State:  map[string][]byte{},
-	}
+	bc := bcWithCloses([]float64{10, 11, 12, 13, 14, 15, 16}, 3)
 	ctx := withBarContext(context.Background(), bc)
 
 	// get_bar(+1, 0) → 必须 trap（error，非正常返回）。

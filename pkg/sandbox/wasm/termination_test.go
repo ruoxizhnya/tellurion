@@ -164,7 +164,7 @@ func TestWhileTrueTerminatesWithinBudget(t *testing.T) {
 
 	require.NoError(t, sess.Initialize(context.Background(), nil))
 
-	bc := &BarContext{Series: make([]float64, 3), State: map[string][]byte{}}
+	bc := bcWithCloses(make([]float64, 3), 0)
 	bc.T = 0
 
 	done := make(chan error, 1)
@@ -193,7 +193,7 @@ func TestTerminatedSessionRefusesCalls(t *testing.T) {
 	defer sess.Close()
 	require.NoError(t, sess.Initialize(context.Background(), nil))
 
-	bc := &BarContext{State: map[string][]byte{}}
+	bc := &BarContext{State: map[string][]byte{}, Symbols: []string{"A"}}
 	bc.T = 0
 	err = sess.OnBar(context.Background(), bc)
 	require.ErrorIs(t, err, ErrSessionTerminated)
@@ -262,7 +262,7 @@ func TestBudgetForScope(t *testing.T) {
 // TestHostEmitSuppression 钉住 N4 的压制语义：SuppressSignals=true 时
 // emit_signal「成功但不记录」，只递增计数。
 func TestHostEmitSuppression(t *testing.T) {
-	bc := &BarContext{State: map[string][]byte{}}
+	bc := &BarContext{State: map[string][]byte{}, Symbols: []string{"A"}}
 	ctx := withBarContext(context.Background(), bc)
 
 	bc.SuppressSignals = true
@@ -272,6 +272,7 @@ func TestHostEmitSuppression(t *testing.T) {
 	assert.Equal(t, 2, bc.SuppressedSignals, "压制计数应递增")
 
 	bc.SuppressSignals = false
+	bc.resetEmissionBar()
 	hostEmitSignal(ctx, 0, 1, 1.0)
 	assert.Len(t, bc.Signals, 1, "恢复 apply 后信号照常记录")
 	assert.Equal(t, 2, bc.SuppressedSignals, "apply 期的 emit 不计入压制")
@@ -327,7 +328,7 @@ func TestSupervisorRebuildCapExhausted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	bc := &BarContext{Series: make([]float64, 6), State: map[string][]byte{}}
+	bc := bcWithCloses(make([]float64, 6), 0)
 	stats, err := sv.Run(context.Background(), bc, 6)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSessionTerminated)

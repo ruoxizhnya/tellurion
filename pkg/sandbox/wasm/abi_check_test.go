@@ -438,7 +438,7 @@ func TestNewOnBarSession_V1ArtifactStillLoadsWithLegacyDiagnostic(t *testing.T) 
 	defer sess.Close()
 
 	require.NoError(t, sess.Initialize(context.Background(), []byte(`{"lookback":5}`)))
-	bc := &BarContext{T: 0, Series: []float64{1, 2, 3}, State: map[string][]byte{}}
+	bc := bcWithCloses([]float64{1, 2, 3}, 0)
 	require.NoError(t, sess.OnBar(context.Background(), bc))
 	out, err := sess.Finalize(context.Background(), bc)
 	require.NoError(t, err)
@@ -473,22 +473,24 @@ func (stubInstance) Close() error { return nil }
 
 // TestPendingV2HostFunctions_Trap 钉住「注册 ≠ 可用」。
 //
-// 本单把 4 个 v2 名字注册进 env 是为了让宿主区校验能跑；如果被误当成能力，
-// 策略会在第一次取数时 trap —— 这条测试就是那个承诺的证据。
+// QT-24 之后 v2 数据面三个已接线，只剩 emit_target2 仍为骨架（QT-26）。
+// 本测试用它证明：契约里有名字、运行时能实例化，但函数体仍 trap ——
+// 任何 v2 artifact 在 QT-26 落地前都不能把目标权重路径当成可用能力。
 func TestPendingV2HostFunctions_Trap(t *testing.T) {
 	ctx := context.Background()
-	// 一个调用 get_bar2(0,0,0) 并把结果返回的模块。
 	m := &wasmModule{
 		types: []wasmFuncType{
-			{params: []byte{valI32, valI32, valI32}, results: []byte{valF64}},
-			{results: []byte{valF64}},
+			{params: []byte{valI32, valF64}}, // emit_target2(symbol_idx, weight)
+			{},                               // run()
 		},
-		imports: []wasmImport{{module: HostModuleName, name: contracts.HostFnGetBar2, typeIdx: 0}},
+		imports: []wasmImport{{module: HostModuleName, name: contracts.HostFnEmitTarget2, typeIdx: 0}},
 		funcs:   []uint32{1},
 		codes: [][]byte{
-			{opI32Const, 0x00, opI32Const, 0x00, opI32Const, 0x00, opCall, 0x00, opEnd},
+			appendF64Const([]byte{opI32Const, 0x00}, 0.5),
 		},
 	}
+	// 上面的 appendF64Const 把 f64.const 接在 i32.const 之后，再接 call。
+	m.codes[0] = append(m.codes[0], opCall, 0x00, opEnd)
 	m.export = []wasmExport{{name: "run", kind: expKindFunc, idx: m.funcIndexBase()}}
 
 	r := newHostRuntime(t)
@@ -498,11 +500,12 @@ func TestPendingV2HostFunctions_Trap(t *testing.T) {
 	require.NoError(t, err)
 	defer inst.Close()
 
-	bc := &BarContext{T: 0, Series: []float64{1}, State: map[string][]byte{}}
+	bc := bcWithCloses([]float64{1}, 0)
+	bc.Symbols = []string{"A"}
 	_, err = inst.Call(withBarContext(ctx, bc), "run")
-	require.Error(t, err, "v2 函数体没接线，调用必须 trap 而不是返回 0")
-	assert.Contains(t, err.Error(), contracts.HostFnGetBar2)
-	assert.Contains(t, err.Error(), "QT-24")
+	require.Error(t, err, "emit_target2 函数体没接线，调用必须 trap 而不是静默")
+	assert.Contains(t, err.Error(), contracts.HostFnEmitTarget2)
+	assert.Contains(t, err.Error(), "QT-26")
 }
 
 // ─── params 上限 ────────────────────────────────────────────

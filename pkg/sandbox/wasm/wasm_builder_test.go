@@ -1,5 +1,10 @@
 package wasm
 
+import (
+	"encoding/binary"
+	"math"
+)
+
 // 极简 WASM binary 编码器（测试用）。参考 wazero 官方测试的 encodeModule
 // 做法，只支持本测试需要的子集：type / import / function / memory / global /
 // export / code / data 八个 section。无 table、无 element、无 start。
@@ -57,6 +62,8 @@ const (
 	opI32GeS        byte = 0x4e
 	opI32Add        byte = 0x6a
 	opLocalSet      byte = 0x21
+	opIf            byte = 0x04
+	opElse          byte = 0x05
 )
 
 // blocktype void（block/loop 后跟的立即数：0x40 = 空结果类型）。
@@ -258,6 +265,13 @@ func appendUleb128(b []byte, v uint32) []byte {
 		}
 		b = append(b, c|0x80)
 	}
+}
+
+// appendF64Const 追加 f64.const（IEEE-754 小端字节）。
+func appendF64Const(b []byte, v float64) []byte {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], math.Float64bits(v))
+	return append(append(b, opF64Const), buf[:]...)
 }
 
 // appendSleb128 追加有符号 LEB128 编码（i32.const / i64.const 的操作数用它 ——

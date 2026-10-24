@@ -32,10 +32,10 @@ func benchOnBarCloseOnDone(b *testing.B, closeOnDone bool) {
 		b.Fatal(err)
 	}
 
-	bc := &BarContext{Series: make([]float64, 727), State: map[string][]byte{}}
+	bc := bcWithCloses(make([]float64, 727), 0)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for t := range bc.Series {
+		for t := range bc.Bars[0] {
 			bc.T = int32(t)
 			if err := sess.OnBar(ctx, bc); err != nil {
 				b.Fatal(err)
@@ -73,10 +73,10 @@ func benchBusyCloseOnDone(b *testing.B, closeOnDone bool) {
 		b.Fatal(err)
 	}
 
-	bc := &BarContext{Series: make([]float64, 727), State: map[string][]byte{}}
+	bc := bcWithCloses(make([]float64, 727), 0)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for t := range bc.Series {
+		for t := range bc.Bars[0] {
 			bc.T = int32(t)
 			if err := sess.OnBar(ctx, bc); err != nil {
 				b.Fatal(err)

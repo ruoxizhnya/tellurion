@@ -93,11 +93,8 @@ func TestOnBarSession_Protocol(t *testing.T) {
 
 	require.NoError(t, sess.Initialize(context.Background(), []byte(`{"lookback":5}`)))
 
-	bc := &BarContext{
-		Series: []float64{10, 11, 12, 13, 14},
-		State:  map[string][]byte{},
-	}
-	for i := 0; i < len(bc.Series); i++ {
+	bc := bcWithCloses([]float64{10, 11, 12, 13, 14}, 0)
+	for i := 0; i < len(bc.Bars[0]); i++ {
 		bc.T = int32(i)
 		require.NoError(t, sess.OnBar(context.Background(), bc), "on_bar(%d) 不应报错", i)
 	}
@@ -106,7 +103,7 @@ func TestOnBarSession_Protocol(t *testing.T) {
 	require.NoError(t, err)
 	// finalize 返回 pack(0,0) → 空信号。
 	assert.Empty(t, signals)
-	t.Logf("逐 bar 协议跑通：%d 根 bar，finalize 空信号", len(bc.Series))
+	t.Logf("逐 bar 协议跑通：%d 根 bar，finalize 空信号", len(bc.Bars[0]))
 }
 
 // TestOnBarSession_NoBarContext 是 fail-loud：漏注入 BarContext 时 on_bar 必须报错

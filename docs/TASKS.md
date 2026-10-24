@@ -42,7 +42,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W2 | QT-21 ✅ | 信号排序 + 重复语义 | P0 | **已完成（2026-10-24）**；应用前按 `(Symbol, Direction 固定序, Strength desc, CompositeScore desc)` 稳定排序；`close` 优先 + 同向 strength 求和 clamp + `duplicate_signals_merged` 进 run 诊断；`pkg/execalgo` 的 duplicate-parent 引擎路径被合并前移（守卫仍在 dispatcher 层） |
 | W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
 | W2 | QT-23 ✅ | `RunUniverse`（run 级稳定） | P0 | **已完成（2026-10-24）**；`Scope` 拆 `RunUniverse`（索引来源，run 前一次算完）+ `Universe`（当日可交易）；`RunUniverse` 进 dataset/run_spec hash；停牌/调出只减当日名单、不重排索引 |
-| W2 | QT-24 | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | 依赖 QT-01/QT-23 |
+| W2 | QT-24 ✅ | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | **已完成（2026-10-24）**；`BarContext` 改 `{T, Axis, Symbols, Bars, State, Signals}`，`get_bar2` 五字段/停牌 NaN/`get_series_len2` 可见长度/`get_date2` 接线；finalize 的 close 留 `bc.Signals`、long/short trap |
 | W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
 | W2 | QT-26 | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | 依赖 QT-01/QT-24 |
 | **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26 |
@@ -716,6 +716,29 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：整段序列永不进 wasm 内存（仍按坐标取数）；不做"批量喂全序列"；不改 v1 的 `get_bar` 行为。
 - **⑤ 验收**：market scope 取到 5 字段；停牌返回 NaN；"整段预加载"模拟下 `get_series_len2` 仍只返回可见长度；finalize 发 `close` 能平仓且成交价取最后一日，发 `long` 被 trap。
 - **⑥ 边界**：只做数据面与 finalize；`emit_target2` 的 sizing 在 QT-26。
+
+> **✅ 完成记录（2026-10-24，G1/core）**
+>
+> **落点与行为**
+> - [`pkg/sandbox/wasm/host_api.go`](../pkg/sandbox/wasm/host_api.go)：`BarContext` 改为 `{T, Axis, Symbols, Bars, State, Signals, Targets}`，删除 `Series` / `CrossSection`。新增日期→下标预建索引（按 symbol 缓存，Bars 追加时按长度失效重建，不每次二分）。
+> - v2 数据面接线：`get_bar2(symbol_idx,t_offset,field_id)` 按 §7.1 表取值（market = `Axis[T+off]` 查 `Bars[sym]`；symbol = `Bars[0][T+off]` 且 `symbol_idx=0`），field 0..4 全部生效、越界 trap、缺 bar 返回 NaN；`get_series_len2` 返回**可见长度**（日期 ≤ Axis[T]；symbol scope = min(len, T+1)）；`get_date2` 返回 YYYYMMDD(UTC)。
+> - v1 行为不变：`get_bar` 仍只读 close（改从 `Bars[0]` 取）、`get_series_len` 仍是全长、`get_cross_section` 在 symbol scope 仍返回 NaN；market scope 的横截面改由 `Axis + Bars` 求值。
+> - [`pkg/sandbox/wasm/on_bar_session.go`](../pkg/sandbox/wasm/on_bar_session.go)：`Finalize` 期间置 `inFinalize`；返回值明确为**诊断字节**，信号留在 `bc.Signals`/`bc.Targets`；finalize 里发 `long/short` → host trap（只允许 close/hold）。单 bar 发射预算按「一次 on_bar 调用」重置（重放与重新执行各自受一次上限约束）。
+> - `emit_target2` 仍是 trap 骨架（QT-26）。
+>
+> **验收证据**（`go test ./pkg/sandbox/wasm -count=1` 全 PASS）
+> - `TestHostGetBar2_MarketScopeFiveFields`：close/open/high/low/volume 五字段逐一对值；`TestHostGetBar2_SuspendedOrUnlistedReturnsNaN`：停牌日 5 个字段全 NaN、未上市标的 NaN、历史日仍可取；
+> - `TestHostGetSeriesLen2_ReturnsVisibleLengthOnly`：Bars 预加载 5 根、Axis[T] 只到第 2 天 ⇒ 返回 2 而非 5；symbol scope 返回 `min(len, T+1)`；
+> - `TestHostGetBar2_TrapsOnFutureNegativeOffsetAndBadIndexes`：`t_offset>0`、`T+off<0`、field/symbol 越界全部 trap；
+> - `TestFinalize_CloseSignalIsCollectedNotDropped`：finalize 发的 close 留在 `bc.Signals`、返回值为空诊断字节；`TestFinalize_LongSignalTraps`：finalize 发 long → 错误。
+> - **破坏验证**：把 `visibleSeriesLen` 改成 `len(Bars[sym])`（暴露未来）⇒ `TestHostGetSeriesLen2_*` 三条断言红；逐字节还原后全绿。
+>
+> **如实登记（未做/边界）**
+> 1. `CrossSection` 删除后，v1 的 `get_cross_section` 在 symbol scope 仍返回 NaN（与旧行为一致）；market scope 的横截面是新增能力，v1 artifact 因族互斥无法使用。
+> 2. `emit_target2` 仍为调用即 trap 的骨架，QT-26 接线；本单不声称目标权重可用。
+> 3. `finalize` 平仓信号「成交价取最后一日」依赖调用方（QT-26 的 provider）把 finalize 信号并入最后一日信号批次；本单只保证信号不丢。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-25 · `symbol` scope 分片与预算 [P0] ⬜
 

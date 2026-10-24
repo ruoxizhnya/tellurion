@@ -53,7 +53,7 @@ func TestQT10_WasmTrapIsStrategyFault(t *testing.T) {
 	require.NoError(t, err)
 	defer sess.Close()
 
-	err = sess.OnBar(context.Background(), &BarContext{Series: []float64{10}, T: 0, State: map[string][]byte{}})
+	err = sess.OnBar(context.Background(), bcWithCloses([]float64{10}, 0))
 	require.Error(t, err, "unreachable 必须 trap")
 	assert.True(t, errors.Is(err, contracts.ErrStrategyFault), "trap 是策略故障，got: %v", err)
 	assert.False(t, errors.Is(err, contracts.ErrDataGap), "trap 不得被当成数据缺口跳天")
@@ -68,7 +68,7 @@ func TestQT10_WasmBudgetTerminationIsStrategyFault(t *testing.T) {
 	require.NoError(t, err)
 	defer sess.Close()
 
-	err = sess.OnBar(context.Background(), &BarContext{Series: []float64{10}, T: 0, State: map[string][]byte{}})
+	err = sess.OnBar(context.Background(), bcWithCloses([]float64{10}, 0))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrSessionTerminated), "预算终止必须保留原哨兵（QT-15），got: %v", err)
 	assert.True(t, errors.Is(err, contracts.ErrStrategyFault), "预算超限是策略故障，got: %v", err)
