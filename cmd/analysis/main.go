@@ -17,6 +17,11 @@ import (
 	"tellurion/pkg/live/reconciliation"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/strategy"
+	// 注册内置表达式策略 expression_template。agent 侧 HTTP 化后无法再在
+	// 自己进程里注册策略（QT-17 S3-c-3），只能提交 strategy=expression_template
+	// + strategy_params；不导入本包时该名字在注册表里不存在，请求必然
+	// strategy not found。
+	_ "tellurion/pkg/strategy/expression"
 	_ "tellurion/pkg/strategy/plugins"
 )
 
