@@ -19,7 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"reflect"
 	"runtime/debug"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -124,7 +128,7 @@ func (e *Engine) buildRunProvenance(
 		return nil, fmt.Errorf("run provenance: %w", err)
 	}
 
-	effParams, paramsJSON, err := effectiveStrategyParams(params.StrategyName)
+	effParams, paramsJSON, err := effectiveStrategyParams(params.StrategyName, params.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -221,23 +225,158 @@ func (e *Engine) buildRunProvenance(
 	}, nil
 }
 
-// effectiveStrategyParams 返回策略的生效参数 = 定义默认 ⊕ run 覆写。
+// ResolveStrategyParams 计算一次 run 的**生效策略参数** = 定义默认 ⊕ run 覆写。
 //
-// 今天没有 run 级覆写（BacktestRequest 尚无 StrategyParams，那是 QT-21 的
-// 字段），所以生效值就是注册表里该策略声明的默认值。**不写空 map**：
-// 默认值同样决定结果 —— 改了某个策略的默认 lookback，行为就变了，
-// 这时 hash 必须变，否则「同 hash 不同结果」。
+// 三条口径（QT-20 · A3 / p0-remediation-design §A3）：
+//   - 浅合并：run 只覆写同名键，未覆写的键保留 manifest 声明的默认值。
+//     **不写空 map**：默认值同样决定结果，删掉它会让「同 hash 不同结果」。
+//   - 未知键拒绝并点名（与 contracts 的 EngineParams 同口径）：静默吞掉一个
+//     拼错的参数名，调用方会以为参数生效了并拿这次结果下结论。拒绝在
+//     RunBacktest 入口发生 ⇒ HTTP 映射 400。
+//   - 类型 / 范围校验用策略清单 `Parameters()`（manifest.params[]）：清单只
+//     声明了 Name / Type / Default / Min / Max；Min/Max 同时为 0 视为未设界。
 //
-// 策略不在注册表（注册表 miss / 自定义 SignalProvider）时返回空 map：
-// 引擎看不到它的参数，只能如实记「未登记」。
-func effectiveStrategyParams(name string) (map[string]any, []byte, error) {
-	eff := make(map[string]any)
-	// QT-11：要的是「声明的默认参数」这份元数据，用 Describe 拿——
-	// GlobalGet 的返回值是一个可被拿去算信号的实例，执行路径不该碰它。
-	if info, err := strategy.GlobalDescribe(name); err == nil {
-		for _, p := range info.Parameters {
-			eff[p.Name] = p.Default
+// 策略不在注册表（自定义 SignalProvider / 拼错的名字）时没有 manifest 可校验：
+// 覆写原样返回，由 provider 自行解释；run 是否可用由后续执行路径裁定。
+// 返回的 map 是**新分配**的，调用方可安全写进本 run 的状态。
+func ResolveStrategyParams(name string, overrides map[string]any) (map[string]any, error) {
+	eff := make(map[string]any, len(overrides))
+
+	info, err := strategy.GlobalDescribe(name)
+	if err != nil {
+		for k, v := range overrides {
+			eff[k] = v
 		}
+		return eff, nil
+	}
+
+	declared := make(map[string]strategy.Parameter, len(info.Parameters))
+	for _, p := range info.Parameters {
+		declared[p.Name] = p
+		eff[p.Name] = p.Default
+	}
+	if len(overrides) == 0 {
+		return eff, nil
+	}
+
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	unknown := make([]string, 0)
+	for _, k := range keys {
+		if _, ok := declared[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) > 0 {
+		return nil, fmt.Errorf(
+			"strategy_params contains unknown key(s) [%s] for strategy %q: unknown strategy params are rejected, not ignored (known: %s)",
+			strings.Join(unknown, ", "), name, knownStrategyParamNames(declared))
+	}
+
+	for _, k := range keys {
+		v := overrides[k]
+		if err := validateStrategyParamValue(declared[k], v); err != nil {
+			return nil, err
+		}
+		eff[k] = v
+	}
+	return eff, nil
+}
+
+// knownStrategyParamNames 把清单键排成一句可读的「已知参数」提示。
+func knownStrategyParamNames(declared map[string]strategy.Parameter) string {
+	if len(declared) == 0 {
+		return "(none)"
+	}
+	names := make([]string, 0, len(declared))
+	for n := range declared {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// validateStrategyParamValue 按清单声明的类型 / 范围校验一个覆写值。
+//
+// 类型名与 strategy.Parameter.Type 的既有约定一致（int / float / string /
+// bool）；object / array / 空类型不在本函数判 —— 嵌套形状已由 contracts 的
+// ValidateRunSpec 拒绝，这里不建第二份口径。
+func validateStrategyParamValue(p strategy.Parameter, v any) error {
+	if v == nil {
+		return nil // nil = 该键无值；合并后保留默认语义由消费方决定
+	}
+
+	typ := strings.ToLower(strings.TrimSpace(p.Type))
+	var num float64
+	isNum := false
+	switch typ {
+	case "int":
+		f, ok := numericParamValue(v)
+		if !ok || f != math.Trunc(f) {
+			return fmt.Errorf("strategy_params[%q] must be an integer for type %q, got %T(%v)", p.Name, p.Type, v, v)
+		}
+		num, isNum = f, true
+	case "float", "number":
+		f, ok := numericParamValue(v)
+		if !ok {
+			return fmt.Errorf("strategy_params[%q] must be a number for type %q, got %T(%v)", p.Name, p.Type, v, v)
+		}
+		num, isNum = f, true
+	case "string":
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("strategy_params[%q] must be a string for type %q, got %T(%v)", p.Name, p.Type, v, v)
+		}
+	case "bool":
+		if _, ok := v.(bool); !ok {
+			return fmt.Errorf("strategy_params[%q] must be a bool for type %q, got %T(%v)", p.Name, p.Type, v, v)
+		}
+	}
+
+	// Min/Max 同时为 0 = 清单没有声明边界（零值不可区分「下界是 0」与
+	// 「没设下界」，所以这里按「至少声明了一侧才校验」处理）。
+	if isNum && (p.Min != 0 || p.Max != 0) {
+		if p.Min != 0 && num < p.Min {
+			return fmt.Errorf("strategy_params[%q] = %v is below the declared minimum %v", p.Name, num, p.Min)
+		}
+		if p.Max != 0 && num > p.Max {
+			return fmt.Errorf("strategy_params[%q] = %v exceeds the declared maximum %v", p.Name, num, p.Max)
+		}
+	}
+	return nil
+}
+
+// numericParamValue 把任意 Go 数值宽度折成 float64（HTTP 给 float64，
+// 进程内调用方可能直接给 int / int64）。
+func numericParamValue(v any) (float64, bool) {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(rv.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return float64(rv.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return rv.Float(), true
+	default:
+		return 0, false
+	}
+}
+
+// effectiveStrategyParams 返回策略的生效参数 = 定义默认 ⊕ run 覆写，并附带
+// 写进 provenance 的 canonical JSON。
+//
+// 合并与校验的唯一实现在 ResolveStrategyParams；这里只多做一步序列化，
+// 让「落库的那份 JSON」与「算 hash 的那份 map」必然同源。
+//
+// 策略不在注册表（注册表 miss / 自定义 SignalProvider）且无覆写时返回空 map：
+// 引擎看不到它的参数，只能如实记「未登记」。
+func effectiveStrategyParams(name string, overrides map[string]any) (map[string]any, []byte, error) {
+	eff, err := ResolveStrategyParams(name, overrides)
+	if err != nil {
+		return nil, nil, fmt.Errorf("run provenance: %w", err)
 	}
 
 	raw, err := json.Marshal(eff)

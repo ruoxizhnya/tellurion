@@ -55,8 +55,9 @@ type RunMeta struct {
 	RunID string
 	// Strategy 是注册表键（策略名）。
 	Strategy string
-	// Params 是解析后的生效参数。参数投递通路（defaults ⊕ 覆写）归 QT-20，
-	// 本单先留位：今日恒空 map / nil，不是遗漏而是口径 —— 有了再填。
+	// Params 是解析后的生效参数（QT-20）：策略清单默认值 ⊕ run 覆写。
+	// provider 在 BeginRun 时收下它，并在为本 run 构造策略实例时通过
+	// Configure 注入 —— 这是 Go 内置策略的 `initialize(paramsJSON)` 等价物。
 	Params map[string]any
 	// Start / End 是本 run 的回放区间（UTC 零点）。
 	Start, End time.Time
@@ -140,6 +141,12 @@ func RejectFutureSignals(sigs []Signal, asOf time.Time) error {
 	return nil
 }
 
+// errRunParamsRejected 标记「策略实例拒绝了本 run 的参数」（QT-20）。
+//
+// 它与「策略未注册」是两类错误：前者是装配/参数问题，不该被包装成
+// NotFound 把调用方引去查拼写；用 errors.Is 在 Signals 里分流。
+var errRunParamsRejected = errors.New("strategy: run params rejected")
+
 // LocalSignalProvider 是 SignalProvider 的本地实现（K8 ③.2）——包装现有
 // 注册表 + 批式/流式双模式调用，行为与旧 pkg/backtest 的
 // getSignalsFromLocalStrategy 逐字节一致（错误消息、错误码、op 均原样保留）。
@@ -167,6 +174,10 @@ type LocalSignalProvider struct {
 	// 导出类型，调用方并发用（= 误用）时不能 data race。
 	mu        sync.Mutex
 	instances map[string]Strategy
+	// params 是本 run 的生效参数（QT-20），BeginRun 收下、EndRun 清空。
+	// 构造本 run 的策略实例时一次注入 Configure —— 之后每次 Signals 不再
+	// 重复 Configure（策略的参数在一个 run 内不可变，重复注入只会白付重建）。
+	params map[string]any
 	// activeRun 是当前打开的会话（QT-14）。空串 = 会话未开；非空 = 已
 	// BeginRun 且未 EndRun。**上限 1**：一个 LocalSignalProvider 的实例
 	// 缓存就是一份 run 的状态，同时服务两个 run 等于把两笔 run 的流式
@@ -206,6 +217,21 @@ func (p *LocalSignalProvider) strategyFor(name string) (Strategy, error) {
 	s, err := reg.NewInstance(name)
 	if err != nil {
 		return nil, err
+	}
+	// QT-20：把本 run 的生效参数注入策略实例。没声明参数（params 为空）
+	// 时保持既有行为 —— 不调 Configure，内置策略继续用编译期默认值。
+	// 不可配置的策略收到非空参数时不静默丢弃：参数是调用方明确表达的意图，
+	// 丢掉它等于「以为生效其实没生效」，直接拒绝本 run。
+	if len(p.params) > 0 {
+		c := AsConfigurable(s)
+		if c == nil {
+			return nil, fmt.Errorf("%w: strategy %q does not accept parameters (no Configure/Parameters), but the run supplied %d override(s)",
+				errRunParamsRejected, name, len(p.params))
+		}
+		if err := c.Configure(p.params); err != nil {
+			return nil, fmt.Errorf("%w: strategy %q rejected the run params: %v",
+				errRunParamsRejected, name, err)
+		}
 	}
 	p.instances[name] = s
 	return s, nil
@@ -248,6 +274,7 @@ func (p *LocalSignalProvider) BeginRun(_ context.Context, meta RunMeta) error {
 			meta.RunID, p.activeRun))
 	}
 	p.activeRun = meta.RunID
+	p.params = copyRunParams(meta.Params)
 	return nil
 }
 
@@ -270,7 +297,21 @@ func (p *LocalSignalProvider) EndRun(_ context.Context, runID string) error {
 		delete(p.instances, name)
 	}
 	p.activeRun = ""
+	p.params = nil
 	return nil
+}
+
+// copyRunParams 复制一份 run 参数快照：meta 的 map 属于调用方，provider
+// 不该持有可变引用（调用方事后改 map 会把「本 run 的参数」改掉）。
+func copyRunParams(params map[string]any) map[string]any {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(params))
+	for k, v := range params {
+		out[k] = v
+	}
+	return out
 }
 
 // Signals 实现 SignalProvider 契约。
@@ -293,6 +334,12 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 
 	strat, err := p.strategyFor(scope.Strategy)
 	if err != nil {
+		if errors.Is(err, errRunParamsRejected) {
+			// 参数被策略拒绝：这是本 run 的输入问题，不是「策略不存在」。
+			return nil, classifyExecutionError(contracts.ErrStrategyFault,
+				apperrors.Wrap(err, apperrors.ErrCodeInvalidInput,
+					fmt.Sprintf("local strategy %q rejected the run params (QT-20)", scope.Strategy), "getSignals"))
+		}
 		if errors.Is(err, ErrSharedStrategy) {
 			// 装配错误，不是「策略不存在」：报 NOT_FOUND 会把人引去查名字拼写，
 			// 而真正要改的是注册方式。

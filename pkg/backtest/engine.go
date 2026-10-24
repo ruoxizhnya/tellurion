@@ -566,6 +566,19 @@ func (e *Engine) RunBacktest(ctx context.Context, req BacktestRequest) (*Backtes
 		return nil, err
 	}
 
+	// QT-20：参数投递第一层在这里落地 —— 生效值 = 策略清单默认 ⊕ run
+	// 覆写。未知键 / 类型 / 范围在这里当场拒绝（ErrCodeInvalidInput ⇒
+	// HTTP 400），不把「拼错的参数名」带进日循环后才由策略静默忽略。
+	// 没有覆写时不做解析（保持既有路径零变化）：生效值仍由 provenance
+	// 按 manifest 默认值记录，provider 的 RunMeta.Params 留空。
+	var effParams map[string]any
+	if len(req.StrategyParams) > 0 {
+		effParams, err = ResolveStrategyParams(req.Strategy, req.StrategyParams)
+		if err != nil {
+			return nil, apperrors.New(apperrors.ErrCodeInvalidInput, err.Error()).WithOperation("RunBacktest")
+		}
+	}
+
 	// QT-63：进程内调用方（job 服务）可以用 RunID 把身份对齐到 backtest_jobs.id；
 	// 没给就自己生成。对外 HTTP 请求无法设置它（DTO 上是 json:"-"）。
 	backtestID := req.RunID
@@ -573,6 +586,10 @@ func (e *Engine) RunBacktest(ctx context.Context, req BacktestRequest) (*Backtes
 		backtestID = uuid.New().String()
 	}
 	state := e.newBacktestState(backtestID, req, stockPool, startDate, endDate, initialCapital, riskFreeRate)
+	// QT-20：把生效参数写进本 run 的 params（domain.BacktestParams.Params 的
+	// 契约语义就是「实际生效值」）。provider 的 RunMeta.Params 与
+	// provenance 的 params_json / params_hash 都从这里取，三处同源。
+	state.Params.Params = effParams
 	e.stateStore.Put(backtestID, state)
 
 	result, err := e.runBacktestInternal(ctx, state)

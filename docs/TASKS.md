@@ -38,7 +38,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-14 ✅ | Provider 生命周期（BeginRun/EndRun） | P0 | **已完成（2026-10-23）**；依赖 QT-11（实例语义）——「一个 provider 一个 run」从注释升级为代码；LocalSignalProvider 会话上限 1，超限 fail-closed |
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
-| **W2** | QT-20 ⛔ | 参数投递两层 | P0 | 依赖 QT-03（run_spec_hash）。**阻塞（2026-10-24）：`BacktestRequest.StrategyParams` 属 tellurion-contracts（QT-05 迁出），v0.3.0 无此字段；G2 不越界改契约仓**。**同日 G13 已切 pin 至 `v0.4.0`：字段已在位，消费腿（G1-QT-20）的前置解除** |
+| **W2** | QT-20 ✅ | 参数投递两层 | P0 | **已完成（2026-10-24）**；`strategy_params` = 清单默认 ⊕ run 覆写，未知键/类型/范围 400 点名，`RunMeta.Params` + provenance 同源，内置 provider 经 `Configure` 真正生效；`StrategyRef` 仅形状校验（资产解析属 strategy 仓） |
 | W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
 | W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
 | W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
@@ -594,17 +594,15 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 三、W2 · 协议落地
 
-> **G2 串行施工状态（2026-10-24）**：QT-20 ⛔ 阻塞、QT-22 ⛔ 阻塞（两者的契约腿都必须先落 `tellurion-contracts`，本仓 no-replace/no-越界）。按「顺序不可换」的派工约束，G2 在 QT-20 处**停**，未跳序施工 QT-21 及其后各单。已完成项：QT-64（`73440a5`）、QT-10（`1e21054`）。
+> **G2 串行施工状态（2026-10-24 复核）**：QT-20 **已解阻**（contracts `v0.4.0` 落 `StrategyRef` / `StrategyParams`，core 已 pin `v0.4.0`）→ 可开工；QT-22 仍缺契约腿（`StrategyVersionInput` 在 contracts 仓未落，属 contracts 仓可独立开工的单）。按「顺序不可换」的派工约束，QT-21 仍排在 QT-20 之后。已完成项：QT-64（`73440a5`）、QT-10（`1e21054`）。
 
-### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ⛔（阻塞于 contracts）
+### QT-20 · 参数投递两层（`params_defaults` ⊕ `strategy_params`）[P0] ⬜
 
-> **⛔ 阻塞记录（2026-10-24）**
+> **✅ 解阻记录（2026-10-24 实测；原 ⛔ 阻塞记录作废）**
 >
-> **缺什么**：③-① 要求 `BacktestRequest` 加 `StrategyRef` + `StrategyParams`。该结构体自 QT-05 起住 `tellurion-contracts:engine/contracts.go`（v0.3.0 第 170–215 行实测无这两个字段），本仓 `pkg/backtest/aliases.go` 只是 type alias —— 在 core 侧加字段无法做到，且会撞 `internal/repoguard/contract_identity_test.go` 的契约身份护栏。`domain.BacktestParams`（v0.3.0 `domain/backtest.go:62-90`）同样无 params 字段，③-④ 的 `RunMeta.Params` 没有上游来源。
+> **解除依据**：`tellurion-contracts` `v0.4.0` 已在 `engine/contracts.go` 落 `StrategyRef` + `StrategyParams`（`:219-227`）与 `validateStrategyParams`（`runspec.go:154-175`，只接受浅层对象）；core `go.mod` 已 pin `v0.4.0`，agent 同批。原阻塞理由是「v0.3.0 无这两个字段」，已不成立。
 >
-> **已核对可用的部分**：`RunSpecInput.StrategyParamsEffective`（`engine/provenance.go:147`）已在契约里，⑤ 的 hash 分量不缺；缺的是**入口字段**，所以整单仍不可开工（只做半条通路会造出「参数生效但无法从请求指定」的死路）。
->
-> **解除条件**：G1 在 `tellurion-contracts` 发布含 `StrategyRef` / `StrategyParams` 的 tag（并同步 `ValidateRunSpec` 未知键拒绝口径）；core 升 pin 后按本单 ①~⑤ 落地。
+> **开工前仍需自己核**：③-③ 的「类型/范围校验用 `manifest.params[]`」在 contracts 侧只有形状校验，语义校验仍归本单；③-④ 的 `RunMeta.Params` 上游来源今天仍为空（`pkg/backtest/provenance.go:226` 注释是过期口径）。
 
 - **① 目标**：run 覆写参数真正生效且可追溯；未知键 400；执行期不再读 DB 的 `strategies.params`。
 - **② 上下文**：`p0-remediation-design.md` A3 / D26；`contracts.go:171-199` 无 params；`ReloadFromDB`/`ConfigureStrategy` 零生产调用点。
@@ -612,6 +610,27 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不支持嵌套键（避免歧义）；不改 `strategies.params` 的管理面语义（只是执行期不再读它）；不做参数扫描器（属编排 QT-44）。
 - **⑤ 验收**：同策略不同参数并发两笔各自生效；未知键 400 且点名；从历史记录能完整还原生效参数。
 - **⑥ 边界**：只做参数通路；版本哈希是 QT-22。
+
+> **✅ 完成记录（2026-10-24，G1/core）**
+>
+> **落点与行为**
+> - [`pkg/backtest/provenance.go`](../pkg/backtest/provenance.go)：新增 `ResolveStrategyParams(name, overrides)` = 策略清单 `Parameters()` 默认值 ⊕ run 覆写（浅合并）。未知键按 `EngineParams` 同口径拒绝并**点名键 + 列出已知键**；类型（int/float/string/bool）与 `Min/Max` 范围按清单校验（`Min==0 && Max==0` 视为未设界，如实登记为口径而非缺陷）。`effectiveStrategyParams` 改为调用它，保证 `params_json` 与 `params_hash` 同源。
+> - [`pkg/backtest/engine.go`](../pkg/backtest/engine.go)：`RunBacktest` 在解析票池之后、建 state 之前解析生效参数；失败返回 `ErrCodeInvalidInput`（`httpserver.StatusForAppError` 实测 400，见测试）。**无覆写时零行为变化**（不解析、不注入）。
+> - [`pkg/backtest/run_context.go`](../pkg/backtest/run_context.go)：`RunMeta.Params = state.Params.Params`（生效值），并发 run 各持一份。
+> - [`pkg/strategy/signal_provider.go`](../pkg/strategy/signal_provider.go)：**白名单外新增的一处**——`LocalSignalProvider.BeginRun` 收下 `RunMeta.Params`，在为本 run 构造策略实例时一次 `Configure`（Go 内置策略的 `initialize(paramsJSON)` 等价物）。没有它，参数只会落进 provenance 而不影响任何信号，正是 BE-22 的原症状。不可配置 / Configure 失败 ⇒ 本 run 失败（`ErrStrategyFault` + `INVALID_INPUT`），不静默丢参数。
+>
+> **验收证据**（`go test ./pkg/backtest -run 'TestResolveStrategyParams|TestRunBacktest_UnknownStrategyParam|TestRunBacktest_RunParamsEffective|TestRunProvenance_ParamsOverride' -count=1 -v`，实测 PASS）
+> - `TestRunBacktest_RunParamsEffectivePerConcurrentRun`：同一 `Engine` 上并发两笔同策略不同 `fire_idx`，买入成交日各自等于 `start+fire_idx`（夹具自动挑两个非涨停日）——无串参。
+> - `TestRunBacktest_UnknownStrategyParamIsInvalidInput400`：`strategy_params={"nope":1}` ⇒ 错误含 `nope` 且 `StatusForAppError == 400`。
+> - `TestRunProvenance_ParamsOverrideIsRestorableAndHashMoves`：`params_json` 可还原生效值（未覆写键为默认值）；改 `fire_idx` ⇒ `params_hash` 变。
+> - **破坏验证**：把合并循环的 `eff[k] = v` 改成 `eff[k] = declared[k].Default`（丢弃覆写）⇒ 3 条测试红（合并值、并发成交日、params_hash/还原）；逐字节还原后全绿。
+>
+> **如实登记（未做/边界）**
+> 1. `StrategyRef` 只由 contracts 的 `ValidateRunSpec` 做形状校验；core 仍以 `Strategy` 注册表键解析策略。`id@hash` 的资产查表/版本选择属 `tellurion-strategy` 资产服务（QT-41/QT-42），本单不越界。
+> 2. 「执行期不读 DB 的 `strategies.params`」今天已是事实（`ReloadFromDB`/`ConfigureStrategy` 零生产调用点，见 QT-11 记录），本单未新增读取。
+> 3. 参数只支持浅层标量（contracts 已拒嵌套）；`value_momentum` 等 `Type:"object"` 参数仍不可由 run 覆写。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-21 · 信号顺序规范化 + 重复语义落地 [P0] ⬜
 
@@ -622,17 +641,17 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **⑤ 验收**：同输入 20 次信号序一致；`value_momentum` 20 次结果逐位一致；差异报告归档；重复语义有专门测试。
 - **⑥ 边界**：只做顺序与重复；单量/仓位是 QT-24 的 `emit_target2`。
 
-### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⛔（阻塞于 contracts）
+### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⛔（core 侧等契约腿；contracts 仓可独立开工）
 
-> **⛔ 阻塞记录（2026-10-24）**
+> **⛔ 阻塞记录（2026-10-24 复核，证据更新到 v0.4.0）**
 >
-> ③ 的落点已由 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 裁到 `tellurion-contracts:engine/provenance.go`（`StrategyVersionInput` + `Hash()`）与 `canonical.go`（`DomainStrategyVersionHash`），core 不接线。实测 contracts **v0.3.0** 两处都**不存在**（全仓 grep `StrategyVersionInput` / `DomainStrategyVersionHash` 零命中）。本仓不能越界定义同名算法——那会造出两份 version_hash 真源。
+> ③ 的落点已由 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 裁到 `tellurion-contracts:engine/provenance.go`（`StrategyVersionInput` + `Hash()`）与 `canonical.go`（`DomainStrategyVersionHash`），core 不接线。实测 contracts **v0.4.0** 两处仍**不存在**（`grep StrategyVersionInput` / `DomainStrategyVersionHash` 零命中）。本仓不能越界定义同名算法——那会造出两份 version_hash 真源。
 >
-> **解除条件**：contracts 发布含 `StrategyVersionInput` + 域标签的 tag；core 升 pin 后只做「消费 + 对拍」腿（本单的向量常量与三必变/一不必变测试届时落在契约仓，core 侧留集成验证）。
+> **解除条件**：contracts 发布含 `StrategyVersionInput` + 域标签的 tag；core 升 pin 后只做「消费 + 对拍」腿。**该契约腿本身不依赖任何裁决**（6 项口径已定，见 §2.4），可由 contracts 仓直接开工。
 
-- **① 目标**：改 scope / 改默认参数 / 改源码，三者任一都产生新 hash；只改 run 覆写不产生新 hash；序列化顺序被人改动会立刻红。
-- **② 上下文**：`p0-remediation-design.md` A4；canonical 集合 = `strategy_id + carrier + abi_version + scope + entry + source + params_defaults`；`factor_definitions.version_hash` 是可复用样板（`factor_def.go:151`）。
-- **③ 要求**：① 实现 canonical 序列化（键排序、无空白、UTF-8、数字不经 float 往返）；② SHA-256 小写 hex；③ 向量测试（给定输入 → 固定 hash 常量）；④ `params_defaults` 与 `scope` 必须在集合内（有测试钉住）。
+- **① 目标**：改 scope / 改源码，任一都产生新 hash；只改 run 覆写不产生新 hash；序列化顺序被人改动会立刻红。
+- **② 上下文**：`p0-remediation-design.md` A4；canonical 集合（**6 项，2026-10-24 定**）= `strategy_id + carrier + abi_version + scope + entry + source`（不含 `capability`、不含 `params_defaults`）；`factor_definitions.version_hash` 是可复用样板（`factor_def.go:151`）。
+- **③ 要求**：① 实现 canonical 序列化（键排序、无空白、UTF-8、数字不经 float 往返）；② SHA-256 小写 hex；③ 向量测试（给定输入 → 固定 hash 常量）；④ `scope` 必须在集合内（有测试钉住）；`params_defaults` 若要进集合必须升 `v2` 域标签，不在本单。
 - **④ 约束与非目标**：不含 toolchain（toolchain 差异由 `artifact_hash` 区分，见 QT-03）；不改 `factor_definitions` 的既有算法。
 - **⑤ 验收**：三条"必变"+ 一条"不必变"测试；向量常量固定；改动序列化顺序 → 向量测试红。
 - **⑥ 边界**：只做哈希算法；资产表结构是 QT-41。

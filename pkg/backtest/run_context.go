@@ -396,8 +396,10 @@ func (rc *runContext) beginProviderSession(ctx context.Context, state *BacktestS
 	meta := strategy.RunMeta{
 		RunID:    state.ID,
 		Strategy: state.Params.StrategyName,
-		// Params 通路归 QT-20（defaults ⊕ 覆写）；本单先留位，如实为空。
-		Params:   nil,
+		// QT-20：生效参数（默认 ⊕ 覆写）随 run 身份一次性交给 provider。
+		// 这是**本 run 私有**的 map：state 由 RunBacktest 每笔新建，并发 run
+		// 各持一份，provider 拿到的是自己的那份而不是共享引用。
+		Params:   state.Params.Params,
 		Start:    state.Params.StartDate,
 		End:      state.Params.EndDate,
 		Universe: state.Params.StockPool,
