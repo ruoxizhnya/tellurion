@@ -31,7 +31,12 @@ import (
 type Scope struct {
 	// Strategy 是注册表键（策略名）。
 	Strategy string
-	// Universe 是本次运行的标的池。
+	// RunUniverse 是本 run **稳定**的票池超集（QT-23）：run 前一次算完，
+	// 期间只增不减，排序后固定。**`symbol_idx` 只能由它派生**——用当日
+	// Universe 派生索引会让策略按 idx 存的状态在停牌/调出那天串到别的标的。
+	RunUniverse []string
+	// Universe 是**当日**可交易名单（停牌/未上市/已摘牌已剔除），仅供
+	// 批式策略做当日筛选。**禁止**用于索引（历史缺陷 B4）。
 	Universe []string
 	// MarketData 是「截至 asOf」的累积行情（symbol → 按日期升序的 OHLCV）。
 	MarketData map[string][]domain.OHLCV

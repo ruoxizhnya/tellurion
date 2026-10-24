@@ -41,7 +41,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W2** | QT-20 ✅ | 参数投递两层 | P0 | **已完成（2026-10-24）**；`strategy_params` = 清单默认 ⊕ run 覆写，未知键/类型/范围 400 点名，`RunMeta.Params` + provenance 同源，内置 provider 经 `Configure` 真正生效；`StrategyRef` 仅形状校验（资产解析属 strategy 仓） |
 | W2 | QT-21 ✅ | 信号排序 + 重复语义 | P0 | **已完成（2026-10-24）**；应用前按 `(Symbol, Direction 固定序, Strength desc, CompositeScore desc)` 稳定排序；`close` 优先 + 同向 strength 求和 clamp + `duplicate_signals_merged` 进 run 诊断；`pkg/execalgo` 的 duplicate-parent 引擎路径被合并前移（守卫仍在 dispatcher 层） |
 | W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
-| W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
+| W2 | QT-23 ✅ | `RunUniverse`（run 级稳定） | P0 | **已完成（2026-10-24）**；`Scope` 拆 `RunUniverse`（索引来源，run 前一次算完）+ `Universe`（当日可交易）；`RunUniverse` 进 dataset/run_spec hash；停牌/调出只减当日名单、不重排索引 |
 | W2 | QT-24 | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | 依赖 QT-01/QT-23 |
 | W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24 |
 | W2 | QT-26 | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | 依赖 QT-01/QT-24 |
@@ -685,6 +685,28 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不把"曾持有"做成运行中动态扩张（会重新引入漂移）；不改 `eligibleUniverse` 的过滤规则本身；不动停牌估值口径（`pricesCache` 保留最后成交价）。
 - **⑤ 验收**：5 日 Universe 增减下 `symbol_idx` 恒定；策略跨日状态不串标的；`RunUniverse` 相同 → `universe_hash` 相同。
 - **⑥ 边界**：只做票池稳定性；`BarContext` 布局是 QT-24。
+
+> **✅ 完成记录（2026-10-24，G1/core）**
+>
+> **落点与行为**
+> - [`pkg/strategy/signal_provider.go`](../pkg/strategy/signal_provider.go)：`Scope` 拆两字段——`RunUniverse`（run 级稳定、排序后，**唯一索引来源**）与 `Universe`（当日可交易，禁止用于索引）。
+> - [`pkg/backtest/engine.go`](../pkg/backtest/engine.go)：新增 `resolveRunUniverse` / `unionRunUniverse`，在 `tradingDays` 之后、**任何 hash 与信号之前**一次算完：`sort(dedup(P0 ∪ P1 ∪ P2))`，P0=期初持仓（今天 core 无 resume 路径，恒空）、P1=`StockPool`、P2=`IndexCode` 区间成分历史并集（逐交易日查库，含已调出）。结果写进 `runContext.runUniverse`，run 期间只读。
+> - 日循环：`eligibleUniverse(RunUniverse, date, held)` 的**输出保持 RunUniverse 顺序**（子序列）；停牌再经 `tradableUniverse` 从当日名单剔除（[`engine_daily.go`](../pkg/backtest/engine_daily.go)），**不触碰 RunUniverse**。
+> - [`pkg/backtest/provenance.go`](../pkg/backtest/provenance.go)：`DatasetSnapshotInput.Universe` 与 `RunSpecInput.StockPool/Universe` 改用 `RunUniverse`（`IndexCode` 保留「票池从哪来」）。同一组标的换输入顺序 ⇒ 同一 dataset / run_spec hash。
+>
+> **验收证据**（实测 PASS）
+> - `go test ./pkg/backtest -run 'TestUnionRunUniverse|TestRunUniverse_Stable|TestTradableUniverse|TestRunProvenance_SameRunUniverse' -count=1 -v`
+>   - 冻结公式：`["B","A","A"] ∪ {C,A} ∪ {D}` ⇒ `[A,B,C,D]`；单日读失败不阻断、不并入该日；
+>   - 5 日夹具（600001 第 3 日上市、600002 第 4 日摘牌、600003 第 3 日停牌）逐日核对：`RunUniverse` 与 `symbol_idx` 全 5 日逐位不变，当日 `Universe` 按预期增减，停牌只从当日名单消失；
+>   - 输入顺序反转（`[600001,600000]` vs `[600000,600001]`）⇒ `dataset_snapshot_hash` / `run_spec_hash` / `params_hash` 全等。
+> - **破坏验证**：把 `stableUniverse` 改成恒返回当日名单（忽略冻结的 RunUniverse）⇒ 5 日稳定性测试大面积红（RunUniverse 逐日不同、symbol_idx 漂移）；逐字节还原后全绿。
+>
+> **如实登记（未做/边界）**
+> 1. **P0 期初持仓恒空**：core 今天没有引擎侧 resume/检查点恢复路径（QT-15 只落沙箱层），resume 接入时必须在恢复点把持仓并入 RunUniverse，否则索引集合会与首次 run 不同。
+> 2. **P2 的取数代价**：请求带 `IndexCode` 时逐交易日查一次成分（N 次查询）；单次失败只告警「该日成分未并入」，不阻断 run —— 稳定性成立，但「完整性」受数据可用性影响，已如实记录。
+> 3. `BarContext`（QT-24）尚未消费 `RunUniverse`；本单只保证它从今天起可作为唯一索引来源。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-24 · host 数据模型 v2 落地（Bars / Axis / T）+ `finalize` 归属 [P0] ⬜
 

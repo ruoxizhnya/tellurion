@@ -692,6 +692,92 @@ func (e *Engine) resolveStockPool(ctx context.Context, req BacktestRequest, star
 	return stockPool, nil
 }
 
+// resolveRunUniverse 在 run 前一次性解析**稳定票池**（QT-23 · §2.6）：
+//
+//	RunUniverse := sort(dedup(P0 ∪ P1 ∪ P2))
+//	P0 = 期初持仓（resume 来自检查点；新建 run 为空）
+//	P1 = StockPool（请求直接给定时，不做时点过滤）
+//	P2 = IndexCode 给定时的区间成分历史并集（含已调出）
+//
+// 关键约束：**run 期间只增不减**，且必须在 dataset_snapshot_hash 之前算完。
+// 运行中的成交不得反向扩张它（否则 symbol_idx 又会在中途变化）。
+//
+// P2 的取数代价是「每个交易日一次成分查询」——只在请求带 IndexCode 时发生；
+// 单次读失败**不阻断** run，但会如实告警「该日成分未并入」，避免把
+// 「读不到」静默当成「没有成分」。
+func (e *Engine) resolveRunUniverse(
+	ctx context.Context,
+	params domain.BacktestParams,
+	tradingDays []time.Time,
+	logger zerolog.Logger,
+) []string {
+	e.mu.RLock()
+	store := e.store
+	e.mu.RUnlock()
+
+	// typed-nil 守卫：*storage.PostgresStore(nil) 塞进接口不是 nil。
+	var reader indexConstituentReader
+	if store != nil {
+		reader = store
+	}
+	return unionRunUniverse(ctx, params.StockPool, params.IndexCode, tradingDays, reader, logger)
+}
+
+// indexConstituentReader 是 resolveRunUniverse 需要的最小取数面。
+// 抽成接口只为让「区间成分并集」可以脱离真库被单测；生产实现是
+// *storage.PostgresStore。
+type indexConstituentReader interface {
+	GetIndexConstituentsByDate(ctx context.Context, indexCode string, date time.Time) ([]string, error)
+}
+
+// unionRunUniverse 是 RunUniverse 冻结公式的唯一实现（见 resolveRunUniverse）。
+func unionRunUniverse(
+	ctx context.Context,
+	pool []string,
+	indexCode string,
+	tradingDays []time.Time,
+	reader indexConstituentReader,
+	logger zerolog.Logger,
+) []string {
+	set := make(map[string]struct{}, len(pool))
+	for _, sym := range pool {
+		if sym != "" {
+			set[sym] = struct{}{}
+		}
+	}
+
+	if indexCode != "" {
+		if reader == nil {
+			logger.Warn().
+				Str("index_code", indexCode).
+				Msg("index_code 给定但无 store：RunUniverse 只能包含 StockPool，区间成分并集不可得")
+		} else {
+			for _, day := range tradingDays {
+				symbols, err := reader.GetIndexConstituentsByDate(ctx, indexCode, day)
+				if err != nil {
+					logger.Warn().Err(err).
+						Str("index_code", indexCode).
+						Time("date", day).
+						Msg("index constituents read failed — 该日成分未并入 RunUniverse")
+					continue
+				}
+				for _, sym := range symbols {
+					if sym != "" {
+						set[sym] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	out := make([]string, 0, len(set))
+	for sym := range set {
+		out = append(out, sym)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // newBacktestState constructs the initial BacktestState for a run.
 func (e *Engine) newBacktestState(backtestID string, req BacktestRequest, stockPool []string, startDate, endDate time.Time, initialCapital, riskFreeRate float64) *BacktestState {
 	return &BacktestState{
@@ -973,10 +1059,19 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 
 	logger.Info().Int("trading_days", len(tradingDays)).Msg("Retrieved trading days")
 
+	// QT-23：RunUniverse 必须在任何 hash 与任何信号之前定死（§2.6）。
+	// 票池按「期初持仓 ∪ StockPool ∪ IndexCode 区间成分并集」一次算完，
+	// 排序 + 去重后写进 runContext；日循环只读它做索引来源。
+	runUniverse := e.resolveRunUniverse(ctx, params, tradingDays, logger)
+	rc.setRunUniverse(runUniverse)
+	logger.Info().
+		Int("run_universe", len(runUniverse)).
+		Msg("RunUniverse frozen — symbol indexing is stable for the whole run (QT-23)")
+
 	// QT-63（③-②）：日历与复权锚点都就位后、日循环之前，一次性算出生效输入的
 	// 身份并落库。留痕的是**输入**，所以失败/无效 run 同样落（status 的权威
 	// 是 backtest_jobs，provenance 表不存状态）。没有 sink 时是 no-op。
-	if err := e.recordRunProvenance(ctx, state, tradingDays, adj, logger); err != nil {
+	if err := e.recordRunProvenance(ctx, state, tradingDays, runUniverse, adj, logger); err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
 			"failed to record run provenance", "RunBacktest")
 	}
@@ -1023,8 +1118,10 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		}
 
 		// P2-4：池子按当天在市名单过滤，外加「还持仓的」（含已退市待平仓）。
+		// QT-23：过滤的输入是 **RunUniverse**，输出保持其顺序 ⇒ 当日名单
+		// 永远是 RunUniverse 的子序列，停牌/调出不会让别人的序号前移。
 		held := heldSymbols(state.Tracker)
-		universe := rc.eligibleUniverse(params.StockPool, date, held)
+		universe := rc.eligibleUniverse(rc.stableUniverse(params.StockPool), date, held)
 
 		// OBS-01：票池规模统计 —— 见 maxUniverseSize 声明处。
 		if n := len(universe); n > maxUniverseSize {
@@ -1081,7 +1178,11 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			}
 		}
 
-		signals, err := e.getSignals(ctx, rc, params.StrategyName, universe, marketDataCache, date, state.Tracker)
+		// QT-23：当日可交易名单 = 在市名单 − 停牌。它只用于「今天能做什么」，
+		// 不用于索引；索引来源始终是 RunUniverse（上面的稀疏减法不会重排）。
+		tradable := tradableUniverse(universe, suspended)
+
+		signals, err := e.getSignals(ctx, rc, params.StrategyName, tradable, marketDataCache, date, state.Tracker)
 		if err != nil {
 			// QT-10 ③-③：错误必须被分类消费，**禁止只 log**。
 			//   - ErrDataGap：唯一的可跳天类 —— 跳过当天、留 invalid_reasons
@@ -1435,10 +1536,13 @@ func (e *Engine) getSignals(ctx context.Context, rc *runContext, strategyName st
 	}
 
 	signals, err := sigProvider.Signals(ctx, strategy.Scope{
-		Strategy:   strategyName,
-		Universe:   stockPool,
-		MarketData: marketData,
-		Portfolio:  portfolio,
+		Strategy: strategyName,
+		// QT-23：索引来源（稳定）。stockPool 是当日可交易名单，只能用于
+		// 当日筛选；两者混用会让 symbol_idx 随停牌/调出漂移（B4）。
+		RunUniverse: rc.stableUniverse(stockPool),
+		Universe:    stockPool,
+		MarketData:  marketData,
+		Portfolio:   portfolio,
 	}, date)
 	if err != nil {
 		return nil, err

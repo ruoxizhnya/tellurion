@@ -60,6 +60,11 @@ type runContext struct {
 	// provider 是本 run 的信号供给（QT-11 的 run 级实例缓存在它里面）。
 	provider strategy.SignalProvider
 
+	// runUniverse 是本 run 稳定的票池超集（QT-23）：run 前一次算完，
+	// 期间只增不减。日循环只读，不写。空 = 尚未解析（直接调 runBacktestInternal
+	// 的测试路径），此时回落到入场票池。
+	runUniverse []string
+
 	// start / end 是本 run 的回放区间（UTC 零点的交易日）。
 	start time.Time
 	end   time.Time
@@ -314,9 +319,28 @@ func (rc *runContext) factorZScore(factor domain.FactorType, date time.Time, sym
 	return rc.factor.Get(factor, date, symbol)
 }
 
+// setRunUniverse 冻结本 run 的稳定票池（QT-23）。只在日循环之前调用一次。
+func (rc *runContext) setRunUniverse(universe []string) {
+	rc.runUniverse = universe
+}
+
+// stableUniverse 返回索引来源：已冻结的 RunUniverse；未冻结（测试直接调
+// runBacktestInternal）时回落到入场票池。日循环里所有「按天过滤」都以它
+// 为输入，保证输出顺序是 RunUniverse 的子序列、索引不随当日名单漂移。
+func (rc *runContext) stableUniverse(fallback []string) []string {
+	if len(rc.runUniverse) > 0 {
+		return rc.runUniverse
+	}
+	return fallback
+}
+
 // eligibleUniverse 返回 date 当天真正参与回测的股票集合（P2-4）。
 // 两个来源取并集与「没有日历就原样返回」的口径都在 engine 侧注释里，
 // 本方法只把 listing 的来源换成 run 私有那份。
+//
+// QT-23：传入的 pool 应当是 **RunUniverse**（稳定、排序后）。输出保持
+// 输入顺序 ⇒ 当日名单永远是 RunUniverse 的子序列；停牌/退市只让票从
+// 子序列里消失，不会让其它票的序号前移。
 func (rc *runContext) eligibleUniverse(pool []string, date time.Time, held map[string]bool) []string {
 	listing := rc.listingSnapshot()
 	if len(listing) == 0 {

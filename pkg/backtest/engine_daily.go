@@ -69,6 +69,25 @@ func (e *Engine) loadCorporateActions(ctx context.Context, start, end time.Time,
 	return ca
 }
 
+// tradableUniverse 从当日在市名单里剔除停牌标的，保持输入顺序（QT-23）。
+//
+// 停牌只影响「今天能不能交易」，**不影响 RunUniverse / symbol_idx**：
+// 本函数返回的是 Scope.Universe（当日可交易），索引来源是 Scope.RunUniverse。
+// 两者混用在 B4 里已被证明是静默串状态的来源。
+func tradableUniverse(universe []string, suspended map[string]bool) []string {
+	if len(suspended) == 0 {
+		return universe
+	}
+	out := make([]string, 0, len(universe))
+	for _, sym := range universe {
+		if suspended[sym] {
+			continue
+		}
+		out = append(out, sym)
+	}
+	return out
+}
+
 func (e *Engine) fetchMarketDataForDay(
 	ctx context.Context,
 	rc *runContext,
@@ -132,6 +151,9 @@ func (e *Engine) fetchMarketDataForDay(
 			// REV-09：当日停牌 —— 不进 marketDataCache（不产信号、不参与
 			// 撮合：信号环靠 marketDataCache 找 todayBar，止损环靠
 			// suspended 集合显式跳过），pricesCache 仍记最后成交价供估值。
+			//
+			// QT-23：这里**只**把票从「今天可交易」里摘掉，绝不改
+			// RunUniverse —— 索引集合在 run 前已冻结，停牌不触发重排。
 			diag.recordSuspended(res.symbol)
 			suspended[res.symbol] = true
 		} else {

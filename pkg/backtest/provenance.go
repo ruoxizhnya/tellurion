@@ -88,6 +88,7 @@ func (e *Engine) recordRunProvenance(
 	ctx context.Context,
 	state *BacktestState,
 	tradingDays []time.Time,
+	runUniverse []string,
 	adj *adjustmentRun,
 	logger zerolog.Logger,
 ) error {
@@ -96,7 +97,7 @@ func (e *Engine) recordRunProvenance(
 		return nil
 	}
 
-	rec, err := e.buildRunProvenance(state, tradingDays, adj)
+	rec, err := e.buildRunProvenance(state, tradingDays, runUniverse, adj)
 	if err != nil {
 		return err
 	}
@@ -119,6 +120,7 @@ func (e *Engine) recordRunProvenance(
 func (e *Engine) buildRunProvenance(
 	state *BacktestState,
 	tradingDays []time.Time,
+	runUniverse []string,
 	adj *adjustmentRun,
 ) (*storage.RunProvenanceRecord, error) {
 	params := state.Params
@@ -146,7 +148,10 @@ func (e *Engine) buildRunProvenance(
 	}
 
 	datasetHash := contracts.DatasetSnapshotInput{
-		Universe: params.StockPool,
+		// QT-23：票池身份用 **RunUniverse**（排序去重后的稳定超集），不是
+		// 请求里的原始列表。否则同一份区间换一个输入顺序就会得到两个
+		// dataset 身份，而「同票池 ⇔ 同 hash」正是 §2.6 的推论。
+		Universe: runUniverse,
 		Window: contracts.DateRange{
 			Start: params.StartDate,
 			End:   params.EndDate,
@@ -177,9 +182,12 @@ func (e *Engine) buildRunProvenance(
 		StrategyVersionHash:     lookupStrategyGitHash(params.StrategyName),
 		StrategyParamsEffective: effParams,
 
-		StockPool: params.StockPool,
+		// QT-23：RunSpec 的票池同样记 **RunUniverse**（索引来源）。原始请求
+		// 列表的「从哪来」由 IndexCode 保留；记录语义票池才能保证
+		// 「同一 RunUniverse ⇒ 同一 run_spec_hash」。
+		StockPool: runUniverse,
 		IndexCode: params.IndexCode,
-		Universe:  params.StockPool,
+		Universe:  runUniverse,
 
 		Frequency:  provenanceFrequency,
 		FillTiming: fillTiming,
