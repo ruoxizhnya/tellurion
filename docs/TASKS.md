@@ -43,10 +43,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W2 | QT-22 ✅ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**已完成（2026-10-24，contracts `v0.5.0`）**：契约腿落 `engine/provenance.go` + `canonical.go`，六项口径；core 按 §2.4 不接线，本仓无剩余动作 |
 | W2 | QT-23 ✅ | `RunUniverse`（run 级稳定） | P0 | **已完成（2026-10-24）**；`Scope` 拆 `RunUniverse`（索引来源，run 前一次算完）+ `Universe`（当日可交易）；`RunUniverse` 进 dataset/run_spec hash；停牌/调出只减当日名单、不重排索引 |
 | W2 | QT-24 ✅ | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | **已完成（2026-10-24）**；`BarContext` 改 `{T, Axis, Symbols, Bars, State, Signals}`，`get_bar2` 五字段/停牌 NaN/`get_series_len2` 可见长度/`get_date2` 接线；finalize 的 close 留 `bc.Signals`、long/short trap |
-| W2 | QT-25 | symbol scope 分片与预算 | P0 | 依赖 QT-16（shard_key）、QT-24；**前置已全绿（2026-10-25 实测），可开工** |
+| W2 | QT-25 ✅ | symbol scope 分片与预算 | P0 | **已完成（2026-10-25）**；`W = min(cfg, budget/estimate)` + 超预算降 W 不失败（W=1 仍超 → fail-closed 点名 market）；三指标 `wasm_instances_live` / `wasm_bytes_live` / `wasm_batch_size` 已接 `pkg/observability`；检查点落日期边界、行坐标含 `shard_key`（QT-16） |
 | W2 | QT-26 ✅ | WASM SignalProvider 接线 + EmittedSignal 转换 | P0 | **已完成（2026-10-24）**；`pkg/backtest` 的 `wasmSignalProvider` 走五道门 → 逐 bar → `emit_signal`/`emit_target2` → 成交；`pkg/sandbox/wasm` 已从 repoguard 未接线白名单移出 |
-| **W3** | QT-30 | M0 市场级状态机 PoC | P0 | 依赖 W1 全部 + QT-24/26；**十项前置全绿（2026-10-25 实测），可开工**（需 TinyGo 0.34.0） |
-| W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30；**两前置均未开工** |
+| **W3** | QT-30 ✅ | M0 市场级状态机 PoC | P0 | **已完成（2026-10-25）**；Go 内置版 ↔ 手工编码 WASM 版 727 日逐位对拍（信号/成交/净值/每日目标权重）；`while(true)` 被单次调用预算终止、run `failed`；**TinyGo 0.34.0 与 Go 1.25.0 不兼容**（工具链缺口，见施工记录） |
+| W3 | QT-31 | M0b symbol scope PoC | P1 | 依赖 QT-25/QT-30；**两前置均已绿（2026-10-25），可开工** |
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
@@ -742,7 +742,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
-### QT-25 · `symbol` scope 分片与预算 [P0] ⬜
+### QT-25 · `symbol` scope 分片与预算 [P0] ✅
 
 - **① 目标**：5000 标的 symbol scope 跑完不超预算；预算调小仍能跑完（只是变慢），不 OOM。
 - **② 上下文**：`p0-remediation-design.md` C2；abi v2 §3 定 symbol scope 为"每标的分片实例、每实例 64MB"；QT-16 已给每分片独立状态行。
@@ -750,6 +750,38 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：不一次性起 5000 实例；不改 market scope 的实例模型；不与 QT-12 的进程总预算冲突（run 内 wasm 预算 ≤ 进程预算的份额）。
 - **⑤ 验收**：5000 标的跑完不超预算；预算调到很小仍跑完；跨批恢复与单批结果逐位一致；每分片状态行唯一（QT-16）。
 - **⑥ 边界**：只做分片调度与预算；单实例内存上限仍由 runtime 管。
+
+> **✅ 完成记录（2026-10-25，B/core）**
+>
+> **落点与行为**
+> - [`pkg/sandbox/wasm/shard.go`](../pkg/sandbox/wasm/shard.go)：`ShardBudget{Workers, BudgetBytes, PerInstanceBytes, PerCall}` + `Plan()` 实现 ①。零值走默认：W=1 / 512 MiB（`DefaultRunWasmBudget`）/ 64 MiB（`DefaultMaxMemory`，abi v2 的单实例上限）。`W = min(configured, budget/per-instance)`；预算不足只降 W；`budget < per-instance` 时返回 `ErrShardBudgetTooSmall`，报文点名 `scope=market`。`ShardStats` 承载 ③ 的三项指标（`ObserveBatch` / `EndBatch`）。
+> - [`pkg/sandbox/wasm/session_factory.go`](../pkg/sandbox/wasm/session_factory.go)：`OnBarSessionFactory` 把 Compile / 族自证 / v2 静态镜像收敛到 BeginRun 一次，分片只做 `InstantiateModule` —— 5000 个分片不再各自编译同一份字节码、各自注册宿主模块。`NewOnBarSessionWithBudget` 改走同一条路径（单会话路径由会话自己关闭编译产物）。
+> - [`pkg/backtest/wasm_symbol_scope.go`](../pkg/backtest/wasm_symbol_scope.go)：`beginSymbolRun` 按 `Plan()` 的 W 分批起停（批间关闭全部实例、只留检查点），并发分片按 RunUniverse 下标写回结果、主 goroutine 按序合并（同日信号顺序确定）。检查点 = 线性内存整段镜像（v2 无 `get_state/set_state`，族互斥），**只在日期边界保存**（`isShardDateBoundary` 与 `checkpoint.go` 同判据）；落库行坐标 `(strategy_id, run_id, shard_key=symbol)` + QT-16 四段信封（`StateSchemaVersion=wasm-memory-v1` / artifact_hash / abi_version / run_identity_hash 含 shard_key）。
+> - [`pkg/backtest/wasm_signal_provider.go`](../pkg/backtest/wasm_signal_provider.go)：`scope=symbol` 走 `beginSymbolRun`（信号按交易日缓冲，`Signals` 逐日取走即删）；`scope=market` 路径行为不变。新增 `strategy.FullMarketDataProvider`（[`pkg/strategy/signal_provider.go`](../pkg/strategy/signal_provider.go)）：引擎在 `runUniverse` 冻结后预热 RunUniverse 并把 L1 缓存快照填进 `RunMeta.MarketData`（[`pkg/backtest/engine.go`](../pkg/backtest/engine.go) / [`pkg/backtest/run_context.go`](../pkg/backtest/run_context.go)）；其余 provider 拿到 nil，行为零变化。缺标的在 `beginSymbolRun` 一次性点名 fail-closed（不拿残缺票池起分片）。
+> - 指标：`pkg/observability` 新增 `wasm_instances_live` / `wasm_bytes_live` / `wasm_batch_size` 三个 Gauge；`cmd/analysis/setup.go` 给主引擎与 walk-forward 每窗口引擎都挂上（`*observability.Metrics` 隐式实现 `backtest.WASMShardObserver`，窄接口、不 import 反向依赖）。
+> - [`pkg/sandbox/wasm/host_api.go`](../pkg/sandbox/wasm/host_api.go)：`hostSetState` 懒建 `BarContext.State` —— v2 分片不预分配空 map（5000 张空 map 是实测到的 GC 抖动源），v1 行为不变。
+>
+> **验收证据**（`pkg/backtest/qt25_symbol_scope_test.go`）
+> - `TestShardBudget_Plan`：W 公式（够 → configured；不够 → 降；`budget < per` → 哨兵 + `scope=market` 文案）。
+> - `TestSymbolScope_5000SymbolsWithinBudget`：5000 标的 × 3 日、W=4 跑完，信号数 15000 一条不少；`PeakInstances ≤ W`、线性内存峰值 < `W × 64MiB`。
+> - `TestSymbolScope_TinyBudgetStillCompletes`：预算 = 恰好一个实例 ⇒ W=1，5000 标的 × 2 日照样跑完（降 W 只变慢、不改结果）。
+> - `TestSymbolScope_ResumeAcrossBatchesMatchesSingleRun`：切成 5 日 + 7 日两段（奇数切点），第二段从检查点恢复内存镜像；拼接后的逐日信号（symbol/direction/strength）与一次跑完逐位一致。
+> - `TestSymbolScope_ShardStateKeysAreUnique`：5 个分片 ⇒ 5 个非空 `shard_key`；同一 (strategy, run, shard) 的重复保存复用同一行坐标；信封三段 hash 非空。
+> - `TestSymbolScope_ReportsThreeShardMetrics`：观察面每批都被喂到，`batch_size == W`、`instances ≤ W`、`bytes > 0`。
+> - `TestSymbolScope_BudgetBelowOneInstanceFailsClosed`：`errors.Is(err, wasm.ErrShardBudgetTooSmall)` 且报文点名 `scope=market`。
+> - `pkg/backtest/qt26_wasm_provider_test.go`：原 `TestWASMProvider_SymbolScopeRejected` 改为 `TestWASMProvider_SymbolScopeRunsThroughShards` —— 同一 artifact 以 `scope=symbol` 跑真实回测并成交（≥2 笔分层加仓）。
+> - **破坏验证**：① 把 `ShardBudget.Plan()` 的 `w = min(workers, fit)` 改成恒等于 configured ⇒ `TestShardBudget_Plan` 与 5000 标的用例红（峰值实例数越 W）；逐字节还原（md5 `a1ae7420a093460090e797a6832d4bdc`）后绿。② 删掉 `runShardOnce` 的 `sess.RestoreMemory(cp.Memory)` ⇒ `TestSymbolScope_ResumeAcrossBatchesMatchesSingleRun` 红（计数器从 0 重启，目标权重奇偶翻转不对齐）；逐字节还原（md5 `381e9bf79709f902c41f2374f090e03c`）后绿。
+>
+> **如实登记（未做/边界）**
+> 1. **恢复不重放检查点之前的信号**：恢复只覆盖状态（内存镜像 + 按 ts 跳过已处理前缀），被跳过的前缀不会再产出信号。验收里的「跨批一致」是把两段各自的信号拼接后比对的；生产若真的把同一 run 拆成两次 `BeginRun`，两次的信号由调用方负责拼接。**同一区间内 `finalize` 也会在每段末尾执行** —— 本单的对照 artifact 的 finalize 不发信号，所以「前一段静默平仓」这条没有被测试覆盖。
+> 2. **内存镜像不含 wasm globals**：检查点只快照线性内存。手写模块（或将来的编译器）若把状态放在 wasm global 里，续跑不会恢复它。TinyGo 的包级变量落在线性内存，所以对 TinyGo 产物这条不构成缺口——但本单**没有真 TinyGo 产物可验证**（见 QT-30 的工具链登记）。
+> 3. **检查点默认不落**：`CheckpointEvery <= 0 && Store == nil` 时**不保存任何检查点**（5000 个分片各留一份内存镜像没有收益）；引擎装配没有打开这两项，`Resume` / `Store` 也还没有从 API/装配层接线。验收里跨批一致的那条用例是显式打开 `CheckpointEvery` 的。`strategy.StateStore` 的实现与信封已被 fake store 用例钉住，但**生产持久化未接**。
+> 4. **预算没和 QT-12 的进程账联动**：512 MiB 是**每个 run**的上限；两个 run 并发时各自按 512 MiB 规划（准入闸按 `estimateRunBytes` 计的账里目前不含 wasm 线性内存）。单实例估算取 64 MiB（上限口径，不按初始页赌未来不 grow），真实 TinyGo 产物的内存分布未测。
+> 5. **5ms 单次调用预算是墙钟**：冻结值不放宽；5000 分片连续实例化时 GC/调度抖动可能让一次合法调用摸到 5ms 墙（实测：每分片预分配空 `State` 就会稳定复现），因此 `runShard` 对 `ErrSessionTerminated` **重试一次**（从恢复起点重跑）。真卡死的策略两次都会超时，run 照常 failed。
+> 6. **三项指标读的是「最近一批」**：调度是同步分批的，批间实例已关闭；Gauge 不随 run 结束归零（`EndBatch` 只清本 run 的内存统计）。help 文案已写明。
+> 7. **v1 artifact 一律按 symbol 执行**：`ResolveScope` 的兼容规则让 v1 走分片路径，所以 `NeedsFullMarketData` 对 v1 恒 true —— v1 的 `State` 仍由 `get_state/set_state` 走内存，但检查点载体仍是整段内存镜像（两套状态同时被快照，语义不冲突）。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-26 · WASM `SignalProvider` 接线 + `EmittedSignal` 转换 [P0] ✅
 
@@ -779,7 +811,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **破坏验证**：① 在 `convertWASEmission` 的 target 分支插入无条件 `continue`（等于剪断 emit_target2 → 成交）⇒ parity 测试红（WASM run 未完成）；逐字节还原后绿。② 把 `tellurion/pkg/sandbox/wasm` 重新加回 `unwiredPackages` ⇒ `TestEveryPackageHasAConsumer` 以 `stale` 红；删除后绿。
 >
 > **如实登记（未做/边界）**
-> 1. **symbol scope 未接线**：`ResolveScope` 判定为 `symbol` 时 fail-closed 指向 QT-25；本单只完成 market scope。
+> 1. **symbol scope 未接线**：`ResolveScope` 判定为 `symbol` 时 fail-closed 指向 QT-25；本单只完成 market scope。**（2026-10-25 已由 QT-25 接线：`scope=symbol` 走分片实例 + 内存镜像检查点，原 fail-closed 用例改为 `TestWASMProvider_SymbolScopeRunsThroughShards`。）**
 > 2. **artifact 只从装配期 map 取**：`WithWASMArtifacts` 是手工注入（验收无需编译服务）；资产服务的 Resolve/Fetch 与编译器属 QT-41/QT-41b，不在本单。
 > 3. **一次 Verify + 一次 Load = 两次编译**：`Compile` 只为在 instantiate 前判定声明/自证不符；代价是编译两次，未做缓存。
 > 4. **`BeginRun` 的装配错误未分类**：artifact 校验/scope 失败返回普通 error（run 终止、不落 `ErrStrategyFault`）；运行期 trap / 预算终止由沙箱层归 `ErrStrategyFault`（QT-10 已有测试）。
@@ -792,7 +824,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ## 四、W3 · 里程碑
 
-### QT-30 · M0：市场级状态机 PoC（Go vs WASM 逐位一致）[P0] ⬜
+### QT-30 · M0：市场级状态机 PoC（Go vs WASM 逐位一致）[P0] ✅
 
 - **① 目标**：证明"运行时动态加入状态机策略"这条路在 market scope 上端到端成立。
 - **② 上下文**：`implementation-plan-mvp.md` M0；前置：QT-10/11/12/13/14/15/16/20/21/24/26 完成（D1 明写 A2/A3 是对拍有意义的前提）；工具链：TinyGo（Windows 二进制或 Docker），产物 `-target=wasm-unknown`、env-only。
@@ -800,6 +832,28 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：M0 **必须** market scope（D1 裁决）；不建任何服务、不接 AI；不碰 DB schema 迁移。
 - **⑤ 验收**：Go 内置 vs WASM 回测结果**逐位一致**（含成交笔数与每笔价量）；`while(true)` 版本被预算终止且 run `failed`（QT-15 的端到端验证）。
 - **⑥ 边界**：只证明载体可用；symbol scope 是 QT-31。
+
+> **✅ 完成记录（2026-10-25，C/core）**
+>
+> **落点与行为**（[`pkg/backtest/qt30_state_machine_test.go`](../pkg/backtest/qt30_state_machine_test.go)）
+> - 同一个状态机写了两份：① Go 内置版 `qt30GoProbe`（`strategy.Strategy`，注册进测试注册表）；② WASM 版 —— 用测试内的最小汇编器 `qt30Asm` 手工编码成 **env-only、v2 协议族、`scope=market`** 的 artifact（import 只有 `get_bar2` / `emit_target2`，无 v1 家族混导）。逻辑一致：20 日均线判 regime（`price > ma×1.01` 牛 / `< ma×0.99` 熊）、3 日冷却、总仓位闸门，目标权重三档 60% / 30% / 0%，**只在与上次目标不同时才 emit**（冷却期内的目标被吞掉，用于逼出状态机行为）。
+> - 两份都跑同一条真实回测（`RunBacktest`、同票池、同区间 727 个交易日），WASM 侧走 QT-26 的 `wasmSignalProvider`（market scope 单实例、逐 bar `on_bar` + `finalize`），不绕过任何装配层。
+> - `while(true)` 版本：`qt30InfiniteArtifact()` 的 `on_bar` 只有 `loop br 0`，用同一 provider 跑 10 天区间。
+>
+> **验收证据**
+> - `TestQT30_GoVsWASMStateMachineParity`：两个 run 都 `completed`；**727 天逐日信号**（symbol / direction / strength / `target_weight` 存在性与取值）逐位一致；**成交逐笔**（timestamp / symbol / direction / quantity / price）逐位一致且笔数 > 0；**净值序列逐点**一致；三档目标 60% / 30% / 0% 都真的出现（证明 regime + 冷却 + 闸门在工作，而不是一直空仓的假一致）。
+> - `TestQT30_WhileTrueTerminatedByBudget`：run `failed`、`errors.Is(err, contracts.ErrStrategyFault)`、报文含 `session terminated`、墙钟 < 10s（`WithCloseOnContextDone` 真的把模块关了，不是挂死）。
+> - **破坏验证**：把 WASM 侧牛市目标常量 `60` 改成 `50`（Go 侧不改）⇒ parity 在 `day[597]` 的 `target_weight` 上红（信号仍同向，但权重不同，成交手数随之不同）；逐字节还原（md5 `ba92567a362a5b5130427e505c991c1c`）后绿。
+>
+> **如实登记（未做/边界）**
+> 1. **TinyGo 工具链没跑通（本单最大缺口）**：TinyGo 0.34.0 在本机对 Go 1.25.0 直接拒绝启动 —— `tinygo version` 报 `requires go version 1.19 through 1.23, got go1.25`；Docker daemon 也未运行，`tinygo/tinygo:0.34.0` 镜像那条退路同样不可用。⇒ 本单的 WASM 版是**手工编码的合法 wasm 模块**（真 wazero 宿主、真 import 校验、真执行），不是 TinyGo 产物。TinyGo 特有的坑（`-target=wasm-unknown`、包级变量布局、栈指针 global）**没有被本单覆盖**；工具链就位后应补一条「同一份 Go 源码编成 TinyGo artifact 再跑一次 parity」的用例。
+> 2. **数据是确定性的合成序列**，不是真实行情：验收目标是「同输入下两版载体逐位一致」，不是策略收益结论；票池 1 个标的（market scope 的能力已由 QT-24/26 的横截面用例覆盖）。
+> 3. **阈值是编译期常量，不读 params**：`qt30StateMachineArtifact()` 把 20 日 / 1.01 / 0.99 / 冷却 3 / 三档权重都固化了，`Initialize` 的 params 投递在 QT-20/QT-26 已验，本单不重复。
+> 4. **`while(true)` 只验了 market scope**：symbol scope 的同类终止由 QT-25 的预算与候选重试逻辑处理（真卡死重试两次后仍 failed），但本单没有再单独跑一条 symbol 版的无限循环。
+> 5. **PoC 的产物只活在测试里**：没有把状态机 artifact 落盘、没有接 AI/资产服务，也没有给 TinyGo 写构建脚本（工具链缺口未解决前写了也跑不了）。
+> 6. **QT-15 的 run 级落账仍未做**：QT-15 施工记录里归「QT-26/QT-30 接线」的三项（`invalid_reasons=session_terminated`、`Failures += session_terminated` 诊断明细、重放抑制信号的 10× 异常告警）本单**没有实现**。本单只验到「预算终止 → run `failed` → `errors.Is(err, ErrStrategyFault)`」，没有新的 invalid_reasons 通道。这条仍挂在 QT-15 的未落项上，不随本单结案。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-31 · M0b：symbol scope 状态机 PoC（分片 + 分层加仓）[P1] ⬜
 
