@@ -1089,6 +1089,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 行为测试：`pkg/httpserver/loopback_test.go`（判据 + 中间件 + XFF 不能洗白）、
 > `pkg/bootstrap/loopback_guard_test.go`（装配腿：回环放行 / 非回环 403 / loopback-published 跳过 / 鉴权开启时不叠门）。
 >
+> **服务侧鉴权腿（裁-15，2026-10-25）**：X 线各服务不再各自发明鉴权，统一走一条机制、各自一张策略表。
+> - **机制**：kit 发 `v0.1.1`，新增 **net/http** 适配（`TokenService.Parse` + `kind==access` + 角色集合 + 启动闸）。**不是** gin 中间件——四个服务全是 net/http。policy 表留各服务（机制在库、策略在应用）。
+> - **范围**：risk / analytics / data 三条**现在做**；orchestration **缓做**（客户端是 worker，token 分发是新的失败面；触发条件=worker 跨主机或服务对外发布）。
+> - **统一语义（四条，禁止半保护）**：无 secret + 回环 ⇒ 开放（带 loopback 守卫）；无 secret + 非回环 ⇒ **拒绝启动**；有 secret + 无/坏 token ⇒ 401；角色不足 ⇒ 403。
+> - **每腿必备**：route table ≡ policy table 的守卫测试（照 `cmd/data/route_policy_rev17_test.go`），漏挂一条即红。
+> - **本仓腿**：[handlers_proxy.go](handlers_proxy.go) 的 `proxyRequest` 分支**不转发**入站 Authorization（`/api/sync/*` 的 ReverseProxy 分支原样转发，没问题）。data 上鉴权后，走 `proxyRequest` 的 readonly-post（`POST /api/v1/ohlcv/bulk`）会 401 ⇒ 补转发 + 一条「受保护路由经代理必须带凭证」的守卫。
+>
 > **⑤ 错误码 / 限流**：随每条 endpoint 写进 `docs/openapi.yaml`（400/401/403/429/502/503）；
 > 限流沿用全局 `RateLimiter`（新端点不豁免，`/api/auth/status` 那三条豁免未动）。
 >
@@ -1568,13 +1575,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 > **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。五单状态仍为 ⬜ —— **材料不等于裁决**；DBT-15 未执行任何 `DELETE` / `TRUNCATE`。
 
-### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜
+### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜ · **裁-16（2026-10-25）：改实现，两者都吃、落库归一**
 
 - **① 目标**：契约（`snapshot.schema.json`）与实现（`pkg/data/equitydeep`）对 `fetched_at` 的形状**只有说法一种**，且该说法被测试钉住。
 - **② 上下文**（DBT-11 实测逮到，2026-10-19，已用测试钉住现状未改任何一边）：`contracts/snapshot.schema.json` 把 `fetched_at` 声明为 `format: date-time`，而实现只收 `YYYY-MM-DD`（`pkg/data/equitydeep/equitydeep.go:102`）——**严格按契约发 date-time，整条请求 400**。钉子是 `pkg/data/equitydeep` 里新增的 `TestNormalize_ContractDateLayoutIsCalendarDateOnly`。同处另一条较弱的事实：`DecodeSnapshot` 不校验 schema 的 `required` 列表，靠 `Normalize` 兜住（也已钉）。
-- **③ 要求**：① **先由主任裁决改哪一边**（改实现以吃 date-time / 改契约声明成 `format: date` / 两者都吃但落库归一）；② 按裁决落代码 + 更新契约文件或实现；③ 同步 SPEC 的 citation/snapshot 形状节（`docs/SPEC.md` 的 EquityDeep 摄入契约处）；④ 若选"两者都吃"，必须明确 PIT 语义不受影响：`ann_date` 才是 PIT 锚点，`fetched_at` 只是同键多版本的排序位。
+- **③ 要求（裁-16 已定，2026-10-25）**：① **改实现**，契约保留 `format: date-time`；② 新增**独立** `parseFetchedAt`（**不放宽**共用的 `parseContractDate`）：RFC3339（带偏移）转 UTC 存，`YYYY-MM-DD` 视为当日 `00:00:00Z` 的**日标记**（不是精确时点）；③ 契约 `snapshot.schema.json` 的 `description` 补一句「兼容 date-only，归一为 00:00Z 日标记」，SPEC 的 citation/snapshot 形状节同步；④ `ann_date` / `report_period` **保持严格 `YYYY-MM-DD`**（PIT 锚点仍是 `ann_date`，`fetched_at` 只作同键多版本排序位）。
 - **④ 约束与非目标**：不改 `ann_date` 的 PIT 语义（`GetFundamentalsDetailAsOf` 强制 `ann_date<=$1` 是本表存在的理由）；不动 `field_dictionary.yaml` 的白名单内容（raw_names 变更属兼容性决策，文件头已注明需与 `evals/data_quality/spot_check.py` 同步）；不改 `pkg/domain` 字段（`pkg/domain/spec_drift_test.go:190` 会双向钉 SPEC 锚点）。
-- **⑤ 验收**：契约与实现各有一条断言且互不矛盾（同一形状在两侧结论一致）；`go test ./pkg/data/equitydeep/ ./cmd/data/ -count=1` 绿；**破坏验证**：按裁决后不该接受的形状发一条请求 ⇒ 必须被拒且原因可检索。
+- **⑤ 验收**：表驱动四例（`date` / `Z` / `+08:00` / 垃圾串）结论符合裁-16；同日两条按 `fetched_at` 取最新的用例成立；**护栏**：`ann_date` 仍拒 date-time；PIT 查询用例（`GetFundamentalsDetailAsOf`）不动且绿；`go test ./pkg/data/equitydeep/ ./cmd/data/ -count=1` 绿；**破坏验证**：把 `parseFetchedAt` 改回只收 `YYYY-MM-DD` ⇒ date-time 用例红，逐字节还原后绿。
 - **⑥ 边界**：只做 `fetched_at` 这一处形状漂移；其余 schema/实现不一致的发现列进本单正文附列，不顺手改。
 
 ### DBT-15 · `ingest.raw` 里 155 行历史探针假归档的处置 [P2] ⬜
