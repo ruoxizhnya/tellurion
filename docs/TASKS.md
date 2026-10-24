@@ -50,7 +50,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **W4** | QT-32 | AI 策略生成闭环（promote 闸门 + 全链留痕，承接 G6/M2） | P1 | 依赖 QT-41b（编译管线）+ QT-41 + QT-03；AI 生成侧在 agent 仓 |
 | **X 线** | QT-40~45、QT-41b | 数据/策略/风控/分析/编排/网关六服务 + 编译服务 | P1-P2 | 各自独立，X0（三 hash）已在 QT-03；**QT-41b 的待裁决 D 已于 2026-10-21 裁决**（落 `tellurion-strategy:cmd/compiler`，⛔ 解除，见 `repo-inventory.md` §3）。**M5 对账已结案**（`repo-inventory.md` §1.2，含「六仓 ≠ 六进程」的总口径与 U6~U8 三条新待裁）；**M8 接口对表 QT-40 已落**（`data-service-contract-and-ownership.md` §4.1）。**正文已迁各服务仓台账**（2026-10-21），见「五、X 线」指针表 |
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
-| **横切** | QT-66 ⬜ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | 依赖 QT-42 的规则 hash / 快照端点（已落）；只动 core 的取 hash 与写入路径，与 W1 可并行 |
+| **横切** | QT-66 ⬜ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | 依赖 QT-42 的规则 hash / 快照端点（已落）；**裁决已落（裁-10/11，2026-10-25），可开工**；只动 core 的取 hash 与写入路径，与 W1 可并行 |
 | **横切** | QT-67 ✅ | 日历 / 上市窗口只读端点（D24 第 7 类动作，2026-10-24 已裁） | P1 | **已完成（2026-10-24）**；`GET /api/v1/trading-calendar` + `POST /api/v1/listing-windows`，只读、JWT/RBAC 复用、存储未装配 503；openapi 双向对拍 + wire 形状反射互锁；agent 侧删 import 与白名单收窄归 QT-17 ③ |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
@@ -1110,8 +1110,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    agent 仓的「禁 import core / 禁逐 bar 远程调用」AST 护栏亦随 G10。
 > 2. **`contracts/dto` 生成物**：QT-50 ③ 的 `oapi-codegen` 前提是 contracts 新增 `dto` 包，
 >    **contracts v0.3.0 无此包** → 报 **G0D-C5**；本批**没有**手写或伪造生成物，openapi 仍是唯一 wire 真相。
-> 3. **第 7 类动作**（交易日历 / 上市窗口查询）等用户**裁-04**；未确认前不在 `agentCoarseActions` 里
->    （`coarseActionCount = 6` 是那道闸）。
+> 3. **第 7 类动作**（交易日历 / 上市窗口查询）已由 **裁-04**（2026-10-24）确认，落两条只读端点（QT-67 ✅）；`coarseActionCount` 现为 **8**（七类 / 八条）。
+> 4. **第 8 类动作**（`POST /api/walkforward` + `POST /api/risk/detect_regime`）由 **裁-12**（2026-10-25）确认登记：两条都是「一次请求覆盖整段范围」的粗粒度查询，S3-c-1 / S3-c-3 的 HTTP 化以此为前提。**实现未落**：`agentCoarseActions` 仍是 8 条，落地面（代码 2 条 + openapi 标注 + `coarseActionCount` 8→10 + SPEC D24「七类」→「八类」+ 对拍测试）见批次四 W1。口径订正：按**类**算是第 8 类、按**条目**是第 9~10 条（此前口述的「第 9 类」是条目数）。
 >
 > ⚠️ **对 S3 的含义（不夸大）**：本单把 agent↔core 的 wire 面与鉴权落齐了，但**不等于** agent 现在就能删
 > `replace ../tellurion` —— 客户端尚未实现（G10），且 agent 仍有 **64 处 core 实现包 import（43 文件：生产 23 + 测试 20，15 个包）**（2026-10-25 实测，见 QT-17 / QT-07 ⑥ 记录）。
@@ -1267,9 +1267,13 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 - **① 目标**：真实 run 的 `quant.run_provenance.risk_rules_hash` 写进 risk 仓算出的内容寻址 hash —— 「同 hash 不同结果」的最后一列不再恒空。
 - **② 上下文（2026-10-24 实测）**：`pkg/backtest/provenance.go:194` 恒写 `""`；`tellurion-risk:internal/rule` 已有 `version_hash` / `risk_rules_hash` 内容寻址、`snapshots/{hash}` 与 `bundle` 端点、进程内 `ParseBundle`，但 core 侧消费接线未做（risk 仓 `AGENTS.md` §1 已如实登记「core 侧消费接线未做，F3」）。QT-63 ⑦ 的列清单把这列标为「可空，QT-42 预留」；QT-42 已落，预留至今没兑现。
-- **③ 要求**：① 先定口径：`risk_rules_hash` = run 起始时刻生效的规则快照 hash，来源只能是 risk 仓，core **不得**按规则文件重算（第二真相）；② 取值方式二选一并落一条 ADR：run 提交时由 core 向 risk 的 `snapshots/{hash}` / `bundle` 端点取当前生效 hash 并随 run 参数传入，或由装配层注入「生效快照 hash provider」；③ 取不到 hash 时 **fail-loud**（run 判 `failed`）还是记可查询的 `unavailable`，要在 ADR 里写死；不允许再写空串冒充「没有规则」；④ 空串只剩一种合法含义（该部署没有 risk 服务），且必须与「接了但没取到」可区分。
+
+> **裁决（2026-10-25，裁-10 / 裁-11）—— 本单由此可开工**
+> - **裁-10（取值方式）**：**每次 run 提交时**调 risk `POST /api/risk/resolve` —— run_spec 里钉了 hash 就按锁定 hash 解析，否则走 `latest`；装配层用 provider 接口注入 HTTP 实现（行为按 run、结构可测）。**不采用**「启动期取一次、缓到重启」：那会把旧规则静默钉死，而 hash 是 per-run provenance 分量。落点 = `pkg/backtest/provenance.go` 的取值点 + `cmd/analysis/wiring` 的 provider 装配。
+> - **裁-11（失败口径）**：**只有「本部署未接入 risk 服务」允许空串**，并显式记 `not_configured`；配置了但取不到（`no_approved_rules` / `snapshot_not_found` / 5xx / 超时）一律 run = `failed`，错误码 `risk_rules_unavailable`。**不采用**「记 `unavailable` 继续跑」：会让两次 run 一个空、一个有值却都算成功，恰好破坏可比性。
+- **③ 要求（口径已定，见上裁-10 / 裁-11；落地按此执行，不再另做二选一）**：① `risk_rules_hash` = run 起始时刻生效的规则快照 hash，来源只能是 risk 仓，core **不得**按规则文件重算（第二真相）；② 取值 = 每次 run 提交时调 `POST /api/risk/resolve`（run_spec 钉 hash 走锁定、否则 `latest`），装配层 provider 接口注入 HTTP 实现；③ 取不到 hash 一律**fail-loud**（run 判 `failed`，错误码 `risk_rules_unavailable`）；④ 空串只剩一种合法含义（该部署未接入 risk 服务），并必须与「接了但没取到」可区分，落 `not_configured` 标记。
 - **④ 约束与非目标**：不改 QT-03 / QT-63 已冻结的 canonical 与列清单；不动 QT-42 仓内的规则算法与快照端点；不新增 per-run 远程读规则正文（逐 bar / 逐笔裁决仍进程内，硬否决）；不做 QT-44 的对外 provenance 端点。
-- **⑤ 验收**：真 PG 集成腿——同一 run 经 `quant.run_provenance` 读回的 `risk_rules_hash` 非空，且等于 risk 仓对同一规则快照算出的值；改规则快照后新 run 的该列变化；取 hash 失败路径按 ADR 口径表现（`failed` 或可查询的 `unavailable`），日志点名原因；生产代码 `grep 'RiskRulesHash: ""'` 零命中。
+- **⑤ 验收**：真 PG 集成腿——同一 run 经 `quant.run_provenance` 读回的 `risk_rules_hash` 非空，且等于 risk 仓对同一规则快照算出的值；改规则快照后新 run 的该列变化；取 hash 失败路径按裁-11：未接入 → 空串 + `not_configured`，其余 → run `failed` + `risk_rules_unavailable`（日志点名原因）；生产代码 `grep 'RiskRulesHash: ""'` 只在 `not_configured` 分支命中，其余零命中。
 - **⑥ 边界**：只做 core 侧「取 hash + 写入」；规则版本算法、快照内容寻址与端点归 `tellurion-risk`（QT-42）；对外查询面归 QT-44。
 
 ---
