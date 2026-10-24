@@ -9,8 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore
+// (ai.research_*). The types and GetResearchProfile below are kept only as a
+// read-only transition for existing core callers — do not add new users.
+// Deletion deadline: 2027-01-31, after S3 removes the agent's
+// `replace tellurion => ../tellurion`. The research.* DDL stays for now
+// (no DROP); see docs/TASKS.md QT-05 ④.
+
 // ErrEmptyResearchTicker is returned when a research lookup is made without a
 // ticker.
+//
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore (ai.*), see the file-level note.
 var ErrEmptyResearchTicker = fmt.Errorf("research profile: ticker is required")
 
 // ResearchProfile is the aggregate read model of one EquityDeep research
@@ -22,6 +31,8 @@ var ErrEmptyResearchTicker = fmt.Errorf("research profile: ticker is required")
 // the same ticker. Ticker is the bare 6-digit code (contracts/profile.schema.json
 // pattern ^[0-9]{6}$) — the exchange-suffixed ts_code form lives only in
 // market-facing tables.
+//
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore (ai.*), see the file-level note.
 type ResearchProfile struct {
 	Ticker         string     `json:"ticker"`
 	Name           string     `json:"name"`
@@ -40,6 +51,8 @@ type ResearchProfile struct {
 // ResearchConclusion is one row of research.conclusion. Citations holds the
 // ADR-022 §5 anchor array ({source, dataset, key, as_of, content_hash} +
 // JSON Pointer) verbatim as stored JSONB — this layer never rewrites it.
+//
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore (ai.*), see the file-level note.
 type ResearchConclusion struct {
 	Ticker          string          `json:"ticker"`
 	ID              string          `json:"id"`
@@ -54,6 +67,8 @@ type ResearchConclusion struct {
 }
 
 // ResearchQuestion is one row of research.question.
+//
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore (ai.*), see the file-level note.
 type ResearchQuestion struct {
 	Ticker   string  `json:"ticker"`
 	ID       string  `json:"id"`
@@ -70,6 +85,8 @@ type ResearchQuestion struct {
 //
 // Missing children are not an error: a freshly created profile legitimately has
 // no conclusions or questions yet, so both slices come back empty (non-nil).
+//
+// Deprecated: research projections moved to tellurion-agent/pkg/aistore (ai.*), see the file-level note.
 func (s *PostgresStore) GetResearchProfile(ctx context.Context, ticker string) (*ResearchProfile, error) {
 	if ticker == "" {
 		return nil, ErrEmptyResearchTicker

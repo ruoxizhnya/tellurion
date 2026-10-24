@@ -17,9 +17,17 @@ import (
 //
 // 这一层只做存取，不做判断：不评最优、不排序、不打分。「按高原面积 × 因果强度
 // 排序」是摘要层的职责（PRODUCT §决策摘要），且依赖验证器输出，存储层决定不了。
+//
+// Deprecated: 实验日志的 owner 已迁至 tellurion-agent 的 pkg/aistore
+// （`ai.experiments`）。本文件的类型与方法只为 core 侧现存调用方保留**只读过渡**
+// ——新代码不要再用。删除期限 **2027-01-31**，前置是 S3（QT-50 完成、agent 删掉
+// `replace tellurion => ../tellurion`）；在那之前 core 的 storage 包仍被 agent 的
+// 测试代码引用。表 DDL 暂留（不删表），见 docs/TASKS.md QT-05 ④。
 
 // 实验状态。running 既是初始态，也是被叫停时的终态 —— 中途叫停的实验永远
 // 停在 running，那正是回路断在哪一步的证据，不能被当成脏数据清掉。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 const (
 	ExperimentStatusRunning   = "running"
 	ExperimentStatusCompleted = "completed"
@@ -28,6 +36,8 @@ const (
 
 // 数据集划分。一次尝试必须说清自己用的是哪份数据，否则保留期验证无从谈起
 // （验证器看的是「训练期调出来的参数在保留期还成不成立」）。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 const (
 	DatasetSplitTrain = "train"
 	DatasetSplitHold  = "hold"
@@ -35,6 +45,8 @@ const (
 )
 
 // Experiment 是一次尝试的完整记录。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 type Experiment struct {
 	ID           int64
 	RunID        string
@@ -63,6 +75,8 @@ type Experiment struct {
 // 字段按验证器的需要逐步加，现在只放回测必出的三项。注意「试了几次才撞出来」
 // 不在这个结构里 —— 它体现在同一 run_id 下的行数与 seq 上，是路径的属性，
 // 不是单次结果的属性。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 type ExperimentMetrics struct {
 	SharpeRatio float64 `json:"sharpe_ratio"`
 	TotalReturn float64 `json:"total_return"`
@@ -78,6 +92,8 @@ const experimentColumns = `id, run_id, seq, parent_id, hypothesis, params, datas
 //
 // 初始状态恒为 running：结果要等回测跑完才知道，而「开始了但没结果」这个事实
 // 必须先落库 —— 否则进程一崩，这次尝试就从未存在过，路径回放会缺一环。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) InsertExperiment(ctx context.Context, e *Experiment) (int64, error) {
 	params, err := marshalJSONBObject(e.Params)
 	if err != nil {
@@ -108,6 +124,8 @@ func (s *PostgresStore) InsertExperiment(ctx context.Context, e *Experiment) (in
 
 // GetExperiment 取单条记录；不存在时返回 (nil, nil) —— 与 GetBacktestJob 一致，
 // 「没找到」不是错误，是查询结果。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) GetExperiment(ctx context.Context, id int64) (*Experiment, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT `+experimentColumns+` FROM experiments WHERE id = $1`, id)
@@ -126,6 +144,8 @@ func (s *PostgresStore) GetExperiment(ctx context.Context, id int64) (*Experimen
 // errMsg 非空即以失败收尾，且**丢弃 metrics**：失败的实验不该留下指标，
 // 否则回放时会看到「失败了但 Sharpe 是 1.2」这种自相矛盾的记录。
 // errMsg 为空则记为完成，m 为 nil 时指标留空（跑完了但没产出指标）。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) CompleteExperiment(ctx context.Context, id int64, m *ExperimentMetrics, errMsg string) error {
 	status := ExperimentStatusCompleted
 	if errMsg != "" {
@@ -167,6 +187,8 @@ func (s *PostgresStore) CompleteExperiment(ctx context.Context, id int64, m *Exp
 //
 // 裁决写失败不回滚实验本身：它是对已有结果的评论，评论丢了，
 // 实验记录还在 —— 反过来（为了写评论把实验弄丢）才不可接受。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) RecordVerdict(ctx context.Context, id int64, verdict json.RawMessage) error {
 	if id == 0 {
 		return nil
@@ -185,6 +207,8 @@ func (s *PostgresStore) RecordVerdict(ctx context.Context, id int64, verdict jso
 //
 // 刻意不按插入时间排：并发跑的时候插入顺序是调度顺序，不是探索顺序，
 // 而回放要看的是「第 n 次试了什么」，那只有 seq 说得清。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) ListExperiments(ctx context.Context, runID string) ([]*Experiment, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+experimentColumns+` FROM experiments WHERE run_id = $1 ORDER BY seq`, runID)
@@ -252,6 +276,8 @@ func scanExperiment(row pgx.Row) (*Experiment, error) {
 // 表达式要等 YAML 生成并注册之后才存在。所以先落占位，参数定了再补。
 //
 // 零值字段表示「不改」（SQL 侧走 COALESCE，传 NULL 即保留原值）。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 type ExperimentUpdate struct {
 	Params       map[string]any
 	StrategyName string
@@ -260,6 +286,8 @@ type ExperimentUpdate struct {
 
 // UpdateExperiment 把「试了什么」补进已存在的那一行。id 为 0 表示这一轮
 // 没有日志落点（例如 sink 写入失败），静默跳过。
+//
+// Deprecated: 实验日志已迁至 tellurion-agent/pkg/aistore（ai.experiments），见文件头。
 func (s *PostgresStore) UpdateExperiment(ctx context.Context, id int64, u ExperimentUpdate) error {
 	if id == 0 {
 		return nil
