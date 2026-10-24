@@ -103,8 +103,16 @@ func (s *execAlgoDupStrategy) GenerateSignals(_ context.Context, bars map[string
 func (s *execAlgoDupStrategy) Weight(_ strategy.Signal, _ float64) float64 { return 1 }
 
 // TestExecAlgoAttach_BacktestDuplicateParentCounted 是 K17-R1 要求 2 的
-// 主腿：父单号重复 → 第二条信号被拒，run 不中断，但失败计数以
-// exec_algo_attach_failed 呈现在结果里（禁止「跑完没人知道少了交易」）。
+// 主腿，**QT-21 之后语义前移了一层**：
+//
+// QT-21 冻结的重复语义（`close` 优先 / 同向 strength 求和）在信号进入撮合
+// 之前就把「同 bar 同 symbol 同方向」的两条信号合并成一条。因此引擎级
+// 的「重复父单号」路径不再可达 —— 父单号 = EA-日期-symbol-方向，能撞号的
+// 两条信号必然先被合并。
+//
+// 本腿因此验的是前移后的正确行为：**重复信号被合并 → 只挂一个父单 → run
+// 完成且不报 attach_failed**；`ErrDuplicateParent` 本身的守卫仍在
+// `pkg/execalgo/attach_failure_test.go` 直接覆盖（那一层没有信号合并）。
 func TestExecAlgoAttach_BacktestDuplicateParentCounted(t *testing.T) {
 	logSink := &bytes.Buffer{}
 	eng, _, _ := buildExecAlgoEngine(t, logSink)
@@ -114,21 +122,20 @@ func TestExecAlgoAttach_BacktestDuplicateParentCounted(t *testing.T) {
 
 	resp, orders := runExecAlgoAttachProbe(t, eng, "k17r1_dup_parent", spy)
 
-	// 第一条信号照常拆 2 片；第二条的 2 片不存在——重复挂载被拒。
-	require.Len(t, orders, 2, "重复父单只保留第一条信号的计划")
+	// 两条 1.0 的 long 合并成一条（strength clamp 到 1.0）→ 只拆 2 片。
+	require.Len(t, orders, 2, "合并后只有一份父单计划（2 片）")
 	for _, rec := range orders {
 		assert.Equal(t, "EA-20260302-000001.SZ-long", rec.Order.ID[:len("EA-20260302-000001.SZ-long")],
-			"子单属于第一个父单")
+			"子单属于合并后的父单")
 	}
 
-	// 结果可见：invalid + attach_failed Code；分类精度（不含 unknown_style）。
-	assert.Equal(t, "invalid", resp.Status)
-	assert.Contains(t, resp.InvalidReasons, contracts.InvalidExecAlgoAttachFailed)
-	assert.NotContains(t, resp.InvalidReasons, contracts.InvalidExecAlgoUnknownStyle)
+	// 合并不是失败：run 完成，不挂 attach_failed / unknown_style。
+	assert.Equal(t, "completed", resp.Status)
+	assert.Empty(t, resp.InvalidReasons)
 
-	// 诊断可见：duplicate_parent 计数 + 样例点名。
-	assert.Contains(t, logSink.String(), "duplicate_parent")
-	assert.Contains(t, logSink.String(), "EA-20260302-000001.SZ-long")
+	// 诊断可见：合并计数进 run 级汇总，不再出现 duplicate_parent。
+	assert.Contains(t, logSink.String(), "duplicate_signals_merged")
+	assert.NotContains(t, logSink.String(), "duplicate_parent")
 	assert.NotContains(t, logSink.String(), "CANCELLED",
-		"第一条父单全部成交，不触发会话结束撤销")
+		"合并后的父单全部成交，不触发会话结束撤销")
 }

@@ -40,6 +40,11 @@ type fillRunDiag struct {
 	//   - pendingAtRunEnd：区间最后一天收盘决策、没有次日可成交的信号数。
 	noOpenPriceSkips int
 	pendingAtRunEnd  int
+
+	// QT-21：同 bar 同 symbol 的重复信号被合并掉的条数。
+	// 合并本身是正确行为（QT-04 结论），但要可见 —— 「今天少了两条意图」
+	// 不能只存在于策略作者的脑子里。
+	duplicateSignalsMerged int
 }
 
 func newFillRunDiag() *fillRunDiag {
@@ -86,9 +91,18 @@ func (d *fillRunDiag) recordPendingAtRunEnd(pending []domain.Signal) {
 	d.pendingAtRunEnd += len(pending)
 }
 
+// recordDuplicateSignalsMerged 记 n 条重复信号被合并（QT-21）。
+func (d *fillRunDiag) recordDuplicateSignalsMerged(n int) {
+	if d == nil || n <= 0 {
+		return
+	}
+	d.duplicateSignalsMerged += n
+}
+
 // logSummary 在回测收尾时打一行汇总（无拦截则不打扰日志）。
 func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
-	if d == nil || (d.suspendedTotal == 0 && d.truncations == 0 && d.noOpenPriceSkips == 0 && d.pendingAtRunEnd == 0) {
+	if d == nil || (d.suspendedTotal == 0 && d.truncations == 0 && d.noOpenPriceSkips == 0 &&
+		d.pendingAtRunEnd == 0 && d.duplicateSignalsMerged == 0) {
 		return
 	}
 	logger.Info().
@@ -98,8 +112,9 @@ func (d *fillRunDiag) logSummary(logger zerolog.Logger) {
 		Float64("truncated_qty_total", d.truncatedQty).
 		Int("next_open_no_fill_price", d.noOpenPriceSkips).
 		Int("next_open_unfilled_at_run_end", d.pendingAtRunEnd).
+		Int("duplicate_signals_merged", d.duplicateSignalsMerged).
 		Str("first_truncation", d.truncSample).
-		Msg("Fill realism (REV-09 / QT-02): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor, next_open rejects recorded")
+		Msg("Fill realism (REV-09 / QT-02 / QT-21): suspended symbol-days skipped, orders capped by daily volume × liquidity_factor, next_open rejects recorded, duplicate signals merged")
 }
 
 // liquidityFactor 返回配置的流动性系数：

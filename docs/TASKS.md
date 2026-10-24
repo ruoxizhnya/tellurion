@@ -39,7 +39,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W1 | QT-16 ✅ | 检查点身份与版本（`shard_key` + `run_identity_hash`） | P0 | **已完成（2026-10-23）**；**先于 QT-15**：重放要按分片恢复状态，身份不定就分不清「这份字节属于哪个实例」 |
 | W1 | QT-15 ✅ | 不可终止执行 + 重放语义 | P0 | **已完成（2026-10-23，沙箱层）**；依赖 QT-14（会话）+ **QT-16（身份）**；引擎侧落账归 QT-26/QT-30 接线，见施工记录的 5 条如实登记 |
 | **W2** | QT-20 ✅ | 参数投递两层 | P0 | **已完成（2026-10-24）**；`strategy_params` = 清单默认 ⊕ run 覆写，未知键/类型/范围 400 点名，`RunMeta.Params` + provenance 同源，内置 provider 经 `Configure` 真正生效；`StrategyRef` 仅形状校验（资产解析属 strategy 仓） |
-| W2 | QT-21 | 信号排序 + 重复语义 | P0 | 依赖 QT-04 结论 |
+| W2 | QT-21 ✅ | 信号排序 + 重复语义 | P0 | **已完成（2026-10-24）**；应用前按 `(Symbol, Direction 固定序, Strength desc, CompositeScore desc)` 稳定排序；`close` 优先 + 同向 strength 求和 clamp + `duplicate_signals_merged` 进 run 诊断；`pkg/execalgo` 的 duplicate-parent 引擎路径被合并前移（守卫仍在 dispatcher 层） |
 | W2 | QT-22 ⛔ | `version_hash` canonical + 向量测试 | P0 | 与 QT-03 同一套 canonical 工具。**阻塞（2026-10-24 实测）：`StrategyVersionInput` + `DomainStrategyVersionHash` 裁决落 contracts（`w1-repo-ownership.md` §2.4，冻结集按代码对齐为 6 项），`v0.3.0` 与 `v0.4.0` 均无此实现** |
 | W2 | QT-23 | `RunUniverse`（run 级稳定） | P0 | 必须在 QT-24 之前（索引来源） |
 | W2 | QT-24 | host 数据模型 v2 落地（Bars/Axis/T）+ finalize 归属 | P0 | 依赖 QT-01/QT-23 |
@@ -640,6 +640,25 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **④ 约束与非目标**：**不允许**为保持结果不变而放弃排序；不合并不同 bar 的信号；不改 `domain.Signal` 字段。
 - **⑤ 验收**：同输入 20 次信号序一致；`value_momentum` 20 次结果逐位一致；差异报告归档；重复语义有专门测试。
 - **⑥ 边界**：只做顺序与重复；单量/仓位是 QT-24 的 `emit_target2`。
+
+> **✅ 完成记录（2026-10-24，G1/core）**
+>
+> **落点与行为**
+> - [`pkg/backtest/engine.go`](../pkg/backtest/engine.go)：新增 `normalizeSignalSequence`（稳定排序 + 合并），在日循环里 **getSignals 之后、信号对账观察 / next_open 待成交队列之前** 调用一次。排序口径 `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)`；Direction 固定序 = `close(0) < long(1) < short(2) < 其它(3)`（close 优先与合并规则同源）。
+> - 重复语义：同 bar（symbol + UTC 日）若有 `close` ⇒ 只留一条 close（同向 strength 求和 clamp 到 [0,1]），long/short 丢弃；无 close ⇒ 同向合并、相反方向不合并；**不同 bar 不合并**（Date 进分组键）。合并保留规范化顺序里第一条的其余字段（LimitPrice/OrderType/ExecAlgo/Factors/Metadata），CompositeScore 取组内最大。
+> - [`pkg/backtest/fill_diag.go`](../pkg/backtest/fill_diag.go)：新增 run 级计数 `duplicate_signals_merged`，随既有 fill realism 汇总行输出。
+> - **K17-R1 的连带修正**：父单号 = `EA-日期-symbol-方向`，能撞号的两条信号必然先被 QT-21 合并 ⇒ 引擎级 duplicate-parent 路径不再可达。`TestExecAlgoAttach_BacktestDuplicateParentCounted` 改为验「合并 → 单父单 → run completed 且无 attach_failed」；`ErrDuplicateParent` 本身的守卫仍由 `pkg/execalgo/attach_failure_test.go` 直接覆盖。
+>
+> **验收证据**（实测 PASS）
+> - `go test ./pkg/backtest -run 'TestNormalizeSignalSequence|TestMergeSameBarSignals|TestEngineSignalSequence|TestValueMomentum_TwentyRuns|TestQT21_OldVsNew' -count=1 -v`
+>   - 20 个不同随机种子打乱同一批信号 ⇒ 规范化输出逐位一致；
+>   - 真实回测路径（map 遍历发重复信号）跑 20 次 ⇒ 观测钩子看到的规范化序列逐位一致，且每个 symbol 的 3 条重复合并成 1 条 close；
+>   - 合成用例覆盖 close 优先、同向求和 clamp（0.6+0.7→1.0）、相反方向不合并、不同 bar 不合并；
+>   - `value_momentum` 20 次净值/成交逐位一致（**如实登记**：该策略 `GenerateSignals` 当前是 stub，返回空信号集，这条腿只证明整轮产出确定）。
+> - 差异报告归档：[`docs/test-cases/QT21_SIGNAL_ORDER_DIFF.md`](test-cases/QT21_SIGNAL_ORDER_DIFF.md)（实测 `input=7 output=5 duplicates_merged=2 positions_changed=4`，逐条解释）。
+> - **破坏验证**：注释掉日循环里的 `normalizeSignalSequence` 调用 ⇒ `TestEngineSignalSequence_TwentyRunsIdentical` 红（9 条未合并信号、且无 `:close:`）；逐字节还原后全绿。
+>
+> **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
 
 ### QT-22 · `version_hash` canonical 冻结 + 向量测试 [P0] ⛔（core 侧等契约腿；contracts 仓可独立开工）
 

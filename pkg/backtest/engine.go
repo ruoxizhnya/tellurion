@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"sort"
@@ -476,9 +477,10 @@ func (e *Engine) RNG() *rand.Rand {
 // SetSignalObserver 注册 K5 切片 2 的信号对账观察钩子（可选）。传 nil 取消。
 //
 // 观察点在 runBacktestInternal 的日循环内：getSignals 产出 domain.Signal 后、
-// processSignalsAndExecuteTrades 之前。此刻信号尚未受风控/持仓抵扣/资金约束
-// 影响，是与 paper 侧 PaperSession.SignalCollector 同构的那一层——正是信号
-// 对账（ReconcileSignals）要比对的输入。默认 nil，生产路径零行为变化。
+// **QT-21 规范化（排序 + 重复合并）之后**、processSignalsAndExecuteTrades
+// 之前。此刻信号尚未受风控/持仓抵扣/资金约束影响，是与 paper 侧
+// PaperSession.SignalCollector 同构的那一层——正是信号对账（ReconcileSignals）
+// 要比对的输入。默认 nil，生产路径零行为变化。
 func (e *Engine) SetSignalObserver(observer func(date time.Time, signals []domain.Signal)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1107,6 +1109,12 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 			}
 		}
 
+		// QT-21：应用信号前先做顺序规范化 + 重复合并（唯一入口）。
+		// 放在观察钩子之前：K5 对账看到的就是规范化后的序列，paper 侧
+		// 不必再复制一份排序/合并规则；next_open 的待成交队列同样只存
+		// 规范化结果。
+		signals = normalizeSignalSequence(signals, fillDiag)
+
 		// K5 切片 2：信号对账观察钩子（撮合前，信号尚未受风控/持仓抵扣
 		// 影响，与 paper 侧 PaperSession.SignalCollector 同构）。
 		if e.signalObserver != nil {
@@ -1524,6 +1532,179 @@ func resolveDirection(s strategy.Signal) domain.Direction {
 		return domain.DirectionClose
 	}
 	return ""
+}
+
+// ─── QT-21 · 信号顺序规范化与重复语义 ───────────────────────────────
+//
+// 执行侧唯一入口：**应用信号之前**（撮合、信号对账观察、next_open 待成交
+// 队列之前）调用 normalizeSignalSequence。排序口径冻结为
+// `(Symbol asc, Direction 固定序, Strength desc, CompositeScore desc)`，
+// 用稳定排序 —— 四键全等的信号保留来源顺序（spec 的「稳定」含义）。
+//
+// Direction 固定序 = close(0) < long(1) < short(2) < 其它(3)：
+// close 排最前不是审美，而是「重复语义里 close 优先」在排序层的同一条
+// 规则；把优先级写在排序里，合并时第一眼看到的就是该保留的那条。
+//
+// 重复语义（QT-04 结论 branch=merge，见 docs/test-cases/QT04_DUPLICATE_SIGNAL_SCAN.md）：
+//   - 同 bar（同 symbol + 同日期）内若存在 close ⇒ 只保留一条 close，
+//     同向多条 close 的 strength 求和并 clamp 到 [0,1]，long/short 被丢弃；
+//   - 无 close ⇒ 同方向合并成一条（strength 求和 clamp），不同方向不合并；
+//   - 合并保留**规范化顺序里第一条**的其余字段（LimitPrice / OrderType /
+//     ExecAlgo / Factors / Metadata），CompositeScore 取组内最大值。
+//     不把两个 limit price 或两份 metadata 拼在一起 —— 那会造出一个
+//     没有任何策略声明过的订单。
+//   - 不同 bar 的信号绝不合并（Date 进分组键）。
+//
+// 被合并掉的条数记进 run 级诊断 `duplicate_signals_merged`（fillRunDiag），
+// 不静默少单。
+func normalizeSignalSequence(signals []domain.Signal, diag *fillRunDiag) []domain.Signal {
+	if len(signals) == 0 {
+		return signals
+	}
+
+	sorted := make([]domain.Signal, len(signals))
+	copy(sorted, signals)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return signalOrderLess(sorted[i], sorted[j])
+	})
+
+	out := make([]domain.Signal, 0, len(sorted))
+	for i := 0; i < len(sorted); {
+		j := i
+		for j < len(sorted) && sorted[j].Symbol == sorted[i].Symbol {
+			j++
+		}
+
+		// 同一 symbol 内再按 bar 分组；bar 的先后按「首次出现」保留，
+		// 这样「不合并不同 bar」与「输出顺序确定」同时成立。
+		var bars []int64
+		buckets := make(map[int64][]domain.Signal, 1)
+		for _, sig := range sorted[i:j] {
+			key := signalBarKey(sig.Date)
+			if _, ok := buckets[key]; !ok {
+				bars = append(bars, key)
+			}
+			buckets[key] = append(buckets[key], sig)
+		}
+		for _, key := range bars {
+			out = append(out, mergeSameBarSignals(buckets[key], diag)...)
+		}
+		i = j
+	}
+	return out
+}
+
+// signalOrderLess 是冻结排序口径的唯一实现。
+func signalOrderLess(a, b domain.Signal) bool {
+	if a.Symbol != b.Symbol {
+		return a.Symbol < b.Symbol
+	}
+	ar, br := signalDirectionRank(a.Direction), signalDirectionRank(b.Direction)
+	if ar != br {
+		return ar < br
+	}
+	if a.Strength != b.Strength {
+		return a.Strength > b.Strength
+	}
+	if a.CompositeScore != b.CompositeScore {
+		return a.CompositeScore > b.CompositeScore
+	}
+	return false
+}
+
+// signalDirectionRank 是 Direction 的固定序（close 优先）。
+func signalDirectionRank(d domain.Direction) int {
+	switch d {
+	case domain.DirectionClose:
+		return 0
+	case domain.DirectionLong:
+		return 1
+	case domain.DirectionShort:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// signalBarKey 把信号日期折成「bar 身份」：UTC 日粒度。
+// 不同时区同一瞬间的 Date 必须落进同一个桶，否则「同一 bar」会按机器
+// 时区分裂成两组。
+func signalBarKey(date time.Time) int64 {
+	return date.UTC().Truncate(24 * time.Hour).Unix()
+}
+
+// mergeSameBarSignals 对同一 symbol + 同一 bar 的信号执行 QT-21 合并。
+// group 已按规范化顺序排好（close 在最前，其后 long/short，各自强度降序）。
+func mergeSameBarSignals(group []domain.Signal, diag *fillRunDiag) []domain.Signal {
+	if len(group) <= 1 {
+		return group
+	}
+
+	closeSum := 0.0
+	var closeBase *domain.Signal
+	for i := range group {
+		if group[i].Direction != domain.DirectionClose {
+			continue
+		}
+		if closeBase == nil {
+			sig := group[i]
+			closeBase = &sig
+		}
+		closeSum += group[i].Strength
+	}
+	if closeBase != nil {
+		merged := *closeBase
+		merged.Strength = clampSignalStrength(closeSum)
+		merged.CompositeScore = maxSignalComposite(group, domain.DirectionClose)
+		diag.recordDuplicateSignalsMerged(len(group) - 1)
+		return []domain.Signal{merged}
+	}
+
+	out := make([]domain.Signal, 0, len(group))
+	seen := make(map[domain.Direction]int, len(group))
+	for _, sig := range group {
+		if at, ok := seen[sig.Direction]; ok {
+			out[at].Strength = clampSignalStrength(out[at].Strength + sig.Strength)
+			if sig.CompositeScore > out[at].CompositeScore {
+				out[at].CompositeScore = sig.CompositeScore
+			}
+			continue
+		}
+		seen[sig.Direction] = len(out)
+		out = append(out, sig)
+	}
+	diag.recordDuplicateSignalsMerged(len(group) - len(out))
+	return out
+}
+
+// clampSignalStrength 把 strength 收敛到 [0,1]。
+// NaN / 负值按 0 处理：信号强度契约是 [0,1]，让一个脏值把整组求和变成
+// NaN 等于把「一条坏信号」升级成「整组不可读」。
+func clampSignalStrength(v float64) float64 {
+	if math.IsNaN(v) || v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// maxSignalComposite 返回组内指定方向的 CompositeScore 最大值。
+func maxSignalComposite(group []domain.Signal, dir domain.Direction) float64 {
+	max := math.Inf(-1)
+	for _, sig := range group {
+		if sig.Direction != dir {
+			continue
+		}
+		if sig.CompositeScore > max {
+			max = sig.CompositeScore
+		}
+	}
+	if math.IsInf(max, -1) {
+		return 0
+	}
+	return max
 }
 
 // calculatePosition calculates position size using risk service.
