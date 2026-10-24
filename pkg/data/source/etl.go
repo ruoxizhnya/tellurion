@@ -8,24 +8,6 @@ import (
 	"tellurion/pkg/storage"
 )
 
-// toStoragePoints projects the in-memory UnifiedDataPoint to the
-// storage layer's struct. Kept local to avoid an import cycle on
-// the storage package.
-func toStoragePoints(in []UnifiedDataPoint) []storage.UnifiedDataPoint {
-	out := make([]storage.UnifiedDataPoint, len(in))
-	for i, p := range in {
-		out[i] = storage.UnifiedDataPoint{
-			Symbol:     p.Symbol,
-			TradeTime:  p.TradeTime,
-			Source:     p.Source,
-			DataType:   p.DataType,
-			Data:       p.Data,
-			IngestTime: p.IngestTime,
-		}
-	}
-	return out
-}
-
 // ETLPipeline is the high-level "fetch → normalize → validate → dedup → persist"
 // coordinator. It is the single integration point between the Registry
 // and the storage layer.
@@ -130,7 +112,7 @@ func (p *ETLPipeline) Process(ctx context.Context, req FetchRequest, normalizer 
 	persisted := 0
 	persistSkipped := 0
 	if p.Store != nil {
-		n, sk, err := p.Store.BulkInsert(ctx, req.DataType, toStoragePoints(points))
+		n, sk, err := p.Store.BulkInsert(ctx, req.DataType, points)
 		if err != nil {
 			return &ProcessResult{
 				DataType:   req.DataType,

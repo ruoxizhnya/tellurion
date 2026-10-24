@@ -16,7 +16,7 @@
 | 仓 | 一句话 | 与本仓的关系 |
 |---|---|---|
 | **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
-| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.5.0`，2026-10-24 发版：QT-22 `version_hash` canonical 六项 `StrategyVersionInput` + `DomainStrategyVersionHash`，导出面 443→447；`go.mod` 2026-10-24 实测已切，**禁 `replace`**） |
+| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.6.0`，2026-10-24 发版：QT-40 X1a 新增 `dataprotocol/` —— `UnifiedDataPoint` 七字段 + `ToJSON`/`DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465；`go.mod` 2026-10-25 实测已切，**禁 `replace`**） |
 | `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.0`；本仓**尚未 `require`**（13 包仍在 `pkg/` 内，切换归 QT-05 ③-③） |
 | `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
 | `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |

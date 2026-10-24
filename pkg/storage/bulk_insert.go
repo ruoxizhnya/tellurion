@@ -7,21 +7,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/ruoxizhnya/tellurion-contracts/dataprotocol"
 )
 
-// UnifiedDataPoint is the storage-layer projection of source.UnifiedDataPoint.
+// UnifiedDataPoint is the storage-layer name for the shared point shape.
 //
-// Why a local copy? The storage package must not import the source package
-// to avoid an import cycle (source → storage). The structs are kept
-// structurally compatible — caller passes the same Data map and metadata.
-type UnifiedDataPoint struct {
-	Symbol     string
-	TradeTime  time.Time
-	Source     string
-	DataType   string
-	Data       map[string]interface{}
-	IngestTime time.Time
-}
+// It used to be a structurally compatible local copy, because storage could
+// not import source (source → storage). Both sides now alias
+// `tellurion-contracts:dataprotocol` (QT-40 X1a, contract v0.6.0), so the
+// projection is an identity rather than a field-by-field copy that could
+// silently drop a field.
+type UnifiedDataPoint = dataprotocol.UnifiedDataPoint
 
 // TableMapper resolves a data_type to (table_name, column layout).
 //

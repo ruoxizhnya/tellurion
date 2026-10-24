@@ -946,7 +946,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **两条前置的执行状态（2026-10-21 更新）**：
 > - **① M5 已结案** → 结论在 `repo-inventory.md` §1.2。要点：**六个仓不等于六个进程**——拓扑（ADR-027 §2.6.4，服务 3→5）里只有 `data` / `strategy` 有位子，`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（ADR-027 §7「不同时拆多个服务」优先）。对账另开出 **U6（reduction-service 仓位）/ U7（compliance·alert 归属）/ U8（`factor_hypothesis` owner）** 三条待裁，登记在 `repo-inventory.md` §3.1。
 > - **② M8 已落 QT-40（data）** → `data-service-contract-and-ownership.md` §4.1；**QT-41/42/43/44/45 五仓的接口对表仍未做**（设计文档里都没有那一节）。
-> - **对表不是纸面作业**：§4.1 实测出三条会直接误导 X1b 的前提偏差——`DatasetSnapshotInput` 今天**零生产者**、api-schema §2 的四个错误码**一个都不存在**、`pkg/storage/bulk_insert.go:17` 还躺着一份与 `source.UnifiedDataPoint` 同名同字段的副本（幂等坐标因此有两处定义）。QT-40 ② 那句「现状已实现约 80%」只对 connector 层成立。
+> - **对表不是纸面作业**：§4.1 实测出三条会直接误导 X1b 的前提偏差——`DatasetSnapshotInput` 今天**零生产者**、api-schema §2 的四个错误码**一个都不存在**、`pkg/storage/bulk_insert.go:17` 还躺着一份与 `source.UnifiedDataPoint` 同名同字段的副本（幂等坐标因此有两处定义）。QT-40 ② 那句「现状已实现约 80%」只对 connector 层成立。**2026-10-25 更新**：`bulk_insert.go` 的副本与 `source/unified.go` 的本地类型均已改别名到 contracts `v0.6.0` 的 `dataprotocol`（见本节末 X1a core 腿记录）；前两条不受影响。
 > - **X 线仍共有的硬依赖**：QT-05（S1 契约层落码）⬜ 未启动，而 contracts 仓今天零符号——服务仓的 module path 是单段短名、又禁止 `replace ../`，**拿不到协议类型就无法写任何 aggregator 实现**。所以 X 线的「依次序」实际是 `W0 收尾（QT-02/04/63）→ QT-05 → QT-07 → X1b…`，跳序的代价见各仓 `docs/TASKS.md` 施工序注。
 
 ### QT-40~45、QT-41b · X 线六服务 + 编译服务（正文已迁各服务仓，本仓留指针）[P1-P2]
@@ -962,6 +962,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | QT-43 | X4 分析服务（基准 / 归因 / 敏感性 / 蒙特卡洛） | `tellurion-analytics:docs/TASKS.md` |
 | QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
 | QT-45 | X6 交易通道网关（XTPTrader / MockTrader 两实现） | `tellurion-broker:docs/TASKS.md` |
+
+> **QT-40 X1a 的 core 腿 ✅（2026-10-25，`go build/vet/test ./...` 全绿）**：contracts **`v0.6.0`**（2026-10-24 发版、远端 tag 已推）新增 `dataprotocol/`（`UnifiedDataPoint` 七字段含 `VisibleAt` + `ToJSON` / `DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465）。本仓 `require v0.6.0`；`pkg/data/source/unified.go` 的本地类型**改别名**（读墙钟的 `NewUnifiedDataPoint` 留 core——契约刻意不读时钟，ADR-0004；`Deduplicate` / `DeduplicateWithCount` 这两个切片助手也留 core）；`pkg/storage/bulk_insert.go:17` 那份「为避开 import 环」的存储副本同步改别名，`pkg/data/source/etl.go` 的身份投影 `toStoragePoints` 删除。守卫：`pkg/data/source/unified_contract_test.go` / `pkg/storage/bulk_insert_projection_test.go`（类型必须 == 契约类型；破坏验证：改回本地 struct ⇒ 红，逐字节还原 ⇒ 绿）。数据仓侧见 `tellurion-data:docs/TASKS.md` X1a（✅）。
 
 ---
 
