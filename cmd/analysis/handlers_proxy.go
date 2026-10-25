@@ -73,6 +73,12 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
+		// 裁-15：数据服务已上鉴权，代理必须把入站凭证原样带给上游——
+		// `/api/sync/*` 的 ReverseProxy 本来就透传，这里补齐 proxyRequest 分支。
+		// 不重新签发、不降级：没有凭证就不带，让上游按自己的策略回 401/403。
+		if auth := c.GetHeader("Authorization"); auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			httpserver.Wrap(c, http.StatusBadGateway, err, "data service unavailable: ")

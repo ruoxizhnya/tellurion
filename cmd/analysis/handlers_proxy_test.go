@@ -11,6 +11,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -169,4 +170,48 @@ func TestFactorCitationProxy_KeepsHashOnlyTuple(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"content_hash":"bb"`)
 	assert.NotContains(t, w.Body.String(), `"source"`)
 	assert.NotContains(t, w.Body.String(), `"dataset"`)
+}
+
+// TestProxyForwardsAuthorization 是裁-15 的核心侧守卫：数据服务上鉴权后，
+// proxyRequest 必须把入站 Authorization 原样带给上游。否则 readonly-post
+// （POST /api/v1/ohlcv/bulk）会在网关这一层被上游 401，而调用方明明持有凭证。
+func TestProxyForwardsAuthorization(t *testing.T) {
+	router, received := newProxyTestRouter(t, jsonUpstream(http.StatusOK, `{"bars":[]}`))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ohlcv/bulk",
+		strings.NewReader(`{"symbols":["000001.SZ"],"start_date":"20260101","end_date":"20260105"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer trader-token")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	require.Len(t, *received, 1)
+	assert.Equal(t, "Bearer trader-token", (*received)[0].Header.Get("Authorization"),
+		"proxyRequest 必须透传入站凭证，否则数据服务会 401")
+}
+
+// TestProtectedRouteThroughProxyDoesNotLoseCredentials 用一个「无凭证即 401」
+// 的假上游模拟已接线鉴权的数据服务：同一请求带凭证时不应被代理弄丢而 401。
+func TestProtectedRouteThroughProxyDoesNotLoseCredentials(t *testing.T) {
+	router, _ := newProxyTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer trader-token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"code":"unauthenticated","message":"authentication required"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"bars":[]}`))
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ohlcv/bulk",
+		strings.NewReader(`{"symbols":["000001.SZ"],"start_date":"20260101","end_date":"20260105"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer trader-token")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "受保护路由经代理不得 401；body: %s", w.Body.String())
 }

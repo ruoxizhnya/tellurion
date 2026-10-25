@@ -1094,7 +1094,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **范围**：risk / analytics / data 三条**现在做**；orchestration **缓做**（客户端是 worker，token 分发是新的失败面；触发条件=worker 跨主机或服务对外发布）。
 > - **统一语义（四条，禁止半保护）**：无 secret + 回环 ⇒ 开放（带 loopback 守卫）；无 secret + 非回环 ⇒ **拒绝启动**；有 secret + 无/坏 token ⇒ 401；角色不足 ⇒ 403。
 > - **每腿必备**：route table ≡ policy table 的守卫测试（照 `cmd/data/route_policy_rev17_test.go`），漏挂一条即红。
-> - **本仓腿**：[handlers_proxy.go](handlers_proxy.go) 的 `proxyRequest` 分支**不转发**入站 Authorization（`/api/sync/*` 的 ReverseProxy 分支原样转发，没问题）。data 上鉴权后，走 `proxyRequest` 的 readonly-post（`POST /api/v1/ohlcv/bulk`）会 401 ⇒ 补转发 + 一条「受保护路由经代理必须带凭证」的守卫。
+> - **本仓腿 ✅ 已落（2026-10-25）**：[handlers_proxy.go](handlers_proxy.go) 的 `proxyRequest` 现已把入站 `Authorization` 原样转发给数据服务（`/api/sync/*` 的 ReverseProxy 分支原本就透传）。守卫：`TestProxyForwardsAuthorization`（上游收到的 header 逐字相等）与 `TestProtectedRouteThroughProxyDoesNotLoseCredentials`（假上游无凭证即 401，带凭证的 `POST /api/v1/ohlcv/bulk` 经代理必须 200）。破坏验证：删掉转发块 ⇒ 两条同时红（header 为空 / 401），逐字节还原后绿。
 >
 > **⑤ 错误码 / 限流**：随每条 endpoint 写进 `docs/openapi.yaml`（400/401/403/429/502/503）；
 > 限流沿用全局 `RateLimiter`（新端点不豁免，`/api/auth/status` 那三条豁免未动）。
