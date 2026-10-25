@@ -330,7 +330,9 @@ func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
 		ids = append(ids, batch[i].AlertID)
 	}
 
-	reason, accepted, rejected, err := s.post(events)
+	reason, acceptedIdx, rejectedIdx, err := s.post(events)
+	accepted := idsAtIndexes(batch, acceptedIdx)
+	rejected := idsAtIndexes(batch, rejectedIdx)
 	if err != nil {
 		s.markAttempts(ids, reason)
 		return
@@ -339,11 +341,19 @@ func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
 		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 		n, markErr := s.outbox.MarkAlertOutboxSent(ctx, accepted)
 		cancel()
-		if markErr != nil {
+		switch {
+		case markErr != nil:
 			// risk 已经收了，本地还 pending ⇒ 下一轮会重发同一批。risk 侧的
 			// 去重键保证不会双写，但这必须是 Error 日志：状态机与事实不一致。
 			s.logger.Error().Err(markErr).Int("accepted", len(accepted)).Int("marked", n).
 				Msg("risk events: delivered but outbox NOT marked sent (next relay will re-send)")
+		case n == 0:
+			// 没有 error 也一行没标上：键对不上（`alert_id` 与 `order_id` 曾被视为
+			// 同一个串）或行被别的进程删了。放任它就等于「每轮重发同一条」写得和
+			// 「已发出」一样安静。
+			s.logger.Error().Int("accepted", len(accepted)).
+				Str("alert_ids", strings.Join(accepted, ",")).
+				Msg("risk events: delivered but marked no outbox rows (next relay will re-send)")
 		}
 	}
 	if len(rejected) > 0 {
@@ -351,8 +361,27 @@ func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
 	}
 }
 
-// post 发一次批量。返回 (失败原因, 被接受的 id, 被逐条拒绝的 id, error)。
-func (s *RiskEventSink) post(events []riskEvent) (string, []string, []string, error) {
+// idsAtIndexes 把 risk 报回来的批次内下标折成本仓 outbox 的主键。
+//
+// 刻意不取 `riskEvent.OrderID`：那是 risk 侧的去重坐标，今天恰好与 `alert_id`
+// 同值，但它是**另一个概念** —— 混用会让「标不上行」变成静默的永久重发
+// （判据见 `TestRiskEventSink_MarksSentByOutboxKeyNotRiskOrderID`）。
+func idsAtIndexes(batch []storage.AlertOutboxRecord, idx []int) []string {
+	if len(idx) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(idx))
+	for _, i := range idx {
+		if i >= 0 && i < len(batch) {
+			out = append(out, batch[i].AlertID)
+		}
+	}
+	return out
+}
+
+// post 发一次批量。返回 (失败原因, 被接受的批次内下标, 被逐条拒绝的下标, error)。
+// 下标交给调用方去折主键，本函数不认识 outbox 的键。
+func (s *RiskEventSink) post(events []riskEvent) (string, []int, []int, error) {
 	body, err := json.Marshal(riskEventsRequest{Events: events})
 	if err != nil {
 		s.logger.Error().Err(err).Int("count", len(events)).Msg("risk events: marshal envelope failed")
@@ -398,9 +427,9 @@ func (s *RiskEventSink) post(events []riskEvent) (string, []string, []string, er
 		}
 		evt.Int("sent", len(events)).Int("accepted", out.Accepted).Int("duplicates", out.Duplicates).
 			Msg("risk events: delivered")
-		ids := make([]string, 0, len(events))
+		ids := make([]int, len(events))
 		for i := range events {
-			ids = append(ids, events[i].OrderID)
+			ids[i] = i
 		}
 		return "", ids, nil, nil
 
@@ -413,17 +442,17 @@ func (s *RiskEventSink) post(events []riskEvent) (string, []string, []string, er
 				Int("index", f.Index).
 				Str("code", f.Code).
 				Str("message", f.Message).
-				Str("alert_id", idAtIndex(events, f.Index)).
+				Str("order_id", idAtIndex(events, f.Index)).
 				Msg("risk events: item rejected by risk service")
 		}
-		accepted := make([]string, 0, len(events))
-		rejected := make([]string, 0, len(out.Failed))
+		accepted := make([]int, 0, len(events))
+		rejected := make([]int, 0, len(out.Failed))
 		for i := range events {
 			if _, bad := failedIdx[i]; bad {
-				rejected = append(rejected, events[i].OrderID)
+				rejected = append(rejected, i)
 				continue
 			}
-			accepted = append(accepted, events[i].OrderID)
+			accepted = append(accepted, i)
 		}
 		s.logger.Warn().Int("sent", len(events)).Int("accepted", out.Accepted).
 			Int("duplicates", out.Duplicates).Int("failed", len(out.Failed)).Str("code", out.Code).
@@ -452,7 +481,8 @@ func (s *RiskEventSink) markAttempts(ids []string, reason string) {
 	}
 }
 
-// idAtIndex 把 207 的失败下标折回告警号，便于运维对着日志找那条告警。
+// idAtIndex 把 207 的失败下标折回 risk 侧的 order_id，便于运维对着日志找那条告警
+// （今天 `order_id` 与 outbox 主键 `alert_id` 同值，都取 `Alert.ID`）。
 func idAtIndex(events []riskEvent, index int) string {
 	if index < 0 || index >= len(events) {
 		return ""

@@ -41,14 +41,15 @@ import (
 // ─── outbox 替身 ────────────────────────────────────────────────────────
 
 type fakeAlertOutbox struct {
-	mu      sync.Mutex
-	byID    map[string]*storage.AlertOutboxRecord
-	order   []string
-	saveErr error
-	listErr error
-	markErr error
-	bumpErr error
-	saves   int
+	mu              sync.Mutex
+	byID            map[string]*storage.AlertOutboxRecord
+	order           []string
+	saveErr         error
+	listErr         error
+	markErr         error
+	bumpErr         error
+	markReturnsZero bool // 模拟「主键对不上 / 行已被别的进程删掉」：n=0 且无 error
+	saves           int
 }
 
 func newFakeAlertOutbox() *fakeAlertOutbox {
@@ -107,6 +108,9 @@ func (f *fakeAlertOutbox) MarkAlertOutboxSent(_ context.Context, ids []string) (
 	defer f.mu.Unlock()
 	if f.markErr != nil {
 		return 0, f.markErr
+	}
+	if f.markReturnsZero {
+		return 0, nil // 与「传进去的键一行都不存在」同形：没有 error，只有 n=0
 	}
 	n := 0
 	for _, id := range ids {
@@ -625,6 +629,46 @@ func TestRiskEventSink_MarkSentFailureIsLoud(t *testing.T) {
 		return strings.Contains(text, "outbox NOT marked sent") && strings.Contains(text, "re-send")
 	}, 2*time.Second, 10*time.Millisecond)
 	assert.Equal(t, storage.AlertOutboxStatusPending, outbox.mustRow(t, "ALR-markfail-1").Status)
+}
+
+func TestRiskEventSink_MarksSentByOutboxKeyNotRiskOrderID(t *testing.T) {
+	// `alert_id`（outbox 主键）与 `order_id`（risk 的去重坐标）今天是同一个字符串
+	// （都取 `Alert.ID`），所以「哪几条被接受了」按哪个回写看不见区别。但它们是两个
+	// 概念：按 order_id 回写，一旦两者分开就标到 0 行 —— 于是这一批每轮重发，
+	// 而日志已经在说「delivered」。这条用例把两者写成不同的串，把那个坑钉住。
+	srv, ts := newQT42Server(t, func(int) (int, string) { return http.StatusOK, `{"accepted":1,"duplicates":0}` })
+	outbox := newFakeAlertOutbox()
+	mustSaveQT42(t, outbox, &storage.AlertOutboxRecord{
+		AlertID: "OBX-key-1", RunID: RiskAlertProducerScope, OrderID: "RISK-order-1", EventSeq: 0,
+		Symbol: "600000.SH", Reason: "drawdown", EventTs: qt42Stamp,
+		Payload: []byte(`{"id":"OBX-key-1","rule":"drawdown","severity":"critical","message":"dd"}`),
+	})
+	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(io.Discard))
+
+	sink.relay()
+	_ = srv.waitBody(t)
+
+	assert.Equal(t, storage.AlertOutboxStatusSent, outbox.mustRow(t, "OBX-key-1").Status,
+		"回写必须按 outbox 主键；按 order_id 会标不到行 ⇒ 同一批永久重发")
+}
+
+func TestRiskEventSink_DeliveredButZeroRowsMarkedIsLoud(t *testing.T) {
+	// 主键对不上、或行被别的进程删掉时，`MarkAlertOutboxSent` 返回 (0, nil)：
+	// 没有 error。放任不管的话「已发出」与「每轮重发同一条」在日志里长得一模一样。
+	srv, ts := newQT42Server(t, func(int) (int, string) { return http.StatusOK, `{"accepted":1,"duplicates":0}` })
+	outbox := newFakeAlertOutbox()
+	outbox.markReturnsZero = true
+	buf := &lockedBuffer{}
+	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(buf))
+	mustSaveQT42(t, outbox, qt42SeedRow("ALR-zeromark-1"))
+
+	sink.relay()
+	_ = srv.waitBody(t)
+
+	require.Eventually(t, func() bool {
+		text := buf.String()
+		return strings.Contains(text, "marked no outbox rows") && strings.Contains(text, "ALR-zeromark-1")
+	}, 2*time.Second, 10*time.Millisecond, "n=0 且无 error 也要响亮：否则重发是静默的")
 }
 
 // ─── 鉴权与构造期校验 ───────────────────────────────────────────────────
