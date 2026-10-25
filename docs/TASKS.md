@@ -1062,6 +1062,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **测试**：`cmd/analysis/wiring/risk_events_test.go` 17 条（含 2 条子用例）——wire 形状逐键断言（信封仅 `events` 一键；条目键集逐字对齐 risk `internal/event.Event`，无 symbol 的告警**不编出空键**）、`Close` 排水未攒满的批次、到 `flush_interval` 自刷、背压下 `Send` 不阻塞、207 点名、5xx 响亮且不把通道打死、`duplicates` 转 Warn、属性含 NaN ⇒ 不可编码即**不发残载荷**、Bearer 头两条（配置了才带）、`batch_size` 超 risk 侧 1 MiB 请求体上限即拒、装配开关四条（关 ⇒ 不接、`Fire` 的告警到得了 risk、**不回落到 analysis 自己的 `risk_service.url`**、坏配置 fail-fast）。
 >
 > **破坏验证**：`verdict` 从 `alert` 改成 `"risk_alert"` + `Authorization` 头改名 ⇒ 三条测试当场红（`go test` **EXIT=1**，diff 正是 `-alert / +risk_alert` 与期望 `Bearer svc-token-abc` 实得空串）；逐字节还原后 `risk_events.go` 的 sha256 与改前**完全相同**（`95f55721…`）且转绿。**risk 仓侧账**见 `tellurion-risk:docs/TASKS.md` QT-42 X3c，同批订正 F3（QT-66 已落 ⇒ `risk_rules_hash` 生产者不再恒空串）。
+>
+> **干净 checkout 复核（`git worktree add --detach` @ 本单 commit，2026-10-25）**：`gofmt -l .` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（73 个 ok，零 FAIL；本机 `CGO_ENABLED=0` 无 `-race`，按仓例如实登记）。工作区里同期有别的单的未提交改动（`cmd/analysis/wiring/risk_rules.go`、`pkg/marketdata/http_provider.go` 的服务间 token 转发 + yaml 的 `resolve_*` 两行），**未进本单 commit**：yaml 用 `git hash-object` + `update-index` 只提交本单的两块（HEAD + 本单 = 纯新增，零删除），四条证据取自上面那个只含本单的 detached worktree，不是混着别人 WIP 的工作区。
+>
+> **⑨ 关停预算（已知限制，本单不擅改）**：`AlertManager.Close()` 在优雅关停序列里（`pkg/bootstrap/server.go:249`），本 sink 的 `Close()` 会把队列里剩余的告警发完 —— 这是刻意的（停机不许吞告警）。但若 risk 不可达，最坏情况是每批各等满 `events_timeout`（默认 10s × 批数），可能超过 `GracefulShutdown` 的 30s 父预算。给它加「关停期只试一轮 / 到点即弃」的界是另一条单，与上面「重发 / outbox」同批处置。
 
 ---
 
