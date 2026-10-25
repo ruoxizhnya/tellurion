@@ -291,6 +291,7 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 ## 第 5 节 · 待裁决清单（2026-10-25 二次订正：③④ 改判，新增 ⑰⑱⑲⑳）
 
 > **编号说明**：①~⑬ 是本表原编号；⑭ / ⑮ / ⑯ 在 [裁决记录](cross-repo-decision-record-2026-10-25.md)（**⑯ = service token**，即本表 ⑬ 那条的裁决记录编号）。新增项从 **⑰** 起，避免与裁决记录撞号。
+> **逐条建议见 [终版建议（c）](pending-decisions-recommendations-2026-10-25c.md)**：含全量 22 条总表、对第二轮文档 ①/②/⑧/⑰ 的订正，以及台账外新项 ㉑（g3 worktree）/ ㉒（broker R9/R10）。
 
 | 事项 | 卡住哪个单 | 状态 / 需要你给什么 |
 |---|---|---|
@@ -306,7 +307,7 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 | **⑩ AI 生成物载体形态**（12:30 版漏列） | **QT-32** 后续 | agent QT-32-A ⑦①：三选一**无默认值** —— `carrier=wasm` + 12 个 host 函数 ABI（对齐 QT-26/30/31 的 `wasmSignalProvider`）/ `carrier=so`（Windows 不支持）/ 维持 ADR-024 的「只审阅不执行」。**需你拍** |
 | **⑪ R3 的 RunSpec 形状** | **H6**（analytics） | 台账未落项 ②：「完整 RunSpec 的装配属执行侧（**R3 未裁**）」⇒ **需你裁 R3**，否则 `base_run_spec` 只有 `run_id` 这半永远填不上 |
 | **⑫ promote 审批人从哪来**（**原「取 JWT claims 的可行性」已订正**） | **H8**（strategy）+ **core 的「谁来调 promote」** | **裁决 ⑭ 的落地前提被实测推翻**：strategy 仓**零鉴权**（`JWT_SECRET\|Bearer \|Authorization\|RequireRole\|Roles\b` 全仓 0 命中；无 auth/role/guard/middleware 文件；`go.mod` **无 kit** ⇒ kit auth 没进这个仓；12 条路由全裸），且 core 全仓 `grep "/promote"` = **0 命中** ⇒ **今天既没有鉴权、也没有调用方**。**需你裁三个面之一**：**面 A** 给 strategy 引入 kit auth（= 给它第一套鉴权，会把 12 条路由全裸的问题一次打开，且要新 pin kit）；**面 B** core 转发审批人（仍是 caller 自报形态，且 core 今天没有调用方）；**面 C** 独立管理面（**与「不造第二套鉴权」冲突**，除非复用面 A）。**另需你答**：promote 端点该**谁来调**（core 的 QT-32/QT-66 闭环在等它） |
-| **⑬ ⛔ service token 在 httpadapter 上必然 401**（**18:45 实测新发现的真缺陷**） | **H3**（core 调 risk）+ 裁-17 整条服务间链路 | **需你裁三个方向之一**：**方向 1** 放宽 `httpadapter` 的 subject 校验（= 发 kit `v0.1.4` + risk/data/analytics **三仓同步升 pin**，今天都钉 `v0.1.1`）；**方向 2** 让 `IssueServiceToken` 强制数字 subject（= 与「service 主体要可读」冲突，且与 core `pkg/auth` 的 `RoleService` 主体口径分叉）；**方向 3** 在 `httpadapter` 里按 `claims.Role` 分流（= 与方向 1 同样要发版 + 三仓升 pin）。**无论哪个方向，kit 的 `service_token_test.go` 必须补一条「签出来的 token 能被 `httpadapter.Authenticate` 接受」的用例。** 详见 [裁决记录 ⑯](cross-repo-decision-record-2026-10-25.md) |
+| **⑬ ⛔ service token 在 httpadapter 上必然 401**（**18:45 实测新发现的真缺陷**） | **H3**（core 调 risk）+ 裁-17 整条服务间链路 | **代码已修（方向 3：按 role 分流，只豁免 service 角色）**，见 [第二轮建议 §0](pending-decisions-recommendations-2026-10-25b.md)。**但未验证、未发版**：本机无 Go 工具链 ⇒ `go build/vet/test` 一条未跑；**未打 `v0.1.4`、三仓 pin 仍钉 `v0.1.1`** ⇒ **「service token 仍 401」这个线上事实未变**。**需你**：在有 Go 的环境跑门禁 → 打 tag → 三仓升 pin |
 | **⑰ ⛔ H4 物理搬迁被 core 剩余写者挡住**（**二次订正新发现**） | **H4** | 需你定：core 的 `market.index_daily` 直写（`pkg/storage/index_daily.go:31`）与 11 条同步腿的 `public.*` 写，是**迁到 data** 还是**明确保留 core 写**；要不要立项。本方案**不排期**物理搬迁 |
 | **⑱ X0 生产者的契约**（**二次订正新发现**） | **H5** / 后续 X0 单 | orchestration 无 artifact 写入端点、core worker 不回传三 hash。需你定：写入端点归 orchestration（谁调 / 写者身份 / 幂等），还是 worker 直写库（与「零 import core」「不双写」冲突） |
 | **⑲ analytics R1 读面语义**（台账在册，未进待裁表） | **H6** | 读面按队列态放行还是按结论态放行（直接影响 pending/running 与 K9 `failed` 的 404/409）；改在 core |

@@ -261,7 +261,25 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 
 **落地位置**：kit 仓（发版）+ risk / data / analytics 三仓（升 pin）。**本轮不安排 agent 施工，等裁决。**
 
-> **⚠️ 2026-10-25 二次实测（并发 WIP，不是裁决已落）**：kit 工作区出现**未提交**改动 `auth/claims.go` / `auth/httpadapter/httpadapter.go` / `auth/httpadapter/httpadapter_test.go` / `auth/middleware.go`（`git diff --stat` = 4 文件 / +65 行、0 删除），做法是 **方向 3（按 `claims.Role == "service"` 分流，绕过 `UserIDInt64`）**；**尚未提交、未发版（无 `v0.1.4`）、risk / data / analytics 的 pin 未动**。⇒ 本裁决仍记 **待裁**；该 WIP 在裁决落定前**不构成「已选方向 3」**，也不改变「三仓仍钉 `v0.1.1`」的现状。
+> **✅ 2026-10-25 已按「方向 3（按 role 分流）」动手修了代码，但未发版**
+>
+> **改动（kit 仓 4 个文件）**：`auth/claims.go` 新增 `const ServiceRole = "service"`（注释写明**不是角色枚举**，守住 KT-09 ③-④）；`auth/httpadapter/httpadapter.go` 的 `authenticate()` 在 `Kind != access` 之后、`UserIDInt64()` 之前加 `if claims.Role == auth.ServiceRole { return claims, "", nil }`；`auth/middleware.go`（gin 变体）同样分支，**不设 `CtxUserID`**（不伪造 user id，审计侧看到"无用户"而非用户 0）；`auth/httpadapter/httpadapter_test.go` 新增 `TestAuthenticate_ServiceTokenFromIssueServiceToken`（用真 `IssueServiceToken` 签的 token 喂进 `Authenticate`，并断言非 service 角色 + 非数字 subject **仍 401**）。
+>
+> **为什么选方向 3**：它最小 —— 只豁免 service 角色，用户 token 的 int64 校验**原样保留**（方向 1「放宽校验」会让非 service 的非数字 subject 也通过，方向 2「强制数字」与"service 主体要可读"及 core 的 `RoleService` 口径冲突）。实现**逐行对照 core 已上线并有钉子测试的同一逻辑**（`tellurion:pkg/auth/middleware.go:68-81` + `middleware_test.go:164`）。
+>
+> **⚠️ 未验证（如实登记，不写成已验证）**：**本机没有 Go 工具链**（`go` / `gofmt` 不在 PATH，全盘无 `go.exe`；Docker daemon 亦不可达）⇒ `go build` / `go vet` / `go test` **一条都没跑**。因此**没有打 tag、没有升三个消费仓的 pin** —— 不把未经编译的代码发成版本。
+>
+> **收尾清单（需在有 Go 的环境执行）**：
+> ```
+> cd tellurion-kit && gofmt -l . && go build ./... && go vet ./... && go test ./auth/... -count=1
+> git tag -a v0.1.4 -m "fix(auth): service token 的 subject 不再被 int64 校验拒掉"
+> # 三个消费仓各一次：go get github.com/ruoxizhnya/tellurion-kit@v0.1.4 && go mod tidy
+> ```
+> 完整建议见 [`pending-decisions-recommendations-2026-10-25b.md`](pending-decisions-recommendations-2026-10-25b.md) §0。
+
+> **⚠️ 2026-10-25 二次实测（上一条「并发 WIP」注记的归属订正）**：kit 工作区的那 4 个未提交文件（`auth/claims.go` / `auth/httpadapter/httpadapter.go` / `auth/httpadapter/httpadapter_test.go` / `auth/middleware.go`，`git diff --stat` = 4 文件 / +65 行、0 删除）**就是上面「方向 3」这一笔改动本身**，不是第三方的 WIP。
+> ⇒ 现状口径统一为：**代码已改、未验证（本机无 Go）、未提交、未发版（无 `v0.1.4`）、三个消费仓仍钉 `v0.1.1`**。
+> ⇒ 待你处理的只剩三步：**跑门禁 → 提交 + 打 `v0.1.4` → 三仓升 pin**。**在此之前「service token 仍然 401」这个线上事实没有改变**（kit `v0.1.1` 未动）。
 
 ---
 
