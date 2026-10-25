@@ -75,7 +75,7 @@
   数据层（行情 / 财务 / 产业链 / 研究洞察）
 - **状态**: 底座核心功能已完成；**执行载体已定型为表达式**（ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`））——
   LLM 生成的 Go 代码只是**可审阅 artifact**，不加载、不执行
-- **入口**: `cmd/analysis/main.go`（:8085 主 API）, `cmd/data/main.go`（:8081 数据服务）, `cmd/dualrun/`（双跑对账）
+- **入口**: `cmd/analysis/main.go`（:8085 主 API）, `cmd/data/main.go`（:8081 数据服务）, `cmd/worker/`（编排 worker：领 tellurion-orchestration 的 run，无监听）, `cmd/dualrun/`（双跑对账）
   —— 前端入口 `web/src/main.ts` 已随前端拆到 `tellurion-ui` 仓，本仓没有它
   - `cmd/ai` (AI 服务 :8086) —— **2026-10-09 起 AI 层整体迁往 `tellurion-agent` 仓**（AI 拆仓，ADR-027 §5 第 8 步前置切片）：`pkg/ai` + `CopilotService` + 四族 AI handler（copilot/pipeline/explore/tools）现在住在 agent 仓；本仓的 analysis-service 对这四族路由做纯反代（`handlers_ai_proxy.go`），前端与 openapi 契约不变。依赖方向单向 agent→core（repoguard 钉住）
 - **构建**: `go build ./...`（本仓）。前端构建（`npm run build`）在 `tellurion-ui` 仓
@@ -206,6 +206,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 ├── cmd/
 │   ├── analysis/                 # 主 HTTP 服务 (:8085)：API + 内嵌前端静态资源 + AI 四族路由纯反代
 │   ├── data/                     # 数据服务 (:8081)：同步 / connector / ETL
+│   ├── worker/                   # 编排 worker：用 core 引擎领 tellurion-orchestration 的 run（QT-44 core 腿）
 │   └── dualrun/                  # K15 双跑对账 = 引擎对齐门禁（2026-10-20 裁决**留 core**，见 repo-inventory §3）
 ├── pkg/
 │   ├── api/                      # HTTP 层（gin 路由与中间件）

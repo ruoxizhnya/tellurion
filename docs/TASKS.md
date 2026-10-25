@@ -1053,6 +1053,20 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
 | QT-45 | X6 交易通道网关（XTPTrader / MockTrader 两实现） | `tellurion-broker:docs/TASKS.md` |
 
+> **QT-44 的 core 腿（「引擎当 worker」装配，H5 跨仓）✅（2026-10-25）**：编排仓的 worker 打活 HTTP 面落地的同批，本仓补上「谁去领、谁来跑」。新增 `cmd/worker`（可执行体）+ `internal/orchestrationworker`（HTTP 客户端 / run_spec 解析 / 执行器 / 循环）。
+>
+> **边界**：本仓**不 import orchestration 的代码**，只按它的 `docs/api-schema.md` §1「算力」走 HTTP；orchestration 也不 import core。worker 领取到的 `run_spec` 有两种形状：完整 `BacktestRequest` 直接执行；analytics sensitivity 的 `{"run_id": …}` 锚点则由 `ParseBaseRun` 从本仓 `backtest_jobs` 行恢复基础请求，再用 `strategy_params` 等字段覆盖。**无论哪种，`RunID` 一律改写成本次编排 run 的 id**——否则结果、provenance 与 `GET /api/backtest/{id}` 对不上，analytics 按 run_id 读每个子结果会 404。
+>
+> **执行与落库**：`Executor` 经 `contracts.EngineRunner` 跑（生产装配 = `contracts.EngineRegistry` + go 引擎），成功结果由 `JobStoreSink` 写回 `backtest_jobs`（不存在则建行、存在则更新，重跑不撞主键）；`result_uri` = `backtest:<id>`（编排侧只存不解释）。引擎错误 / 未知状态 / 落库失败一律折成 `failed`，**不伪装成 completed**。
+>
+> **循环**：注册 → 周期心跳 → 领取 → 执行（期间续租并轮询 `cancel_requested`）→ 上报。租约丢失（`ErrLeaseLost`）**丢弃本次结论**、不写终态（由 `ReapExpired` 收回重派）；取消请求到达则中止执行并 `cancel-ack`；退出时尽力 `drain`。worker id 默认 `hostname-pid-启动秒`——drain 过的 id 不会复活，别复用。
+>
+> **测试**：`internal/orchestrationworker/worker_test.go` 17 个顶层用例（锚点 / 完整 spec / `RunID` 对齐 / 保留键解析 fail-closed / 执行器四种失败 / `invalid` 不是 failed / sink 建行 + 更新 / 循环领取上报 / 引擎失败上报 / claim 即取消 / 执行中取消 / 租约丢失不写结论 / 空队列 / wire code 映射）；`wire_e2e_test.go` 在 `ORCHESTRATION_TEST_DSN` + `ORCHESTRATION_REPO` 下起**真 orchestration 进程 + 真 PG**，用替身引擎跑完一个 batch 父作业并断言父汇总 `completed`（本机实测 2.38s 通过）。
+>
+> **破坏验证（两条腿，改坏 → 红 → 逐字节还原 → 绿）**：① `spec.go` 的完整 spec 分支把 `RunID: runID` 改成 `""` ⇒ `TestAnchorResolver_FullSpecAndRunIDAlignment` 红（`run id = "", want the orchestration run id`）；还原后 sha256 `b4c2425b…` 一致。② `loop.go` 的 `case leaseLost.Load():` 改成 `case false && leaseLost.Load():` ⇒ `TestLoop_Step_LeaseLostDropsOutcome` 红（`outcome written after lease loss: [{… status:failed … errMsg:context canceled}]`）；还原后 sha256 `d712307a…` 一致。
+>
+> **未落（如实）**：① 锚点 spec 只能恢复 `backtest_jobs` 里有的字段——`fill_timing` / `seed` / `signals` 在旧异步行里从未落过（F2 / R3），worker 只能按引擎默认口径解释；② analysis 的 `DataAdapter`（多源回退）/ 市场路由 / risk rules 取数口未搬进 worker（引擎 + store + 风控已注入；缺 `AttachRiskRulesFromConfig` 会让 provenance 的 `risk_rules_hash` 为未配置）；③ 尚未把 core 的三 hash 回传 orchestration 的 `run_artifacts`（X0 生产者仍 🔶）；④ 鉴权按裁-15 缓做（worker 身份仍只是一个 id）。**没有用真引擎 + data-service 跑过端到端**（本机无取数链路），wire E2E 用的是替身引擎。
+>
 > **QT-40 X1a 的 core 腿 ✅（2026-10-25，`go build/vet/test ./...` 全绿）**：contracts **`v0.6.0`**（2026-10-24 发版、远端 tag 已推）新增 `dataprotocol/`（`UnifiedDataPoint` 七字段含 `VisibleAt` + `ToJSON` / `DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465）。本仓 `require v0.6.0`；`pkg/data/source/unified.go` 的本地类型**改别名**（读墙钟的 `NewUnifiedDataPoint` 留 core——契约刻意不读时钟，ADR-0004；`Deduplicate` / `DeduplicateWithCount` 这两个切片助手也留 core）；`pkg/storage/bulk_insert.go:17` 那份「为避开 import 环」的存储副本同步改别名，`pkg/data/source/etl.go` 的身份投影 `toStoragePoints` 删除。守卫：`pkg/data/source/unified_contract_test.go` / `pkg/storage/bulk_insert_projection_test.go`（类型必须 == 契约类型；破坏验证：改回本地 struct ⇒ 红，逐字节还原 ⇒ 绿）。数据仓侧见 `tellurion-data:docs/TASKS.md` X1a（✅）。**常量腿已收编（2026-10-25）**：`pkg/data/source/adapter.go` 的 15 个 `DataType*` 改为 `dataprotocol.DataType*` 别名（导出名不变、调用点零改；契约改值时本包取值随编译期变化），包内字面量零残留；守卫 `TestSourceDataTypeConstantsMatchContract`（破坏验证：把 `DataTypeOHLCDaily` 改成本地错误字面量 ⇒ 红，逐字节还原（`sha256 3d9ea025…`）⇒ 绿）；`internal/repoguard` 的 `adapter.go` 直连物理表白名单条目随之删除（棘轮只减不增）。`go build/vet/test ./...` 全绿。
 
 > **QT-42 X3c 的 core 腿（告警生产侧接线）✅（2026-10-25，二批改形态）**：risk 的 `GET /api/risk/monitor/alerts` 与 `/monitor/evaluate` **只读 `risk.risk_events`**、且只投影 `verdict="alert"` 的行，而这类事件此前**零生产者** ⇒ 两个端点恒返回空集（risk 仓 `docs/api-schema.md` §「生产侧接线未落」自证登记）。新增 [cmd/analysis/wiring/risk_events.go](../cmd/analysis/wiring/risk_events.go)：`RiskEventSink` 实现 `alert.Channel`，把 `pkg/alert` 六个检测器的告警**与经 `AlertManager.Fire` 进来的对账 / 双跑差异**先落成 `quant.alert_outbox` 的一行，再由后台 relay 按批 `POST /api/risk/events`（外层信封 `{"events":[…]}`——risk 对信封 `DisallowUnknownFields`，多余键即 400）。

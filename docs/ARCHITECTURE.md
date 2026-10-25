@@ -49,7 +49,10 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 | analysis-service | 8085 | `cmd/analysis` | API 网关 + 回测/batch/walkforward + 风控/执行（in-process，ODR-021 合并）+ 信号/证据/产业链只读门 |
 | data-service | 8081 | `cmd/data` | tushare 摄取、同步任务队列（sync jobs/SSE）、因子计算 |
 | ai-service | 8086 | agent 仓 | Hermes AI 实验员（L3 编排层，源码不在本仓） |
+| orchestration worker | 无监听 | `cmd/worker` | 用 core 引擎领 `tellurion-orchestration` 的 run（出站到 :8088）；结果落 `backtest_jobs`，三 hash 回传仍未落 |
 
+> **orchestration worker（2026-10-25，QT-44 core 腿）**：`cmd/worker` 不是常驻 HTTP 服务，也不在本仓 compose 的默认清单里；它按部署需要单独起（可多个副本）。它与 orchestration 只经 HTTP 交互，本仓不 import 对方的代码；`internal/orchestrationworker` 的 run_spec 解析 / 执行 / 上报循环见 `docs/TASKS.md` 的 QT-44 指针记录。
+>
 > **AI 拆仓（ADR-027，2026-10-09）**：`pkg/ai` + CopilotService + cmd/ai 物理
 > 迁入 `tellurion-agent`（独立 module，单向依赖 agent→core）。core 不许
 > import `pkg/ai`——`internal/repoguard/ai_boundary_test.go` 白名单护栏钉住。
