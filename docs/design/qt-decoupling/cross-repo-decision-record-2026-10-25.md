@@ -32,7 +32,7 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 | ⑬ | `producer_pending` 字段名 | **core 不引入**；它是 orchestration 侧自己的响应提示位 | orchestration：QT-44 的 X0 行 | ✅ 已裁；**提示位实现并入 §五 ⑱** |
 | ⑭ | promote 闸门的审批人身份 | **已被 §五 ⑫ 取代**：strategy 零鉴权、零调用方，原「取 JWT `sub`」没有承载体 | strategy / core | 🔁 被 §五 ⑫ 取代 |
 | ⑮ | QT-73「零语义五包」前提 | **已被 QT-73 落地实测订正**（`clock` 保留代码零引用；`logging`/`httpclient` 两条行为差异如实登记） | core：`docs/TASKS.md` QT-73 完成记录 | ✅ 已落 |
-| **⑯** | ⛔ **service token 在 httpadapter 上必然 401** | **已裁：方向 3 —— 按 `claims.Role == "service"` 分流，只豁免 service 角色**；kit 侧代码已改 + 端到端用例已写 | kit（`v0.1.4`）+ risk / data / analytics（升 pin） | 🔶 代码已改，**未验证 / 未发版 / 三仓仍钉 `v0.1.1`**（见 §五 ⑬） |
+| **⑯** | ⛔ **service token 在 httpadapter 上必然 401** | **已裁：方向 3 —— 按 `claims.Role == "service"` 分流，只豁免 service 角色** | kit（`v0.1.4`）+ risk / data / analytics（升 pin） | ✅ **已闭合（2026-10-25）**：`v0.1.4` 已发版（CI 全绿 + proxy 已确认），三仓 pin 已升且各自 main CI 绿；**端到端真进程腿与 token 配发仍未落**（见 §一 ⑯ 收尾段） |
 
 ---
 
@@ -282,6 +282,27 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 > ⇒ 现状口径统一为：**代码已改、未验证（本机无 Go）、未提交、未发版（无 `v0.1.4`）、三个消费仓仍钉 `v0.1.1`**。
 > ⇒ 待你处理的只剩三步：**跑门禁 → 提交 + 打 `v0.1.4` → 三仓升 pin**。**在此之前「service token 仍然 401」这个线上事实没有改变**（kit `v0.1.1` 未动）。
 
+> **✅ 2026-10-25 收尾完成 —— 上面两段的现状口径已被本段取代：`v0.1.4` 已发版、三仓 pin 已升。**
+> 三步的执行与取证（**证据全部来自 GitHub Actions 退出码，不是本机复跑**——本机仍无 Go 工具链，这是上面那条登记的环境事实，没变）：
+>
+> 1. **kit 侧**：PR `tellurion-kit#1` rebase 合并 → `main = 8077c36`，main 的 run `40235174365` 全步骤 success，其中
+>    `ok github.com/ruoxizhnya/tellurion-kit/auth 0.976s`、`ok …/auth/httpadapter 0.008s`（**新增的
+>    `TestAuthenticate_ServiceTokenFromIssueServiceToken` 就在后一条里**，即「签出的 token 能被 `Authenticate` 接受」这条缺过的用例已补上并跑绿）。
+>    annotated tag `v0.1.4` 已 push；`proxy.golang.org/…/@v/v0.1.4.info` 返回 `Version=v0.1.4 / Ref=refs/tags/v0.1.4 / Hash=8077c36c006bc497a65a65ad4f322f931b52e0ef`。
+>    发版三件套齐：`CHANGELOG.md` 的 `[v0.1.4]` 节（**该输入的处置记为破坏性**：原来 401 的 `role=service` 非数字 subject 现在放行）、README 兼容矩阵 `v0.1` 行、tag。
+> 2. **三消费仓升 pin**：risk PR #1（`6b6690f`）、data PR #1（`9f66ced`）、analytics PR #1（`e0a47d9`）各自 CI 全步骤 success 后 rebase 合并，
+>    **合并后 main 的 push run 同样 success**（risk `40236132772` / data `40236236884` / analytics `40236240650`）。
+>    三条 Build 日志各有一行 `go: downloading github.com/ruoxizhnya/tellurion-kit v0.1.4` —— 这是 `go.sum` 两行填对（取自 `sum.golang.org`）的正证据，填错当场红。
+>    `v0.1.4/go.mod` 的 hash 与 `v0.1.1` **逐字节相同** ⇒ 三个仓的依赖图未变，`go.sum` 只换两条 version-keyed 行。
+> 3. **文档订正随各仓同一笔提交**：risk / data / analytics 各自把「不升 kit / 仍钉 `v0.1.1`」的旧文案标为作废（data 的 ADR-0005、analytics 的 ADR-0004 各加追加节；**不改写原决策其余口径**），
+>    并写明**各自守卫用例证明的仍是策略表、不是生产链路**——用例用的还是数字 subject + `role=service`。
+>
+> **仍然为真的两个「未」**（别把这条闭合读成「服务间链路已通」）：
+> - `JWT_SECRET` 与调用方 `service` token 的**配发**属 core QT-71（部署清单腿），未落；
+> - **「core 真进程 → 服务真进程 → `sub=service:<repo>`」这条端到端腿仍未跑过**——今天的证据是「kit 的 `Authenticate` 接受该形状」+「三仓 CI 在 `v0.1.4` 下全绿」，不是进程间真调用。
+>
+> **core 自身不受这条影响**：core `go.mod` 仍 `require tellurion-kit v0.1.1`（QT-73 只切了五包，`auth` 不在其中）；core 的 `pkg/auth` 早就为 service token 开了 `RoleService` 特例，无需升 pin。
+
 ---
 
 ## 三、给各 agent 的三条通用纪律（本次裁决带来的）
@@ -326,6 +347,11 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 
 **该分支的物理处置（待执行）**：确认 7 笔结论已全部进 main 后，`git worktree remove` + 删 `task/g3-data` 分支。**本轮不执行**——它涉及删 worktree，属不可逆操作，等协调者确认。
 
+> **🔁 状态订正（2026-10-25 晚）：上面「待执行」已不成立 —— worktree 与分支都已被删除（非本轮授权）。**
+> 实测：`tellurion-g3-data` 目录不存在、`task/g3-data` 不在 `git branch`、`git worktree list` 只剩 main。
+> **但结论无损失**：7 笔 commit 对象经 `git cat-file -t` 逐个核验**仍返回 `commit`**（未 GC）；DBT-15/16/17/18 在 `docs/TASKS.md` **均已 ✅**。
+> ⇒ 只剩「追认删除」这一件事（可选：趁未 GC 打 `archive/g3-data` 指向 `17b62f3` 留档）。详见 [`pending-decisions-recommendations-2026-10-25c.md`](pending-decisions-recommendations-2026-10-25c.md) ㉑ 的状态订正。
+
 ### 四.2 core 工作区的并发 WIP（§6.3 结案）
 
 2026-10-25 11:00 实测 core 工作区有 11 项未提交改动（`cmd/analysis/{main,setup}.go`、`cmd/analysis/wiring/risk_events*.go`、`config/analysis-service.yaml`、`docs/TASKS.md`、`pkg/storage/{integration_test,postgres}.go` + 3 个 `pkg/storage/alert_outbox*.go` 新文件）—— 那是 **QT-42 X3c 二批「告警回传改成持久 outbox」**的施工。
@@ -352,7 +378,7 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 | ⑩ | AI 生成物载体 | **默认 `carrier="dsl"`**；仅 L3 才 `wasm`；**`carrier="so"` 删除**；`artifact_hash` 用 `StrategyVersionInput{Carrier:"dsl"}` 产出 | agent：QT-32-A 后续单 + strategy 资产服务 | ⬜ 待施工 |
 | ⑪ | R3 的 RunSpec 形状 | **终态 = 执行侧装配**（core `cmd/worker` 用 `run_id` 锚点从 `backtest_jobs` 回源）；analytics 的 `{run_id}` 是终态，不是 interim | core：`internal/orchestrationworker/spec.go`；analytics：QT-43 未落项关闭 | ✅ 已裁（无需改代码） |
 | ⑫ | promote 审批人从哪来 | **面 B1**：core 作唯一对外入口（新增 strategy client + 转发路由，`route_policy` = trader/admin；从 JWT `sub` 写受信 `X-Actor`，用 service token 调 strategy）；strategy **只对 `/promote` + 两条 `/internal/*`** 引 kit service-token 校验；`X-Actor` 缺失 = 400 `actor_required`；端口仅集群内/回环 | core（QT-32）+ strategy（QT-32 闸门腿） | ⬜ 待施工（取代 §一 ⑭） |
-| ⑬ | service token 401 | **方向 3**：`claims.Role == "service"` 分流，只豁免 service 角色；kit 代码已改 + 端到端用例已写；**必须先在 Go 环境跑门禁 → 提交 → 发 `v0.1.4` → risk/data/analytics 升 pin** | kit（`v0.1.4`）+ risk / data / analytics | 🔶 代码已改、**未验证/未提交/未发版**（= §一 ⑯） |
+| ⑬ | service token 401 | **方向 3**：`claims.Role == "service"` 分流，只豁免 service 角色；**收尾四步已全部执行**：门禁（CI）→ 提交 → `v0.1.4` 三件套 → risk/data/analytics 升 pin | kit（`v0.1.4`）+ risk / data / analytics | ✅ **已闭合（2026-10-25）**：kit PR #1 rebase 合并（`main = 8077c36`）+ main run `40235174365` 全步骤绿 + tag `v0.1.4` 已 push 且 proxy 已确认；三仓 PR 各自查全步骤绿后合并、合并后 main push run 也绿。**仍未落**：QT-71 的 token 配发腿 + 真进程端到端腿 |
 | ⑰ | `index_daily` 归属 + 第二写者 | **owner = core**（Migration 057 是唯一 DDL）；**data 撤认领**：删 `internal/schema/market.go:301` 的建表/索引、`TableNames()` 条目、`visible_at.go:54` 的 C 集条目、`db-schema.md:25/151` 的认领，并加守卫；A 集物理 `SET SCHEMA` 等 3 张 core 停写后再做 | core：Migration 057 注释；data：schema + 文档 | ⬜ 待施工（两套 DDL 是**先建表者定形**，优先于搬迁） |
 | ⑱ | X0 生产者契约 | **orchestration 新增 artifact 写端点**（service 角色），**worker 调它、不直写库**；幂等沿用 `SaveArtifact`；**前置 = orchestration 先接 R5 鉴权**（kit + policy） | orchestration：QT-44 的 X0 行；core：`cmd/worker` / `internal/orchestrationworker` | ⬜ 待施工 |
 | ⑲ | R1 读面语义 | **结论态放行**：404 只给「不存在」；queued/running → 409 `run_result_incomplete`；failed → 409 `run_result_failed`；completed+invalid 维持 200 + `status="invalid"`；Migration 059 已丢失的历史 invalid 信息登记为不可恢复 | core：`cmd/analysis/handlers_backtest.go:191` + openapi + ui 错误处理 | ⬜ 待施工 |
@@ -365,8 +391,8 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 - **① 的分支不在 origin**：`task/qt51-execution-port` 本地 `1 ahead / 9 behind main`，worktree 在 `C:/Users/ruoxi/Workspace/tellurion-qt51`。合入前必须 rebase 并在**有 Go 的环境**重跑全量门禁；分支自带的等价性报告是旧基线产物，不能当合并后的证据。
 - **⑰ 不是文档问题**：core `pkg/storage/postgres.go:1180` 与 data `internal/schema/market.go:301` 的 `index_daily` DDL 形状不同（`id`/`UNIQUE`/`VARCHAR(64)`/`CHECK` vs 复合 PK/`VARCHAR(32)`/`volume DEFAULT 0`），两个 `CREATE IF NOT EXISTS` 谁先跑谁定形。**data 必须删掉自己那份**。
 - **⑲ 是既有端点的状态码语义变更**：openapi / UI 的 `/report` 错误处理 / e2e 要同笔改；analytics 的 wire 码已经就绪。
-- **⑫ 的服务 token 必须有验证方**：strategy 今天没有 kit，也没有任何鉴权。若只加 `X-Actor` 不加校验，token 是装饰；所以三端点必须接 kit `auth/httpadapter`，其余 9 条靠端口隔离，并在 `api-schema.md` 写明。
-- **⑬ 在发版前，线上事实仍是 `service` token 401**：不要在任何台账写「服务间链路已通」。
+- **⑫ 的服务 token 必须有验证方**：strategy 今天没有 kit，也没有任何鉴权。若只加 `X-Actor` 不加校验，token 是装饰；所以三端点必须接 kit `auth/httpadapter`，其余 9 条靠端口隔离，并在 `api-schema.md` 写明。**前置已解除（2026-10-25）**：`auth/httpadapter` 在 kit `v0.1.4` 里能接受 `sub=service:<repo>`，strategy 引 kit 时直接 pin `v0.1.4`，不必再等 subject 缺口。
+- **⑬ 已闭合（2026-10-25），但「链路已通」这句话仍然不许写**：`v0.1.4` 改的是**机制能否解析这种 token**，不是**生产上有没有这种 token**。`JWT_SECRET` / 调用方 token 的配发属 core QT-71（未落），真进程端到端腿一条都没跑过——三仓守卫用例用的仍是数字 subject + `role=service`。
 
 ---
 

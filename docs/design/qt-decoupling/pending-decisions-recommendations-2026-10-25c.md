@@ -40,6 +40,15 @@ verified-by: 22 条决策项逐条实测（12 仓源码 + 分支/worktree + 5 �
 - 它做的是：`pkg/backtest/execution/port.go` 定义 `ExecutionPort`；`cmd/analysis/wiring/live_trader_port.go` 把 `live.LiveTrader` 适配成 port；`internal/repoguard/backtest_live_isolation_test.go` 钉住 `pkg/backtest` 不 import `pkg/live`；另带设计文档与等价性报告。
 - 所以 b 的「不造 port、删 shim、把 LiveBridge 移出去」写在分支之前，**前提已变**。→ 见 ①。
 
+> **🔁 2026-10-25 状态订正（本文件写完之后 worktree 已被清掉，分支仍在）**
+>
+> 实测 `git worktree list` 现在**只剩 `C:/Users/ruoxi/Workspace/tellurion [main]`**：
+> - `tellurion-qt51` 目录**已不存在**，但**分支 `task/qt51-execution-port` 仍在**（tip `7c89aae`），实测 **1 ahead / 12 behind main**（本文件 §0.3 写的「9 behind」是更早的快照）。
+> - `tellurion-g3-data` 目录**已不存在**，分支 `task/g3-data` **也已删除** —— 即 ㉑ 里「待你授权后删」这件事**已经发生了**，见 ㉑ 的订正。
+> - `b63-verify` 临时 worktree 同样已不在列表里。
+>
+> ⇒ **① 的结论不变**（取分支的拆 port 形态），只是「在 worktree 里 rebase」要改成「**从分支 `task/qt51-execution-port` 拉一个新 worktree**」——目录没了但分支与那 22 个文件都还在。
+
 ---
 
 ## §1 总表（需要你拍的 16 条 + 已裁待落地 6 条）
@@ -243,14 +252,16 @@ verified-by: 22 条决策项逐条实测（12 仓源码 + 分支/worktree + 5 �
 
 ---
 
-### ⑬ service token 401：方向 3 已改完，只差发版与升 pin
+### ⑬ service token 401：方向 3 —— ✅ 已拍定并已于 2026-10-25 执行完（发版 + 三仓升 pin）
 
-**建议**：**采纳方向 3**（按 `claims.Role == "service"` 分流，只豁免 service 角色），把已改的代码跑完门禁后发 `v0.1.4`，risk / data / analytics 升 pin。
+**建议（已采纳）**：**方向 3**（按 `claims.Role == "service"` 分流，只豁免 service 角色），把已改的代码跑完门禁后发 `v0.1.4`，risk / data / analytics 升 pin。
+
+**执行结果（2026-10-25）**：kit PR #1 rebase 合并到 `main = 8077c36`、main 的 run `40235174365` 全步骤 success（含 `ok …/auth/httpadapter`，即新加的端到端用例真跑绿）；annotated tag `v0.1.4` 已 push，proxy 已确认该 tag；risk / data / analytics 三仓各一笔升 pin PR，**PR CI 与合并后 main 的 push run 都是全步骤 success**，三条 Build 日志各有 `go: downloading …tellurion-kit v0.1.4`。
 
 **依据（实测）**
 - kit 工作区已有 4 文件改动（`auth/claims.go` 加 `ServiceRole`；`auth/httpadapter/httpadapter.go` 在 `UserIDInt64()` 前分流；`auth/middleware.go` 同；`httpadapter_test.go` 加「真 `IssueServiceToken` 签的 token 能被 `Authenticate` 接受」用例）。
 - 缺陷本体：`auth/service_token.go` 允许非数字 subject，而 `auth/httpadapter/httpadapter.go:139` 要求 `UserIDInt64()` ⇒ `service:risk` 必 401。方向 1 放宽校验会放过非 service 的坏 subject；方向 2 与「service 主体可读」冲突。
-- **未验证**：本机无 Go 工具链 ⇒ `go build/vet/test` 一条没跑；**未提交、未发版、三仓 pin 仍 `v0.1.1`** ⇒ 线上「仍 401」这个事实没变。
+- ~~**未验证**：本机无 Go 工具链 ⇒ `go build/vet/test` 一条没跑；**未提交、未发版、三仓 pin 仍 `v0.1.1`** ⇒ 线上「仍 401」这个事实没变。~~ **本条的环境事实没变（本机仍无 Go），但结论已被取代**：门禁改由 GitHub Actions 执行（step 级退出码为证），代码已提交、`v0.1.4` 已发版、三仓 pin 已升。**仍未变的**是 QT-71 的 token 配发与真进程端到端腿——见裁决 §五.1 ⑬ 那条前提。
 
 **若采纳的动作**
 ```
@@ -343,6 +354,19 @@ git tag -a v0.1.4 -m "fix(auth): service token 的 subject 不再被 int64 校�
 
 **代价**：删分支后历史只能从 reflog/tag 找回；先确认再删。
 
+> **🔁 状态订正（2026-10-25）：删除已经发生了，本条的「待授权」前提不再成立。**
+>
+> 实测：`C:/Users/ruoxi/Workspace/tellurion-g3-data` 目录**已不存在**；`git branch` 里**没有 `task/g3-data`**；`git worktree list` 只剩 main。⇒ **worktree 与分支都已被删除，且不是本轮这次授权删的**（本文件写的时候它们还在，见 §0.3 的原始实测）。
+>
+> **但内容没丢，已逐项核验**：
+> - **7 笔 commit 对象仍可访问** —— `git cat-file -t` 对 `ff36b4c` / `7e17c12` / `d25084c` / `eb33d8d` / `49a97c7` / `3aabda8` / `17b62f3` **全部返回 `commit`**（尚未被 GC）。
+> - **结论已落 main** —— `docs/TASKS.md` 的 **DBT-15 / DBT-16 / DBT-17 / DBT-18 四单均 ✅**（含 DBT-15 的 164+2 行删除追认记录），即「删分支」这件事**没有导致任何结论丢失**。
+> - 另：`task/a7-core` 亦已不在分支列表（audit 文档记它「已并入 main，可删」）。
+>
+> **还需你做的只剩两件（都可选）**：
+> 1. **追认**这次删除（它发生在「删除要授权」这条纪律之下，需要你事后确认）——**不追认也不影响任何结论**。
+> 2. 若想把那 7 笔留档，趁对象未 GC 打一个 `archive/g3-data` tag 指向 `17b62f3`（**只读动作，不恢复分支**）。
+
 ---
 
 ### ㉒ broker R9 / R10：R10 现在修，R9 等 X6c
@@ -406,6 +430,6 @@ git tag -a v0.1.4 -m "fix(auth): service token 的 subject 不再被 int64 校�
 10. ⑱ orchestration 开端点 + 先做 R5 鉴权 —— **已拍定**
 11. ⑲ 结论态放行 —— **已拍定**
 12. ⑳ 允许给 3 个组件补 testid —— **已拍定**
-13. ㉒ 修 R10、暂缓 R9 —— **已拍定**；㉑ 删除 g3 worktree/分支 —— **仍待授权**（不可逆）
+13. ㉒ 修 R10、暂缓 R9 —— **已拍定**；㉑ 删除 g3 worktree/分支 —— **已发生（非本次授权）⇒ 仅需追认**，见 ㉑ 的状态订正（7 笔对象仍可达、四单结论均已落 main）
 
 > ⑬ 不需要选方向（方向 3 已定）；只需要一台有 Go 的机器跑门禁。⑥⑦ 需要外部条件，见 §2。

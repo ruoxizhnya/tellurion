@@ -25,7 +25,7 @@ verified-by: 第三轮全量复核（12 仓 git 快照 + 6 份台账 + 关键代
 | **G6 读面语义** | core（+ ui/openapi） | `/report` 结论态放行 → openapi → UI 错误处理 → e2e | G0 | G1 / G2 / G3 / G4a | 🔶 三态线在 analytics 已备好，core 未发码 |
 | **G7 策略闸门** | core → strategy | core 网关/路由/`X-Actor` → strategy 三端点接 kit 校验 → 审计落库 | G1 | G5 | 🔶 promote 端点已有，但零鉴权、零调用方 |
 | **G8 UI / docs / broker** | docs / ui / broker | DOC-10（无依赖）· AUD-61 无栈子集 → 真栈 · broker R10 → 保留期 | docs 无；ui 要 Docker；broker 要 Go | 三者互不依赖 | 🔶 DOC-10 ⬜；UI 16 条 fixme；R10 未修 |
-| **G9 清仓** | core worktrees | 确认 g3 文档已落 → 删 g3 / a7-core / `b63-verify` | 主任授权（不可逆） | 任意时机 | ⛔ 待授权 |
+| **G9 清仓** | core worktrees | 确认 g3 文档已落 → 删 g3 / a7-core / `b63-verify` | 主任授权（不可逆） | 任意时机 | ✅ **已完成（非授权执行）** — 实测 worktree 只剩 main，`task/g3-data` 与 `task/a7-core` 均已不在；7 笔对象仍可达、四单结论已落 main ⇒ 仅需追认 |
 
 ### 1.1 各工作流的「已落 / 剩余」细账
 
@@ -196,11 +196,11 @@ verified-by: 第三轮全量复核（12 仓 git 快照 + 6 份台账 + 关键代
 | 1 | 上一版把 ②「迁 contracts」列为可立即开工 | **risk `QT-74` 仍 ⬜**（`tellurion-risk:docs/TASKS.md:443`），词典未冻结 | ② 记为 ⛔ 等 QT-74；已写进裁决记录 §五 ② |
 | 2 | 各完成记录写「`go build/vet/test` 全绿」 | 本机 `go` 不在 PATH、Docker 不可达 ⇒ 本轮**一条都没复跑** | 记为「记录绿，未复核」；G0 是总闸门 |
 | 3 | 未强调 core 的推送状态 | core **15 笔未推**（QT-71/72/73/74、H4、worker、alert outbox、本轮文档），CI 从未见过 | 推分支/PR 或本地装 Go 后跑；在此之前不得把本地绿当线上绿 |
-| 4 | kit 工作区 4 个改动曾被记成「并发 WIP」 | 那 4 个文件**就是方向 3 的改动本身**（我方的），仍未提交 | 已订正为「代码已改、未验证、未发版」 |
+| 4 | kit 工作区 4 个改动曾被记成「并发 WIP」 | 那 4 个文件**就是方向 3 的改动本身**（我方的），当时未提交 | 已订正为「代码已改、未验证、未发版」，**并于 2026-10-25 收尾**：`v0.1.4` 已发版、三仓 pin 已升（证据 = CI，非本机复跑） |
 | 5 | data 与 core 各自建 `market.index_daily` | **两套 DDL 形状不同**（core 有 `id`/`UNIQUE`/`VARCHAR(64)`/`CHECK`；data 是复合 PK/`VARCHAR(32)`/`volume DEFAULT 0`），先建表者定形 | ⑰ 已裁：data 撤认领；D4 |
 | 6 | `SYSTEM-DESIGN.md` §7 写「六仓只有占位 doc.go」「X1~X6 未触发」；`docs/README.md:40` 写 QT-60「未启动」 | 均过期（六仓已实装；S-1 已 ✅） | DOC-10 |
 | 7 | orchestration 台账「鉴权 R5 按裁-15 缓做」 | 与 §五 ⑱「先做 R5」冲突：新端点要可验写者身份 | ⑱ 对该端点**覆盖**裁-15 的「暂不做」；需在 orchestration 台账写明「R5 只覆盖 worker 面 + artifact 端点，jobs 4 端点仍按裁-15」 |
-| 8 | 分支清理 | `task/a7-core` **已并入 main**（可删）；`task/g3-data` 7 ahead / 62 behind（已裁作废）；`task/qt51` 1 ahead / 11 behind；临时 worktree `b63-verify`（detached） | ㉑ 待授权；a7-core 与 b63 可同批清 |
+| 8 | 分支清理 | `task/a7-core` **已并入 main**（可删）；`task/g3-data` 7 ahead / 62 behind（已裁作废）；`task/qt51` 1 ahead / 11 behind；临时 worktree `b63-verify`（detached） | **🔁 已变化**：`task/g3-data`、`task/a7-core`、`b63-verify` **均已删除**（worktree 只剩 main）；`task/qt51-execution-port` **仍在**（1 ahead / 12 behind）。⇒ ㉑ 只剩追认 + 可选 `archive/g3-data` tag |
 | 9 | 版本矩阵的 pin 口径 | strategy 仍 `contracts v0.5.0`、agent 仍 `kit v0.1.0`，其余 `v0.6.0` / `v0.1.1` | 不是错，但要在各仓 AGENTS 的依赖表与 contracts/kit 兼容矩阵里写明「为什么是这个版本」 |
 | 10 | analytics 台账 frontmatter 的 `last-verified: 2026-10-26` | 今天是 2026-10-25（未来日期） | 下次改该文件时订正；不影响结论 |
 

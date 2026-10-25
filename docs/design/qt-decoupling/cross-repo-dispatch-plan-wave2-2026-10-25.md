@@ -308,7 +308,7 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 | **⑩ AI 生成物载体形态** | **QT-32** 后续 | ✅ **已裁 = 默认 `carrier="dsl"`**，L3 才 wasm，`so` 删除；hash 用 `StrategyVersionInput{Carrier:"dsl"}` |
 | **⑪ R3 的 RunSpec 形状** | **H6**（analytics） | ✅ **已裁 = 终态即执行侧装配**（worker `run_id` 锚点回源）；analytics 不补全，未落项关闭 |
 | **⑫ promote 审批人从哪来** | **H8**（strategy）+ core | ✅ **已裁 = 面 B1**：core 网关 + `X-Actor` + 受信 service token；strategy **只对 promote/internal 三端点**接 kit 校验，端口仅集群内可达 |
-| **⑬ ⛔ service token 在 httpadapter 上必然 401** | **H3** + 裁-17 整条链路 | ✅ **已裁 = 方向 3**（按 role 分流）；代码已改 + 端到端用例已写；**未验证/未发版/三仓仍钉 `v0.1.1`** ⇒ 线上仍 401 |
+| **⑬ ⛔ service token 在 httpadapter 上必然 401** | **H3** + 裁-17 整条链路 | ✅ **已裁 = 方向 3**（按 role 分流）**并已闭合（2026-10-25）**：kit `v0.1.4` 已发版（PR #1 合并 + main CI 全步骤绿 + tag 已推 + proxy 已确认），risk / data / analytics 三仓 pin 已升且各自 main CI 绿。**仍未落**：QT-71 的 token 配发腿、真进程端到端腿 |
 | **⑰ ⛔ H4 物理搬迁被 core 剩余写者挡住** | **H4** | ✅ **已裁 = `index_daily` owner 归 core，data 撤认领并删重复 DDL/TableNames/C 集条目**；A 集物理搬迁等 3 张停写 |
 | **⑱ X0 生产者的契约** | **H5** / X0 单 | ✅ **已裁 = orchestration 开 artifact 写端点（service 角色），worker 调它**；前置 = orchestration 先做 R5 鉴权 |
 | **⑲ analytics R1 读面语义** | **H6** / core | ✅ **已裁 = 结论态放行**：404 只给不存在，pending/running 409 `run_result_incomplete`，failed 409 `run_result_failed` |
