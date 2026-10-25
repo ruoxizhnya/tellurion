@@ -343,7 +343,7 @@ verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条�
 | # | 事项 | 裁决 | 落点 | 状态 |
 |---|---|---|---|---|
 | ① | QT-51 拆 port 还是同构桥 | **拆 port**，以分支 `task/qt51-execution-port`（`7c89aae`）为基线收口；**不再执行** b 的「删 shim + `LiveBridge` 外移」；5 个零调用 shim 合入后另立小单删 | core：QT-51 + `backtest-engine-review.md:145` 勾选 | ⬜ 待收口（rebase + 有 Go 的环境复跑门禁） |
-| ② | risk 快照迁 contracts | **新建 `contracts/risk` 包**：迁 `Snapshot` / `SnapshotRule` / `Scope` / `RuleType` + 冻结词表 + hash 纯函数 + 4 个哨兵；**`Bundle` / `ParseBundle` / `ForScope` 留 risk**；**编码逐字节搬运，禁止换 Canonical**；必须带固定向量 + 跨仓对拍腿 | contracts（`v0.7.0`）+ risk（首个 contracts pin）+ core | ⬜ 待施工 |
+| ② | risk 快照迁 contracts | **新建 `contracts/risk` 包**：迁 `Snapshot` / `SnapshotRule` / `Scope` / `RuleType` + 冻结词表 + hash 纯函数 + 4 个哨兵；**`Bundle` / `ParseBundle` / `ForScope` 留 risk**；**编码逐字节搬运，禁止换 Canonical**；必须带固定向量 + 跨仓对拍腿。**前置 = risk `QT-74`（参数词典）先落**——先有冻结的 `params` 形状，才有值得迁的契约 | contracts（`v0.7.0`）+ risk（首个 contracts pin）+ core | ⛔ 等 risk QT-74（当前 ⬜） |
 | ⑤ | 生产 `visible_at` 回填 | **只授权 9 张「core 无写者」的 A 集表**：`ohlcv_minute` / `realtime_quote` / `capital_flow` / `top_list` / `limit_up_pool` / `announcements` / `news` / `hot_search` / `global_ohlcv`；`ohlcv_daily_qfq` / `sectors` / `stock_sector_map` 等 core 停写后再批；`market.index_daily` 不在 A 集、不回填；**执行者是运维** | data：QT-40 未落项 + core：QT-40 记录 | ⬜ 待运维执行（agent 只交取证与语句） |
 | ⑥ | UI 三服务栈怎么起 | **两轨**：无栈的 `typecheck/lint/vitest` 现在做；e2e 等 Docker Desktop（或 CI）；视觉基线在本机重生成 | ui：AUD-61 ① 批 | ⛔ 等外部条件（Docker/CI） |
 | ⑦ | XTP 柜台环境 | **保持 ⛔，本轮不投人、不排期**；不做无 SDK 的假实现 | broker：QT-45 | ✅ 已裁（维持 ⛔） |

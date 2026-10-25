@@ -109,6 +109,7 @@ verified-by: 22 条决策项逐条实测（12 仓源码 + 分支/worktree + 5 �
 - contracts 已有纯函数先例：`engine/provenance.go:78` 的 `StrategyVersionInput.Hash()`，并有跨仓对拍腿。ADR-0004 允许值对象上的纯函数。
 
 **若采纳的动作**
+0. **前置 = risk `QT-74`（参数词典）先落**：今天 `QT-74` 仍 ⬜，`params` 的键名/单位未冻结；先有词典，才有值得迁的契约形状（顺序不可颠倒）。
 1. 新建 `contracts/risk/`（包名 `risk`），**逐字节搬运**编码实现（含 `writeField`、`canonicalParams`、两个词表）。
 2. **必须同时加**：固定向量测试 + 与 risk 仓的**对拍腿**（risk 侧用同一组 `SnapshotRule` 算两次，断言 hex 相同），照抄 `provenance_vector_test.go` 的做法。
 3. risk 侧把这批符号改成 `contracts/risk` 的**别名/转发**，调用点零改；`ParseBundle` / `Bundle` / `ForScope` 留本仓。
