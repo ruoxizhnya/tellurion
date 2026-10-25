@@ -24,9 +24,13 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │  只经 /api/* 打后端（AUD-32：nginx 托管在宿主 8080）
   ├──► analysis-service :8085 ──► PostgreSQL :5432（唯一数据面）
   │                             ──► Redis :6379（缓存）
-  │                             ──► risk-service :8083（源码在 tellurion-risk 仓，X3）
+  │                             ──► risk-service :8086（源码在 tellurion-risk 仓，X3；
+  │                                `cmd/riskservice -addr` 的默认值，与 core 的
+  │                                `risk_service.resolve_url` 一致。该服务不在 compose 里，
+  │                                单主机裸跑要和 ai-service 的 8086 错开）
   │                                两个出站调用，都不在热路径：run 提交时取规则快照
-  │                                hash（QT-66，`POST /api/risk/resolve`）；告警异步回传
+  │                                hash（QT-66，`POST /api/risk/resolve`）；告警经
+  │                                `quant.alert_outbox` 落一行再按批回传
   │                                （QT-42 X3c，`POST /api/risk/events`，开关
   │                                `risk_service.events_enabled`，默认关）
   ├──► ai-service :8086 ────────►（源码在 tellurion-agent 仓，
@@ -89,7 +93,7 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 
 - `public`：规范化市场数据（ stocks / ohlcv_daily_qfq【唯一 hypertable，migrate 内 `create_hypertable`】/ stock_fundamentals / trading_calendar / splits / dividends / index_constituents / factor_cache / factor_returns / ic_analysis / backtest_jobs【Migration 009；**Migration 059 增 `result_status`**，三值 `completed/invalid/failed`，CHECK 与 orchestration `run.backtest_jobs` 对齐】/ sync_jobs / sync_schedules / strategies / users / audit_logs 等）
 - `ingest.raw`：类 A 原始响应归档（唯一键 `content_hash`）
-- `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；run 留痕 `run_provenance`（QT-63，Migration 056，**只存输入身份、不存 status** —— status 的唯一权威是 `backtest_jobs`，查询用 join/视图；`risk_rules_hash` 由 QT-66 每次 run 提交时向 tellurion-risk 的 `POST /api/risk/resolve` 取一次，未接入记空串 + `not_configured`，取不到即 run `failed` + `risk_rules_unavailable`）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
+- `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；run 留痕 `run_provenance`（QT-63，Migration 056，**只存输入身份、不存 status** —— status 的唯一权威是 `backtest_jobs`，查询用 join/视图；`risk_rules_hash` 由 QT-66 每次 run 提交时向 tellurion-risk 的 `POST /api/risk/resolve` 取一次，未接入记空串 + `not_configured`，取不到即 run `failed` + `risk_rules_unavailable`）；告警发件箱 `alert_outbox`（QT-42 X3c，Migration 060，投递状态机 `pending → sent | failed` —— `failed` 是**终态但保留行**，那行是唯一能回答「这条告警为什么没进 risk」的东西；relay 每轮按 `created_at` 取 pending 一批投，`attempts` 触 `events_max_attempts` 才判死。注意它**不是**第二个告警真相源：告警内容仍由 `pkg/alert` 产出，这里只存投递留痕）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
 - `research.*`：研究投影（conclusion / question / profile）
 - `market.*`：指数行情独立分区（`market.index_daily`，Migration 057，migrate 内建——指数不与个股混表）
 - `audit.*`：内核事件存储（`audit.message_log`，`pkg/eventstore/schema.go` 的 `EnsureSchema` 幂等建，未并入 migrate）

@@ -104,10 +104,10 @@ func initLogger() zerolog.Logger { return bootstrap.InitLogger() }
 // buildAlertSystem constructs the AlertManager + PeriodicAlertLoop
 // (P2 alert, ODR-025) from viper config under alert.*.
 //
-// 返回 error 只来自 QT-42 X3c 的告警回传装配（显式启用但配置不合法）：
-// 调用方（main.go）据此 fail-fast，不让「risk 侧 alerts 恒空集」成为
-// 一次坏配置的静默后果。
-func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
+// store 是 QT-42 X3c 的告警发件箱落点（`quant.alert_outbox`）。返回 error 只
+// 来自这条接线（显式启用但配置/依赖不合法）：调用方（main.go）据此 fail-fast，
+// 不让「risk 侧 alerts 恒空集」成为一次坏配置的静默后果。
+func buildAlertSystem(v *viper.Viper, store *storage.PostgresStore, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
 	alertCfg := alert.AlertManagerConfig{
 		MaxPositionWeight: v.GetFloat64("alert.max_position_weight"),
 		MaxSectorWeight:   v.GetFloat64("alert.max_sector_weight"),
@@ -124,11 +124,17 @@ func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManag
 	alertManager := alert.NewAlertManager(alertCfg, logger)
 	alertManager.AddChannel(recorder)
 
-	// QT-42 X3c 的 core 腿：detector / Fire 出来的告警按 `POST /api/risk/events`
-	// 回传给 risk 服务（risk 的 `monitor/alerts` 与 `monitor/evaluate` 只读
-	// `risk.risk_events`，没有这条腿就恒是空集）。挂在 recorder 之后 ⇒ 与
-	// LogChannel / WebhookChannel 共用同一次 dispatch，不需要第二条循环。
-	if err := wiring.AttachRiskEventsFromConfig(v, alertManager, logger); err != nil {
+	// QT-42 X3c 的 core 腿：detector / Fire 出来的告警先落 `quant.alert_outbox`
+	// 一行，再按批 `POST /api/risk/events`（risk 的 `monitor/alerts` 与
+	// `monitor/evaluate` 只读 `risk.risk_events`，没有这条腿就恒是空集）。
+	// 挂在 recorder 之后 ⇒ 与 LogChannel / WebhookChannel 共用同一次 dispatch。
+	// 取显式局部变量而不是直接传 store：typed-nil 指针装进接口后 != nil，
+	// 「PG 没装配」会被读成「有发件箱」，正是要防的那种假。
+	var outbox wiring.AlertOutbox
+	if store != nil {
+		outbox = store
+	}
+	if err := wiring.AttachRiskEventsFromConfig(v, alertManager, outbox, logger); err != nil {
 		return nil, nil, err
 	}
 

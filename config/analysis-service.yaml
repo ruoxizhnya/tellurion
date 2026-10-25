@@ -131,17 +131,21 @@ risk_service:
   # events_url **必填**（启用时）：**不**回落到上面的 url —— :8085 是 analysis 自己
   # （P1-15 合并后的进程内风控），没有这个端点，回落等于把「少配一项」变成每条
   # 告警 404、且要等告警真触发才看得见，所以装配期直接拒。
-  # 端口口径待收敛：`tellurion-risk:cmd/riskservice` 的 `-addr` 默认是 127.0.0.1:8086，
-  # 而上面的 resolve_url 写的是 8083 —— 两者不一致，按你实际的部署填，别照抄注释。
+  # 端口口径：`tellurion-risk:cmd/riskservice` 的 `-addr` 默认是 127.0.0.1:8086，
+  # 上面的 resolve_url 与之对齐；events_url 按你实际的部署填。
   # events_token 为空 ⇒ 不带 Authorization；risk 侧 policy 表要 trader/admin 角色，
   # 配了 AUTH_JWT_SECRET 而无凭据会收到 401 并记 error 日志。token 只从 env
   # RISK_SERVICE_EVENTS_TOKEN 注入（本文件不放真值）。
-  # 交付是异步 best-effort：Send 只入队（满 256 条丢弃并告警），批量 207/5xx 不重发。
+  # 交付形态 = outbox：每条告警先落 quant.alert_outbox 一行（Migration 060），
+  # 后台每 events_relay_interval 取一批 POST；失败不丢，只是那行还是 pending，
+  # 试到 events_max_attempts 次转 failed 终态留在表里等人查。
+  # 所以「risk 服务不可用」不再等于「那段时间的告警没了」——重启后行还在。
   events_enabled: false
   events_url: ""
   events_timeout: "10s"
   events_batch_size: 50
-  events_flush_interval: "30s"
+  events_relay_interval: "15s"
+  events_max_attempts: 8
   events_token: ""
 
 # In-process risk manager config (absorbed from risk-service.yaml).

@@ -74,7 +74,7 @@ func main() {
 	riskManager := ak.Wiring.RiskManager
 	executionTrader := ak.Wiring.ExecutionTrader
 
-	alertManager, alertLoop, err := buildAlertSystem(v, executionTrader, riskManager, logger)
+	alertManager, alertLoop, err := buildAlertSystem(v, store, executionTrader, riskManager, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("alert system wiring failed")
 	}

@@ -1227,6 +1227,11 @@ func migrationStatements() []string {
 		`UPDATE backtest_jobs SET result_status = 'completed' WHERE status = 'completed' AND result_status IS NULL`,
 	}...)
 
+	// Migration 060（QT-42 X3c）：quant.alert_outbox —— 告警投递的发件箱。
+	// risk 侧的账写的是「事件回传允许延迟、不允许丢」；进程内队列做不到那一句
+	// （满则丢、重启则丢），所以告警先落一行再投，失败只是「这行还是 pending」。
+	migrations = append(migrations, AlertOutboxSchemaDDL...)
+
 	return migrations
 }
 
