@@ -261,6 +261,8 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 
 **落地位置**：kit 仓（发版）+ risk / data / analytics 三仓（升 pin）。**本轮不安排 agent 施工，等裁决。**
 
+> **⚠️ 2026-10-25 二次实测（并发 WIP，不是裁决已落）**：kit 工作区出现**未提交**改动 `auth/claims.go` / `auth/httpadapter/httpadapter.go` / `auth/httpadapter/httpadapter_test.go` / `auth/middleware.go`（`git diff --stat` = 4 文件 / +65 行、0 删除），做法是 **方向 3（按 `claims.Role == "service"` 分流，绕过 `UserIDInt64`）**；**尚未提交、未发版（无 `v0.1.4`）、risk / data / analytics 的 pin 未动**。⇒ 本裁决仍记 **待裁**；该 WIP 在裁决落定前**不构成「已选方向 3」**，也不改变「三仓仍钉 `v0.1.1`」的现状。
+
 ---
 
 ## 三、给各 agent 的三条通用纪律（本次裁决带来的）
