@@ -92,6 +92,11 @@ services:
       DATABASE_DATABASE: tellurion
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       TUSHARE_TOKEN: ${TUSHARE_TOKEN}
+      # QT-71 / 裁-17：data-service 也是 service token 的验证方（analytics
+      # 调 GET /datasets/*）。此前本服务**没有** JWT_SECRET，而 analysis 与
+      # ai 都有 —— 缺这一项时 :8081 的写门在开鉴权的部署里仍是裸的。
+      # 空值 = 不回环发布时的本地 open-access（端口映射都是 127.0.0.1:）。
+      JWT_SECRET: ${JWT_SECRET:-}
       REDIS_URL: redis://host.docker.internal:6379
       # AUD-35：名字必须是 LOGGING_LEVEL。viper 的 AutomaticEnv +
       # SetEnvKeyReplacer(".", "_") 把 logging.level 映射成 LOGGING_LEVEL；

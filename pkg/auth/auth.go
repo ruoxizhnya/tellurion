@@ -34,11 +34,18 @@ const (
 	RoleViewer Role = "viewer" // read-only
 	RoleTrader Role = "trader" // can place paper/live orders
 	RoleAdmin  Role = "admin"  // full access incl. user management
+	// RoleService is the service-to-service principal (裁-17). It is minted
+	// as a long-lived access token by tellurion-kit's IssueServiceToken and
+	// is deliberately never a user: it cannot trade and cannot administer.
+	RoleService Role = "service"
 )
 
 // AllRoles returns every defined role. Used for validation.
+//
+// RoleService MUST stay in this list: it is what IsValid() consults, and a
+// service token whose role is not "valid" is unusable at the API boundary.
 func AllRoles() []Role {
-	return []Role{RoleViewer, RoleTrader, RoleAdmin}
+	return []Role{RoleViewer, RoleTrader, RoleAdmin, RoleService}
 }
 
 // IsValid reports whether r is one of the known roles.
@@ -52,11 +59,15 @@ func (r Role) IsValid() bool {
 }
 
 // CanTrade reports whether a role is allowed to submit orders.
+//
+// RoleService is intentionally absent: a leaked service credential must not
+// equal a live-trading permission (裁-17).
 func (r Role) CanTrade() bool {
 	return r == RoleTrader || r == RoleAdmin
 }
 
 // CanAdmin reports whether a role is allowed to manage users / view audit logs.
+// RoleService is intentionally absent.
 func (r Role) CanAdmin() bool {
 	return r == RoleAdmin
 }

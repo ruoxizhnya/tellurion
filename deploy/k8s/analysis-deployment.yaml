@@ -40,6 +40,22 @@ spec:
                 secretKeyRef:
                   name: postgres-credentials
                   key: password
+            # QT-71 / 裁-17：analysis 是 service token 的**验证方**之一
+            # （worker / analytics 调 POST /api/backtest）。没有这把 secret
+            # 就进入 open-access，而它对外发布在集群内，不能裸奔。
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tellurion-jwt
+                  key: jwt-secret
+            # 出站调 tellurion-risk 的 POST /api/risk/resolve（QT-66 的规则
+            # 快照取数）。viper 键 risk_service.resolve_token →
+            # RISK_SERVICE_RESOLVE_TOKEN；空值 = 上游未开鉴权（仅回环开发态）。
+            - name: RISK_SERVICE_RESOLVE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: service-tokens
+                  key: risk-service-resolve-token
           readinessProbe:
             httpGet:
               path: /api/health

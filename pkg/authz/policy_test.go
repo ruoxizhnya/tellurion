@@ -23,6 +23,7 @@ func testPolicy() Policy {
 		Admin:        []string{"POST /api/admin/thing"},
 		Trader:       []string{"POST /api/orders", "DELETE /api/orders/:id"},
 		ReadOnlyPOST: []string{"POST /api/screen"},
+		Service:      []string{"POST /api/backtest"},
 	}
 }
 
@@ -39,6 +40,7 @@ func testRouter(svc *auth.Service, p Policy) *gin.Engine {
 	register(http.MethodPost, "/api/orders")
 	register(http.MethodDelete, "/api/orders/:id")
 	register(http.MethodPost, "/api/screen")
+	register(http.MethodPost, "/api/backtest")
 	register(http.MethodGet, "/api/orders")
 	// 故意注册一条**不在策略表里**的变更端点，用来验 fail-closed。
 	register(http.MethodPost, "/api/unclassified")
@@ -96,6 +98,7 @@ func TestMiddleware_RoleTiers(t *testing.T) {
 	viewer := tokenForRole(t, svc, auth.RoleViewer)
 	trader := tokenForRole(t, svc, auth.RoleTrader)
 	admin := tokenForRole(t, svc, auth.RoleAdmin)
+	service := tokenForRole(t, svc, auth.RoleService)
 
 	cases := []struct {
 		name   string
@@ -115,6 +118,14 @@ func TestMiddleware_RoleTiers(t *testing.T) {
 		{"ReadOnlyPOST：viewer 通过", http.MethodPost, "/api/screen", viewer, http.StatusOK},
 		{"ReadOnlyPOST：无 token 401", http.MethodPost, "/api/screen", "", http.StatusUnauthorized},
 		{"变更端点无 token 401", http.MethodPost, "/api/orders", "", http.StatusUnauthorized},
+		// Service 档：service 与 trader/admin 是 any-of 并列，不是替代。
+		{"Service 档：service 通过", http.MethodPost, "/api/backtest", service, http.StatusOK},
+		{"Service 档：trader 仍通过（不是替代）", http.MethodPost, "/api/backtest", trader, http.StatusOK},
+		{"Service 档：admin 仍通过", http.MethodPost, "/api/backtest", admin, http.StatusOK},
+		{"Service 档：viewer 拒绝", http.MethodPost, "/api/backtest", viewer, http.StatusForbidden},
+		{"Service 档：无 token 401", http.MethodPost, "/api/backtest", "", http.StatusUnauthorized},
+		// 反向：服务角色不得拿交易档。
+		{"Trader 档：service 拒绝", http.MethodPost, "/api/orders", service, http.StatusForbidden},
 	}
 
 	for _, tc := range cases {
@@ -160,12 +171,16 @@ func TestPolicy_Role(t *testing.T) {
 	if role, ok := p.Role("POST /api/screen"); !ok || role != RoleAnyAuthenticated() {
 		t.Fatalf("ReadOnlyPOST 档错误：role=%q ok=%v", role, ok)
 	}
+	if role, ok := p.Role("POST /api/backtest"); !ok || role != auth.RoleService {
+		t.Fatalf("Service 档错误：role=%q ok=%v", role, ok)
+	}
 	if _, ok := p.Role("POST /api/nope"); ok {
 		t.Fatal("未登记的路由不该返回 ok")
 	}
 
-	assert.Len(t, p.Entries(), 5)
+	assert.Len(t, p.Entries(), 6)
 	assert.Equal(t, "readonly-post", p.Entries()["POST /api/screen"])
+	assert.Equal(t, "service", p.Entries()["POST /api/backtest"])
 }
 
 // TestIsMutating：HEAD/OPTIONS/TRACE 不算变更（gin 的 Any 会一并注册它们）。

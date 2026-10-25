@@ -1,0 +1,93 @@
+# risk-service（tellurion-risk）部署清单 —— QT-71 · 裁-17/裁-①
+#
+# 凭证纪律（只经 env，不落库、不进镜像）：
+#   - JWT_SECRET 来自 Secret `tellurion-jwt` 的 `jwt-secret`；
+#   - 本服务**只验证** token：它不签发、不持有出站服务 token；
+#   - 轮换：JWT_SECRET 每 90 天轮换一次（与 core/data/analytics 同一把，
+#     必须同一窗口整体滚动；轮换窗口见 deploy/README.md）。
+#
+# 为什么显式给 -addr：risk 的默认监听是 127.0.0.1:8086（本地形态）。
+# 容器内回环只有自己可达，Service 转发不进来 —— 必须绑 0.0.0.0。绑非回环
+# 且**没有** JWT_SECRET 时，kit 的启动闸会拒绝启动（fail-closed），所以
+# 下面的 secretKeyRef **不可省略**。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-service
+  namespace: tellurion
+  labels:
+    app.kubernetes.io/name: risk-service
+    app.kubernetes.io/part-of: tellurion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: risk-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: risk-service
+        app.kubernetes.io/part-of: tellurion
+    spec:
+      containers:
+        - name: risk
+          image: tellurion/risk:latest
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", "0.0.0.0:8086"]
+          ports:
+            - name: http
+              containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: tellurion-config
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            # risk 读 RISK_DATABASE_URL（不是 database.*）；空值会退回进程内
+            # Memory Store（重启即丢），生产形态必须给 DSN。
+            - name: RISK_DATABASE_URL
+              value: "postgres://postgres:$(DATABASE_PASSWORD)@postgres:5432/tellurion?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tellurion-jwt
+                  key: jwt-secret
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-service
+  namespace: tellurion
+  labels:
+    app.kubernetes.io/name: risk-service
+    app.kubernetes.io/part-of: tellurion
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: risk-service
+  ports:
+    - name: http
+      port: 8086
+      targetPort: http

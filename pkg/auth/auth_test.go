@@ -21,15 +21,19 @@ func TestRole_Helpers(t *testing.T) {
 	assert.True(t, RoleViewer.IsValid())
 	assert.True(t, RoleTrader.IsValid())
 	assert.True(t, RoleAdmin.IsValid())
+	assert.True(t, RoleService.IsValid(),
+		"service tokens are rejected at parse time unless service is a valid role")
 	assert.False(t, Role("god").IsValid())
 
 	assert.True(t, RoleViewer.CanTrade() == false)
 	assert.True(t, RoleTrader.CanTrade())
 	assert.True(t, RoleAdmin.CanTrade())
+	assert.False(t, RoleService.CanTrade(), "裁-17: a leaked service token must not mean live trading")
 
 	assert.False(t, RoleViewer.CanAdmin())
 	assert.False(t, RoleTrader.CanAdmin())
 	assert.True(t, RoleAdmin.CanAdmin())
+	assert.False(t, RoleService.CanAdmin(), "service is not an administrator")
 }
 
 func TestConfig_WithDefaults(t *testing.T) {

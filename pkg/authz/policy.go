@@ -10,7 +10,8 @@
 // 也没人发现。取而代之：
 //
 //  1. 每个服务在 `route_policy.go` 里维护一张 `Policy`：**逐条**列出所有变更
-//     端点及其最低角色（Public / Admin / Trader 三档，每档都写理由）；
+//     端点及其最低角色（Public / Admin / Trader / Service 四档 +
+//     ReadOnlyPOST / ReadOnlyGET，每档都写理由）；
 //  2. 本包的 Middleware 在 `auth.Middleware()` 之后全局挂一次，按
 //     `c.FullPath()` 查表执法；
 //  3. 每个服务的守卫测试断言「路由表 ≡ 策略表」（双向），新加一个变更端点
@@ -49,6 +50,20 @@ type Policy struct {
 	// read-only 角色连选股都做不了——那是功能回退，不是安全收紧。
 	// 本档位要求「任意已认证角色」，并且**必须写理由**（守卫测试查非空）。
 	ReadOnlyPOST []string
+	// ReadOnlyGET：显式登记的**读**端点（QT-72 的 X0 读面）。
+	//
+	// 与 ReadOnlyPOST 同一语义（任意已认证角色），但方法本身不参与变更面
+	// 执法 —— Middleware 对 GET 直接放行。登记它不是多一道闸，而是让「读面
+	// 也有明文表态」可查，并让守卫测试能钉住「读端点不得混进变更档位」
+	// （Public / Admin / Trader / Service / ReadOnlyPOST）。
+	ReadOnlyGET []string
+	// Service：服务间调用专用的端点（裁-17）。`service` 不是一个「更高 /
+	// 更低」的角色——tellurion-kit 的角色判定是 any-of，不做排序。所以本档位
+	// 必须**并列**放行 service 与原本能调它的 trader / admin：只留 service
+	// 会把真人调用方挡在门外（功能回退），只留 trader/admin 则服务间调用 403。
+	// 反过来，服务 token 永远进不了 Trader / Admin 档位——那是「配置泄露等于
+	// 拿到下单权」的复现路径。
+	Service []string
 }
 
 // Role 返回某个路由键要求的最低角色，以及它是否在表里。
@@ -75,6 +90,18 @@ func (p Policy) Role(key string) (auth.Role, bool) {
 			return roleAnyAuthenticated, true
 		}
 	}
+	for _, k := range p.Service {
+		if k == key {
+			// 服务间档位：service 与 trader / admin 并列（见 Policy.Service 注释）。
+			return auth.RoleService, true
+		}
+	}
+	for _, k := range p.ReadOnlyGET {
+		if k == key {
+			// 只读 GET：任意已认证角色（与 ReadOnlyPOST 同语义）。
+			return roleAnyAuthenticated, true
+		}
+	}
 	return "", false
 }
 
@@ -87,7 +114,7 @@ func RoleAnyAuthenticated() auth.Role { return roleAnyAuthenticated }
 
 // Entries 返回整张表的「键 → 档位」，供守卫测试做双向对拍。
 func (p Policy) Entries() map[string]string {
-	out := make(map[string]string, len(p.Public)+len(p.Admin)+len(p.Trader)+len(p.ReadOnlyPOST))
+	out := make(map[string]string, len(p.Public)+len(p.Admin)+len(p.Trader)+len(p.ReadOnlyPOST)+len(p.Service)+len(p.ReadOnlyGET))
 	for _, k := range p.Public {
 		out[k] = "public"
 	}
@@ -99,6 +126,12 @@ func (p Policy) Entries() map[string]string {
 	}
 	for _, k := range p.ReadOnlyPOST {
 		out[k] = "readonly-post"
+	}
+	for _, k := range p.Service {
+		out[k] = "service"
+	}
+	for _, k := range p.ReadOnlyGET {
+		out[k] = "readonly-get"
 	}
 	return out
 }
@@ -124,7 +157,8 @@ func IsMutating(method string) bool {
 //     模式不变（与 Service.RequireRole 同一裁决）；
 //   - 读端点（GET/HEAD/OPTIONS…）→ 直接放行，本包只管变更面；
 //   - 变更端点 → 查表：Public 放行；Admin 要求 admin；Trader 要求
-//     trader 或 admin；**查不到 → 403 并点名**（fail-closed）。
+//     trader 或 admin；Service 要求 service / trader / admin（any-of，
+//     service 不是更高角色）；**查不到 → 403 并点名**（fail-closed）。
 func Middleware(svc *auth.Service, p Policy) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil || !svc.Enabled() {
@@ -174,6 +208,10 @@ func Middleware(svc *auth.Service, p Policy) gin.HandlerFunc {
 			auth.RequireRole(auth.RoleAdmin)(c)
 		case auth.RoleTrader:
 			auth.RequireRole(auth.RoleTrader, auth.RoleAdmin)(c)
+		case auth.RoleService:
+			// 服务间档位与真人档位并列，不是替代：tellurion-kit 的角色判定
+			// 是 any-of（见 Policy.Service）。
+			auth.RequireRole(auth.RoleService, auth.RoleTrader, auth.RoleAdmin)(c)
 		default:
 			// 未知档位 = 策略表写错了。fail-closed 并点名角色，别静默放行。
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{

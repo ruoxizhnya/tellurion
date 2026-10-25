@@ -157,6 +157,46 @@ func TestMiddleware_ExpiredToken_401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+// TestMiddleware_ServiceTokenNonNumericSubject_OK pins the interop with
+// tellurion-kit's IssueServiceToken (裁-17): its subject is a caller-chosen
+// string ("service:risk"), not a user id. Requiring an int64 `sub` here would
+// 401 every real service token even though its signature and role are valid.
+func TestMiddleware_ServiceTokenNonNumericSubject_OK(t *testing.T) {
+	t.Parallel()
+	s := NewService(nil, Config{JWTSecret: []byte("test")})
+	r := gin.New()
+	r.Use(s.Middleware())
+	r.GET("/svc", func(c *gin.Context) {
+		role, roleOK := RoleFromContext(c)
+		_, _, userOK := UserFromContext(c)
+		c.JSON(http.StatusOK, gin.H{"role": string(role), "role_ok": roleOK, "user_ok": userOK})
+	})
+
+	c := Claims{
+		Username: "service:risk",
+		Role:     string(RoleService),
+		Kind:     "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "service:risk",
+			Issuer:    "tellurion",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte("test"))
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/svc", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"role":"service"`)
+	assert.Contains(t, w.Body.String(), `"role_ok":true`)
+	// No user id is fabricated for a service principal: role-based handlers
+	// work, user-row consumers correctly see no user.
+	assert.Contains(t, w.Body.String(), `"user_ok":false`)
+}
+
 func TestRequireRole_403(t *testing.T) {
 	t.Parallel()
 	s := NewService(nil, Config{JWTSecret: []byte("test")})

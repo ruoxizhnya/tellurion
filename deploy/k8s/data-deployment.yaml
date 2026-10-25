@@ -41,6 +41,15 @@ spec:
                   name: data-source-credentials
                   key: tushare-token
                   optional: true
+            # QT-71 / 裁-17：data-service 也必须验证入站 token —— 否则
+            # core / analytics 用 `service` 角色做的服务间调用到这里是裸的，
+            # 而 :8081 的写门（ingest、全量同步触发）只在 authz 策略表后面。
+            # 与 analysis / risk / analytics 共用同一把 secret。
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tellurion-jwt
+                  key: jwt-secret
           readinessProbe:
             httpGet:
               path: /health

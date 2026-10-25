@@ -1,0 +1,107 @@
+# analytics-service（tellurion-analytics）部署清单 —— QT-71 · 裁-17/裁-①
+#
+# 凭证纪律（只经 env，不落库、不进镜像）：
+#   - JWT_SECRET 来自 Secret `tellurion-jwt` 的 `jwt-secret`（验证入站 token）；
+#   - ANALYTICS_CORE_TOKEN / DATA_SERVICE_TOKEN 来自 Secret `service-tokens`
+#     （出站调 core / data 的 `service` 角色 token，裁-17）；
+#   - 轮换：JWT_SECRET 每 90 天、服务 token 每 30 天，见 deploy/README.md。
+#
+# 为什么显式给 -addr：analytics 默认监听 127.0.0.1:8087（本地形态），容器
+# 内回环不会被 Service 转发到；非回环 + 无 JWT_SECRET 时 kit 启动闸会拒绝
+# 启动，所以下面的 secretKeyRef 不可省略。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: tellurion
+  labels:
+    app.kubernetes.io/name: analytics-service
+    app.kubernetes.io/part-of: tellurion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: analytics-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: analytics-service
+        app.kubernetes.io/part-of: tellurion
+    spec:
+      containers:
+        - name: analytics
+          image: tellurion/analytics:latest
+          imagePullPolicy: IfNotPresent
+          args: ["-addr", "0.0.0.0:8087"]
+          ports:
+            - name: http
+              containerPort: 8087
+          envFrom:
+            - configMapRef:
+                name: tellurion-config
+          env:
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            # analytics 读 ANALYTICS_DATABASE_DSN（不是 database.*）。
+            - name: ANALYTICS_DATABASE_DSN
+              value: "postgres://postgres:$(DATABASE_PASSWORD)@postgres:5432/tellurion?sslmode=disable"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tellurion-jwt
+                  key: jwt-secret
+            # ── 上游地址（未给出的上游 fail-closed 成 503，不伪造结果）──
+            - name: ANALYTICS_CORE_URL
+              value: "http://analysis-service:8085"
+            - name: ANALYTICS_DATA_URL
+              value: "http://data-service:8081"
+            # ── 出站服务间凭证（裁-17）：`service` 角色，不是 trader ──
+            - name: ANALYTICS_CORE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: service-tokens
+                  key: analytics-core-token
+            - name: DATA_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: service-tokens
+                  key: data-service-token
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: tellurion
+  labels:
+    app.kubernetes.io/name: analytics-service
+    app.kubernetes.io/part-of: tellurion
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: analytics-service
+  ports:
+    - name: http
+      port: 8087
+      targetPort: http
