@@ -323,6 +323,68 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
+  /api/backtest/{id}/provenance:
+    get:
+      tags: [Backtest]
+      summary: Get run provenance (X0 identity + conclusion)
+      description: |
+        Reads `quant.run_provenance ⋈ backtest_jobs`. The three hashes and the
+        effective values come from the provenance table; **`result_status` comes
+        only from `backtest_jobs`** (K9 conclusion — `invalid` is a conclusion,
+        not a failure).
+
+        Three states use the same wire codes as tellurion-orchestration:
+
+        - `409 provenance_not_ready` — the run is not terminal yet; provenance
+          is written when it finishes.
+        - `404 provenance_not_found` — terminal `failed` / `cancelled` and no
+          provenance row: the run never produced one.
+        - `500 provenance_missing` — terminal `completed` / `invalid` but the
+          row is missing: data integrity is broken.
+
+        `404 job_not_found` means the backtest id itself does not exist.
+        Nullable columns are emitted explicitly as `null` (never omitted):
+        `artifact_uri` is always null on this read face because core's
+        provenance table has no URI column (the pointer belongs to the worker
+        projection), and `artifact_hash` / `version_hash` are null when the run
+        has no independent bytecode.
+      operationId: getBacktestProvenance
+      parameters:
+        - $ref: '#/components/parameters/BacktestId'
+      responses:
+        '200':
+          description: Run provenance and K9 conclusion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestProvenance'
+        '404':
+          description: |
+            `job_not_found` (no such backtest) or `provenance_not_found`
+            (terminal failed/cancelled run that never produced provenance).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`provenance_not_ready` — the run is not terminal yet.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: '`provenance_missing` — terminal completed/invalid run lost its provenance row.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The provenance reader is not wired in this deployment (`unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/backtest/compare:
     get:
       tags: [Backtest]
@@ -3737,6 +3799,87 @@ components:
   # Schemas
   # ============================================================
   schemas:
+    BacktestProvenance:
+      type: object
+      description: |
+        X0 identity + conclusion for one run (QT-72). Field names, nullability
+        and order mirror tellurion-orchestration's `provenanceView` exactly —
+        the two read faces describe the same concept and must not drift.
+      required:
+        - run_id
+        - run_spec_hash
+        - dataset_snapshot_hash
+        - risk_rules_hash
+        - strategy_ref
+        - artifact_uri
+        - artifact_hash
+        - version_hash
+        - params_hash
+        - seed
+        - kernel
+        - engine_version
+        - fill_timing
+        - result_status
+        - created_at
+      properties:
+        run_id:
+          type: string
+          description: Backtest / run id (the provenance row's primary key).
+        run_spec_hash:
+          type: string
+          description: Hash of the effective RunSpec (QT-03).
+        dataset_snapshot_hash:
+          type: string
+          description: Hash of the dataset identity (universe + window + calendar + adjustment basis).
+        risk_rules_hash:
+          type: string
+          description: Rule snapshot hash from tellurion-risk; empty string means "not configured" (never null).
+        strategy_ref:
+          type: string
+          description: Strategy reference (id@version) recorded at run start.
+        artifact_uri:
+          type: string
+          nullable: true
+          description: Always null on the core read face — core's provenance table has no URI column.
+        artifact_hash:
+          type: string
+          nullable: true
+          description: Bytecode hash; null when the run has no independent artifact (e.g. built-in Go strategy).
+        version_hash:
+          type: string
+          nullable: true
+          description: Strategy version hash; null when unavailable.
+        params_hash:
+          type: string
+          description: Hash of the effective strategy parameters.
+        seed:
+          type: integer
+          format: int64
+          nullable: true
+          description: RNG seed recorded at run start (0 is a real seed).
+        kernel:
+          type: string
+          description: Effective execution kernel name.
+        engine_version:
+          type: string
+          description: Version label of the executing engine.
+        fill_timing:
+          type: string
+          description: Effective fill timing (e.g. next_open).
+        result_status:
+          type: string
+          nullable: true
+          enum: [completed, invalid, failed]
+          description: |
+            K9 conclusion read **only** from `backtest_jobs`. `invalid` is a
+            completed run whose result is not usable — not a failure. Null
+            while the run is not terminal.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the provenance row was written.
+
     Error:
       type: object
       properties:

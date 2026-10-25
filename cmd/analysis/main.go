@@ -281,7 +281,14 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	registerOpenAPIRoutes(router)
 
 	registerProxyRoutes(router, httpClient, deps.Viper, deps.Logger)
-	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, deps.Logger)
+	// QT-72：X0 读面端口。与下面 factorRegistrationStore / referenceDataStore
+	// 同一约束 —— nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
+	// 到 handler 里才 panic；未接库时路由照常注册、请求时 503。
+	var provenanceReader backtestProvenanceReader
+	if deps.Store != nil && deps.Store.DB() != nil {
+		provenanceReader = deps.Store
+	}
+	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, provenanceReader, deps.Logger)
 	registerWalkForwardRoutes(router, deps.WFEngine, deps.Logger)
 	registerBatchRoutes(router, deps.BatchEngine, deps.Logger)
 	registerStrategyRoutes(router, deps.StrategyDB)

@@ -3,7 +3,9 @@ package main
 // REV-17：analysis-service 的「端点 × 最低角色」明文表。
 //
 // 规则（2026-10-16 主任裁决）：**所有 POST/PUT/PATCH/DELETE 至少 trader；
-// 管理面 admin**；登录类三条是 Public。
+// 管理面 admin**；登录类三条是 Public。2026-10-25 裁-17 追加第五档
+// Service：服务间凭证（`service` 角色）只能落在这一档，且与 trader/admin
+// 并列放行——它不是更高角色，也永远不进交易/管理面。
 //
 // 为什么逐条列而不是按前缀批量生成：批量规则（例如「/api/plugins/* 都 admin」）
 // 在新端点落进来时会**自动放行**，等于没有表态。逐条列 + 双向守卫测试
@@ -72,11 +74,34 @@ var analysisRoutePolicy = authz.Policy{
 		"POST /api/expression/validate",
 	},
 
+	// ── ReadOnlyGET：显式登记的读端点（QT-72）──
+	//
+	// 读端点由 auth.Middleware 的全局认证覆盖（已认证即可，与 GET
+	// /api/backtest/{id}/report 同档），本档不参与变更面执法。登记它是为了
+	// 让 X0 读面在策略表里有明文表态，并由守卫测试钉住「读端点不得混进
+	// 任何变更档位」。
+	ReadOnlyGET: []string{
+		// QT-72 · X0：三 hash + result_status 的对外读面（只读
+		// quant.run_provenance ⋈ backtest_jobs，不写任何表）。
+		"GET /api/backtest/:id/provenance",
+	},
+
+	// ── Service：服务间调用（裁-17，第五档）──
+	//
+	// 这里**只**放 core 对外承诺给机器调用方的端点。档位语义是 any-of 并列：
+	// service 与原本能调它的 trader / admin 同时放行（tellurion-kit 的角色
+	// 判定不做排序，service 不是「更高角色」）。服务 token 的配置泄露不得
+	// 等值于下单权，所以它**只能**出现在这一档，禁止混进 Trader / Admin。
+	Service: []string{
+		// 起一个回测（CPU/内存开销 + 写 backtest_jobs）。调用方是 worker /
+		// analytics 这类服务；真人 trader 与 admin 照旧可调。
+		"POST /api/backtest",
+	},
+
 	// ── Trader：其余全部变更端点 ──
 	Trader: []string{
 		// 回测 / 批量 / 走查 / 策略 CRUD
-		"POST /api/backtest", // 起一个回测（CPU/内存开销 + 写 backtest_jobs）
-		"POST /api/batch",    // 批量回测：任务数 × 并发，资源放大
+		"POST /api/batch", // 批量回测：任务数 × 并发，资源放大
 		"POST /api/walkforward",
 		"POST /api/strategies",
 		"PUT /api/strategies/:id",

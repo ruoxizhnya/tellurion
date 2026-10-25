@@ -70,7 +70,7 @@ func getReport(t *testing.T, eng *backtest.Engine, id string) *httptest.Response
 	reg := contracts.NewEngineRegistry()
 	reg.Register(contracts.DefaultKernel, eng)
 	// jobService 传 nil：这两条腿都命中内存读路径，不碰 job 服务。
-	registerBacktestRoutes(r, eng, reg, nil, nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, nil, nil, nil, zerolog.Nop())
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backtest/"+id+"/report", nil))
@@ -139,7 +139,7 @@ func seedStoredJob(t *testing.T, id, resultStatus, body string) (*gin.Engine, *m
 	require.NoError(t, store.UpdateJobCompleted(context.Background(), id, resultStatus, []byte(body)))
 
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, svc, nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, svc, nil, nil, zerolog.Nop())
 	return r, store
 }
 

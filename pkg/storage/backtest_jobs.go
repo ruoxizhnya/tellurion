@@ -166,6 +166,82 @@ func (s *PostgresStore) ListBacktestJobs(ctx context.Context, limit int) ([]map[
 	return results, rows.Err()
 }
 
+// QT-72 · X0 三 hash 对外读面（core 侧）。
+//
+// 一次读 `quant.run_provenance ⋈ backtest_jobs`：输入身份（三 hash / 生效值）
+// 来自留痕表，**结论轴（status / result_status）只从 backtest_jobs 取**。
+// 留痕表没有 status 列，也不许把某个 hash 列当结论用 —— 那会让「跑完但无效」
+// 与「根本没跑完」在对外响应里混成一个值。
+//
+// 可空性：LEFT JOIN 的右侧整行为 NULL 时 Provenance == nil；ResultStatus 空串
+// 表示 `backtest_jobs.result_status` 为 NULL（非终态）。
+type BacktestJobProvenance struct {
+	JobStatus    string
+	ResultStatus string
+	Provenance   *RunProvenanceRecord
+}
+
+// provenanceResultStatusExpr 是结论轴的唯一表达式。
+//
+// 破坏验证的锚点：把它换成 provenance 的任意 hash 列（例如 r.run_spec_hash），
+// TestQT72_ProvenanceResultStatusComesFromJobs 必须红。
+const provenanceResultStatusExpr = "COALESCE(b.result_status, '')"
+
+const backtestProvenanceSelectSQL = `
+	SELECT b.status,
+	       ` + provenanceResultStatusExpr + `,
+	       r.run_id,
+	       COALESCE(r.run_spec_hash, ''),
+	       COALESCE(r.dataset_snapshot_hash, ''),
+	       COALESCE(r.artifact_hash, ''),
+	       COALESCE(r.version_hash, ''),
+	       COALESCE(r.strategy_ref_input, ''),
+	       COALESCE(r.params_json, '{}'::jsonb),
+	       COALESCE(r.params_hash, ''),
+	       COALESCE(r.seed, 0),
+	       COALESCE(r.kernel, ''),
+	       COALESCE(r.engine_version, ''),
+	       COALESCE(r.fill_timing, ''),
+	       COALESCE(r.risk_rules_hash, ''),
+	       r.created_at
+	FROM backtest_jobs b
+	LEFT JOIN quant.run_provenance r ON r.run_id = b.id
+	WHERE b.id = $1
+`
+
+// GetBacktestJobProvenance 读一条 run 的「输入身份 + 结论」。
+// job 不存在 → (nil, nil)；job 在但留痕不在 → Provenance == nil。
+func (s *PostgresStore) GetBacktestJobProvenance(ctx context.Context, runID string) (*BacktestJobProvenance, error) {
+	var (
+		out       BacktestJobProvenance
+		runIDp    *string
+		rec       RunProvenanceRecord
+		createdAt *time.Time
+	)
+	err := s.pool.QueryRow(ctx, backtestProvenanceSelectSQL, runID).Scan(
+		&out.JobStatus, &out.ResultStatus,
+		&runIDp,
+		&rec.RunSpecHash, &rec.DatasetSnapshotHash, &rec.ArtifactHash, &rec.VersionHash,
+		&rec.StrategyRefInput, &rec.ParamsJSON, &rec.ParamsHash, &rec.Seed,
+		&rec.Kernel, &rec.EngineVersion, &rec.FillTiming, &rec.RiskRulesHash,
+		&createdAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get backtest provenance for %s: %w", runID, err)
+	}
+	if runIDp != nil {
+		rec.RunID = *runIDp
+		if createdAt != nil {
+			rec.CreatedAt = *createdAt
+		}
+		out.Provenance = &rec
+	}
+	return &out, nil
+}
+
 // DeleteBacktestJob deletes a pending job by ID.
 func (s *PostgresStore) DeleteBacktestJob(ctx context.Context, jobID string) error {
 	query := `DELETE FROM backtest_jobs WHERE id = $1 AND status = 'pending'`

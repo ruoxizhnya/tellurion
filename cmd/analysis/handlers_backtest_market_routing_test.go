@@ -98,7 +98,7 @@ func newMarketRoutingRouter(
 
 	jobSvc := backtest.NewJobService(store, reg, zerolog.Nop())
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, jobSvc, router, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, jobSvc, router, nil, zerolog.Nop())
 	return r, store, goKernel
 }
 

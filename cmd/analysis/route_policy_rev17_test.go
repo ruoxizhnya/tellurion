@@ -56,23 +56,27 @@ func TestRoutePolicy_CoversEveryMutatingRoute(t *testing.T) {
 
 	// 路由表：用不挂鉴权的装配（它注册的集合与生产相同，只是少了中间件）。
 	router := contractRouter(t)
-	registered := map[string]bool{}
+	allRegistered := map[string]bool{}
+	mutating := map[string]bool{}
 	for _, rt := range router.Routes() {
+		key := rt.Method + " " + rt.Path
+		allRegistered[key] = true
 		if authz.IsMutating(rt.Method) {
-			registered[rt.Method+" "+rt.Path] = true
+			mutating[key] = true
 		}
 	}
 
 	policy := analysisRoutePolicy.Entries()
 
 	var missing, extra []string
-	for k := range registered {
+	for k := range mutating {
 		if _, ok := policy[k]; !ok {
 			missing = append(missing, k)
 		}
 	}
+	// 表里写了的每一条（含只读 GET）都必须在路由表里真实存在。
 	for k := range policy {
-		if !registered[k] {
+		if !allRegistered[k] {
 			extra = append(extra, k)
 		}
 	}
@@ -86,25 +90,132 @@ func TestRoutePolicy_CoversEveryMutatingRoute(t *testing.T) {
 		"以下策略表条目在路由表里不存在（端点了/改名了，表得跟着改）：\n%s",
 		strings.Join(extra, "\n"))
 
-	// 档位只能是三选一，且同一路由不得重复登记（重复 = 谁生效说不清）。
+	// 档位只能是六选一，且同一路由不得重复登记（重复 = 谁生效说不清）。
 	for k, tier := range policy {
-		assert.Contains(t, []string{"public", "admin", "trader", "readonly-post"}, tier,
+		assert.Contains(t, []string{"public", "admin", "trader", "readonly-post", "service", "readonly-get"}, tier,
 			"%s 的档位非法：%s", k, tier)
 	}
 	total := len(analysisRoutePolicy.Public) + len(analysisRoutePolicy.Admin) +
-		len(analysisRoutePolicy.Trader) + len(analysisRoutePolicy.ReadOnlyPOST)
+		len(analysisRoutePolicy.Trader) + len(analysisRoutePolicy.ReadOnlyPOST) +
+		len(analysisRoutePolicy.Service) + len(analysisRoutePolicy.ReadOnlyGET)
 	assert.Equal(t, total, len(policy), "策略表里有重复条目（同一路由登记了两次）")
 }
 
-// TestRoutePolicy_ReadRoutesAreNotInTable：读端点不该出现在变更策略表里
-// ——它们由 auth.Middleware 的全局认证覆盖，本包不管（否则表会膨胀成路由副本）。
-func TestRoutePolicy_ReadRoutesAreNotInTable(t *testing.T) {
+// TestRoutePolicy_ServiceTierIsExactlyOneRoute 钉裁-17 的登记面：
+// service 只出现在 Service 档，且整个 core 只有一条。
+func TestRoutePolicy_ServiceTierIsExactlyOneRoute(t *testing.T) {
 	t.Parallel()
 
-	for k := range analysisRoutePolicy.Entries() {
-		method := strings.SplitN(k, " ", 2)[0]
-		assert.True(t, authz.IsMutating(method), "%s 不是变更方法，不该进变更策略表", k)
+	assert.Len(t, analysisRoutePolicy.Service, 1,
+		"core 的 service 档只该有 POST /api/backtest 一条（裁-17）")
+	assert.Equal(t, []string{"POST /api/backtest"}, analysisRoutePolicy.Service)
+
+	// 同一条路由不得同时出现在 Trader / Admin（否则「配置泄露 = 下单权」的
+	// 那道闸就被人从另一侧绕过了）。
+	assert.NotContains(t, analysisRoutePolicy.Trader, "POST /api/backtest")
+	assert.NotContains(t, analysisRoutePolicy.Admin, "POST /api/backtest")
+
+	// 反向：service token 不得落到交易端点所在的 Trader 档。
+	if tier, ok := analysisRoutePolicy.Entries()["POST /api/execution/orders"]; ok {
+		assert.Equal(t, "trader", tier)
 	}
+}
+
+// TestRoutePolicy_ServiceTokenCannotTrade 是裁-17 的行为腿：
+// 同一个 service token 能起回测，但不能下单；无 token 401；viewer 仍 403。
+func TestRoutePolicy_ServiceTokenCannotTrade(t *testing.T) {
+	t.Parallel()
+
+	svc := auth.NewService(nil, auth.Config{JWTSecret: []byte("qt71-service")})
+	require.True(t, svc.Enabled())
+	r := policyRouter(t, svc)
+
+	service := tokenFor(t, svc, auth.RoleService)
+	viewer := tokenFor(t, svc, auth.RoleViewer)
+
+	t.Run("service 调 POST /api/backtest 不被鉴权层拦", func(t *testing.T) {
+		w := policyPost(r, "/api/backtest", `{}`, service)
+		assert.NotEqual(t, http.StatusUnauthorized, w.Code, w.Body.String())
+		assert.NotEqual(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.NotContains(t, w.Body.String(), "no authorization policy")
+	})
+
+	t.Run("service 调下单端点 403", func(t *testing.T) {
+		w := policyPost(r, "/api/execution/orders", `{}`, service)
+		assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), `"have":"service"`)
+	})
+
+	// 上面那条走的是**生产链**（策略层 + execution handler 自己的
+	// RequireRole 双闸）；即使策略层被改坏，handler 闸也会兜出 403，所以
+	// 它不能单独证明「矩阵本身拒绝 service 打交易档」。这一条剥掉业务
+	// handler，只留策略层，是破坏验证的锚点：把 service 塞进 Trader 档的
+	// 放行集合 ⇒ 这里立刻变成 200 而不是 403。
+	t.Run("策略层本身拒绝 service 打 Trader 档", func(t *testing.T) {
+		mr := gin.New()
+		mr.Use(svc.Middleware())
+		mr.Use(authz.Middleware(svc, analysisRoutePolicy))
+		mr.POST("/api/execution/orders", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		w := policyPost(mr, "/api/execution/orders", `{}`, service)
+		assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		assert.Contains(t, w.Body.String(), `"have":"service"`)
+	})
+
+	t.Run("无 token 起回测 401", func(t *testing.T) {
+		w := policyPost(r, "/api/backtest", `{}`, "")
+		assert.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+	})
+
+	t.Run("viewer 起回测仍 403", func(t *testing.T) {
+		w := policyPost(r, "/api/backtest", `{}`, viewer)
+		assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	})
+}
+
+// TestRoutePolicy_ProvenanceReadIsAuthenticatedOnly：QT-72 的读面与
+// GET /api/backtest/{id}/report 同档（已认证即可，viewer 也行）；无 token 401。
+//
+// policyRouter 装配的 provenance reader 为 nil ⇒ 通过鉴权后会拿到 503
+// （装配缺失），这正好证明「请求已经过了鉴权层」。
+func TestRoutePolicy_ProvenanceReadIsAuthenticatedOnly(t *testing.T) {
+	t.Parallel()
+
+	svc := auth.NewService(nil, auth.Config{JWTSecret: []byte("qt72-read")})
+	r := policyRouter(t, svc)
+	viewer := tokenFor(t, svc, auth.RoleViewer)
+
+	t.Run("viewer 可读", func(t *testing.T) {
+		w := policyGet(r, "/api/backtest/bt-1/provenance", viewer)
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code,
+			"通过鉴权后应到达 handler（未接线 → 503）：%s", w.Body.String())
+	})
+
+	t.Run("无 token 401", func(t *testing.T) {
+		w := policyGet(r, "/api/backtest/bt-1/provenance", "")
+		assert.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+	})
+}
+
+// TestRoutePolicy_ReadRoutesAreRegisteredSeparately：读端点由
+// auth.Middleware 的全局认证覆盖，**不得**混进任何变更档位；QT-72 的 X0
+// 读面带一条明文登记，落在 ReadOnlyGET（而不是往变更表里塞一条 GET）。
+func TestRoutePolicy_ReadRoutesAreRegisteredSeparately(t *testing.T) {
+	t.Parallel()
+
+	for k, tier := range analysisRoutePolicy.Entries() {
+		method := strings.SplitN(k, " ", 2)[0]
+		if authz.IsMutating(method) {
+			assert.NotEqual(t, "readonly-get", tier, "%s 是变更方法，不能进只读 GET 档", k)
+			continue
+		}
+		assert.Equal(t, "readonly-get", tier,
+			"读端点 %s 只能登记在 ReadOnlyGET，不得混进变更档位", k)
+	}
+
+	assert.Equal(t, []string{"GET /api/backtest/:id/provenance"},
+		analysisRoutePolicy.ReadOnlyGET,
+		"QT-72：X0 读面必须且只能登记这一条")
 }
 
 // TestRoutePolicy_ViewerIsForbidden：行为腿——viewer 打 trader/admin 端点必须 403。
@@ -182,6 +293,17 @@ func TestRoutePolicy_PublicRoutesReachableWithoutToken(t *testing.T) {
 func policyPost(r *gin.Engine, path, body, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// policyGet 发一个 GET（可选 Bearer）。
+func policyGet(r *gin.Engine, path, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

@@ -144,6 +144,76 @@ func TestIntegration_RunProvenance_RiskRulesHashRoundTrip(t *testing.T) {
 	assert.Equal(t, riskHashHex, joined)
 }
 
+// TestIntegration_BacktestJobProvenance_Join 是 QT-72 的真 PG 腿：
+// 一行 return 的 result_status 必须来自 backtest_jobs（K9 的 invalid），
+// 而不是 provenance 的任意 hash 列。
+func TestIntegration_BacktestJobProvenance_Join(t *testing.T) {
+	store, ctx := setUp(t)
+	const runID = "qt72-join-run"
+
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(ctx, `DELETE FROM quant.run_provenance WHERE run_id = $1`, runID)
+		_, _ = store.pool.Exec(ctx, `DELETE FROM backtest_jobs WHERE id = $1`, runID)
+	})
+
+	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
+		"id":          runID,
+		"strategy_id": "momentum",
+		"params":      `{"backtest_id":"` + runID + `"}`,
+		"universe":    "600000.SH",
+		"start_date":  "2024-01-02",
+		"end_date":    "2024-06-28",
+		"status":      "pending",
+	}))
+	// 跑完但结论无效：status 仍是 completed，result_status 是 invalid。
+	require.NoError(t, store.UpdateJobCompleted(ctx, runID, "invalid", []byte(`{"status":"invalid"}`)))
+	require.NoError(t, store.SaveRunProvenance(ctx, qt63Record(runID)))
+
+	row, err := store.GetBacktestJobProvenance(ctx, runID)
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	require.NotNil(t, row.Provenance, "有留痕时必须读回三 hash")
+	assert.Equal(t, "completed", row.JobStatus)
+	assert.Equal(t, "invalid", row.ResultStatus,
+		"result_status 必须来自 backtest_jobs；invalid 不得被读成 failed 或 hash")
+	assert.Equal(t, qt63Record(runID).RunSpecHash, row.Provenance.RunSpecHash)
+	assert.Equal(t, qt63Record(runID).DatasetSnapshotHash, row.Provenance.DatasetSnapshotHash)
+	assert.Equal(t, qt63Record(runID).ParamsHash, row.Provenance.ParamsHash)
+	assert.NotEqual(t, row.Provenance.RunSpecHash, row.ResultStatus)
+	assert.NotEqual(t, row.Provenance.DatasetSnapshotHash, row.ResultStatus)
+}
+
+// TestIntegration_BacktestJobProvenance_AbsentRow：job 在但留痕不在 ⇒
+// Provenance == nil（三态由 handler 按 job 两轴决定）；job 也不在 ⇒ (nil,nil)。
+func TestIntegration_BacktestJobProvenance_AbsentRow(t *testing.T) {
+	store, ctx := setUp(t)
+	const runID = "qt72-no-provenance"
+
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(ctx, `DELETE FROM backtest_jobs WHERE id = $1`, runID)
+	})
+
+	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
+		"id":          runID,
+		"strategy_id": "momentum",
+		"params":      `{}`,
+		"universe":    "600000.SH",
+		"start_date":  "2024-01-02",
+		"end_date":    "2024-06-28",
+		"status":      "completed",
+	}))
+
+	row, err := store.GetBacktestJobProvenance(ctx, runID)
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Nil(t, row.Provenance, "没有留痕行时不得伪造三 hash")
+	assert.Equal(t, "completed", row.JobStatus)
+
+	missing, err := store.GetBacktestJobProvenance(ctx, "qt72-no-such-job")
+	require.NoError(t, err)
+	assert.Nil(t, missing, "job 不存在时返回 (nil, nil)")
+}
+
 func TestIntegration_RunProvenance_ConflictFailsLoud(t *testing.T) {
 	store, ctx := setUp(t)
 	const runID = "qt63-conflict-run"

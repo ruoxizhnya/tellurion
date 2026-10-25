@@ -38,9 +38,11 @@ type backtestRequestEnvelope struct {
 	Market string `json:"market"`
 }
 
-func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, logger zerolog.Logger) {
+func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, provenanceReader backtestProvenanceReader, logger zerolog.Logger) {
 	api := router.Group("/api/backtest")
 	{
+		// QT-72：X0 三 hash 对外读面（读 quant.run_provenance ⋈ backtest_jobs）。
+		registerBacktestProvenanceRoute(api, provenanceReader, logger)
 		api.GET("", func(c *gin.Context) {
 			limit := 20
 			if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
