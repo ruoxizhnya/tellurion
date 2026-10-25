@@ -52,6 +52,9 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | **横切** | QT-50~52、QT-62 | 装配外移 / 执行 port / 市场摩擦核实 / **宿主区与模块数据段重叠的可证性**（QT-01 残余） | P1 | 与 W1 可并行，撞 `pkg/backtest` 的按序号串行；QT-62 前置是「地址空间权威」定则，不阻塞 W1 |
 | **横切** | QT-66 ✅ | `risk_rules_hash` 生产接线（provenance 恒空串，F3） | P1 | **已完成（2026-10-25）**；裁-10 provider 每次 run 调 `POST /api/risk/resolve`（`cmd/analysis/wiring` 注入），裁-11 空串只留 `not_configured`、其余 run `failed` + `risk_rules_unavailable`；两引擎共用同一装配函数 |
 | **横切** | QT-67 ✅ | 日历 / 上市窗口只读端点（D24 第 7 类动作，2026-10-24 已裁） | P1 | **已完成（2026-10-24）**；`GET /api/v1/trading-calendar` + `POST /api/v1/listing-windows`，只读、JWT/RBAC 复用、存储未装配 503；openapi 双向对拍 + wire 形状反射互锁；agent 侧删 import 与白名单收窄归 QT-17 ③ |
+| **横切** | QT-71 ⬜ | 服务间凭证：`service` 角色 + 长期 token（**裁-17 定稿**） | P1 | 前置 QT-50 ④（机制已落）+ 部署清单；与 QT-72 / QT-73 文件域不重叠 |
+| **横切** | QT-72 ⬜ | X0 三 hash 对外读面落 core（**裁-19 定稿**） | P1 | 前置 QT-63（表与写入已落）；orchestration 端点保持 `producer_pending` |
+| **横切** | QT-73 ⬜ | core 横切包切 kit 一期（**裁-18 定稿**：零语义五包 90 处） | P1 | 二期 `statistics`/`httpserver` 先补 kit（KT-10），另单 |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
 **并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 新增 4 个 host 函数（8 → 12），那第一个会打穿 agent 编译的改动点在它身上，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。
@@ -1128,6 +1131,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **判据改写（可执行）**：(甲) 只核 `POST /api/v1/ohlcv/bulk` 一条，其余六条 GET 的「带凭证」是**为 (乙) 预备**而不是修 401，台账与注释都不许写成修了 401；(乙) 的前置在 data 仓的端点与档位；(丙) 三条出站各带凭证 + 无 secret 回环仍免密 + 缺凭证 ⇒ 401（不许静默降级成 `not_configured`）。
 > **三腿共用的前置缺的那一条（新增待拍）**：验收写的是「开 secret 的部署下跨服务调用 200」，而**今天没有任何一份清单开得动这个 secret**（core 的 compose 只给 analysis / ai，k8s 里没有 X 线服务，risk / analytics 仓无部署清单）。所以 B6-2 真正的第一条活不是传凭证，是**一份把 `JWT_SECRET` 打到 risk / data / analytics 上的部署改动 + 一条「服务间 token 从哪来」的裁决**；没有它，三腿的验收都只能靠测试桩，上线即哑火。**凭证来源建议**：全 workspace 今天只有共用一把 `JWT_SECRET`，没有 `SERVICE_TOKEN` 之类的分发面；裁-15 给 orchestration 缓做的理由（「客户端是 worker，token 分发是新的失败面」）对 (丙) 同样成立 ⇒ 建议沿用共用 `JWT_SECRET`、由服务端签一个 `trader` 角色的长期 access token、经配置项注入（不落库、不进镜像），但**这条要主任拍**。
 >
+> **裁-17 定稿（2026-10-25）**：采纳**专设 `service` 角色 + 长期 access token**，**否决**上一条建议里的「签一个 `trader` 角色的长期 token」。否决理由是可证的风险不对称：`trader` 同时能调 `POST /api/execution/orders` 与 emergency-flatten（`pkg/auth/auth.go:55-57`），把这张 token 放进 risk/data/analytics 任意一份配置，等于把实盘下单权复制到每个服务的 env 里；`service` 在策略层永远拿不到交易端点，泄露面小一个量级。同步路径（请求本身带用户 token）仍优先转发用户 token，服务 token 只兜后台路径（alertLoop → risk events、未来 worker → core）。落地拆到 **QT-71**；kit 侧签发入口见 **KT-09**。token 口径：`sub=service:<repo>`、TTL 30d、只经 env 注入、不落库不进镜像；`RoleService.CanTrade()/CanAdmin()` 恒 false 并有守卫测试。
+>
 > **⑤ 错误码 / 限流**：随每条 endpoint 写进 `docs/openapi.yaml`（400/401/403/429/502/503）；
 > 限流沿用全局 `RateLimiter`（新端点不豁免，`/api/auth/status` 那三条豁免未动）。
 >
@@ -1302,6 +1307,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⑦ ⑤ 验收逐条**：join 查询 ✅（真库集成腿）；8 个旋钮端到端 ✅（不是只测 builder：每条都从 `RunBacktest` 进、从注入的 sink 出）；DDL 走 `migrationStatements()` ✅（Migration 056 + 幂等腿）。未加 `GET /api/runs/{id}/provenance`（⑥ 边界，属 QT-44）。
 >
 > **⑧ 干净 checkout 复核（`git worktree add --detach` @ `df16f6d`，2026-10-22）**：`gofmt -l .` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（全套，零 `FAIL`）；`go test -tags integration ./pkg/storage/ -run 'TestIntegration_RunProvenance|TestIntegration_MigrateIsIdempotentForModuleTables'` **EXIT=0**（dockertest 真 PG）；`python tools/check_doc_links.py` **EXIT=0**。
+>
+> **⑨ 裁-19 定稿（2026-10-25）：三 hash 对外读面落 core。** 理由：三 hash 由 core 引擎计算（本单写入路径），orchestration 只持有 job 指针；它的 `GET /api/runs/{id}/provenance` 已落但**生产者未落**（`tellurion-orchestration:docs/ARCHITECTURE.md:75`），今天查真实 run 恒 404/500。故：
+> - **core 新增** `GET /api/backtest/{id}/provenance`（读 `quant.run_provenance ⋈ backtest_jobs`）；`result_status` **只从 `backtest_jobs` 取**，不塞进 provenance 表；三态与 orchestration 的 `provenanceView` 逐项一致（409 `provenance_not_ready` / 404 `provenance_not_found` / 500 `provenance_missing`，`invalid` 不是 `failed`）。落地见 **QT-72**。
+> - **`run.run_artifacts` 重新定义为「worker 写的投影」**：生产者是未来的 worker（执行完从 core 响应写入），**core 不做双写**；worker 落地前 orchestration 端点保持 `producer_pending`，不作为生产读面。
+> - **本单边界不变**：不在此加 orchestration 端点（⑥ 原文仍成立）；本单只登记裁决。
 
 ---
 
@@ -1531,6 +1541,33 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 1. 取数用 `ohlcv_daily_qfq`（前复权日线），与回测口径一致；不带复权基准冻结 / 快照 hash —— 这是「看一眼 regime」的粗粒度快照，不是可复现 run。
 > 2. 未起真库：取数腿用 fake store；`GetOHLCV` 本身已有既有的存储集成测试。
 > 3. 区间行数不足检测器 warmup（`SlowMAPeriod`）时，仍是检测器返回的 DataQuality → handler 500（与内联形状同口径），本单未改错误分级。
+
+### QT-71 · 服务间凭证：`service` 角色 + 长期 token（裁-17 定稿）[P1] ⬜
+
+- **① 目标**：服务间调用使用**专用 `service` 角色**的长期 access token，而不是复用 `trader`；配置里的一个字符串泄露不得等于拿到实盘下单权。
+- **② 上下文（2026-10-25 实测）**：三条出站腿需要的角色各不相同——risk 的 `POST /api/risk/resolve` / `POST /api/risk/events` = `trader|admin`（`tellurion-risk:internal/httpapi/policy.go`），data 的 `/datasets/resolve`、`/datasets/{hash}` = `viewer|trader|admin`（`tellurion-data:internal/httpapi/policy.go`），core 的 `POST /api/backtest` = `trader`（[route_policy.go](../cmd/analysis/route_policy.go)）。全 workspace 只有共用一把 `JWT_SECRET`，没有服务账号分发面。**裁-17 定稿否决 trader 复用**：`trader` 同时能调 `POST /api/execution/orders` 与 emergency-flatten（`pkg/auth/auth.go:55-57` CanTrade）；`service` 在策略层永远拿不到交易端点。同步路径优先转发用户 token，服务 token 只兜后台路径（alertLoop → risk events、未来 worker → core）。
+- **③ 要求**：① `pkg/auth` 增 `RoleService Role = "service"`，**进 `IsValid()`**（否则签出的 token 在解析期就被判非法），`CanTrade()` / `CanAdmin()` 恒 false；② `pkg/authz.Policy` 增第五档 `Service []string`，`Middleware` 增一分档 `auth.RequireRole(auth.RoleService)`，`Entries()` 出 `"service"`；③ core 的 `route_policy.go` 只在 `POST /api/backtest` 登记 service（**禁止**出现在 `Trader` / `Admin` 列表）；④ risk 的 resolve / events 两条 Roles 加 `"service"`（`/audit` 不加）；⑤ data 的 `/datasets/resolve`、`/datasets/{hash}` Roles 加 `"service"`；⑥ 签发入口见 kit **KT-09**（`v0.1.2`）；⑦ 部署清单把 `JWT_SECRET` 与各服务 token env（`RISK_SERVICE_RESOLVE_TOKEN` / `DATA_SERVICE_TOKEN` / `ANALYTICS_CORE_TOKEN`）打到点位，轮换周期写进部署文档。
+- **④ 约束与非目标**：不复用 trader / admin token；`service` 不得进入下单、撤单、资金划转、用户管理任意一条路由；不改 JWT 签发/刷新机制（service token 不经过 `/api/auth/refresh`）；不引入 mTLS；不把 token 真值写进入库 YAML。
+- **⑤ 验收**：service token 调 `POST /api/risk/resolve`、`GET /datasets/*`、`POST /api/backtest` 均 200；同一 token 调 `POST /api/execution/orders` 403；无 token 401；viewer token 调 resolve 仍 403（新增档位不放松既有语义）；`RoleService.CanTrade()==false` 守卫测试；`route_policy.go` 的 service 登记行数 == 1；部署清单静态检查断言三处 env 存在。
+- **⑥ 边界**：core 的角色/档位与自身策略表；risk / data 的策略表各自由本仓改（跨仓腿在各自台账）；不含 analytics 出站代码（`-core-token` / `-data-token` 已落）。
+
+### QT-72 · X0 三 hash 对外读面落 core（裁-19 定稿）[P1] ⬜
+
+- **① 目标**：给真实 run 一个今天就能用的 `GET /api/backtest/{id}/provenance`，读 `quant.run_provenance ⋈ backtest_jobs`。
+- **② 上下文（2026-10-25 实测）**：core 有表（Migration 056）与写入路径、**没有端点**；orchestration 已有 `GET /api/runs/{id}/provenance` + `ArtifactStore`，但**生产者未落**（`tellurion-orchestration:docs/ARCHITECTURE.md:75`），真实 run 查不到行。三 hash 由 core 引擎计算，orchestration 只该拿指针。**裁-19 定稿**：读面落 core；`run_artifacts` 重新定义为「worker 写的投影」，**core 不做双写**。
+- **③ 要求**：① `GET /api/backtest/{id}/provenance` 返回 QT-63 ⑦ 的 15 列 + `result_status`（**只从 `backtest_jobs` 取**，不塞进 provenance 表）；② 三态与 orchestration 的 `provenanceView` 逐项一致：非终态 409 `provenance_not_ready`；终态 `failed` / `cancelled` 无行 404 `provenance_not_found`；`completed` / `invalid` 无行 500 `provenance_missing`（`invalid` 不是 `failed`）；③ 可空列显式 `null`，不省略键；④ 鉴权与 `GET /api/backtest/{id}/report` 同档（读路径，已认证即可）；⑤ openapi 登记端点与三态；⑥ DTO 字段名与 orchestration `provenanceView` 逐字对齐。
+- **④ 约束与非目标**：不在本单让 core 写 `run_artifacts`；不改 QT-03 canonical 与 `quant.run_provenance` 列清单；不动 orchestration 代码；不把 `status` 塞进 provenance 表。
+- **⑤ 验收**：真 run 返回三 hash + `result_status`；四个三态用例；可空列 `null`；DTO 与 orchestration 侧字段名逐项对拍；破坏验证：把 `result_status` 的来源从 `backtest_jobs` 换成 provenance 的任意 hash 列 ⇒ 结论轴用例红，还原后绿。
+- **⑥ 边界**：core 读面；worker → `run_artifacts` 的写入与身份对拍归 QT-44。
+
+### QT-73 · core 横切包切 kit（一期：零语义五包，裁-18 定稿）[P1] ⬜
+
+- **① 目标**：把 core 的 `errors` / `decimal` / `clock` / `logging` / `httpclient` 换成 kit 同名包并删掉 core 目录——同一能力只保留一份实现。
+- **② 上下文（2026-10-25 实测）**：core 侧 import 点数 `errors` 32、`decimal` 1、`clock` 27、`logging` 26、`httpclient` 4，合计 **90 处**（约占 190 处横切 import 的 47%）。`errors`（4806/4806 字节）与 `decimal`（17702）与 kit **字节相同**；`clock` / `logging` / `httpclient` 导出面逐项相同。**二期**：`statistics`（20 处，kit 缺 `LogReturns` / `AnnualizeVolatility`）、`httpserver`（34 处，kit 缺 `LoopbackOnly` / `IsLoopbackRemoteAddr`）→ 先补 kit（KT-10）。**不切**：`observability`（core `Metrics` 注册 backtest/llm/wasm 业务指标，12966 vs 4110 字节）、`auth`（DB/bcrypt/bootstrap）、`authz`（gin 四档表 + `pkg/auth.Role` vs kit 的 Rule map + free-form role）、`sandbox/wasm`（kit 无对应物）、`id`（1 处，`OrderID` 是业务命名）。
+- **③ 要求**：① core `go.mod` 增 `require github.com/ruoxizhnya/tellurion-kit v0.1.1`（与已用 kit 的仓同版本）；② 只改 import 路径、**保留既有别名**（如 `apperrors`），不逐处改名；③ 五个 core 目录删除，不留转发壳；④ `go build ./... && go vet ./... && go test ./...` 全绿；⑤ 破坏验证：把某一处 `apperrors.Wrap` 换成 `fmt.Errorf` 应导致对应错误分级测试红（证明换包不是纯文本替换）。
+- **④ 约束与非目标**：不许顺手改语义（超时、重试次数、日志字段）；不切二期三包；不删 core `pkg/observability` 的业务指标；不动 `pkg/auth` / `pkg/authz`。
+- **⑤ 验收**：`grep -rn '"tellurion/pkg/\(errors\|decimal\|clock\|logging\|httpclient\)"'` 零命中；五个目录不存在；全仓测试绿；`python tools/check_contract_pin.py` 仍绿（不新增跨仓 replace）。
+- **⑥ 边界**：一期只搬五个包；`statistics` / `httpserver` 及其他包各自另单（二期），kit 侧补函数见 KT-10。
 
 ---
 
