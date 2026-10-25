@@ -31,6 +31,7 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 | ⑬ | `producer_pending` 字段名 | **允许 QT-72 自定并两侧同步**；**删掉「等编排」这一层**——`producer_pending` 是多余的第四态 | core：`docs/TASKS.md` QT-72 ② | 待落 |
 | ⑭ | promote 闸门的审批人身份 | **审批人取 JWT claims 的 `sub`**；闸门落在 **agent 仓**、strategy 侧只保留状态机 | strategy：`docs/TASKS.md` 登记；core QT-32 | 待落 |
 | ⑮ | QT-73「零语义五包」前提 | **已被 QT-73 落地实测订正**（`clock` 的 8 处引用全在被删目录内 ⇒ 保留代码零引用；`logging`/`httpclient` 两条行为差异如实登记） | core：`docs/TASKS.md` QT-73 完成记录 | ✅ 已落 |
+| **⑯** | ⛔ **service token 在 httpadapter 上必然 401**（2026-10-25 18:45 实测新发现） | **待裁**：三个方向（放宽 httpadapter 校验 / 强制数字 subject / 按 role 分流），**本轮不替你选** | kit（发版 `v0.1.4`）+ risk / data / analytics（升 pin） | ⛔ 待裁 |
 
 ---
 
@@ -215,16 +216,50 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 
 ### ⑭ promote 闸门的审批人身份 —— **取 JWT claims 的 `sub`**
 
+> **⚠️ 2026-10-25 18:45 实测订正（本条的前提被推翻，裁决从「可施工」降级为「只出决策材料」）**
+> 原文保留（不删改历史），但**落地前提已被证伪**：
+> - **strategy 仓零鉴权** —— 全仓 `grep "JWT_SECRET|Bearer |Authorization|RequireRole|Roles\b"` = **0 命中**；**没有**任何 auth / role / guard / middleware 命名的 `.go` 文件；`go.mod` 只有 contracts `v0.5.0`、**没有 `tellurion-kit`** ⇒ kit 的 `auth` 包**根本没进这个仓**；`internal/httpapi/api.go:42-56` 的 **12 条路由全部无保护**（含 `POST /api/strategies/{id}/versions/{hash}/promote` 与 `/internal/*` 四条）。
+> - **也没有调用方** —— core 全仓 `grep "/promote"` = **0 命中** ⇒ 今天既没有鉴权、也没有人调它。
+> ⇒ **「从 JWT claims 取审批人」在 strategy 仓今天没有承载体**。本条改为**只出决策材料**（三个可选面 + 各自代价），由协调者裁「审批人从哪来」后再谈施工。见 [第二批分组方案 §5 ⑫](cross-repo-dispatch-plan-wave2-2026-10-25.md)。
+
 **裁决**
-1. **审批人身份取 JWT claims 的 `sub`**（沿用 core 既有先例：risk 仓的 `actorOf` 从 claims 取、缺失退 subject；core `pkg/auth` 有 `sub` claim）。
+1. **审批人身份取 JWT claims 的 `sub`**（沿用 core 既有先例：risk 仓的 `actorOf` 从 claims 取、缺失退 subject；core `pkg/auth` 有 `sub` claim）。**—— ⚠️ 此条的前提在 strategy 仓不成立，见上方订正。**
 2. **闸门落在 agent 仓**（AI 生成侧；审批是人的动作）；**strategy 侧只保留状态机**（`Promote` 端点已在，但**要加一个必填的审批人入参**并落进 `compile_log` 或新表）。
 3. **不许 caller 自报身份** —— 沿用 risk 仓 `Actor` 字段用 `json:"-"` 防自报的做法，或直接从 JWT claims 取。
 
 **依据（实测）**：strategy 全仓 `approved_by|approver|audit` = **0 命中** ⇒ **无审批人字段、无独立审计表**；`internal/asset/pgstore.go:393` `Promote(...)` 的 `log` 参数在 `service.go` 调用处**硬编码为 `"promoted"`** ⇒ 落进 `strategy.strategy_artifacts.compile_log` 的只有「结论」，**没有「谁批的」**。
 
 **落地动作**
-1. strategy 侧 `Promote` 端点增**必填**审批人入参 + 落库（`compile_log` 追加，或新开 `strategy.strategy_promotions` 审计表，留痕三件套：**审批人 / 时间 / 结论**）。
-2. agent 仓 QT-32-A 把「promote 人工闸门」写成必经步骤；验收含「未过 promote 的产物被回测路径拒绝（fail-closed 用例）」。
+1. strategy 侧 `Promote` 端点增**必填**审批人入参 + 落库（`compile_log` 追加，或新开 `strategy.strategy_promotions` 审计表，留痕三件套：**审批人 / 时间 / 结论**）。**—— ⚠️ 前置：先裁「审批人从哪来」（面 A / B / C）。**
+2. agent 仓 QT-32-A 把「promote 人工闸门」写成必经步骤；验收含「未过 promote 的产物被回测路径拒绝（fail-closed 用例）」。**—— ✅ 已落**（`tellurion-agent:docs/TASKS.md` 的 QT-32-A）。
+
+**代价**：③-② 要求的「闸门记录进审计，审批人/时间/结论留痕」**只落三分之一**（今天只有「结论」的一部分）⇒ AI 产物的生产责任链断在「谁批的」这一环，日后无法追责。**且闭环的最后一环缺的不是「审批留痕」，是「谁来调它 + 调它的人可信吗」**（core 侧 0 调用方 + strategy 侧 0 鉴权）。
+
+### ⑯ ⛔ **service token 在 httpadapter 上必然 401**（2026-10-25 18:45 实测新发现，需裁决）
+
+> **这是本轮实测逮到的真缺陷，不是台账问题**：裁-17 的 `service` 角色方案在 kit 侧签得出 token，但在服务侧**解析不过去**。
+
+**实测（kit 仓 `v0.1.1`，risk / data / analytics 三仓都在用这个版本）**
+- `tellurion-kit:auth/service_token.go:26` 的 `IssueServiceToken(subject, role string, ttl time.Duration)` **允许任意非空 subject**（`:30` 只查空/空白；`:42` `Username: subject`、`:46` `Subject: subject` 原样签进 claims）。
+- kit 自带测试正是这么用的：`auth/service_token_test.go:16` `IssueServiceToken("service:risk", "service", ttl)`、`:41` `IssueServiceToken("service:data", …)`。
+- 但 `tellurion-kit:auth/httpadapter/httpadapter.go:139-141`：`if _, err := claims.UserIDInt64(); err != nil { return nil, "malformed token subject", ErrUnauthenticated }`。
+- 而 `auth/claims.go:29` 的 `UserIDInt64()` 做的是 `strconv.ParseInt(c.Subject, 10, 64)` ⇒ **`subject = "service:risk"` 解析失败 ⇒ 401**。
+- `auth/middleware.go:63` 与 `auth/auth.go:201` 也各有一处 `UserIDInt64()`。
+
+⇒ **后果**：任何按 KT-09 签出来的 service token，送到 risk / data / analytics 的 net/http 适配层都会拿到 **401 `malformed token subject`** ⇒ **裁-17 的整条服务间链路今天走不通**。
+
+**为什么两条测试都绿**（这是本缺陷最该记住的一层）
+- kit 的 `service_token_test.go` **只验签发侧**（`require.NoError` + `require.NotEmpty`），**没有把 token 送进 `httpadapter.Authenticate`** ⇒ 签得出就算过。
+- risk 的 `TestPolicy_*` 走的是 `IssueTokens(1, …)` 的**数字 subject**（`tellurion-risk:internal/httpapi/auth_test.go:55`）⇒ 数字能过 `ParseInt`，**夹具绿不等于生产链路绿**。
+
+**需你裁（三个方向，本轮我不替你选）**
+1. **放宽 `httpadapter` 的 subject 校验** —— 承认「service 主体不是用户 id」；**代价**：`httpadapter` 是三个服务仓共用的鉴权面，改它要发 kit 新 tag（`v0.1.4`）且 risk/data/analytics 三仓**同步升 pin**（今天都钉在 `v0.1.1`）。
+2. **让 `IssueServiceToken` 强制 subject 为数字** —— **代价**：与「service 主体要可读」（`service:risk` 这种）冲突；且会与 core 的 `pkg/auth` 的 `RoleService` 主体口径分叉（core 自己怎么签还没定）。
+3. **在 `httpadapter` 里按 `claims.Role` 分流** —— 用户 token 走 `UserIDInt64()`，service token 走另一条解析。**代价**：`httpadapter` 是共用的 ⇒ 与方向 1 同样要发版 + 三仓升 pin。
+
+**⚠️ 无论选哪个方向，kit 的 `service_token_test.go` 必须补一条「签出来的 token 能被 `httpadapter.Authenticate` 接受」的用例** —— 这条缺了，同类缺陷还会再犯。
+
+**落地位置**：kit 仓（发版）+ risk / data / analytics 三仓（升 pin）。**本轮不安排 agent 施工，等裁决。**
 
 ---
 

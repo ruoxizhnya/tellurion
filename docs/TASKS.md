@@ -909,7 +909,11 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **④ 本代做，不划出**：② 原文要求「若产品侧改判『G6/M2 不在本代范围』，则删除本单并在执行顺序总览显式声明划出，**不得沉默**」——本轮**不划出**，本单继续在册。
 > **依据（实测）**：③ 的三条依赖**已全绿**（QT-41b ✅ / QT-41 ✅ / QT-03 ✅）；promote 端点**已存在**（`tellurion-strategy:internal/httpapi/api.go:46` `POST /api/strategies/{id}/versions/{hash}/promote`；服务层 `internal/asset/service.go:466` `Promote` 带状态机 `StatusValidated → StatusPromoted` 与 `cache.InvalidateLatest(id)` 同刻失效）；agent 仓 AI 能力已具备（`pkg/ai/` 下 16 个包）。
-> **拆两步**：**第一步补 promote 闸门的审批留痕**（见 ⑭），**第二步做 AI 侧接线**。**AI 生成侧归 agent 仓**（④ 已定「不搬进 core」，ADR-023 同条）—— agent 侧已立 `QT-32-A`（`tellurion-agent:docs/TASKS.md`，🔶 施工中）。
+> **拆两步**：**第一步补 promote 闸门的审批留痕**（见 ⑭），**第二步做 AI 侧接线**。**AI 生成侧归 agent 仓**（④ 已定「不搬进 core」，ADR-023 同条）—— agent 侧已立 `QT-32-A`（`tellurion-agent:docs/TASKS.md`），**2026-10-25 已 ✅ 完成（范围 = ①~⑥）**。
+>
+> **⚠️ 2026-10-25 18:45 实测订正（⑭ 的落地前提被推翻）**：`QT-32-A` 虽已 ✅，但它登记的 ⑦ 是后续单，其中 ⑦③ 明写：「『未过 promote 的产物被回测路径拒绝』的**执行侧**那条腿在 core + 资产服务（**QT-32 主单 ⑤**），本仓无法替它作证」⇒ **本单 ⑤ 的执行侧腿仍待做**。
+> 而该腿的落点（promote 端点）**今天既无鉴权也无调用方**：strategy 仓**零鉴权**（全仓 `JWT_SECRET|Bearer |Authorization|RequireRole|Roles\b` = **0 命中**、无 auth/role/guard/middleware 文件、`go.mod` **无 `tellurion-kit`**、`internal/httpapi/api.go:42-56` 的 **12 条路由全部无保护**），core 全仓 `grep "/promote"` = **0 命中**。
+> ⇒ **本单 ⑤ 在「审批人从哪来」被裁之前不可施工**；详见 [第二批分组方案 H8 与 §5 ⑫](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)。
 >
 > **⑭ 审批人身份 = JWT claims 的 `sub`；闸门落在 agent 仓，strategy 侧只保留状态机**
 > **依据（实测）**：strategy 侧**审计维度缺两项** —— 全仓 `approved_by|approver|audit` = **0 命中**（无审批人字段、无独立审计表）；`internal/asset/pgstore.go:393` `Promote(...)` 的 `log` 参数在 `service.go` 调用处**硬编码为 `"promoted"`** ⇒ 落进 `strategy.strategy_artifacts.compile_log` 的只有「结论」，**没有「谁批的」**。
@@ -1080,7 +1084,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **QT-40 X1a 的 core 腿 ✅（2026-10-25，`go build/vet/test ./...` 全绿）**：contracts **`v0.6.0`**（2026-10-24 发版、远端 tag 已推）新增 `dataprotocol/`（`UnifiedDataPoint` 七字段含 `VisibleAt` + `ToJSON` / `DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465）。本仓 `require v0.6.0`；`pkg/data/source/unified.go` 的本地类型**改别名**（读墙钟的 `NewUnifiedDataPoint` 留 core——契约刻意不读时钟，ADR-0004；`Deduplicate` / `DeduplicateWithCount` 这两个切片助手也留 core）；`pkg/storage/bulk_insert.go:17` 那份「为避开 import 环」的存储副本同步改别名，`pkg/data/source/etl.go` 的身份投影 `toStoragePoints` 删除。守卫：`pkg/data/source/unified_contract_test.go` / `pkg/storage/bulk_insert_projection_test.go`（类型必须 == 契约类型；破坏验证：改回本地 struct ⇒ 红，逐字节还原 ⇒ 绿）。数据仓侧见 `tellurion-data:docs/TASKS.md` X1a（✅）。**常量腿已收编（2026-10-25）**：`pkg/data/source/adapter.go` 的 15 个 `DataType*` 改为 `dataprotocol.DataType*` 别名（导出名不变、调用点零改；契约改值时本包取值随编译期变化），包内字面量零残留；守卫 `TestSourceDataTypeConstantsMatchContract`（破坏验证：把 `DataTypeOHLCDaily` 改成本地错误字面量 ⇒ 红，逐字节还原（`sha256 3d9ea025…`）⇒ 绿）；`internal/repoguard` 的 `adapter.go` 直连物理表白名单条目随之删除（棘轮只减不增）。`go build/vet/test ./...` 全绿。
 
-> **QT-40 H4 ① 的 core 腿（core 停第二写者）✅（2026-10-25，`go build/vet/test ./...` 全绿：70 个包 ok / 0 FAIL，`gofmt -l .` 空，三条 live tag 各自 `go vet -tags` 干净）**
+> **QT-40 H4 ① 的 core 腿（两条作业停写；「schema 内所有表停写」未达成）🔶（2026-10-25，`go build/vet/test ./...` 全绿：70 个包 ok / 0 FAIL，`gofmt -l .` 空，三条 live tag 各自 `go vet -tags` 干净）**
 >
 > **工单前提先核对再动手（三条被源码证伪，按裁决改派）**：① 「core→data 直接调 `store.BulkInsert`」**编译不可能** —— `tellurion-data/internal/*` 跨 module 不可 import，且本仓 `AGENTS.md` §3 禁 import 别仓实现包；② 本仓**没有作业层可挂**（`sync_jobs` / worker / 调度都在 core），而传输实现按禁区**不许**搬进来 ⇒ 「把 `ETLPipeline` 挂到本仓同步作业」这条只能以「core 经 HTTP 投点」的形态成立；③ 腿 1 的验收句「schema 内所有表停第二写者」比工单点名的两个 `NewETLPipeline` 站点宽得多（实测另有无前缀写点与 `ingest.raw` 归档腿），因此**腿 3（物理 `SET SCHEMA`）本轮不做**，登记见「未落」。主任裁决：**data 出写端点，core 经 HTTP 投点**（`tellurion-data:docs/adr/0006`）。
 >
@@ -1096,7 +1100,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **三条 live 腿的形状跟着变了（如实）**：`data10live` / `dbt09live` / `dbt10live` 现在经真 `ingestWriteClient` 投给一个**真的** data-service（env `H4_LIVE_INGEST_URL` + `INGEST_WRITE_TOKEN`，缺则显式 skip），读回仍由测试自己查 —— 它们因此是本单那条「core → 真 data-service → 真库」的跨进程腿。共用的真库读回夹具挪进 `cmd/data/capital_flow_db_live_test.go`（挂在那三个 tag 上），默认构建从此不再 import `pkg/storage` / `pkg/testenv`。**顺带逮到一处从未执行的假证据**：`readCapitalFlowRows` 写死按探针 `888888.SH / 888889.SH` 过滤，而 `data10live` 跑的是 `600519.SH` ⇒ 那条 `require.NotEmpty(readBack)` 永远会红；这条腿自 2026-10-16 起死在 `Execute`（源不可达）所以从没走到过。现改成按调用方给 symbol。
 >
-> **未落（如实，不写成已完成）**：① **`ingest.raw` 归档腿仍在 core 写**（`pkg/data/tushare.go` 的 `call()` → `archiveRaw` → `pkg/storage/ingest_raw.go:62`），工单验收句「cmd/data 不再写 `market.`/`ingest.`」因此在**这一条上未达成** —— 它是原始源响应归档，不属 `ETLPipeline` 那一族，本单没动；② 其余同步腿（ohlcv / stocks / fundamentals / calendar / index_constituents / sectors / limit_up_pool）照旧在 core 写，「schema 内所有表停第二写者」比工单点名的两个站点宽，剩下的按 X1 后续切；③ **物理 `SET SCHEMA` 搬迁（腿 3）未做**：写点没归一之前搬表会把两边同时打断（`DATA_MARKET_SCHEMA` 过渡开关仍是空串走 `public`）；④ 跨进程那条腿**本机没跑过**（需要真 data-service 进程 + 配好的 token；`data10live` 的源侧今天仍不可达），所以「端到端已验收」这句话不写；⑤ 409 是**不可重试**的新失败类：老语义 `DO UPDATE` 静默覆盖过的历史行，重跑同一窗口时会被对端判成内容冲突 —— 处置只有「确认上游改了历史后受控修正」，代码里已点名，运维手册未写。⑥ 默认 `ingest_write.base_url` 为空 ⇒ **未配置的部署里这两条作业一律失败**（刻意不回落本地写；`compose` 未接，属 QT-71 同族的部署动作）。
+> **未落（如实，不写成已完成）**：① **`ingest.raw` 归档腿仍在 core 写**（`pkg/data/tushare.go` 的 `call()` → `archiveRaw` → `pkg/storage/ingest_raw.go:62`），工单验收句「cmd/data 不再写 `market.`/`ingest.`」因此在**这一条上未达成** —— 它是原始源响应归档，不属 `ETLPipeline` 那一族，本单没动；② 其余同步腿（ohlcv / stocks / fundamentals / calendar / index_constituents / sectors / limit_up_pool）照旧在 core 写，「schema 内所有表停第二写者」比工单点名的两个站点宽，剩下的按 X1 后续切；**`market.index_daily` 另有一条独立写路径**（`pkg/storage/index_daily.go:31` 的 `INSERT INTO market.index_daily`，调用链 `pkg/data/tushare.go:929` → `cmd/data/handlers_sync.go:88` → `cmd/data/main.go:155`），它不在 `NewTableMapper()` 的 13 个映射里，2026-10-25 二次实测仍活；其余 ETL 的裸表名写 **`public.*`**（`pkg/storage/bulk_insert.go` 的 `TableFor` 返回 `ohlcv_daily_qfq` 等裸名，本仓无 `search_path`）——这些表在 `tellurion-data` 的 `TableNames()` 里已登记为 `market.*` 所有；③ **物理 `SET SCHEMA` 搬迁（腿 3）未做**：写点没归一之前搬表会把两边同时打断（`DATA_MARKET_SCHEMA` 过渡开关仍是空串走 `public`）；④ 跨进程那条腿**本机没跑过**（需要真 data-service 进程 + 配好的 token；`data10live` 的源侧今天仍不可达），所以「端到端已验收」这句话不写；⑤ 409 是**不可重试**的新失败类：老语义 `DO UPDATE` 静默覆盖过的历史行，重跑同一窗口时会被对端判成内容冲突 —— 处置只有「确认上游改了历史后受控修正」，代码里已点名，运维手册未写。⑥ 默认 `ingest_write.base_url` 为空 ⇒ **未配置的部署里这两条作业一律失败**（刻意不回落本地写；`compose` 未接，属 QT-71 同族的部署动作）。
 
 > **QT-42 X3c 的 core 腿（告警生产侧接线）✅（2026-10-25，二批改形态）**：risk 的 `GET /api/risk/monitor/alerts` 与 `/monitor/evaluate` **只读 `risk.risk_events`**、且只投影 `verdict="alert"` 的行，而这类事件此前**零生产者** ⇒ 两个端点恒返回空集（risk 仓 `docs/api-schema.md` §「生产侧接线未落」自证登记）。新增 [cmd/analysis/wiring/risk_events.go](../cmd/analysis/wiring/risk_events.go)：`RiskEventSink` 实现 `alert.Channel`，把 `pkg/alert` 六个检测器的告警**与经 `AlertManager.Fire` 进来的对账 / 双跑差异**先落成 `quant.alert_outbox` 的一行，再由后台 relay 按批 `POST /api/risk/events`（外层信封 `{"events":[…]}`——risk 对信封 `DisallowUnknownFields`，多余键即 400）。
 >
@@ -1215,14 +1219,19 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **⚠️ 上面那句已过期（同日 2026-10-25 结案，B6-1）**：agent 对 core 实现包的 import 现为 **0 处**，`go.mod` 既无 `require tellurion` 也无任何 `=>`，CI 不再 checkout core —— `replace ../tellurion` 已删（判据与取证记在 QT-07 ⑥ 结案两条里）。G10 那句「六类动作的 HTTP 客户端」是 agent 侧的**功能余项**，不再是 S3 的前置。本条原文照留只为记录当时的判断，**不要照抄进新单**。
 
-### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] ⬜
+### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] 🔶（实现已在未合入分支，待复取 + 裁决）
 
 - **① 目标**：改实盘撮合不会悄悄改变回测口径；两者共享的是**契约**，不是实现。
-- **② 上下文**：BE-02；`engine.go`、`execution/live_bridge.go`、`options.go` 三处 import `pkg/live`；BE-02 一直只有"待切 port"的意向，无设计。
+- **② 上下文**：BE-02；实测 `pkg/backtest` 对 `pkg/live` 的 import 在 **6 个文件**（3 生产：`engine.go` / `options.go` / `execution/live_bridge.go`；3 测试：`fakes_test.go` / `signal_reconcile_e2e_test.go` / `execution/live_bridge_test.go`）——原写「三处」只是生产面；main 上无设计，设计在未合入分支（见下）。
 - **③ 要求**：① 定义 `ExecutionPort`（下单/撮合/成交回报）；② 回测实现与实盘实现各自独立；③ 若保留"同构桥"为有意设计，必须写明并在测试里锁住"改 live 不改回测结果"。
 - **④ 约束与非目标**：不动 Order/Trade 值对象；不改 T+1 簿记；不引入 MQ。
 - **⑤ 验收**：`pkg/backtest` 对 `pkg/live` 的 import 为 0（或仅剩接口适配层且有护栏）；同一策略回测结果在改动 live 前后逐位一致。
 - **⑥ 边界**：只做执行语义边界；通道网关是 QT-45。
+
+> **⚠️ 2026-10-25 实测订正（状态不是 ⬜）**：实现已在**未合入**的 worktree 分支 `task/qt51-execution-port`（`7c89aae`，**不在 origin**，基线 `170f09a` 落后 main 6 笔）——
+> `pkg/backtest` 对 `pkg/live` import = **0**；`pkg/backtest/execution/port.go` 已落 `ExecutionPort`；设计见 `docs/design/qt-decoupling/qt51-execution-port.md`、等价性报告见 `docs/test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md`（两文件都在该分支上，main 没有）。
+> **分支自述「已裁决并落地（2026-10-26）」，但 main 的 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 没有这条裁决** ⇒ 合入前需主任确认。本单在 main 上记 **🔶**，不记 ✅。
+> **未复跑**：本机 `PATH` 无 `go`（`go: command not found`），分支的门禁输出是自述，不是本轮复取结果；复取命令见 [`cross-repo-dispatch-plan-wave2-2026-10-25.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) 的 H2 节。
 
 ### QT-52 · 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价）[P1] ✅（2026-10-22）
 
@@ -1398,6 +1407,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **⑦-1 阻塞（根本）：参数词典不存在。** risk 的 `SnapshotRule.Params` 是 opaque JSONB，四类规则**没有任何成文字段名 / 单位**（risk 自证夹具就是 `{"pct":2.5}` / `{"max_pct":10}`，`tellurion-risk:internal/rule/snapshot_test.go:143-144`）；本仓的限额面是 14 个标量（[pkg/risk/manager.go:13-28](../pkg/risk/manager.go#L13) ← [pkg/bootstrap/engine.go:38-51](../pkg/bootstrap/engine.go#L38) 的 `risk_manager.*`）。两边对不上表 ⇒ 只能由 core 猜单位（`max_pct = 10` 是 10% 还是 10 倍？差两个数量级），正面撞 H3 自己的禁区「不许在 core 侧自造一套 risk 规则解释」。`risk.limits` 补不上洞：`tellurion-risk:docs/db-schema.md` §1 明写「只建表，读写路径与端点未冻结」。⇒ **源头立单 `QT-74`**（正文在 `tellurion-risk:docs/TASKS.md`，本仓不镜像），顺序 **QT-74 → `Snapshot`/`Bundle` 迁 contracts 发版 → core 消费**，不可颠倒。
 > - **⑦-2 工单的迁仓口径与计划冲突**：H3 写「迁 contracts 是本单前置子步，不是可选项」，而本仓派发计划 [cross-repo-dispatch-plan-2026-10-25.md](design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md) 第 3 节派发块 G4 原文裁的是「**迁 contracts 是下一张单，不是本单**」。按后者执行：本批**不发 contracts 版本**——词典未定就迁形状，等于把一个零外部消费方的 DTO 升格成契约（contracts `AGENTS.md` §3 禁「只有单个仓使用的类型」，也正是该仓 `service-dto-migration-decision-material.md` §0 对 QT-45/QT-43 判「不迁」的同一条理由）。
 > - **⑦-3 工单自述的串行前置未落**：H3 写「与 H1 的 QT-71 同仓串行」，实测 QT-71 本仓 ①~③ **未开工**（`pkg/auth` grep `RoleService` = **0 命中**、`cmd/analysis/route_policy.go` 无 service 档位、本文件 QT-71 状态仍 ⬜）⇒ H3 排在了自己的前置之前。
+>   > **⚠️ 2026-10-25 18:45 实测订正（这条的前置已落）**：QT-71 **已于 2026-10-25 落地**（core `aaf37bc` / `134b283`）——实测 `pkg/auth/auth.go:40` `RoleService Role = "service"` **已在**、`:48` `IsValid()` 已含它（`{viewer, trader, admin, service}`）、`:63`/`:70` `CanTrade`/`CanAdmin` 恒 false 的注释已在、`cmd/analysis/route_policy.go` 已有 Service 档位、部署清单已到 10 份（新增 `risk-deployment.yaml` / `analytics-deployment.yaml`）。⇒ **⑦-3 的「前置未落」已过期**；H3 的当前真实阻塞**只剩 ⑦-1（参数词典 → QT-74）**。
+>   > **⚠️ 但 ⑦-4 已升级为 ⛔ 阻塞**：service token 在 kit 的 `httpadapter` 上**必然 401**（`IssueServiceToken` 允许非数字 subject，而 `httpadapter.go:139` 用 `UserIDInt64()` 要求 `ParseInt`）⇒ **裁-17 的服务间链路今天走不通**。裁决与三个方向见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑯。
 > - **⑦-4 生产 `service` token 到不了角色判定**（risk 已报协调者，源码复核成立）：`tellurion-kit:auth/httpadapter/httpadapter.go:139-141` 对非数字 subject 直接 401，而 `tellurion-kit:auth/service_token.go:46` 把裁-17 的 `sub=service:<repo>` 原样签进 `Subject`。两条腿的测试都没覆盖这条缝：kit 的 httpadapter 测试里 `IssueServiceToken` 零命中，risk 的 `TestPolicy_*` 走 `IssueTokens(1, …)` 的数字 subject（`tellurion-risk:internal/httpapi/auth_test.go:55`）⇒ **夹具绿不等于生产链路绿**。
 > - **⑦-5 订正一处取包口径（利好）**：工单要求 core 走 `bundle`，实测 `resolve` 的响应**已整包内嵌快照**（`tellurion-risk:internal/httpapi/api.go:127-130` `resolveBody.Snapshot`），且 `resolve` 已开 `service` ⇒ **不需要**给 `GET /snapshots/{hash}/bundle` 开档位，risk 未落项第 5 条的「若 core 直接拉 bundle 需新开一单」条件**不触发**。
 > - **⑦-6 验收按实测拆读（三条里两条已在账）**：「改 risk 规则 → `run_spec_hash` 变」✅（`TestQT66_RiskRulesHashIsRecordedAndMovesRunSpec`，[pkg/backtest/qt66_risk_rules_test.go:113](../pkg/backtest/qt66_risk_rules_test.go#L113)）；「同 hash 两次逐位一致」+「篡改 ⇒ `ErrSnapshotMismatch` fail-closed」✅（risk 侧 `TestAPI_ResolveLatestAndSnapshotByteIdentity` + `internal/rule/snapshot_test.go:266` 篡改腿）；**唯一未落 = 「run 的限额来自 risk 快照」**，被 ⑦-1 卡住 ⇒ 本单不整条关闭，H3 主体记 **⛔ 等 `QT-74`**。
@@ -1889,7 +1900,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    另：⑧ 的「真库落库日期」那条腿今天**确认拿不到** —— `docker ps` 无输出（引擎未运行）且仓内无 `.env`
 >    （无 DSN），不是忘了跑。
 
-> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。**2026-10-25 订正**：裁-16（DBT-14）已裁决并施工完成（本单 ✅）；其余四单仍为 ⬜ —— **材料不等于裁决**；DBT-15 未执行任何 `DELETE` / `TRUNCATE`。
+> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。**2026-10-25 订正**：裁-16（DBT-14）已裁决并施工完成（本单 ✅）。**⚠️ 2026-10-25 再订正（本句原写的「其余四单仍为 ⬜ …… DBT-15 未执行任何 `DELETE` / `TRUNCATE`」已被随后的裁决与执行推翻）**：裁-05~裁-09 已全部落定（裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑤⑥⑦⑧）——**DBT-15 / 16 / 17 / 18 四单现均为 ✅**（DBT-15 的删除**已执行**，164+2 行、`12,134 → 11,968`，见本文件 DBT-15 完成记录）。**「材料不等于裁决」这条仍然成立**（材料只是本单的输入），但**「其余四单仍为 ⬜」与「DBT-15 未执行任何 DELETE」两句已过期，不得再引用**。
 
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ✅（2026-10-25） · **裁-16：改实现，两者都吃、落库归一**
 

@@ -102,6 +102,13 @@
 
 **现状（2026-10-24 实测；口径裁决：按代码对齐，本节原写 7 项含 `params_defaults` 作废）**：contracts 的 `engine/provenance.go` 仍**没有** `StrategyVersionInput` / `DomainStrategyVersionHash`；`tellurion-strategy:internal/asset/hash.go` 已先落 6 项 `VersionInput` + 域标签 `tellurion.strategy_version_hash.v1`，并把「域标签未收编」登记为本仓风险。收编时以 contracts 为准；**改域标签会让全部历史 `version_hash` 失效，必须升 v1 → v2**。
 
+> **⚠️ 上面那段「现状」已过期（2026-10-25 实测订正）** —— 本节是 2026-10-23 定盘的快照，随后 QT-22 契约腿已落地：
+> - `tellurion-contracts:engine/provenance.go:65` **有** `type StrategyVersionInput struct`、`:78` `func (in StrategyVersionInput) Hash()`、`:90` `MustHash()`；
+> - `tellurion-contracts:engine/canonical.go:59` **有** `DomainStrategyVersionHash = "tellurion.strategy_version_hash.v1"`。
+> ⇒ **「仍没有」这半句已被证伪**；「改域标签会让全部历史 `version_hash` 失效，必须升 v1 → v2」这条**仍然有效**（域标签若再改，历史 hash 一样作废）。
+> 同批实测：QT-16 的域标签 `DomainRunIdentityHash`（`tellurion-contracts:engine/canonical.go:66` = `"tellurion.run_identity_hash.v1"`）也**已存在** ⇒ §2.5 的裁决已落地。
+> 另注：QT-22 契约腿随 contracts **`v0.5.0`** 发版（core 台账 QT-22 行），`tellurion-strategy` 的 pin 也是 `v0.5.0`。
+
 **边界**：QT-22 只做算法 + 向量测试，**core 不接线**。因此 contracts 的这一定义必须**先于任何使用方**落地，避免各仓自算。
 
 ### 2.5 QT-16 的 contracts 腿（本表新裁，需在 16 开工前确认）

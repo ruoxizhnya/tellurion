@@ -174,6 +174,12 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | U7 | **compliance / alert 的归属**（M5 对账 R4） | `tellurion-risk:AGENTS.md` §1 已把它们列进该仓「今天的实现」；ADR-027 §2.4 判 compliance「并入 ai-service 或留回测服务，**不单列**」 | 倾向**拆开**：六个检测器留 core 进程内（§2.1 簇① 的 `alertLoop`），通道编排 + 报送出仓 risk；**代价**：risk 仓 AGENTS §1 那句要改写，QT-42 ④ 的「不重复造」才成立 | QT-42 的「聚合监控」半边（⑥ 推给后续切片）现在无法定验收——它取决于这一条 |
 | U8 | **`factor_hypothesis` 的 owner**（M5 对账 R6） | 三方相反：ADR-027 §4 B 类 = ai-service；SPEC-R-02（2026-10-21 ✅）= tellurion-data；QT-17 ⑥ = 「按 QT-40」 | 倾向**归 `ai.*`**（它是 ADR-023 的实验日志，不是仪器域数据）；**代价**：SPEC-R-02 结案表出订正条 + `tellurion-data:docs/db-schema.md` §1.3 撤认领行 | 影响 QT-40 X1d 的 schema 归属清单，与 QT-17 的 `ai.*` 表名单（二者会各自把它写进自己的迁移） |
 
+> **✅ 裁决（2026-10-25，主任口径）· U6 与 U8**（裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](cross-repo-decision-record-2026-10-25.md) ⑪）
+>
+> - **U8 = 现在就裁 = 归 `ai.*`**（`tellurion-agent` 仓）。**依据**：它是 ADR-023 的实验日志、不是仪器域数据；且 U8 **正好命中 `tellurion-data` 的 X1d schema 归属清单**与 `tellurion-agent` 的 `ai.*` 表名单（二者会各自把它写进自己的迁移）⇒ 越晚裁越要写两次。**落地动作**：① 本表 U8 行改判；② `tellurion-data:docs/db-schema.md` §1.3 **撤认领行**；③ `tellurion-agent` 的 `ai.*` 表名单加一行。
+> - **U6 = 本轮不裁**（在册，等触发条件）。**依据**：台账倾向已是「先作 `tellurion-data` 内的独立包」，且 **U6 不阻塞本轮任何单**——它只影响将来是否升格为第 13 个仓。本轮显式标注「本轮不裁」，**不许默认当作已裁**。
+> - **U7 已于 2026-10-24 裁为「拆分」**（检测器留 core、通道编排与报送归 risk）⇒ 本表 U7 行可同步改判；`tellurion-risk:docs/TASKS.md` 文首已登记该裁决。
+
 > **原 U1（已裁，不再讨论）**：`cmd/dualrun` 归 core 还是 orchestration —— 2026-10-20 裁决 **留 core**，理由与被否选项见 §3。
 > 附纠正：我先给的理由「它读订单/成交（运行域真相）」**不准确** —— 它读的是**回测内**的成交明细（`pkg/backtest/tracker` 在进程内产出），
 > 不碰实盘 `quant.orders` / `fills`。真正的理由是「同进程链接两套内核」+「引擎验收门」，这两条都不随 X5 改变。
