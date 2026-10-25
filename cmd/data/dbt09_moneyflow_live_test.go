@@ -63,12 +63,14 @@ func TestDBT09MoneyflowLiveFillsCapitalFlow(t *testing.T) {
 	end := referenceTradeDate(t, ctx, store, symbols[0])
 	start := end.AddDate(0, 0, -dbt09LookbackDays)
 
-	// 走**生产链**：buildDataSourceRegistry + 真 TushareClient。store 传进去，
+	// 走**生产链**：buildDataSourceRegistry + 真 TushareClient。store 传进 client，
 	// 于是 call() 的归档腿（tushare.go:220）顺带给 ingest.raw 落真快照 ——
 	// 这条腿的副产品正是 DBT-11 需要的证据形态。
+	// 写面同样是真的（H4 ①：core 不再落 market 这一族），所以读回前先投给
+	// 一个真 data-service；缺 H4_LIVE_INGEST_URL 时显式 skip。
 	client := data.NewTushareClient(token, "https://api.tushare.pro", 3, store, nil)
 	reg := buildDataSourceRegistry(client, logging.Logger)
-	exec := &capitalFlowExecutor{reg: reg, persist: store}
+	exec := &capitalFlowExecutor{reg: reg, write: liveIngestPoster(t)}
 
 	params, err := json.Marshal(map[string]any{
 		"symbols":    symbols,

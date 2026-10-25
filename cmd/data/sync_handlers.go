@@ -52,10 +52,15 @@ type SyncHandler struct {
 	// （DBT-10 接的线）—— 其余执行器仍走 e.tc 直连线，那条路径是 DATA-08
 	// 认定的现状，一源一单，不在这里顺手归一。
 	registry *source.Registry
+	// ingestWrite 是跨仓写面（QT-40 H4 ①）：上面那两个执行器的落库那一跳。
+	// nil = 未配置 `ingest_write.base_url` ⇒ 两条作业 fail-loud 失败，
+	// 不回落 `h.store` 的 BulkInsert —— 那等于把本单要消灭的第二写者
+	// 藏进一条 fallback 分支里。
+	ingestWrite pointsPoster
 }
 
 // NewSyncHandler creates a new SyncHandler.
-func NewSyncHandler(store *storage.PostgresStore, tc *data.TushareClient, dc *data.DataCache, registry *source.Registry) *SyncHandler {
+func NewSyncHandler(store *storage.PostgresStore, tc *data.TushareClient, dc *data.DataCache, registry *source.Registry, ingestWrite pointsPoster) *SyncHandler {
 	queue := sync.NewQueue(store)
 	jobService := sync.NewJobService(store)
 	// Wake idle workers when a job becomes pending outside Queue.Enqueue
@@ -99,6 +104,7 @@ func NewSyncHandler(store *storage.PostgresStore, tc *data.TushareClient, dc *da
 		tushareClient: tc,
 		dataCache:     dc,
 		registry:      registry,
+		ingestWrite:   ingestWrite,
 	}
 }
 
@@ -144,10 +150,12 @@ func (h *SyncHandler) RegisterExecutors() {
 	h.workerPool.RegisterExecutor(&splitsExecutor{tc: h.tushareClient, store: h.store})
 	// DATA-10：第一条接进作业层的多源链。registry 为 nil 时执行器会在
 	// Registry.Fetch 处 fail-loud（`etl: nil registry`），作业如实失败。
-	h.workerPool.RegisterExecutor(&capitalFlowExecutor{reg: h.registry, persist: h.store})
+	// H4 ① 之后落库改投 data-service：`ingestWrite` 为 nil（未配 base_url）
+	// 同样 fail-loud，不回落本地写库。
+	h.workerPool.RegisterExecutor(&capitalFlowExecutor{reg: h.registry, write: h.ingestWrite})
 	// DBT-10：第二条接进作业层的多源链（top_list: [eastmoney_toplist]）。
-	// 同一条 nil-registry 纪律：装配漏了 Registry 就当页失败、作业如实失败。
-	h.workerPool.RegisterExecutor(&topListExecutor{reg: h.registry, persist: h.store})
+	// 同一条 nil 纪律：装配漏了 Registry 就当页失败、作业如实失败。
+	h.workerPool.RegisterExecutor(&topListExecutor{reg: h.registry, write: h.ingestWrite})
 }
 
 // ---- Legacy Sync Endpoints (transformed to job creation) ----

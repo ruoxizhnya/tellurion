@@ -837,7 +837,9 @@ fail-loud 跳行计数，与数值列强转失败同形）。守卫见
 `available_date` = 披露日且 ≥ 报告期截止日、缺失落 NULL 回落 trade_date
 （与生产路径 `SaveFundamentalBatch` 同形）；破坏两腿（摘 `ann_date` /
 加回幻影列）均红。**仍登记**：`ETLPipeline.Process` 零生产调用方
-（DATA-08），本路径当前不可达，修复消灭的是**潜在洞**而非现行前视；
+（DATA-08；2026-10-25 QT-40 H4 ① 之后重新实测仍为零 —— 曾经唯一的两个调用点
+`capital_flow_executor.go` / `top_list_executor.go` 已改成投点，`pkg/data/source/etl.go`
+只剩定义本身，repoguard 的白名单同批清空为空名单），本路径当前不可达，修复消灭的是**潜在洞**而非现行前视；
 `ohlcv_daily_qfq` 的 mapper 列集存在同类幻影列问题（其他数据类型列集，
 另立）；ETL 路径不写 `end_date`（wire 未承载该字段），
 `GetFundamentalsSnapshot` 的 `ORDER BY available_date DESC, end_date DESC`
@@ -1887,6 +1889,62 @@ position_size = min(
 | `top_list` | **256 行**（0 → 256；窗口 2026-09-21~09-24，`source=eastmoney_toplist`） | ⚠️「接口可得 / 无 producer → 登记」→ ✅ **已接线并灌数**。且原登记的「无 producer」**不准确**：`EastmoneyTopListAdapter.fetchTopList` 自 ODR-011 就在册（`pkg/data/source/eastmoney_sectors_adapter.go:440`，注册 `cmd/data/registry_init.go:76`），缺的从来是**作业层那一段**（job_type 枚举 + params + executor + Normalizer + 类型化门 case）；`eastmoney_adapter.go:86-89` 那句「Sprint 2+ will add top_list」是过期注释 | `1a1bb38`；真源腿 `cmd/data/dbt10_top_list_live_test.go`（tag `dbt10live`）：后缀核对 200 行、`\|net_buy\| ≤ buy+sell` 量纲核对 200 行。**顺带修掉两处真缺陷**（都是 httptest 永远抓不到的）：① 东财 datacenter 的 filter 语法是括号串联 `(A)(B)`，用 `(A) and (B)` 它**不报错、整条当没看见**，回按 TRADE_DATE 倒序的第 1 页 ⇒ 窗口外三周的数据照样落库、作业照样 completed（真源对照：and 版返回 2026-10-19/pages=372，串联版返回 2026-09-24/pages=100）；另加一道与语法无关的兜底 `checkTopListWindow`（回来的行越界就整页失败，一行都不交出去）。② `parseEastmoneyDate` 不认源实际返回的 `"2026-09-24 00:00:00"`（带时刻），于是每行日期都掉进它那个「解析失败回落 `time.Now()`」⇒ 落库日期全变成今天；已补齐带时刻两种形状；**回落本体已由 DBT-13 收口（2026-10-21）**：`parseEastmoneyDateStrict` 认不出即返回 `ok=false`，三个调用点（`fetchTopList` + juchao 两处）全部迁过去，juchao 改按实测形状读 `announcementTime`（epoch **毫秒**，折成交易所日历日）并以 `adjunctUrl` 日期段兜底，两处都读不懂 ⇒ 拒收该行 |
 | `fundamentals_detail` | **0 行**（但写入链路已端到端真跑一次：`0 → 5 → 0`，零残留） | ❌ 阻塞理由**证伪并改写**。旧登记「依赖 `ingest.raw` 归档快照，当前无 raw 入库（`EQD-P1-2` 待做）」两句皆假：`ingest.raw` 今天 **12,108 行**，自动归档腿早在生产装配里（`pkg/data/tushare.go:220` `call()` 内 → `pkg/data/tushare_raw.go:31 archiveRaw` → `pkg/storage/ingest_raw.go:50 SaveRawIngest`，跑任一 Tushare 同步即落快照），EQD-P1-2 亦已于 `7b5dd8e`（2026-09-15）结案。真正缺的两件：① **没有生产者**往 `POST /api/ingest/equitydeep` 投 snapshot；② Tushare 免费权限**给不出**所需 8 个 field_code | `1764598`（DBT-11，**生产代码零改动**）。取证是**纯读库、0 次 API 调用**：全仓 25 条 `tushare.fina_indicator` 的 `fields` 只有一种形状 `[ts_code, ann_date, end_date, roe, roa, gross_margin]`，与 `total_revenue` / `operating_cost` / `contract_liability` / `ocf_net` / `net_profit_attr` / `total_assets` / `equity_attr` / `inventory` 一个都不对得上，这 6 名经字典 raw_names 查找全部 miss。⇒ **仍不可得**，但原因改写成「需要 EquityDeep 侧产出 snapshot」，工单 DBT-16；读方降级语义 `ErrNoFundamentalsDetail`（`pkg/data/equitydeep/equitydeep.go:67`）。同批 `pkg/data/equitydeep` 覆盖率 **0% → 100%**（ODR-055 的最高优先遗留）；并登记一处契约漂移 DBT-14：`snapshot.schema.json` 把 `fetched_at` 声明为 `format: date-time`，实现只收 `YYYY-MM-DD`（`equitydeep.go:102`）—— 按契约发 date-time 会整条 400 |
 
+### `fundamentals_detail` 的产出方（DBT-16 裁决：先成文「不可得」，2026-10-25）
+
+**今天的状态**（真库实测，非读码推测）：`public.fundamentals_detail` = **0 行**。门、字典、normalizer 与五个纵向因子读方**都在册**，写入腿也被真跑过一次（DBT-11，`1764598`：真 HTTP 门 → 真库 → PIT 读回 `0 → 5 → 0`，零残留）。**真正缺的两件**（旧登记的阻塞理由已被证伪，见上表 `fundamentals_detail` 行）：① **没有生产者**往 `POST /api/ingest/equitydeep` 投 snapshot；② Tushare 免费权限**给不出**所需 8 个 field_code。
+
+**本节是「不可得」的结论 + 一条可执行的对外产出请求**（不是待办清单）：
+
+- **产出方**：EquityDeep 侧（vault 研究产出的投影）。core **不实现** EquityDeep 研究逻辑（ADR-023：EquityDeep 是**数据底座**，不是第二个 agent）。
+- **投递形状**：一份已合法的 snapshot 文件（ndjson，**每行一条** `contracts/snapshot.schema.json` 记录），经两步顺序投：先 `POST /api/ingest/raw` 归档拿 `content_hash`，再 `POST /api/ingest/equitydeep` 引用该 `content_hash`。若要 core 提供投递工具，实现放 `cmd/data` 子命令，形状照 `mining` 子命令（`cmd/data/mining_cmd.go`，DBT-04 的先例）。
+- **`fetched_at` 必须是 RFC 3339**：那是 DBT-14 对 `docs/SPEC.md` + `AGENTS.md` 同时判四件事 —— 有「不可得」结论、降级语义带**已核实的指针**、押后、需另立单。
+- **降级语义**：五个因子在无数据时走 `ErrNoFundamentalsDetail`（`pkg/data/equitydeep/equitydeep.go`）—— **缺失≠0**，不补 0、不猜测。
+- **⚠️ 本单不许用编造数据灌数**：那五个因子会直接读到假财务数值。
+
+**与 DBT-14 是同一个决定的两侧**（谁产出、以什么形状产出），**先定形状再定投递**。
+
+### `capital_flow` / `top_list` 的用途（DBT-17 裁决：登记为**数据储备**，2026-10-25）
+
+**裁决**：两张都登记为「**仅储备、暂无读方**」：不接读方、不建排程。理由就是「读方必须服务某个研究问题」—— 本轮没有这样的问题，所以**不为了「表里有数」造一个读方**。
+
+| 表 | 2026-10-23 真库实测 | 口径与 NULL 语义 | 读方 | cron / 排程状态 |
+|---|---|---|---|---|
+| `capital_flow` | **18 行**，`source` 单一 = `tushare_moneyflow`（18/18） | Tushare 的**分档成交额**形态（万元 ×10000 在同步边界折成元）。`main_net` / `main_buy_amount` / `main_sell_amount` / 两个 ratio / `retail_*` / `close_price` / `change_pct` **本源不给 ⇒ 落 NULL**（实测 `main_net` 与 `close_price` 都是 **18/18 NULL，不是 0**）。两族口径混在同一张表里**靠 `source` 列区分**：任何读方在按东财含义解释这些列之前**必须先读 `source`**，否则把「本源没给」读成「净额为 0」 | **0 个** —— 全仓 grep `SELECT … FROM capital_flow` **零命中**，无 handler、无因子（写侧也不在 core 了：2026-10-25 H4 ① 之后 core 只取数与归一，写入方是 `tellurion-data`） | **不在** `RegisterJobType` 名单 ⇒ 排不进 cron。逐 symbol 一发、全池 ≈5,900 发，免费档 200 req/min ⇒ 日更等于把当天整桶配额烧在没人读的表上（DBT-09 的裁决） |
+| `top_list` | **256 行**，`trade_date` 跨 **2026-09-21 .. 2026-09-24**（⇒ 到本单当天**已停更约一个月**） | 东财 datacenter 龙虎榜（实测 `source=eastmoney_toplist`，见上方 2026-10-19 那行；本单元格原文写的是「Tushare 龙虎榜」，2026-10-25 通读 diff 时证伪并订正），整市场按日翻页（1–2 发请求/日，日更成本可忽略） | **0 个** —— 全仓 grep `SELECT … FROM top_list` **零命中**（写侧同上一条：写入方已是 `tellurion-data`） | **在**名单（`cmd/data/sync_handlers.go`，由 `cmd/data/top_list_job_test.go` 钉住），但 `sync_schedules` 全表只有 **1 行且是 `ohlcv active=false`** ⇒ 没有 top_list 的排程行，**今天不日更**（数据停在 09-24 正是这个状态的直接后果） |
+
+**⚠️ 一条口径订正（不改实现，只改叙述）**：上表「`top_list` 则**进了** cron 名单」**代码那半对，但它带的推论（⇒ 所以在日更）不成立** —— 名单只影响 `sync_schedules` 的校验，**没有任何 schedule 行存在就不会跑**。今天的真实状态是「**在名单里 + 无排程行 = 事实上不日更**」。
+
+**⚠️ 写入方换了（QT-40 H4 ①，2026-10-25）**：这两张表的 `INSERT` 不再由 core 发。
+core 的执行器只做取数 + 归一，然后把点投给 `tellurion-data` 的
+`POST /ingest/points`；校验 / 闸门 / 去重 / 幂等 / `visible_at` 推导全在对端。
+两条读侧要知道的后果：**①** 表里今天的行是 core 的老 `ON CONFLICT DO UPDATE`
+写的，对端今天判的是「同主键不同内容 ⇒ 整批 409」，所以对这两张表**重跑历史窗口**
+而不是增量追新时，可能撞上响亮失败（处置见 `tellurion-data:docs/adr/0006` 代价 1）；
+**②** 未配置 `ingest_write.base_url` 的部署里这两条作业一律失败（不回落本地写）。
+上面「2026-10-23 真库实测」那一列是历史时点读数，不因这次改动而变。
+
+**「储备」的操作含义**（免得下一个人再猜）：
+
+- **数据留在表里**。已经花掉的配额是沉没成本，而这两张表还是 DBT-09 / DBT-10 两条链路的**验收载体** —— 删表等于把那两单的取证基础一起丢掉，所以「储备」**不等于**「清掉」。
+- **不建排程、不接读方**。要启用，先回答「服务哪个研究问题」，再走 D3 的因子定义流程 + `factor_cache`（Redis，C 类派生计算）归属。
+
+### `ingest.raw` 里只放真归档（DBT-15 裁决：经授权按锚点删除，2026-10-25）
+
+`cmd/data/handlers_ingest_test.go` 历史上每跑一次落一条探针假归档（payload 带 `probe` 键、`source=akshare`、`dataset=akshare.stock_financial_abstract`）且从不删，积到 **164 行**；另有 **2 行** `source LIKE 'unit-test%'`。
+
+**已按锚点精确删除**（禁 TRUNCATE、禁无条件 DELETE）：
+
+```
+DELETE FROM ingest.raw WHERE payload ? 'probe' AND source='akshare';   -- 影响 164 行
+DELETE FROM ingest.raw WHERE source LIKE 'unit-test%';                 -- 影响   2 行
+```
+
+删前 `total=12,134 / probe=164 / unit-test=2`，删后 `total=11,968 / probe=0 / unit-test=0`；`source='tushare'` 的 **11,968 行一行不动** ⇒ 这一刀的效果是把证据表还原成「只有真归档」。这 166 行被 `public.fundamentals_detail.snapshot_uri` 引用的行数 = **0** ⇒ 删掉不产生孤儿引用。
+
+> **⚠️ 计数订正**：台账正文原写的「155 行」与「预期 12,108 → 11,951」是 **2026-10-19 的快照**；删除当天的实数是 **164 + 2 行**、`12,134 → 11,968`。**旧数字不得再引用。**
+
+**执行带 fail-closed 判据**：实际 probe / unit-test 行数若**大于**授权取证时的 164 / 2 就**中止不动**（多出来意味着取证之后又长了新残行，那不在授权范围内）。授权是对着**一组数**给的，执行不能对着一组不同的数动手。
+
 **口径更正（台账误引）**：DBT-07 台账上下文写的「`capital_flow_daily`/`top_list` =
 东财 502 + Tushare 40203 无权限族」**不准确** —— 40203 那族实测属于
 `bak_daily` / `limit_list_d` / `limit_step` / `ths_hot` / `hm_list` / `kpl_list` /
@@ -2388,33 +2446,43 @@ GET  /api/datasource/registry/chains    - List configured fallback chains
 ```
 
 > **DATA-10（2026-10-16）之后：这三个端点仍然是纯观测面，但「链全部没接线」不再是
-> 事实**。`capital_flow: [eastmoney]` 这一条已经接进**作业层** ——
+> 事实**。`capital_flow` 这一条已经接进**作业层** ——
 > `POST /api/sync/jobs`（job_type=`capital_flow`）→ `sync_jobs` → worker →
-> `capitalFlowExecutor`（`cmd/data/capital_flow_executor.go`）→ `source.NewETLPipeline`
-> → `Registry.Fetch` → `BulkInsert` 写 `capital_flow` 表。
+> `capitalFlowExecutor`（`cmd/data/capital_flow_executor.go`）→ `Registry.Fetch`
+> → 归一 → **投点给 `tellurion-data` 的 `POST /ingest/points`**。
+> （2026-10-25 QT-40 H4 ① 改的就是最后这一段：`→ source.NewETLPipeline → BulkInsert`
+> 那两跳从 core 消失了，落库与 `visible_at` 推导归 `tellurion-data`；
+> 决策与代价在 `tellurion-data:docs/adr/0006`。）
 >
 > 其余链（日线 / 分钟 / 实时 / 境外 / 板块 / 公告…）**仍然没有任何生产调用方**，
 > 数据同步直连 `TushareClient`（`handlers_sync.go` 与 `sync_handlers.go` 里其余
-> 七个执行器）—— 对那几条，`/chains` 展示的仍是**设计意图**，不是「今天会发生
+> 执行器）—— 对那几条，`/chains` 展示的仍是**设计意图**，不是「今天会发生
 > 的降级」。链上的不可达腿照旧点名：mootdx 以 nil transport 注册
 > （`Enabled()=false`）、eastmoney 只声明 `capital_flow`（日线/分钟/实时三条链里
 > 的 eastmoney 备胎是 chain drift 形状，`Registry.Fetch` 会 loud-skip）。
 >
-> **护栏的形状跟着变了**：`internal/repoguard/registry_etl_wiring_test.go` 规则 A
-> 的判据从「零站点」改为「站点必须逐条被批准」，白名单按 **文件 + 形态** 精确匹配
-> （不是文件级免检）并强制带理由，**死条目同样报红**。今天只有一条：
-> `cmd/data/capital_flow_executor.go` 的 `NewETLPipeline` 引用 —— 放行本身就是
-> DATA-08「停用」到 DATA-10「解禁」那次决策的留痕。规则 B（观测面文件出现
+> **护栏的形状跟着变了两次**：`internal/repoguard/registry_etl_wiring_test.go` 规则 A
+> 的判据是「站点必须逐条被批准」，白名单按 **文件 + 形态** 精确匹配（不是文件级
+> 免检）并强制带理由，**死条目同样报红**。QT-40 H4 ① 之后白名单**为空**——core
+> 生产代码里 `NewETLPipeline` 的引用与 `ETLPipeline.Process` 的调用方**双双归零**
+> （实测：非测试文件里只剩 `pkg/data/source/etl.go` 自己的定义）。空名单不是
+> 「守卫关掉」：同一批补了 `TestETLWiringEmptyAllowlistStillHasTeeth`，
+> 它把「站点 + 空名单 ⇒ 必须红」钉成一条可执行的判据。规则 B（观测面文件出现
 > `.Fetch` 即红）不变：解禁的是作业层，不是把 HTTP 面变成取数面。
 >
 > ⚠️ **代码接上了 ≠ 源取得到**（2026-10-16 实测，别把这两件事记成一件）：
 > `/api/qt/stock/fflow/daykline/get` 这条 path 本机不可达 —— push2 恒 502、
 > push2his 连接重置、浏览器同结果；同主机的 `ulist.np` / `kline` / `fflow/kline`
-> 三条都返回 200。所以 `capital_flow` 表今天仍是 **0 行**，真源那条腿挂在 build
-> tag `data10live`（`cmd/data/capital_flow_live_test.go`），默认套件用 httptest
-> 替身取证。失败是**可见**的而不是静默的：错误一路从源侧传到
+> 三条都返回 200。所以 `capital_flow` 表靠东财那条腿今天仍是 0 行（DBT-09 换源
+> Tushare `moneyflow` 后灌过 18 行），真源那条腿挂在 build tag `data10live`
+> （`cmd/data/capital_flow_live_test.go`），默认套件用 httptest 替身取证。失败是
+> **可见**的而不是静默的：错误一路从源侧传到
 > `sync_jobs.error_message`（`capital_flow: all 1 chunk(s) failed, nothing
 > persisted: … eastmoney 502`），作业不会以 `completed` 收口。
+>
+> ⚠️ **未配置写面 = 这两条作业必失败**（H4 ① 刻意不回落本地 `BulkInsert`，
+> 回落等于把刚消灭的第二写者藏进 fallback 分支）：`ingest_write.base_url` 空 ⇒
+> 作业以 `ErrIngestWriteUnconfigured` 收口，`cmd/data/main.go` 启动时打一条 Warn。
 
 #### `GET /stocks/count` 的响应形状（DATA-02，2026-10-14）
 
@@ -2890,7 +2958,8 @@ POST /api/sync/schedules          - Create a schedule
 > **类型清单以代码为准**：`pkg/sync/types/types.go` 的 `JobType` 常量
 > （`stocks` / `ohlcv` / `ohlcv_all` / `fundamental` / `fundamentals` /
 > `dividends` / `splits` / `calendar` / `factor` / `factors` /
-> `factor_attribution` / `factor_ic` / `capital_flow`）。`POST /api/sync/jobs` 是**类型化创建门**
+> `factor_attribution` / `factor_ic` / `index_constituents` / `capital_flow` /
+> `top_list`，2026-10-25 实测 15 个）。`POST /api/sync/jobs` 是**类型化创建门**
 > —— params 在门口校验，打错类型当场 400，而不是排一个注定失败的后台任务。
 >
 > `capital_flow`（DATA-10，2026-10-16）是第一条走**多源 Registry 链**而不是
@@ -2899,8 +2968,20 @@ POST /api/sync/schedules          - Create a schedule
 > `period ≠ daily`（adapter 恒发 `klt=1`，接受 "5d" 等于把日线数据贴上 5 日
 > 标签写进 `(symbol, trade_date, period)` 主键）。**没有 cron**：本类型未注册进
 > `Scheduler.jobTypes`，`sync_schedules` 想按排程跑它会在校验处失败 ——
-> 调度策略按工单 ⑥ 另议。逐 symbol 顺序 HTTP 的源，进度与取消的粒度是
-> `batch_size`（默认 25 个 symbol 一个 chunk、一个写事务）。
+> 调度策略按工单 ⑥ 另议。逐 symbol 顺序 HTTP 的源，取数、进度上报与取消的粒度是
+> `batch_size`（默认 25 个 symbol 一个 chunk）。
+> ⚠️ **「一个 chunk 一个写事务」这句话在 2026-10-25（H4 ①）之后不再成立**：
+> 落库出了进程，chunk 内部还要按对端单次上界（10000 点）分片，**片与片之间不共享
+> 事务**。所以 `persisted` 的口径是「对端回执已就位的点数」（新插入 + 同内容
+> no-op），而一个失败 chunk 可能是「前两片已落、第三片被 409 拒」。
+>
+> `top_list`（DBT-10，2026-10-19）是同族的第二条多源链作业（链上只有
+> `eastmoney_toplist` 一员）：params = `{start_date、end_date 两端必填, page_size,
+> max_pages}`，**不接受 `symbols`**（整市场按交易日起榜单，门上点名拒掉 ——
+> 「写了却不生效」的旋钮比不给更糟），窗口判据**复用执行器那一个**
+> （`topListWindow`，不在门上写第二套），翻页到空页为止、预算用尽仍未取尽 ⇒
+> 响亮报错（CR-41 的静默截断）。它在 cron 名单里，但 `sync_schedules` 没有它的
+> 排程行 ⇒ 事实上不日更（DBT-17 的口径订正）。
 >
 > ⚠️ **SSE 路径是 `GET /api/sync/jobs/:id/progress`**（按 job 订阅），
 > **不是**旧文档里的 `/api/sync/stream`。反代必须 `proxy_buffering off`，

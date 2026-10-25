@@ -5,12 +5,20 @@ package main
 // DATA-10 的真源腿。默认套件**不跑**它（build tag `data10live`），
 // 跑它 = 主动要求拿东财真取数来对质：
 //
+//	TEST_DATABASE_DSN='postgres://…' \
+//	H4_LIVE_INGEST_URL='http://127.0.0.1:8081' INGEST_WRITE_TOKEN='<service/admin token>' \
 //	go test ./cmd/data/ -tags=data10live -run TestCapitalFlowLive -count=1 -v
 //
 // 为什么不进默认套件：这条 path 的可达性不归本仓决定（ODR-011 风险表第 2
 // 条就是这个家族），把它挂进 CI 等于把「东财今天理不理我们」变成每天的红。
 // 但它也不能没有 —— DATA-08 时代这条链只有 httptest 替身证据，「已启用」
 // 是代码事实不是运行事实；这条腿就是那道缺口上写的字。
+//
+// 2026-10-25（QT-40 H4 ①）之后这条腿的形状变了：core 不再落库，所以它现在要
+// **两个**外部条件（真库 + 真的 data-service），缺一就显式 skip 而不是假绿。
+// 它因此也正是工单里那条「core → 真 data-service → 真库的行」的跨进程腿 ——
+// 代价是对端把同主键不同内容判成 409（老语义是 DO UPDATE 静默覆盖），
+// 首次跑通前得知道库里已有的行是谁写的。
 //
 // 2026-10-16 首跑实测读数（如实入账，不是「跑过了」）：
 //   /api/qt/stock/fflow/daykline/get ⇒ push2 恒 502、push2his 连接重置、
@@ -19,7 +27,8 @@ package main
 //
 // 两条断言都与上游状态无关，因此不随网络好坏而腐烂：
 //  1. 报成功就必须真落了行数（`err == nil ⇒ persisted > 0`）—— 静默空表
-//     是 DATA-06 那一族，这条腿把它挡在真源上；
+//     是 DATA-06 那一族，这条腿把它挡在真源上；persisted 的口径随对端
+//     回执（「点位已就位」= 新插入 + 同内容 no-op），不是 core 写的行数；
 //  2. 落了库的行，主力净额与该日成交额必须同量纲（|main_net| ≤ 3×turnover）。
 //     这就是「源单位实测」：换算错 100/1000 倍会当场崩这条，而崩在真库读数上
 //     比崩在替身上有分量得多。
@@ -71,8 +80,11 @@ func TestCapitalFlowLiveSourceRunsThroughJobExecutor(t *testing.T) {
 	// 执行器直接用**生产链**（buildDataSourceRegistry），不指向任何替身 ——
 	// 这才是「真源走一次」。tushare 传 nil：本条只走 capital_flow，
 	// 日线/分钟那几族 adapter 以 Enabled()=false 注册，链上用不到。
+	//
+	// 写面同样是真的：H4 ① 之后 core 不再落库，这条腿投给一个**真的**
+	// data-service（`H4_LIVE_INGEST_URL`），所以它现在是跨进程的一整条。
 	productionReg := buildDataSourceRegistry(nil, logging.Logger)
-	exec := &capitalFlowExecutor{reg: productionReg, persist: store}
+	exec := &capitalFlowExecutor{reg: productionReg, write: liveIngestPoster(t)}
 
 	job := &sync.Job{
 		ID:      "data10-live",
@@ -102,8 +114,8 @@ func TestCapitalFlowLiveSourceRunsThroughJobExecutor(t *testing.T) {
 		"Execute 报了成功却没落一行 ⇒ 这就是 DATA-06 那一族在作业层的复发")
 
 	// —— 单位实测：与同日成交额同量纲 ——
-	readBack := readCapitalFlowRows(t, store)
-	require.NotEmpty(t, readBack, "落库后必须能读回来")
+	readBack := readCapitalFlowRows(t, store, liveCapitalFlowSymbol)
+	require.NotEmpty(t, readBack, "投点成功就必须能从库里读回来")
 	turnoverByDate := map[string]float64{}
 	for _, r := range reference {
 		turnoverByDate[r.TradeDate.UTC().Format("2006-01-02")] = r.Turnover

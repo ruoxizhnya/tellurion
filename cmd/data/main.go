@@ -162,7 +162,15 @@ func registerRoutes(r *gin.Engine, store *storage.PostgresStore, cache storage.C
 	r.POST("/sync/calendar", syncCalendarHandler(tc, store))
 
 	// Initialize sync handler with job queue and worker pool
-	syncHandler := NewSyncHandler(store, tc, dc, registry)
+	syncHandler := NewSyncHandler(store, tc, dc, registry, newIngestWritePoster())
+	if syncHandler.ingestWrite == nil {
+		// 未接线要说在启动日志里，而不是等第一条作业失败才现形：
+		// capital_flow / top_list 这两条从今天起**只有**经 data-service 才能落库，
+		// base_url 没配就是这两条作业必失败（刻意不回落本地 BulkInsert ——
+		// 那会把 QT-40 H4 ① 刚消灭的第二写者藏进 fallback 里）。
+		logging.Logger.Warn().
+			Msg("ingest_write.base_url is empty: capital_flow / top_list jobs will fail closed (no local BulkInsert fallback)")
+	}
 	syncHandler.RegisterExecutors()
 	syncHandler.StartWorkerPool()
 

@@ -51,6 +51,13 @@ func loadConfig() error {
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("database.sslmode", "disable")
 	viper.SetDefault("tushare.max_retries", 3)
+	// QT-40 H4 ①：capital_flow / top_list 两条作业的落库改投 `tellurion-data`。
+	// base_url 默认空 = 未接线 ⇒ 两条作业 fail-loud（不回落本地 BulkInsert）。
+	// token 只从 env 读（下面 BindEnv），**不写进这份入库的 YAML**。
+	viper.SetDefault("ingest_write.base_url", "")
+	viper.SetDefault("ingest_write.timeout", "30s")
+	viper.SetDefault("ingest_write.max_points", 10000)
+	_ = viper.BindEnv("ingest_write.token", "INGEST_WRITE_TOKEN")
 	// Empty means "auto-discover contracts/field_dictionary.yaml next to the
 	// config dir". Override with an absolute path (or EQUITYDEEP_FIELD_DICTIONARY).
 	viper.SetDefault("equitydeep.field_dictionary", "")
@@ -119,6 +126,41 @@ func requestLogger() gin.HandlerFunc {
 // 同样有效——网关转发时把 Authorization 透传即可。
 func buildAuthService(store *storage.PostgresStore, logger zerolog.Logger) *auth.Service {
 	return bootstrap.InitAuth(viper.GetViper(), store, logger)
+}
+
+// ingestWriteConfigFromViper 读 `ingest_write.*`（QT-40 H4 ①）。
+//
+// timeout 解析失败**不静默用默认值**：一个写错的时长配置会决定跨仓写请求
+// 什么时候被砍，悄悄回到 30s 等于让运维以为自己的配置生效了。报错日志 +
+// 回落默认值是本仓反复登记的「静默接管」形状，所以这里点名报错。
+func ingestWriteConfigFromViper() ingestWriteConfig {
+	rawTimeout := strings.TrimSpace(viper.GetString("ingest_write.timeout"))
+	timeout := ingestWriteDefaultTimeout
+	if rawTimeout != "" {
+		parsed, err := time.ParseDuration(rawTimeout)
+		if err != nil {
+			logging.Logger.Warn().Err(err).Str("ingest_write.timeout", rawTimeout).
+				Msg("ingest_write: timeout is not a duration, falling back to the default — set it right, cross-repo writes are cut by this value")
+		} else {
+			timeout = parsed
+		}
+	}
+	return ingestWriteConfig{
+		BaseURL:   strings.TrimSpace(viper.GetString("ingest_write.base_url")),
+		Token:     strings.TrimSpace(viper.GetString("ingest_write.token")),
+		Timeout:   timeout,
+		MaxPoints: viper.GetInt("ingest_write.max_points"),
+	}
+}
+
+// newIngestWritePoster 返回跨仓写面 port；未配置时返回 **nil 接口**（不是
+// 装着 nil 指针的接口），于是执行器的 `poster == nil` 判据真的成立。
+func newIngestWritePoster() pointsPoster {
+	client := newIngestWriteClient(ingestWriteConfigFromViper())
+	if client == nil {
+		return nil
+	}
+	return client
 }
 
 // openStore connects to PostgreSQL using the database.* viper keys and hands

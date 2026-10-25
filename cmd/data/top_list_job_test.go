@@ -2,21 +2,32 @@ package main
 
 // DBT-10 ⑤ 的主证据：top_list（龙虎榜）从**作业层真的走一次**。
 //
-// 路径与 capital_flow_job_test.go 同一条形状：HTTP 门 → JobService → Queue →
-// WorkerPool 派发 → topListExecutor → NewETLPipeline → Registry.Fetch
-// （链 top_list:[eastmoney_toplist]）→ BulkInsert，落的是**真库**
-// `tellurion.top_list`，落完逐字段读回与源响应比对。
+// 路径与 capital_flow_job_test.go 同一条形状：HTTP 门 → JobService → Queue.Dequeue
+// → WorkerPool 派发 → topListExecutor → Registry.Fetch
+// （链 top_list:[eastmoney_toplist]）→ **投点给写面**。
+//
+// 2026-10-25（QT-40 H4 ①）改的是最后一段：落库不再是 core 做的事。于是
+// 「逐字段对拍」的对象从**库里的行**换成**投出去的那一批点** —— 这不是把证据
+// 打折，而是边界变了之后 core 这一侧唯一可证的形状。原来那份读回对拍证明的
+// 其实是两件事的合取：① 归一后的值逐列正确，② BulkInsert 把 map 里的
+// nil / 缺失折成 NULL。① 现在在投送面上直接证（更干净：不必先知道 mapper
+// 怎么折类型）；② 的主人变成了 `tellurion-data`。
 //
 // 两处替身，理由如实：
 //   - **作业行用内存 store**（复用 memJobStore）：Queue.Dequeue 取「最老的
 //     pending」而不看 job_type，起真队列会把别的 agent 正在排的作业抢过来
-//     打失败 —— 那是拿别人的作业给自己作证。落库那一半没有打折。
-//   - **东财 datacenter 用 httptest 替身**，并且它**认真实现分页与日期 filter**：
-//     本执行器全部的独有逻辑（翻页到空页为止、预算用尽仍未取尽就报错）都
-//     建立在「按页答数」上，一个「问什么都答同一张表」的替身会让翻页腿假绿。
+//     打失败 —— 那是拿别人的作业给自己作证。
+//   - **东财 datacenter 与 data-service 写面都是 httptest 替身**；并且源替身
+//     **认真实现分页与日期 filter**：本执行器全部的独有逻辑（翻页到空页为止、
+//     预算用尽仍未取尽就报错）都建立在「按页答数」上，一个「问什么都答同一
+//     张表」的替身会让翻页腿假绿。写面替身记录**原始报文**，所以「core 到底
+//     投没投 visible_at」是有证据的，不是断言。
+//     **真跨进程那一腿**（真源 → 真作业 → 真 data-service → 真库的行）在
+//     dbt10_top_list_live_test.go（build tag `dbt10live`）：默认套件里没有它，
+//     因为两个仓各自独立构建，core 的 CI 起不了对端进程 —— 这条缺口在
+//     docs/TASKS.md 的 QT-40 里如实登记，不写成「端到端已验收」。
 //
-// 探针 symbol 用 888888.SH / 888889.SH / 888890.SH（不是真实 A 股代码），
-// 前后各删一次并断言清零。
+// 探针 symbol 用 888888.SH / 888889.SH / 888890.SH（不是真实 A 股代码）。
 
 import (
 	"bytes"
@@ -35,7 +46,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )
 
@@ -231,7 +241,7 @@ type topListHarness struct {
 	stub    *topListStub
 }
 
-func newTopListHarness(t *testing.T, persist storage.BulkInserter) *topListHarness {
+func newTopListHarness(t *testing.T, write pointsPoster) *topListHarness {
 	t.Helper()
 	stub := &topListStub{status: http.StatusOK, respond: true}
 	srv := httptest.NewServer(stub.handler())
@@ -251,9 +261,9 @@ func newTopListHarness(t *testing.T, persist storage.BulkInserter) *topListHarne
 		HTTPClient:    &http.Client{Timeout: 5 * time.Second},
 	})))
 	reg.SetChain(source.DataTypeTopList, []string{"eastmoney_toplist"})
-	pool.RegisterExecutor(&topListExecutor{reg: reg, persist: persist})
+	pool.RegisterExecutor(&topListExecutor{reg: reg, write: write})
 
-	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: reg}
+	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: reg, ingestWrite: write}
 	router := gin.New()
 	router.POST("/api/sync/jobs", h.createJobHandler)
 	return &topListHarness{handler: h, router: router, stub: stub}
@@ -285,58 +295,11 @@ func topListJobWithParams(id, params string) *sync.Job {
 	}
 }
 
-// ---- 真库读写 ----
+// ---- 主证据：作业层真的走一次 + 投出去的点逐字段对拍 ----
 
-func cleanTopListProbes(t *testing.T, store *storage.PostgresStore) {
-	t.Helper()
-	_, err := store.DB().Exec(context.Background(),
-		`DELETE FROM top_list WHERE symbol IN ($1, $2, $3)`, topListSymA, topListSymB, topListSymC)
-	require.NoError(t, err)
-}
-
-type topListRow struct {
-	TradeDate  time.Time
-	Symbol     string
-	Name       string
-	NetBuy     *float64
-	BuyAmount  *float64
-	SellAmount *float64
-	Turnover   *float64
-	Reason     *string
-	Source     string
-	IngestTime time.Time
-}
-
-func readTopListRows(t *testing.T, store *storage.PostgresStore) []topListRow {
-	t.Helper()
-	rows, err := store.DB().Query(context.Background(),
-		`SELECT trade_date, symbol, name, net_buy, buy_amount, sell_amount, turnover,
-		        reason, source, ingest_time
-		 FROM top_list WHERE symbol IN ($1, $2, $3) ORDER BY symbol, trade_date`,
-		topListSymA, topListSymB, topListSymC)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	var out []topListRow
-	for rows.Next() {
-		var r topListRow
-		require.NoError(t, rows.Scan(&r.TradeDate, &r.Symbol, &r.Name, &r.NetBuy, &r.BuyAmount,
-			&r.SellAmount, &r.Turnover, &r.Reason, &r.Source, &r.IngestTime))
-		out = append(out, r)
-	}
-	require.NoError(t, rows.Err())
-	return out
-}
-
-// ---- 主证据：作业层真的走一次 + 落库逐字段对拍 ----
-
-func TestDBT10TopListJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanTopListProbes(t, store)
-	t.Cleanup(func() { cleanTopListProbes(t, store) })
-	require.Empty(t, readTopListRows(t, store), "前置失败：探针 symbol 上还有残留行")
-
-	h := newTopListHarness(t, store)
+func TestDBT10TopListJobLayerPostsPointsMatchingSourceResponse(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newTopListHarness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints))
 	h.handler.StartWorkerPool()
 	t.Cleanup(h.handler.StopWorkerPool)
 
@@ -355,18 +318,21 @@ func TestDBT10TopListJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
 		"作业应成功落定；error_message=%q result=%s", settled.ErrorMessage, string(settled.Result))
 
 	var result struct {
-		Persisted int    `json:"persisted"`
-		Fetched   int    `json:"fetched"`
-		Skipped   int    `json:"skipped"`
-		Pages     int    `json:"pages"`
-		PageSize  int    `json:"page_size"`
-		DataType  string `json:"data_type"`
+		Persisted    int    `json:"persisted"`
+		Fetched      int    `json:"fetched"`
+		Skipped      int    `json:"skipped"`
+		Pages        int    `json:"pages"`
+		PageSize     int    `json:"page_size"`
+		DataType     string `json:"data_type"`
+		PersistedVia string `json:"persisted_via"`
 	}
 	require.NoError(t, json.Unmarshal(settled.Result, &result))
 	assert.Equal(t, 3, result.Persisted, "单日 3 条榜单")
 	assert.Equal(t, 3, result.Fetched)
 	assert.Equal(t, source.DataTypeTopList, result.DataType)
 	assert.Equal(t, topListDefaultPageSize, result.PageSize)
+	assert.Equal(t, "data-service /ingest/points", result.PersistedVia,
+		"落库在哪一侧必须是结果里看得见的事实，否则 persisted 会被读成 core 写的")
 
 	// 翻页必须翻到空页为止：3 行一页装完，再问一次得到空页 ⇒ 2 次请求。
 	requests := h.stub.seen()
@@ -375,58 +341,74 @@ func TestDBT10TopListJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
 	assert.Equal(t, 2, requests[1].PageNumber)
 	for _, rq := range requests {
 		assert.Equal(t, "2026-09-30", rq.Start,
-			"窗口必须带到源上，否则「作业 completed 但库里只有源默认第 1 页」就是 CR-41 重演：%s", rq.Filter)
+			"窗口必须带到源上，否则「作业 completed 但对端只有源默认第 1 页」就是 CR-41 重演：%s", rq.Filter)
 		assert.Equal(t, "2026-09-30", rq.End, "同上：%s", rq.Filter)
 		assert.Equal(t, topListDefaultPageSize, rq.PageSize)
 	}
 
-	got := readTopListRows(t, store)
-	require.Len(t, got, len(topListStubRows))
-	bySymbol := map[string]topListRow{}
-	for _, r := range got {
-		bySymbol[r.Symbol] = r
+	// —— 投出去的点：逐字段，且投送面上没有服务器独占字段 ——
+	raw, auth := svc.seen()
+	require.Len(t, raw, 1, "3 个点在一门上界内 ⇒ 只该有一片")
+	for _, header := range auth {
+		assert.Equal(t, "Bearer test-service-token", header, "服务间凭证不带上，对端必然 401")
 	}
+	assert.NotContains(t, raw[0], "visible_at", "可见时刻由对端按声明锚点推导，不接受投送")
+	assert.NotContains(t, raw[0], "ingest_time", "入库时刻由对端时钟填，不接受投送")
+
+	batches := svc.batches(t)
+	require.Len(t, batches, 1)
+	require.Equal(t, source.DataTypeTopList, batches[0].DataType)
+	byKey := pointsFromBatch(batches[0])
+	require.Len(t, byKey, len(topListStubRows), "投出去的点数必须等于源答的行数")
+
 	for _, want := range topListStubRows {
-		r, ok := bySymbol[want.Symbol]
-		require.True(t, ok, "%s 没落进库", want.Symbol)
-		label := want.Symbol
+		key := want.Symbol + "|" + want.TradeDate
+		p, ok := byKey[key]
+		require.True(t, ok, "没投过 %s 这个坐标（投出的是 %v）", key, keysOfPoints(byKey))
+		label := "点 " + key
 
-		assert.Equal(t, want.TradeDate, r.TradeDate.UTC().Format("2006-01-02"), label+" trade_date")
-		assert.Equal(t, want.Name, r.Name, label+" name（NOT NULL 身份列）")
-		assert.Equal(t, "eastmoney_toplist", r.Source,
-			label+" source 必须是链上真正供数的那扇门，读侧据此判口径")
-		assert.False(t, r.IngestTime.IsZero(), label+" ingest_time 由 pipeline 盖章")
+		assert.Equal(t, want.TradeDate, p.TradeTime.UTC().Format("2006-01-02"), label+" trade_time")
+		assert.Equal(t, want.Name, p.Data["name"], label+" name（源侧 Required 的身份列）")
+		assert.Equal(t, "eastmoney_toplist", p.Source,
+			label+" source 必须是链上真正供数的那扇门，对端据此判口径")
+		assert.Equal(t, source.DataTypeTopList, p.DataType, label+" data_type")
 
-		assert.InDelta(t, want.NetBuy, derefFloat(t, r.NetBuy, label+" net_buy"), 1e-9)
-		assert.InDelta(t, want.BuyAmount, derefFloat(t, r.BuyAmount, label+" buy_amount"), 1e-9)
-		assert.InDelta(t, want.SellAmount, derefFloat(t, r.SellAmount, label+" sell_amount"), 1e-9,
+		assert.InDelta(t, want.NetBuy, wireValue(t, p, "net_buy"), 1e-9, label)
+		assert.InDelta(t, want.BuyAmount, wireValue(t, p, "buy_amount"), 1e-9, label)
+		assert.InDelta(t, want.SellAmount, wireValue(t, p, "sell_amount"), 1e-9,
 			label+" 卖出大于买入必须是负数净额，不许被截成 0")
-		assert.InDelta(t, want.Turnover, derefFloat(t, r.Turnover, label+" turnover"), 1e-9)
-		require.NotNil(t, r.Reason, label+" reason 是源给的 EXPLAIN，应有值")
-		assert.Equal(t, want.Reason, *r.Reason)
+		assert.InDelta(t, want.Turnover, wireValue(t, p, "turnover"), 1e-9, label)
+		assert.Equal(t, want.Reason, p.Data["reason"], label+" reason 是源给的 EXPLAIN")
 	}
 
-	// 888890.SZ 这一行专证「真 0 与 NULL 长得不一样」：源给了 net_buy=0、
-	// turnover=55，落库必须是 0.0 与 55.0 而不是 NULL。
-	zero := bySymbol[topListSymC]
-	require.NotNil(t, zero.NetBuy, "源给了 0 就必须是 0，不许折成 NULL")
-	assert.InDelta(t, 0.0, *zero.NetBuy, 1e-9)
-	require.NotNil(t, zero.Turnover, "同上：turnover=55 是有值")
-	assert.InDelta(t, 55.0, *zero.Turnover, 1e-9)
+	// 888890.SZ 这一行专证「真 0 与「源没给」长得不一样」：源给了 net_buy=0、
+	// turnover=55，投出去必须是数值 0 与 55，而不是键缺失或 null。
+	zero := byKey[topListSymC+"|2026-09-30"]
+	require.Contains(t, zero.Data, "net_buy", "源给了 0 就必须带上 net_buy 这个键")
+	assert.InDelta(t, 0.0, wireValue(t, zero, "net_buy"), 1e-9,
+		"真 0 不许折成 null（对端会把 null 读成「这一列没值」）")
+	assert.InDelta(t, 55.0, wireValue(t, zero, "turnover"), 1e-9, "turnover=55 是有值")
 }
 
-// TestDBT10TopListJobRerunIsIdempotent 钉 (trade_date, symbol) 冲突键的幂等：
-// 同一窗口重跑不产生重复行。
-func TestDBT10TopListJobRerunIsIdempotent(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanTopListProbes(t, store)
-	t.Cleanup(func() { cleanTopListProbes(t, store) })
-
-	h := newTopListHarness(t, store)
+// TestDBT10TopListJobRerunPostsIdenticalBatches 钉「反复跑这条作业，投出去的
+// 字节逐次一致」。
+//
+// 老的形状是「重跑两次后行数仍是 3」，那钉的是 core 侧 upsert 的幂等。
+// H4 ① 之后幂等在对端（`ON CONFLICT DO NOTHING` + 内容比对），core 无法证明
+// 它 —— 能证明的是这一侧**不会制造假冲突**：载荷里没有时钟、没有随机量，
+// 两次跑出去必须逐字节相同。这一点若破了，对端每次重跑都会 409，
+// 而那看起来像「上游改了历史数据」。
+//
+// 行级 no-op 的证据在 `tellurion-data:internal/store` 的 Writer 套件；
+// 跨进程那一腿在 dbt10_top_list_live_test.go（tag `dbt10live`）。
+func TestDBT10TopListJobRerunPostsIdenticalBatches(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newTopListHarness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints))
 	h.handler.StartWorkerPool()
 	t.Cleanup(h.handler.StopWorkerPool)
 
 	params := map[string]any{"start_date": "20260930", "end_date": "20260930"}
+	var first string
 	for run := 1; run <= 2; run++ {
 		code, bodyText := h.createJob(t, params)
 		require.Equal(t, http.StatusAccepted, code, "第 %d 次：门要 202，响应 %s", run, bodyText)
@@ -437,8 +419,13 @@ func TestDBT10TopListJobRerunIsIdempotent(t *testing.T) {
 		settled := waitForMemJob(t, h.handler, created.JobID)
 		require.Equal(t, sync.JobStatusCompleted, settled.Status, "第 %d 次跑失败：%s", run, settled.ErrorMessage)
 
-		got := readTopListRows(t, store)
-		assert.Len(t, got, 3, "第 %d 次重跑后行数变了 ⇒ upsert 幂等没成立", run)
+		raw, _ := svc.seen()
+		require.Len(t, raw, run, "第 %d 次跑应该又多投一片", run)
+		if run == 1 {
+			first = raw[0]
+			continue
+		}
+		assert.Equal(t, first, raw[run-1], "两次投送逐字节不一致 ⇒ 对端每次重跑都会撞到假冲突")
 	}
 }
 
@@ -446,7 +433,7 @@ func TestDBT10TopListJobRerunIsIdempotent(t *testing.T) {
 // 3 行必须分 3 页取完 + 1 页空 ⇒ 4 发请求、3 行入库。
 // 只发 1 发的实现（「一页就是全部」）在这里当场红。
 func TestDBT10TopListPaginatesUntilEmptyPage(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	rec := &recordingReporter{}
 	res, err := h.executor(t).Execute(context.Background(),
@@ -464,7 +451,7 @@ func TestDBT10TopListPaginatesUntilEmptyPage(t *testing.T) {
 // max_pages 用尽而最后一页仍是满的 ⇒ 报错点名「未取尽」，
 // 不许报 completed 而库里只有前几页（CR-41 的静默截断）。
 func TestDBT10TopListPageBudgetExhaustionFailsLoud(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	rec := &recordingReporter{}
 	res, err := h.executor(t).Execute(context.Background(),
@@ -480,7 +467,7 @@ func TestDBT10TopListPageBudgetExhaustionFailsLoud(t *testing.T) {
 // TestDBT10TopListAbortsOnFirstFailedPage 钉「单页失败即中止整窗」：
 // 跳过一页继续下一页 = 在库里留一个没人知道的洞。
 func TestDBT10TopListAbortsOnFirstFailedPage(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 	h.stub.mu.Lock()
 	h.stub.failPage = 2
 	h.stub.mu.Unlock()
@@ -501,7 +488,7 @@ func TestDBT10TopListAbortsOnFirstFailedPage(t *testing.T) {
 // TestDBT10TopExecutorRejectsMissingWindow 钉窗口必填：不给 end_date 时
 // 源会按它自己的默认排序答第 1 页 —— 「作业 completed 但库里只有最近 100 条」。
 func TestDBT10TopListExecutorRejectsMissingWindow(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	for _, params := range []string{
 		`{}`,
@@ -522,7 +509,7 @@ func TestDBT10TopListExecutorRejectsMissingWindow(t *testing.T) {
 
 // TestDBT10TopListContextCancelStopsBeforeSource 钉 ctx 取消真的挡在源前面。
 func TestDBT10TopListContextCancelStopsBeforeSource(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 起跑前就取消：第一页之前就该返回
@@ -536,9 +523,10 @@ func TestDBT10TopListContextCancelStopsBeforeSource(t *testing.T) {
 }
 
 // TestDBT10TopListExecutorFailsWhenPersistBreaks 是 DATA-06 家族在作业层的同形：
-// 取到了但一行没落进去 ⇒ 不许报成功。这里由 BulkInsert 失败触发。
+// 取到了但一行没落进去 ⇒ 不许报成功。H4 ① 之后这里由**投点失败**触发
+// （落库在对端，本侧能证的是「投出去被拒 ⇒ 作业以 error 收口」）。
 func TestDBT10TopListExecutorFailsWhenPersistBreaks(t *testing.T) {
-	failing := &failingBulkInserter{}
+	failing := &failingPoster{}
 	h := newTopListHarness(t, failing)
 
 	rec := &recordingReporter{}
@@ -547,15 +535,15 @@ func TestDBT10TopListExecutorFailsWhenPersistBreaks(t *testing.T) {
 
 	require.Error(t, err, "取到了却一行没落 ⇒ 必须报错，不能交一个看起来成功的 result")
 	assert.Nil(t, res)
-	assert.Equal(t, 1, failing.calls, "错误确实来自落库那一跳，不是前置校验拦的")
-	assert.Contains(t, err.Error(), "page 1", "落库失败也要点名是哪一页：%v", err)
+	assert.Equal(t, 1, failing.calls, "错误确实来自写面那一跳，不是前置校验拦的")
+	assert.Contains(t, err.Error(), "page 1", "写面失败也要点名是哪一页：%v", err)
 }
 
 // TestDBT10TopListEmptyWindowIsNotAnError 钉「合法的空」：窗口内确实没有
 // 榜单（整窗休市）时源答 0 行 ⇒ 作业成功收口，persisted=0。
 // 与上面那条（取到了没落进去）的区别必须可分辨。
 func TestDBT10TopListEmptyWindowIsNotAnError(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 	h.stub.mu.Lock()
 	h.stub.respond = false
 	h.stub.mu.Unlock()
@@ -574,7 +562,7 @@ func TestDBT10TopListEmptyWindowIsNotAnError(t *testing.T) {
 // ---- 门（typed door）的校验腿 ----
 
 func TestDBT10TopListJobDoorRejectsBadRequests(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	tests := []struct {
 		name   string
@@ -610,7 +598,7 @@ func TestDBT10TopListJobDoorRejectsBadRequests(t *testing.T) {
 // TestDBT10TopListJobDoorAcceptsTopListType 是负例的对照腿：门里现在真的认
 // 这个名字 —— 不认的话上面所有负例都会以 400 假绿。
 func TestDBT10TopListJobDoorAcceptsTopListType(t *testing.T) {
-	h := newTopListHarness(t, &countingBulkInserter{})
+	h := newTopListHarness(t, &countingPoster{})
 
 	code, bodyText := h.createJob(t, map[string]any{"start_date": "20260930", "end_date": "20260930"})
 	require.Equal(t, http.StatusAccepted, code, bodyText)
@@ -629,14 +617,23 @@ func TestDBT10TopListJobDoorAcceptsTopListType(t *testing.T) {
 // 不调 gin.SetMode —— AUD-29 只允许它在 pkg/httpserver/ginmode.go 出现。
 func TestNewSyncHandlerRegistersTopListExecutor(t *testing.T) {
 	reg := source.NewRegistry()
+	poster := &countingPoster{}
 
-	h := NewSyncHandler(nil, nil, nil, reg)
+	h := NewSyncHandler(nil, nil, nil, reg, poster)
 	require.NotNil(t, h)
 	h.RegisterExecutors()
 
 	assert.True(t, h.workerPool.HasExecutor(sync.JobTypeTopList),
 		"NewSyncHandler 必须把 top_list 执行器注册进 worker pool")
 	assert.Same(t, reg, h.registry, "compose root 传进来的 Registry 必须就是执行器用的那一个")
+
+	// 写面要一路传到执行器身上（capital_flow 那条同一个形状）：handler 收了
+	// 写面却没往下传，每次作业都会 fail-loud 在「写面未配置」——接了等于没接。
+	exec, ok := h.workerPool.GetExecutor(sync.JobTypeTopList)
+	require.True(t, ok)
+	topExec, ok := exec.(*topListExecutor)
+	require.True(t, ok, "注册的必须是 topListExecutor")
+	assert.Same(t, poster, topExec.write, "compose root 传进来的写面必须就是执行器用的那一个")
 }
 
 // TestTopListCronMembership 钉 cron 名单这一处裁决（top_list 进、capital_flow

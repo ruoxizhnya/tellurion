@@ -22,10 +22,13 @@
 // 不给窗口时上游按自己的默认排序返回第 1 页，「作业 completed 但库里只有最近
 // 100 条」就是 CR-41 换个入口重演。
 //
-// 本文件是 `internal/repoguard/registry_etl_wiring_test.go` 规则 A 白名单里
-// 被放行的**第二处** `source.NewETLPipeline` 引用（第一条是
-// capital_flow_executor.go）。白名单按「文件 + 形态」精确匹配并强制带理由，
-// 别的文件想再接一条链，守卫照样当场红。
+// 2026-10-25（QT-40 H4 ①）：落库那一跳改投 `tellurion-data` 的
+// `POST /ingest/points`，core 不再对 `top_list` 表 `ON CONFLICT DO UPDATE`。
+// 取数与归一仍在 core（传输所有权不动）。
+//
+// 本文件**不再**是 `internal/repoguard/registry_etl_wiring_test.go` 规则 A
+// 白名单里的条目：H4 ① 之后 core 生产代码里 `NewETLPipeline` 引用归零，
+// 白名单同批清空。重新接一条 ETL 写链要新立工单 + 重新备案 + 写清理由。
 package main
 
 import (
@@ -35,7 +38,6 @@ import (
 	"time"
 
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )
 
@@ -60,12 +62,11 @@ const (
 
 // topListExecutor 执行 top_list（龙虎榜）同步作业。
 //
-// persist 收 `storage.BulkInserter` 而不是 `*storage.PostgresStore` —— 与
-// capitalFlowExecutor 同一条（CR-21：契约钉在 storage 侧，任何替身都必须
-// 匹配真实签名），生产传进来的是 store 本身。
+// `write` 是跨仓写面（`pointsPoster`）—— 与 capitalFlowExecutor 同一条口径：
+// H4 ① 之后 core 不再是这张表的写者，为 nil 时执行当场失败，不回落本地写库。
 type topListExecutor struct {
-	reg     *source.Registry
-	persist storage.BulkInserter
+	reg   *source.Registry
+	write pointsPoster
 }
 
 // JobType implements sync.JobExecutor.
@@ -109,8 +110,6 @@ func (e *topListExecutor) Execute(ctx context.Context, job *sync.Job, progress s
 		maxPages = topListDefaultMaxPages
 	}
 
-	pipeline := source.NewETLPipeline(e.reg, e.persist)
-
 	var pages, fetched, persisted, skipped int
 	for page := 1; page <= maxPages; page++ {
 		select {
@@ -119,7 +118,7 @@ func (e *topListExecutor) Execute(ctx context.Context, job *sync.Job, progress s
 		default:
 		}
 
-		res, err := pipeline.Process(ctx, source.FetchRequest{
+		res, err := runIngestStep(ctx, e.reg, e.write, source.FetchRequest{
 			DataType:  source.DataTypeTopList,
 			StartDate: start,
 			EndDate:   end,
@@ -130,8 +129,11 @@ func (e *topListExecutor) Execute(ctx context.Context, job *sync.Job, progress s
 		}, source.TopListNormalizer)
 		if err != nil {
 			// 单页失败即中止：跳过一页就是在库里留一个洞（见文件头第 3 点）。
+			// 报文里的 persisted 要含**这一页已落的片**：H4 ① 之后一页内部还分片，
+			// 只报上一页的数会少报，而「少报的 persisted」与「静默丢数据」
+			// 在读侧长得一样。
 			return nil, fmt.Errorf("top_list: page %d of window %s..%s failed after %d row(s) persisted: %w",
-				page, formatCapitalFlowDate(start), formatCapitalFlowDate(end), persisted, err)
+				page, formatCapitalFlowDate(start), formatCapitalFlowDate(end), persisted+res.Persisted, err)
 		}
 		pages++
 		fetched += res.Fetched
@@ -172,10 +174,13 @@ func topListResult(pages, fetched, persisted, skipped, pageSize, maxPages int, s
 		"max_pages":    maxPages,
 		"fetched":      fetched,
 		"persisted":    persisted,
-		// Skipped 的三个来源与 capital_flow 那条完全相同（normalizer 丢弃 +
-		// ValidatePoints + DeduplicateWithCount + BulkInsert 的 per-row 折跳过），
-		// 见 capital_flow_executor.go 同名字段的注释。
+		// Skipped 的出处与 capital_flow 那条同：core 侧只计「归一化返回 nil 载荷」，
+		// 其余（ValidatePoints / 幂等坐标重复 / BulkInsert 单行折跳）都在
+		// `tellurion-data` 一侧计好后随回执带回来。见 capital_flow_executor.go
+		// 同名字段的注释。
 		"skipped": skipped,
+		// 落库在哪一侧：与 capital_flow 同一条理由，persisted 不是 core 写的。
+		"persisted_via": "data-service /ingest/points",
 	}
 }
 

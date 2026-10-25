@@ -21,9 +21,12 @@ package repoguard
 //      ETLPipeline 的生产构造点必须逐条进 etlWiringAllowlist 并写理由 ——
 //      哪天有人把它接进 HTTP/作业层而没走 DATA-10 的接线计划
 //      （单位边界 → Normalizer → sync_jobs 关系），这条守卫当场红。
-//      白名单今天有两条：DATA-10（2026-10-16 主任裁决入口 (b)）批准的
-//      `cmd/data/capital_flow_executor.go`，与 DBT-10（2026-10-19）批准的
-//      `cmd/data/top_list_executor.go` —— 两处都是 `NewETLPipeline` 引用。
+//      **白名单今天为空**（QT-40 H4 ①，2026-10-25）：曾经那两条 ——
+//      DATA-10（2026-10-16）批准的 `cmd/data/capital_flow_executor.go` 与
+//      DBT-10（2026-10-19）批准的 `cmd/data/top_list_executor.go` —— 都已
+//      改成「取数在 core、落库投点给 `tellurion-data` 的
+//      `POST /ingest/points`」，core 生产代码里 `NewETLPipeline` 的引用
+//      因此归零。判据从「只有这两处被批准」变成「一处都不许有」。
 //      放行按「文件 + 形态」精确匹配，不是文件级免检；条目不再匹配时报红
 //      （死条目同查，理由同 store_migration_isolation_test.go）。
 //      **已知边界（刻意不追）**：`type P = source.ETLPipeline` 后再
@@ -49,6 +52,7 @@ package repoguard
 // 放 —— 不靠「将来真有人踩」。
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -216,33 +220,19 @@ type etlWiringPermit struct {
 	reason string
 }
 
-// etlWiringAllowlist —— DATA-08「停用」到 DATA-10「解禁」的那次决策留痕。
-var etlWiringAllowlist = []etlWiringPermit{
-	{
-		file: "cmd/data/capital_flow_executor.go",
-		kind: "NewETLPipeline 引用",
-		reason: "DATA-10（主任 2026-10-16 裁决：链路选 capital_flow:[eastmoney]、" +
-			"入口选 (b) 作业层）落的第一条链。执行器经 Registry.Fetch → ETLPipeline.Process → " +
-			"BulkInsert 写 capital_flow 表；ctx 取消与进度用既有 worker 语义。" +
-			"另一条链（global_ohlcv 等）要接入时另立工单、另批一条。" +
-			"〔DBT-09 2026-10-19 追注：批准的是**这个接线站点**，不是链内容 —— " +
-			"链首选已按可得性改成 tushare_moneyflow，eastmoney 降为兜底；" +
-			"入口、执行器、站点均未变，所以这条批准继续有效。〕",
-	},
-	{
-		file: "cmd/data/top_list_executor.go",
-		kind: "NewETLPipeline 引用",
-		reason: "DBT-10（主任 2026-10-19 派工，源头是 DBT-07 逐表处置里登记的「top_list 接线另立」）" +
-			"接的第二条链：top_list:[eastmoney_toplist]。接线站点形态沿用 DATA-10 立的那条先例" +
-			"（作业层 job_type → executor → Registry.Fetch → ETLPipeline.Process → BulkInsert），" +
-			"入口与站点形状一致，内容与链不同。" +
-			"适配器自 ODR-011 就在册（EastmoneyTopListAdapter.fetchTopList），缺的一直是作业层这一段 —— " +
-			"job_type 枚举 + 本执行器 + TopListNormalizer + 类型化门的 case。" +
-			"执行器按页翻页（整市场榜单按日分页，不按 symbol 分片），任一页失败即中止整窗，" +
-			"翻页预算用尽仍未取尽 ⇒ 如实报错不静默截断（CR-41 家族）。" +
-			"落库经 BulkInsert 写 top_list 表；ctx 取消与进度沿用既有 worker 语义。",
-	},
-}
+// etlWiringAllowlist —— DATA-08「停用」→ DATA-10「解禁」→ QT-40 H4 ①「归零」的留痕。
+//
+// **今天为空**：2026-10-25 起，core 的两条 executor（capital_flow / top_list）
+// 不再经 `source.NewETLPipeline` 落库，改成投点给 `tellurion-data` 的
+// `POST /ingest/points`（决策见 `tellurion-data:docs/adr/0006-*`）。
+// 判据因此从「只有这两处被批准」升级成「**一处都不许有**」：core 不再是
+// `market` / `ingest` 的写者，生产代码里出现 ETL 写链的构造点就是边界回退。
+//
+// 要往里加条目 = 决定让 core 重新当写者，必须：新立工单 + 写清为什么不能用
+// 对端写面 + 理由里指回那张单（`TestETLWiringAllowlist_EntryCarriesReason`
+// 拒收没理由 / 没工单号的条目）。曾经那两条的理由（DATA-10 / DBT-10）留在
+// git 历史与本文件头部，不在这里保活 —— 死条目本身也会红。
+var etlWiringAllowlist = []etlWiringPermit{}
 
 // partitionETLWiringOffenders 把守卫抓到的站点分成「未批准的违规」与
 // 「不再匹配的死条目」。
@@ -309,9 +299,9 @@ func parseETLWiringSite(off string) (file, kind string, ok bool) {
 // 生产文件里的 ETLPipeline 构造站点必须逐条进白名单，白名单外的站点
 // 一律红。
 //
-// 今天白名单里有两条（DATA-10 2026-10-16 主任裁决入口 (b) 的 capital_flow
-// 执行器，与 DBT-10 2026-10-19 的 top_list 执行器）。红的那一刻只有两种正当
-// 解释：又接了一条新链（来加白名单并写理由），或者有人偷偷接了线（回退）。
+// 今天白名单为空（QT-40 H4 ①，2026-10-25）。红的那一刻只有一种正当解释：
+// 有人把 core 重新接成了 `market` / `ingest` 的写者 —— 那就不是「补一条登记」，
+// 而是要新立工单说清为什么不用 `tellurion-data` 的写面。
 //
 // 白名单不是「登记一下就完事」的清单，它自己也被钉住：死条目报红
 // （登记会腐烂，只查「多」不查「少」的 allowlist 是半个护栏，
@@ -498,22 +488,73 @@ func TestETLWiringAllowlist_PermitsOnlyTheApprovedShape(t *testing.T) {
 	assert.Contains(t, v[0], "fail-loud")
 }
 
-// TestETLWiringAllowlist_EntryCarriesReason 钉住白名单条目必须带理由。
+// TestETLWiringAllowlist_EntryCarriesReason 钉住两件事：
 //
-// 「加白名单 + 写理由」是工单 ⑤ 的原话；只有文件名没有理由的条目，
-// 下一个人无从判断它是不是还成立，于是它必然腐烂成没人敢删的装饰。
+//  1. **白名单今天必须为空**（QT-40 H4 ①）。这条断言不是「记录现状」，
+//     而是把边界钉住：往白名单里加一个文件 = 让 core 重新当写者，
+//     而那种事必须有工单号。反过来，若有人删了本断言，本文件其余腿
+//     仍然拦着站点，所以腐烂的代价是一条红的守卫，不是一条静默的通路。
+//  2. 条目本身必须带可质问的理由。空表时这个循环不会跑，所以理由纪律
+//     用**合成条目**当场证明（含一条必须不合格的），否则「以后加了条目
+//     也不查理由」就是白名单自己变成假护栏的形状。
 func TestETLWiringAllowlist_EntryCarriesReason(t *testing.T) {
 	t.Parallel()
 
-	require.NotEmpty(t, etlWiringAllowlist, "白名单空着时这条守卫不该假绿")
-	for _, p := range etlWiringAllowlist {
-		assert.NotEmpty(t, p.file, "白名单条目必须点名文件")
-		assert.NotEmpty(t, p.kind, "白名单条目必须点名放行的形态")
-		assert.GreaterOrEqual(t, len([]rune(p.reason)), 20,
-			"%s: %s 的批准理由太短，无法被质问（要写清是哪张工单、谁的裁决）", p.file, p.kind)
-		assert.Contains(t, p.reason, "DATA-",
-			"%s: %s 的理由必须指回批准它的工单，否则不知道是谁批的", p.file, p.kind)
+	assert.Empty(t, etlWiringAllowlist,
+		"白名单必须为空 —— H4 ① 之后 core 不再持 ETL 写链；加条目要新工单并写清为什么不用对端写面")
+
+	// 理由纪律的三条腿：合格 / 太短 / 没有工单号。
+	assert.NoError(t, checkETLWiringPermitReason(etlWiringPermit{
+		file:   "cmd/data/synthetic.go",
+		kind:   "NewETLPipeline 引用",
+		reason: "QT-XX（主任 2026-01-01 派工）让 core 重新当写者的理由，写清为什么对端写面不够用。",
+	}))
+	assert.Error(t, checkETLWiringPermitReason(etlWiringPermit{
+		file: "cmd/data/synthetic.go", kind: "NewETLPipeline 引用", reason: "顺手接上",
+	}), "太短的理由无法被质问，必然腐烂成没人敢删的装饰")
+	assert.Error(t, checkETLWiringPermitReason(etlWiringPermit{
+		file: "cmd/data/synthetic.go", kind: "NewETLPipeline 引用",
+		reason: "这条链在作业层跑通过，落库形状与既有 worker 语义一致，进度与取消沿用同一条路径。",
+	}), "没有工单号（QT-/DATA-/DBT-）就不知道是谁批的")
+	assert.Error(t, checkETLWiringPermitReason(etlWiringPermit{reason: "QT-XX 的理由但没点名文件与形态"}),
+		"条目必须同时点名文件与放行的形态")
+}
+
+// checkETLWiringPermitReason 是一条白名单条目的合格性判据。
+// 对真实表逐条应用（今天表为空 ⇒ 无条目可查），对合成条目在上面的测试里应用。
+func checkETLWiringPermitReason(p etlWiringPermit) error {
+	if strings.TrimSpace(p.file) == "" || strings.TrimSpace(p.kind) == "" {
+		return errPermitNeedsFileAndKind
 	}
+	if len([]rune(p.reason)) < 20 {
+		return errPermitReasonTooShort
+	}
+	if !strings.Contains(p.reason, "DATA-") && !strings.Contains(p.reason, "DBT-") && !strings.Contains(p.reason, "QT-") {
+		return errPermitReasonLacksTicket
+	}
+	return nil
+}
+
+var (
+	errPermitNeedsFileAndKind  = errors.New("白名单条目必须点名文件与放行的形态")
+	errPermitReasonTooShort    = errors.New("批准理由太短，无法被质问（要写清是哪张工单、谁的裁决）")
+	errPermitReasonLacksTicket = errors.New("批准理由必须指回批准它的工单号（QT-/DATA-/DBT-）")
+)
+
+// TestETLWiringEmptyAllowlistStillHasTeeth —— 「空表 ≠ 关闸」。
+//
+// 白名单清空最容易写成「从此什么都不查」。这一腿直接喂给分区函数一个真实
+// 形状（core 里曾经那两个站点），要求它在空表下**仍然是违规**。
+func TestETLWiringEmptyAllowlistStillHasTeeth(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, etlWiringAllowlist)
+	violations, dead := partitionETLWiringOffenders([]string{
+		"cmd/data/capital_flow_executor.go:94: NewETLPipeline 引用",
+		"cmd/data/top_list_executor.go:112: NewETLPipeline 引用",
+	}, etlWiringAllowlist)
+	assert.Empty(t, dead, "空表不该产出死条目")
+	assert.Len(t, violations, 2, "空表下这两个曾经的站点必须重新算违规 —— 白名单清空不是把守卫关掉：%v", violations)
 }
 
 // TestRegistryObservabilityGuard_FlagsSyntheticFetch —— 规则 B 的替身：

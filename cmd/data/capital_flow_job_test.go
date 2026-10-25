@@ -5,24 +5,34 @@ package main
 // 工单原话是「POST /api/sync/jobs（job_type=capital_flow）→ worker executor
 // → ETLPipeline.Process → 落库，**不是**直接调 Process 的行为测试」。
 // 本文件从 HTTP 门开始，经 JobService → Queue.Dequeue → WorkerPool 的真实派发
-// （含 jobProgressReporter 与重试收敛）→ capitalFlowExecutor → NewETLPipeline →
-// Registry.Fetch（链 capital_flow:[eastmoney]）→ BulkInsert，落的是**真库**
-// `tellurion.capital_flow`，落完再逐字段读回与源响应比对。
+// （含 jobProgressReporter 与重试收敛）→ capitalFlowExecutor →
+// Registry.Fetch（链 capital_flow:[eastmoney]）→ **投点给写面**。
+//
+// 2026-10-25（QT-40 H4 ①）改的是这条链的最后一段：落库不再是 core 做的事。
+// 于是「逐字段对拍」的对象从**库里的行**换成**投出去的那一批点** —— 这不是
+// 把证据打折，而是边界变了之后 core 这一侧唯一可证的形状。行级 no-op、
+// 内容比对、由声明锚点推导 `visible_at`，那些判据的主人现在是
+// `tellurion-data`（腿在它的 `internal/assembly` 与 `internal/store`）。
+// core 要钉死的是三件事：投出去的内容与源响应逐字段一致；投送面上没有
+// `visible_at` / `ingest_time`；对端失败怎样落进作业结果。
 //
 // 两处是替身，理由如实写在这儿：
-//   - **作业行（sync_jobs）用内存 store**，行情落库用真库。原因不是省事，是
+//   - **作业行（sync_jobs）用内存 store**，写面用 httptest 替身。原因不是省事，是
 //     并发安全：`Queue.Dequeue` 取「最老的 pending」，不看 job_type。测试若起
 //     真队列，会把**别的 agent 正在排的队**抢过来，用这套（tc 为 nil 的）执行器
-//     把别人的作业打失败 —— 那是拿别人的作业给自己作证。内存 store 让队列里
-//     只有本测试的作业，真库那一半（落库与读数）没有打折。
-//   - **东财 push2 用 httptest 替身**。工单 ② 写「primary adapter 已启用、
-//     接线即灌数」；2026-10-16 实测：`/api/qt/stock/fflow/daykline/get` 这条
-//     path 本机不可达（push2 恒 502、push2his 连接重置、浏览器同结果；同主机的
+//     把别人的作业打失败 —— 那是拿别人的作业给自己作证。
+//   - **东财 push2 与 data-service 写面都是 httptest 替身**。工单 ② 写「primary
+//     adapter 已启用、接线即灌数」；2026-10-16 实测：`/api/qt/stock/fflow/daykline/get`
+//     这条 path 本机不可达（push2 恒 502、push2his 连接重置、浏览器同结果；同主机的
 //     ulist.np / kline / fflow/kline 都 200）。真源那条腿在
 //     capital_flow_live_test.go（build tag `data10live`），不放进默认套件赌网络。
+//     **真跨进程那一腿**（core → 真 data-service → 真库的行）在
+//     capital_flow_live_test.go（build tag `data10live`，2026-10-25 起它需要
+//     `H4_LIVE_INGEST_URL` 才跑）：默认套件里没有它，因为两个仓各自独立构建，
+//     core 的 CI 起不了对端进程 —— 这条缺口在 docs/TASKS.md 的 QT-40 里如实
+//     登记，不写成「端到端已验收」。
 //
-// 落库符号用 888888.SH / 888889.SH —— 不是真实 A 股代码；测试前后各删一次并
-// 断言清零，不给共享开发库留野数据。
+// 探针符号用 888888.SH / 888889.SH —— 不是真实 A 股代码。
 
 import (
 	"bytes"
@@ -40,9 +50,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
-	"tellurion/pkg/testenv"
 )
 
 const (
@@ -243,8 +251,9 @@ type capitalFlowHarness struct {
 
 // newCapitalFlowHarness 的装配顺序与 main.go / NewSyncHandler 一致
 // （notifier → canceller → 执行器注册），只是把作业行 store 换成内存替身、
-// 把链上的源指向替身。落库那一半由 persist 参数决定，本文件传真库 store。
-func newCapitalFlowHarness(t *testing.T, persist storage.BulkInserter, stubStatus int) *capitalFlowHarness {
+// 把链上的源指向替身。写面那一半由 write 参数决定：本文件传 httptest
+// 的 data-service 替身（经真 `ingestWriteClient`），诚实性腿传接口替身。
+func newCapitalFlowHarness(t *testing.T, write pointsPoster, stubStatus int) *capitalFlowHarness {
 	t.Helper()
 
 	stub := &stubPush2{status: stubStatus}
@@ -259,13 +268,126 @@ func newCapitalFlowHarness(t *testing.T, persist storage.BulkInserter, stubStatu
 	jobService.SetRunningCanceller(pool.Cancel)
 
 	registry := newCapitalFlowRegistry(t, srv.URL)
-	pool.RegisterExecutor(&capitalFlowExecutor{reg: registry, persist: persist})
+	pool.RegisterExecutor(&capitalFlowExecutor{reg: registry, write: write})
 
-	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: registry}
+	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: registry, ingestWrite: write}
 	router := gin.New()
 	router.POST("/api/sync/jobs", h.createJobHandler)
 
 	return &capitalFlowHarness{handler: h, jobs: jobs, router: router, stub: stub}
+}
+
+// ---- data-service 写端点的替身 ----
+
+// stubIngestService 记录**收到的原始报文**，而不是解码后的 Go 值。
+//
+// 这是刻意的：本单最可能出的错就是「core 以为自己没投 visible_at，实际投了」
+// —— 只有原始报文能证明投送面上到底有什么。回执默认把 persisted 报成
+// 「收到的点数」，要失败形状就改 status/code。
+type stubIngestService struct {
+	mu            stdsync.Mutex
+	rawBodies     []string
+	auth          []string
+	status        int
+	code          string
+	message       string
+	skipped       int
+	failOnRequest int // >0 时只有第 N 片（1 起）改答 status，其余照常收下 —— 「分片部分成功」的形状
+}
+
+func (s *stubIngestService) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := new(bytes.Buffer)
+		_, _ = body.ReadFrom(r.Body)
+		s.mu.Lock()
+		s.rawBodies = append(s.rawBodies, body.String())
+		s.auth = append(s.auth, r.Header.Get("Authorization"))
+		status, code, message, skipped := s.status, s.code, s.message, s.skipped
+		if s.failOnRequest > 0 {
+			// 只让那一片失败：跨仓之后一个 chunk 内部还要分片，片与片之间不共享
+			// 事务，所以「前一片已落、这一片被拒」是常态形状，替身必须能演它。
+			if len(s.rawBodies) != s.failOnRequest {
+				status = http.StatusOK
+			} else if status == 0 {
+				status = http.StatusBadGateway
+			}
+		}
+		s.mu.Unlock()
+		if status == 0 {
+			status = http.StatusOK
+		}
+
+		if status != http.StatusOK {
+			if code == "" {
+				code = "internal"
+			}
+			if message == "" {
+				message = "stub refusal"
+			}
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(ingestWireError{Error: struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}{Code: code, Message: message}})
+			return
+		}
+
+		var req ingestWireRequest
+		var received int
+		if err := json.Unmarshal(body.Bytes(), &req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_parameter","message":"stub: bad json"}}`))
+			return
+		}
+		received = len(req.Points)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ingestWireResult{
+			DataType: req.DataType, Received: received, Persisted: received - skipped, Skipped: skipped,
+		})
+	})
+}
+
+// seen 返回收到过的原始报文与 Authorization 头（一一对应）。
+func (s *stubIngestService) seen() ([]string, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.rawBodies...), append([]string(nil), s.auth...)
+}
+
+// batches 返回解码后的批次（逐字段对拍用）。
+func (s *stubIngestService) batches(t *testing.T) []ingestWireRequest {
+	t.Helper()
+	raw, _ := s.seen()
+	out := make([]ingestWireRequest, 0, len(raw))
+	for i, body := range raw {
+		var req ingestWireRequest
+		require.NoError(t, json.Unmarshal([]byte(body), &req), "第 %d 片报文不是合法 JSON", i)
+		out = append(out, req)
+	}
+	return out
+}
+
+// ingestPosterFor 用替身装出一条真客户端（于是分片、请求头、解码、错误分诊
+// 这些代码路径都在测试覆盖里，而不是被一个接口替身跳过）。
+func ingestPosterFor(t *testing.T, svc *stubIngestService, maxPoints int) pointsPoster {
+	srv := httptest.NewServer(svc.handler())
+	t.Cleanup(srv.Close)
+	return newIngestWriteClient(ingestWriteConfig{
+		BaseURL:   srv.URL,
+		Token:     "test-service-token",
+		Timeout:   5 * time.Second,
+		MaxPoints: maxPoints,
+		Client:    srv.Client(),
+	})
+}
+
+// pointsFromBatch 把批次里的点按 symbol|trade_date 排好，方便逐字段定位。
+func pointsFromBatch(batch ingestWireRequest) map[string]ingestWirePoint {
+	out := map[string]ingestWirePoint{}
+	for _, p := range batch.Points {
+		out[p.Symbol+"|"+p.TradeTime.UTC().Format("2006-01-02")] = p
+	}
+	return out
 }
 
 func (h *capitalFlowHarness) createJob(t *testing.T, params map[string]any) (int, string) {
@@ -309,84 +431,30 @@ func jobWithParams(id, params string) *sync.Job {
 	}
 }
 
-// ---- 真库读写 ----
+// ---- 主证据：作业层真的走一次 + 投出去的点逐字段对拍 ----
 
-func capitalFlowStore(t *testing.T) *storage.PostgresStore {
+// wireValue 取载荷里的数值列；缺列即 fail（「源没给」与「给了 0」必须是两件事）。
+func wireValue(t *testing.T, p ingestWirePoint, column string) float64 {
 	t.Helper()
-	dsn := testenv.DatabaseDSN()
-	if dsn == "" {
-		testenv.SkipNoDB(t)
-	}
-	store, err := storage.NewPostgresStoreConnected(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("[testdb] TEST_DATABASE_DSN 已设置但连不上（fail-loud）: %v", err)
-	}
-	t.Cleanup(store.Close)
-	return store
+	raw, ok := p.Data[column]
+	require.True(t, ok, "%s %s：载荷里没有列 %q（键名漂了就是投了一列没人认的值）",
+		p.Symbol, p.TradeTime.Format("2006-01-02"), column)
+	v, ok := raw.(float64)
+	require.True(t, ok, "%s %s：列 %q 不是数值，实得 %T", p.Symbol, p.TradeTime.Format("2006-01-02"), column, raw)
+	return v
 }
 
-// cleanCapitalFlowProbes 只按探针 symbol 收窄，绝不写全表 DELETE —— 共享开发库。
-func cleanCapitalFlowProbes(t *testing.T, store *storage.PostgresStore) {
-	t.Helper()
-	_, err := store.DB().Exec(context.Background(),
-		`DELETE FROM capital_flow WHERE symbol IN ($1, $2)`, capitalFlowSymA, capitalFlowSymB)
-	require.NoError(t, err)
-}
-
-type capitalFlowRow struct {
-	Symbol      string
-	TradeDate   time.Time
-	Period      string
-	MainNet     *float64
-	SuperNet    *float64
-	LargeNet    *float64
-	MediumNet   *float64
-	SmallNet    *float64
-	MainRatio   *float64
-	RetailNet   *float64
-	RetailRatio *float64
-	ClosePrice  *float64
-	ChangePct   *float64
-	MainBuy     *float64
-	MainSell    *float64
-	Source      string
-	IngestTime  time.Time
-}
-
-func readCapitalFlowRows(t *testing.T, store *storage.PostgresStore) []capitalFlowRow {
-	t.Helper()
-	rows, err := store.DB().Query(context.Background(),
-		`SELECT symbol, trade_date, period, main_net, super_net, large_net, medium_net, small_net,
-		        main_net_ratio, retail_net, retail_net_ratio, close_price, change_pct,
-		        main_buy_amount, main_sell_amount, source, ingest_time
-		 FROM capital_flow WHERE symbol IN ($1, $2) ORDER BY symbol, trade_date`,
-		capitalFlowSymA, capitalFlowSymB)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	var out []capitalFlowRow
-	for rows.Next() {
-		var r capitalFlowRow
-		require.NoError(t, rows.Scan(&r.Symbol, &r.TradeDate, &r.Period, &r.MainNet, &r.SuperNet,
-			&r.LargeNet, &r.MediumNet, &r.SmallNet, &r.MainRatio, &r.RetailNet, &r.RetailRatio,
-			&r.ClosePrice, &r.ChangePct, &r.MainBuy, &r.MainSell, &r.Source, &r.IngestTime))
-		out = append(out, r)
-	}
-	require.NoError(t, rows.Err())
-	return out
-}
-
-// ---- 主证据：作业层真的走一次 + 落库逐字段对拍 ----
-
-func TestCapitalFlowJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanCapitalFlowProbes(t, store)
-	t.Cleanup(func() { cleanCapitalFlowProbes(t, store) })
-
-	// 前置：探针 symbol 必须干净，否则「读回 4 行」可能数到别人的残留。
-	require.Empty(t, readCapitalFlowRows(t, store), "前置失败：探针 symbol 上还有残留行")
-
-	h := newCapitalFlowHarness(t, store, http.StatusOK)
+// TestCapitalFlowJobLayerPostsPointsMatchingSourceResponse 是 DATA-10 ⑤ 那条
+// 主证据在 H4 ① 之后的形态：一条作业真的经 worker 派发跑完，最后投出去的
+// 每一列都与替身源响应对得上 —— 逐字段，不是数行数。
+//
+// 另外钉三条只有跨仓之后才存在的判据：
+//   - 投送面上**没有** `visible_at` / `ingest_time`（对端按未知字段 400）；
+//   - `source` 是链上真正供数的那个适配器名（换源在对端是内容变化，会 409）；
+//   - 结果里 `persisted_via` 说明这批不是本进程写的。
+func TestCapitalFlowJobLayerPostsPointsMatchingSourceResponse(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newCapitalFlowHarness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints), http.StatusOK)
 	h.handler.StartWorkerPool()
 	t.Cleanup(h.handler.StopWorkerPool)
 
@@ -409,49 +477,66 @@ func TestCapitalFlowJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
 		"作业应成功落定；error_message=%q result=%s", settled.ErrorMessage, string(settled.Result))
 
 	var result struct {
-		Persisted int    `json:"persisted"`
-		Fetched   int    `json:"fetched"`
-		Succeeded int    `json:"succeeded"`
-		Period    string `json:"period"`
+		Persisted    int    `json:"persisted"`
+		Fetched      int    `json:"fetched"`
+		Succeeded    int    `json:"succeeded"`
+		Period       string `json:"period"`
+		PersistedVia string `json:"persisted_via"`
 	}
 	require.NoError(t, json.Unmarshal(settled.Result, &result))
 	assert.Equal(t, 4, result.Persisted, "2 个 symbol × 2 个交易日")
 	assert.Equal(t, 4, result.Fetched)
 	assert.Equal(t, 1, result.Succeeded)
 	assert.Equal(t, "daily", result.Period)
+	assert.Equal(t, "data-service /ingest/points", result.PersistedVia,
+		"落库在哪一侧必须是结果里看得见的事实，否则 persisted 会被读成 core 写的")
 
-	// —— 落库后抽样比对：逐字段 ——
-	got := readCapitalFlowRows(t, store)
-	require.Len(t, got, len(capitalFlowExpectedRows), "读回行数必须等于期望行数")
+	// —— 投出去的几个请求：一片一次 ——
+	raw, auth := svc.seen()
+	require.Len(t, raw, 1, "4 个点在一门上界内 ⇒ 只该有一片")
+	for _, header := range auth {
+		assert.Equal(t, "Bearer test-service-token", header, "服务间凭证不带上，对端必然 401")
+	}
+	// 投送面排除服务器独占字段：这两个键出现即说明投影漏了字段（对端会整批 400）。
+	assert.NotContains(t, raw[0], "visible_at", "可见时刻由对端按声明锚点推导，不接受投送")
+	assert.NotContains(t, raw[0], "ingest_time", "入库时刻由对端时钟填，不接受投送")
 
-	for i, want := range capitalFlowExpectedRows {
-		r := got[i]
-		label := fmt.Sprintf("行 %d (%s %s)", i, want.Symbol, want.TradeDate)
+	batches := svc.batches(t)
+	require.Len(t, batches, 1)
+	require.Equal(t, source.DataTypeCapitalFlow, batches[0].DataType)
+	byKey := pointsFromBatch(batches[0])
+	require.Len(t, byKey, len(capitalFlowExpectedRows), "投出去的点数必须等于期望行数")
 
-		assert.Equal(t, want.Symbol, r.Symbol, label)
-		assert.Equal(t, want.TradeDate, r.TradeDate.UTC().Format("2006-01-02"), label+" trade_date")
-		assert.Equal(t, "daily", r.Period, label+" period")
-		assert.Equal(t, "eastmoney", r.Source, label+" source 必须是链上真正供数的适配器名")
+	for _, want := range capitalFlowExpectedRows {
+		key := want.Symbol + "|" + want.TradeDate
+		p, ok := byKey[key]
+		require.True(t, ok, "没投过 %s 这个坐标（投出的是 %v）", key, keysOfPoints(byKey))
 
-		assert.InDelta(t, want.MainNet, derefFloat(t, r.MainNet, label+" main_net"), 1e-9, label)
-		assert.InDelta(t, want.SuperNet, derefFloat(t, r.SuperNet, label+" super_net"), 1e-9, label)
-		assert.InDelta(t, want.LargeNet, derefFloat(t, r.LargeNet, label+" large_net"), 1e-9, label)
-		assert.InDelta(t, want.MediumNet, derefFloat(t, r.MediumNet, label+" medium_net"), 1e-9, label)
-		assert.InDelta(t, want.SmallNet, derefFloat(t, r.SmallNet, label+" small_net"), 1e-9, label)
-		assert.InDelta(t, want.MainRatio, derefFloat(t, r.MainRatio, label+" main_net_ratio"), 1e-9, label)
-		assert.InDelta(t, want.RetailNet, derefFloat(t, r.RetailNet, label+" retail_net"), 1e-9,
+		label := "点 " + key
+		assert.Equal(t, want.Symbol, p.Symbol, label)
+		assert.Equal(t, want.TradeDate, p.TradeTime.UTC().Format("2006-01-02"), label+" trade_time")
+		assert.Equal(t, "eastmoney", p.Source, label+" source 必须是链上真正供数的适配器名")
+		assert.Equal(t, source.DataTypeCapitalFlow, p.DataType, label+" data_type")
+		assert.Equal(t, "daily", p.Data["period"], label+" period")
+
+		assert.InDelta(t, want.MainNet, wireValue(t, p, "main_net"), 1e-9, label)
+		assert.InDelta(t, want.SuperNet, wireValue(t, p, "super_net"), 1e-9, label)
+		assert.InDelta(t, want.LargeNet, wireValue(t, p, "large_net"), 1e-9, label)
+		assert.InDelta(t, want.MediumNet, wireValue(t, p, "medium_net"), 1e-9, label)
+		assert.InDelta(t, want.SmallNet, wireValue(t, p, "small_net"), 1e-9, label)
+		assert.InDelta(t, want.MainRatio, wireValue(t, p, "main_net_ratio"), 1e-9, label)
+		assert.InDelta(t, want.RetailNet, wireValue(t, p, "retail_net"), 1e-9,
 			label+" retail_net = −(super+large+medium+small)，手算得来，不是拿代码再算一遍")
-		assert.InDelta(t, want.RetailRatio, derefFloat(t, r.RetailRatio, label+" retail_net_ratio"), 1e-9,
+		assert.InDelta(t, want.RetailRatio, wireValue(t, p, "retail_net_ratio"), 1e-9,
 			label+" main+retail=0 ⇒ 零守卫留 0")
-		assert.InDelta(t, want.ClosePrice, derefFloat(t, r.ClosePrice, label+" close_price"), 1e-9, label)
-		assert.InDelta(t, want.ChangePct, derefFloat(t, r.ChangePct, label+" change_pct"), 1e-9, label)
+		assert.InDelta(t, want.ClosePrice, wireValue(t, p, "close_price"), 1e-9, label)
+		assert.InDelta(t, want.ChangePct, wireValue(t, p, "change_pct"), 1e-9, label)
 
-		// 「不做换算」在这里被钉住：库里就是源给的元。若有人在同步边界乘了
-		// 100/1000（DATA-04 那个坑换个方向重演），上面每一条 delta 断言同时崩。
-		assert.Nil(t, r.MainBuy, label+" main_buy_amount：wire schema 没给 ⇒ NULL，不许折成 0")
-		assert.Nil(t, r.MainSell, label+" main_sell_amount：同上")
-
-		assert.False(t, r.IngestTime.IsZero(), label+" ingest_time 由 pipeline 盖章，必须非零")
+		// 「不做换算」与「缺失 ≠ 0」在这一跳同样要钉住：若有人在同步边界乘了
+		// 100/1000（DATA-04 那个坑换个方向重演），上面的 delta 全崩；
+		// 而源没给的列**不许被折成 0 投出去**（对端会把 0 当真实内容比对）。
+		assert.NotContains(t, p.Data, "main_buy_amount", label+"：wire schema 没给 ⇒ 键都不许出现")
+		assert.NotContains(t, p.Data, "main_sell_amount", label+"：同上")
 	}
 
 	// 上游请求形状：adapter 逐 symbol 发请求，两个票各一发；窗口必须带上。
@@ -471,25 +556,32 @@ func TestCapitalFlowJobLayerPersistsRowsMatchingSourceResponse(t *testing.T) {
 	for _, p := range paths {
 		assert.Equal(t, "/api/qt/stock/fflow/daykline/get", p)
 	}
-
-	// 收尾：清完探针行后表必须回到「本测试没来过」的状态。
-	require.NoError(t, store.DB().QueryRow(context.Background(),
-		`SELECT count(*) FROM capital_flow WHERE symbol IN ($1,$2)`, capitalFlowSymA, capitalFlowSymB,
-	).Scan(new(int)))
 }
 
-func derefFloat(t *testing.T, v *float64, label string) float64 {
-	t.Helper()
-	require.NotNil(t, v, "%s 不该是 NULL", label)
-	return *v
+func keysOfPoints(byKey map[string]ingestWirePoint) []string {
+	out := make([]string, 0, len(byKey))
+	for k := range byKey {
+		out = append(out, k)
+	}
+	return out
 }
 
-// TestCapitalFlowJobLayerRerunIsIdempotent 钉「同一作业再跑一次不产生重复行」。
-// upsert 是这条链敢反复跑的前提。
-func TestCapitalFlowJobLayerRerunIsIdempotent(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanCapitalFlowProbes(t, store)
-	t.Cleanup(func() { cleanCapitalFlowProbes(t, store) })
+// TestCapitalFlowJobLayerRerunPostsIdenticalBatches 钉「反复跑这条作业，投出去
+// 的字节逐次一致」。
+//
+// 老的形状是「重跑两次后行数仍是 2」，那钉的是 core 侧 upsert 的幂等。
+// H4 ① 之后幂等在对端（`ON CONFLICT DO NOTHING` + 内容比对），core 无法证明
+// 它 —— 能证明的是这一侧**不会制造假冲突**：载荷里没有时钟、没有随机量，
+// 两次跑出去必须逐字节相同。这一点若破了，对端每次重跑都会 409，
+// 而那看起来像「上游改了历史数据」。
+//
+// 行级 no-op 的证据在 `tellurion-data:internal/store` 的 Writer 套件；
+// 跨进程那一腿在 capital_flow_live_test.go（tag `data10live`）。
+func TestCapitalFlowJobLayerRerunPostsIdenticalBatches(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newCapitalFlowHarness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints), http.StatusOK)
+	h.handler.StartWorkerPool()
+	t.Cleanup(h.handler.StopWorkerPool)
 
 	params := map[string]any{
 		"symbols":    []string{capitalFlowSymA},
@@ -497,10 +589,7 @@ func TestCapitalFlowJobLayerRerunIsIdempotent(t *testing.T) {
 		"end_date":   "20261016",
 	}
 
-	h := newCapitalFlowHarness(t, store, http.StatusOK)
-	h.handler.StartWorkerPool()
-	t.Cleanup(h.handler.StopWorkerPool)
-
+	var first string
 	for run := 1; run <= 2; run++ {
 		code, bodyText := h.createJob(t, params)
 		require.Equal(t, http.StatusAccepted, code, "第 %d 次：门要 202，响应 %s", run, bodyText)
@@ -511,40 +600,48 @@ func TestCapitalFlowJobLayerRerunIsIdempotent(t *testing.T) {
 		settled := h.waitJobSettled(t, created.JobID)
 		require.Equal(t, sync.JobStatusCompleted, settled.Status, "第 %d 次跑失败：%s", run, settled.ErrorMessage)
 
-		// 无论第几轮，行数恒为 2（两个交易日），不是 4 / 6 / 8。
-		got := readCapitalFlowRows(t, store)
-		assert.Len(t, got, 2, "第 %d 次重跑后行数变了 ⇒ upsert 幂等没成立", run)
+		raw, _ := svc.seen()
+		require.Len(t, raw, run, "第 %d 次跑应该又多投一片", run)
+		if run == 1 {
+			first = raw[0]
+			continue
+		}
+		assert.Equal(t, first, raw[run-1], "两次投送逐字节不一致 ⇒ 对端每次重跑都会撞到假冲突")
 	}
 }
 
 // ---- 诚实性腿（DATA-06 家族在作业层的同形）----
 
-type failingBulkInserter struct {
+// failingPoster 是写面的失败替身：投出去就被拒。
+type failingPoster struct {
 	calls int
 }
 
-func (f *failingBulkInserter) BulkInsert(context.Context, string, []storage.UnifiedDataPoint) (int, int, error) {
+func (f *failingPoster) PostPoints(context.Context, string, []source.UnifiedDataPoint) (int, int, error) {
 	f.calls++
-	return 0, 0, fmt.Errorf("boom: capital_flow unreachable")
+	return 0, 0, fmt.Errorf("boom: data-service unreachable")
 }
 
-type countingBulkInserter struct {
+// countingPoster 是「都收下」的替身，回执口径与对端一致（persisted = 已就位）。
+type countingPoster struct {
 	mu        stdsync.Mutex
 	persisted int
+	calls     int
 }
 
-func (n *countingBulkInserter) BulkInsert(_ context.Context, _ string, points []storage.UnifiedDataPoint) (int, int, error) {
+func (n *countingPoster) PostPoints(_ context.Context, _ string, points []source.UnifiedDataPoint) (int, int, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.persisted += len(points)
+	n.calls++
 	return len(points), 0, nil
 }
 
 // TestCapitalFlowExecutorFailsWhenNothingPersists：源能取到、但一行都没落进去时，
-// 作业不许以 completed 收口。执行器本来就收 storage.BulkInserter（CR-21），
+// 作业不许以 completed 收口。执行器本来就收 pointsPoster（H4 ① 之后是跨仓写面），
 // 替身是经接口注入的，生产码没有为测试让路。
 func TestCapitalFlowExecutorFailsWhenNothingPersists(t *testing.T) {
-	failing := &failingBulkInserter{}
+	failing := &failingPoster{}
 	h := newCapitalFlowHarness(t, failing, http.StatusOK)
 
 	rec := &recordingReporter{}
@@ -558,10 +655,33 @@ func TestCapitalFlowExecutorFailsWhenNothingPersists(t *testing.T) {
 	assert.GreaterOrEqual(t, rec.errorCalls, 1, "失败要经 progress 上报，界面才看得见")
 }
 
+// 一个 chunk 内部**第 2 片被拒** ⇒ 作业仍以 error 收口，但已落的那一片必须
+// 算进 persisted，而且 error 要明说「已有 N 行落了」。
+//
+// 这条存在的理由是 H4 ① 之后新出现的形状：老实现「落库失败 = 这个事务一行没落」
+// 是真的，跨仓之后片与片不共享事务，于是变成真的「前一片已落」。把它报成
+// 「什么都没发生」，读的人就会直接重跑 —— 而对端把重跑判成 409（同主键不同内容），
+// 那次 409 看起来像数据事故，其实是计数少报引来的人为动作。
+func TestCapitalFlowExecutorReportsRowsAlreadyLandedWhenAShardFails(t *testing.T) {
+	svc := &stubIngestService{failOnRequest: 2}
+	h := newCapitalFlowHarness(t, ingestPosterFor(t, svc, 1), http.StatusOK)
+
+	rec := &recordingReporter{}
+	res, err := h.executor(t).Execute(context.Background(),
+		jobWithParams("h4-partial-shard", `{"symbols":["888888.SH"],"start_date":"20261015","end_date":"20261016"}`), rec)
+
+	require.Error(t, err, "有一片被拒 ⇒ 作业不许以 completed 收口")
+	assert.Nil(t, res)
+	assert.Contains(t, err.Error(), "already landed",
+		"error 要说清已有行落了，否则人会按「无事发生」去重跑：%v", err)
+	assert.Contains(t, err.Error(), "1 row(s)", "已落的行数要写在报文里，不是让人去数：%v", err)
+	assert.GreaterOrEqual(t, rec.errorCalls, 1, "失败要经 progress 上报，界面才看得见")
+}
+
 // TestCapitalFlowExecutorFailsWhenUpstreamIsDown 是这条链今天真源的样子：
 // 上游非 2xx ⇒ 链失败 ⇒ 作业失败，且原因留在 error 里（不是静默空表）。
 func TestCapitalFlowExecutorFailsWhenUpstreamIsDown(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusBadGateway)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusBadGateway)
 
 	rec := &recordingReporter{}
 	res, err := h.executor(t).Execute(context.Background(),
@@ -575,7 +695,7 @@ func TestCapitalFlowExecutorFailsWhenUpstreamIsDown(t *testing.T) {
 
 // TestCapitalFlowExecutorStopsOnContextCancel 钉 ctx 取消真的挡在源前面。
 func TestCapitalFlowExecutorStopsOnContextCancel(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 起跑前就取消：第一个 chunk 之前就该返回
@@ -593,7 +713,7 @@ func TestCapitalFlowExecutorStopsOnContextCancel(t *testing.T) {
 // ---- 门（typed door）的校验腿 ----
 
 func TestCapitalFlowJobDoorRejectsBadRequests(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	tests := []struct {
 		name   string
@@ -618,7 +738,7 @@ func TestCapitalFlowJobDoorRejectsBadRequests(t *testing.T) {
 // TestCapitalFlowJobDoorAcceptsCapitalFlowType 是负例的对照腿：
 // 门里现在真的认这个名字 —— 不认的话上面所有负例都会以 400 假绿。
 func TestCapitalFlowJobDoorAcceptsCapitalFlowType(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	code, bodyText := h.createJob(t, map[string]any{"symbols": []string{capitalFlowSymA}})
 	require.Equal(t, http.StatusAccepted, code, bodyText)
@@ -641,7 +761,7 @@ func TestCapitalFlowJobDoorAcceptsCapitalFlowType(t *testing.T) {
 // 标签、以 (symbol, trade_date, "5d") 为主键写进库 —— 同一天会有两行看起来
 // 不同其实同源的数据。报错里必须说出 klt=1，否则下一个人只会把它改回放行。
 func TestCapitalFlowExecutorRejectsPeriodsTheAdapterDoesNotServe(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	for _, period := range []string{"5d", "10d", "60d"} {
 		rec := &recordingReporter{}
@@ -666,7 +786,7 @@ func TestCapitalFlowExecutorRejectsPeriodsTheAdapterDoesNotServe(t *testing.T) {
 // TestCapitalFlowExecutorRejectsInvertedWindow 钉窗口方向：end 早于 start 时
 // 不许把「倒过来的区间」当成空区间静默跑过去。
 func TestCapitalFlowExecutorRejectsInvertedWindow(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	_, err := h.executor(t).Execute(context.Background(),
 		jobWithParams("data10-inverted",
@@ -688,8 +808,9 @@ func TestNewSyncHandlerRegistersCapitalFlowExecutor(t *testing.T) {
 	// 不调 gin.SetMode —— AUD-29 只允许它在 pkg/httpserver/ginmode.go 出现，
 	// 守卫扫的是全仓 _test.go（本包其余测试同样靠 gin.New() 直接跑）。
 	reg := source.NewRegistry()
+	poster := &countingPoster{}
 
-	h := NewSyncHandler(nil, nil, nil, reg)
+	h := NewSyncHandler(nil, nil, nil, reg, poster)
 	require.NotNil(t, h)
 	h.RegisterExecutors()
 
@@ -697,11 +818,21 @@ func TestNewSyncHandlerRegistersCapitalFlowExecutor(t *testing.T) {
 		"NewSyncHandler 必须把 capital_flow 执行器注册进 worker pool")
 	assert.Same(t, reg, h.registry, "compose root 传进来的 Registry 必须就是执行器用的那一个")
 
-	// main.go 必须把真正构建出来的 Registry 递给路由，而不是半路换成 nil ——
-	// 那会让每次作业都 fail-loud 在 `etl: nil registry`，接了等于没接。
+	// H4 ① 之后这条同样要钉到执行器身上：handler 收了写面却没往下传，
+	// 每次作业都会 fail-loud 在「写面未配置」——接了等于没接（同 SYNC-01 家族）。
+	exec, ok := h.workerPool.GetExecutor(sync.JobTypeCapitalFlow)
+	require.True(t, ok)
+	capitalExec, ok := exec.(*capitalFlowExecutor)
+	require.True(t, ok, "注册的必须是 capitalFlowExecutor")
+	assert.Same(t, poster, capitalExec.write, "compose root 传进来的写面必须就是执行器用的那一个")
+
+	// main.go 必须把真正构建出来的 Registry 与写面客户端递给路由，而不是半路
+	// 换成 nil —— 那会让每次作业都 fail-loud，接了等于没接。
 	mainSrc := readSource(t, "main.go")
 	require.Contains(t, mainSrc, "registerRoutes(router, store, cache, tushareClient, dataCache, dataSourceRegistry,",
 		"main 没把 dataSourceRegistry 接进路由")
+	require.Contains(t, mainSrc, "NewSyncHandler(store, tc, dc, registry, newIngestWritePoster())",
+		"main 必须把写面客户端接进 SyncHandler；漏了它，capital_flow / top_list 两条作业一律失败")
 }
 
 // ---- 进度替身 ----
@@ -724,7 +855,7 @@ func (r *recordingReporter) ReportError(string) { r.errorCalls++ }
 // TestCapitalFlowExecutorReportsProgressPerChunk 钉进度真的按 chunk 上报：
 // 4 个 symbol、batch_size=2 ⇒ 两 chunk ⇒ 两次 ReportProgress，total 恒为 4。
 func TestCapitalFlowExecutorReportsProgressPerChunk(t *testing.T) {
-	h := newCapitalFlowHarness(t, &countingBulkInserter{}, http.StatusOK)
+	h := newCapitalFlowHarness(t, &countingPoster{}, http.StatusOK)
 
 	job := jobWithParams("data10-progress",
 		fmt.Sprintf(`{"symbols":[%q,%q,%q,%q],"batch_size":2,"start_date":"20261015","end_date":"20261016"}`,

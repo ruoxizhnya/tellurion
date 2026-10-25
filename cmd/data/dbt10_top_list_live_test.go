@@ -64,8 +64,9 @@ func TestDBT10TopListLiveFillsTopList(t *testing.T) {
 	start := end.AddDate(0, 0, -dbt10WindowDays)
 
 	// 生产链，tushare 传 nil —— top_list 这条链上只有 eastmoney_toplist 一员。
+	// 写面是真的（H4 ①）：这条腿投给一个真 data-service，读回由本测试自己查。
 	reg := buildDataSourceRegistry(nil, logging.Logger)
-	exec := &topListExecutor{reg: reg, persist: store}
+	exec := &topListExecutor{reg: reg, write: liveIngestPoster(t)}
 
 	params, err := json.Marshal(map[string]any{
 		"start_date": start.Format("20060102"),

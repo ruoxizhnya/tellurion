@@ -1,22 +1,30 @@
-// Package main — capital_flow 链的作业层执行器（DATA-10 接线）。
+// Package main — capital_flow 链的作业层执行器（DATA-10 接线，QT-40 H4 ① 改写路径）。
 //
 // 主任 2026-10-16 裁决入口 (b)：`POST /api/sync/jobs`（job_type=
-// `capital_flow`）→ `sync_jobs` → worker → 本执行器 → `ETLPipeline.Process`
-// → `Registry.Fetch`（链 `capital_flow: [eastmoney]`）→ `BulkInsert` 落
-// `capital_flow` 表。不走 `handlers_sync.go` / 其他执行器那条
-// `e.tc`（TushareClient）直连线 —— 这条链的意义就是让 Registry 的
-// fallback 链第一次真的承载生产取数。
+// `capital_flow`）→ `sync_jobs` → worker → 本执行器 → `Registry.Fetch`
+// （链 `capital_flow:[tushare_moneyflow, eastmoney]`，DBT-09 换了链首选）
+// → **投点给 `tellurion-data` 的 `POST /ingest/points`**。
+//
+// 2026-10-25 的变化只有一处，但它是边界级的：**落库那一跳不再由 core 做**。
+// 原先这里是 `source.NewETLPipeline(reg, store)` → `Process` →
+// `storage.BulkInsert`（`ON CONFLICT DO UPDATE`），core 于是成了
+// `market` / `ingest` 的第二写者。现在 core 保留取数与归一（传输的所有权
+// 不动，`tellurion-data:AGENTS.md` §3 禁止那边实现传输），把校验 / 闸门 /
+// 去重 / 幂等整个交给对端（`tellurion-data:internal/assembly`）。
+// 不走 `handlers_sync.go` / 其他执行器那条 `e.tc`（TushareClient）直连线 ——
+// 这条链的意义就是让 Registry 的 fallback 链真的承载生产取数。
 //
 // 为什么是作业层而不是同步 HTTP 端点（裁决原文的可复核版本）：
-// `EastmoneyAdapter.fetchCapitalFlow` 是 `for _, sym := range req.Symbols`
+// `EastmoneyAdapter.fetchCapitalFlow` 是 `for _, sym := range symbols`
 // **逐 symbol 顺序 HTTP**，全池 ≈5900 次串行请求，同步端点必然超时；
 // 作业层已经备好 ctx 取消（AUD-49 `SetRunningCanceller`）、SSE 进度、
 // 重试与并发上限，无需新写。
 //
-// 本文件是 `internal/repoguard/registry_etl_wiring_test.go` 规则 A 白名单
-// 里唯一被放行 `source.NewETLPipeline` 引用的生产文件。白名单本身就是
-// DATA-08「停用」到 DATA-10「解禁」那次决策的留痕 —— 别的文件想接同一条
-// 链，守卫照样当场红。
+// 本文件**不再**是 `internal/repoguard/registry_etl_wiring_test.go` 规则 A
+// 白名单里的条目：H4 ① 之后 core 生产代码里 `NewETLPipeline` 的引用归零，
+// 白名单随之清空（守卫从「只有这两处被批准」变成「一处都不许有」）。
+// 想重新接一条 ETL 写链，要新立工单 + 重新备案白名单条目 + 写清为什么
+// 本仓又当写者。
 package main
 
 import (
@@ -27,15 +35,15 @@ import (
 
 	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )
 
 const (
 	// capitalFlowDefaultPeriod 是 eastmoney adapter 真正服务的那一种 period。
 	capitalFlowDefaultPeriod = "daily"
-	// capitalFlowDefaultBatchSize 决定一次 Process 里串多少个 symbol：
-	// 它同时是进度上报与取消的粒度（每个 chunk 一个写事务）。
+	// capitalFlowDefaultBatchSize 决定一次取数里串多少个 symbol：
+	// 它是取数与进度上报的粒度。⚠️ 不再是写事务的粒度（H4 ① 之后落库出了
+	// 进程，一个 chunk 内部还要按对端单次上界分片，片与片之间不共享事务）。
 	capitalFlowDefaultBatchSize = 25
 	// capitalFlowDefaultLookback 是 start/end 都没给时的窗口宽度。
 	capitalFlowDefaultLookback = 365 * 24 * time.Hour
@@ -43,12 +51,13 @@ const (
 
 // capitalFlowExecutor 执行 capital_flow 同步作业。
 //
-// persist 收 `storage.BulkInserter` 而不是 `*storage.PostgresStore`：
-// 那正是 `ETLPipeline.Store` 的字段类型（CR-21 把契约定在 storage 侧的
-// 理由就是让任何替身都必须匹配真实签名），生产传进来的是 store 本身。
+// `write` 是跨仓写面（`pointsPoster`，生产实现 `ingestWriteClient`）而不是
+// `storage.BulkInserter`：H4 ① 之后这张表的写入方只有 `tellurion-data`。
+// 为 nil（未配 `ingest_write.base_url`）时执行**当场失败**，不回落本地写库 ——
+// 把第二写者藏进 fallback 里比它公开更坏。
 type capitalFlowExecutor struct {
-	reg     *source.Registry
-	persist storage.BulkInserter
+	reg   *source.Registry
+	write pointsPoster
 }
 
 // JobType implements sync.JobExecutor.
@@ -64,7 +73,10 @@ func (e *capitalFlowExecutor) JobType() sync.JobType { return sync.JobTypeCapita
 //     绿色的空成功。失败原因经 %w 留在 error 里，进 `sync_jobs.error_message`。
 //  2. **单个 chunk 失败不中止整池**：一个坏 symbol 不该让 5900 个的池子白跑
 //     （与 `ohlcvAllExecutor` 一致），失败数进 `failed_chunks` 也经
-//     `progress.ReportError` 进 `failed_items`，两头都能看见。
+//     `progress.ReportError` 进 `failed_items`，两头都能看见。⚠️ H4 之后这条
+//     的边界要重读一次：一个 chunk 内部还要按对端上界分片，**分片之间不共享
+//     事务**，所以「这一 chunk 失败」可能是「前两片已落、第三片被 409 拒」。
+//     persisted 因此是「已就位」而不是「本 chunk 全落」。
 //  3. **ctx 取消直接上抛 `ctx.Err()`**：worker 对已 done 的 ctx 不写状态
 //     （AUD-49/50 的既有语义），行留给 stale-running 收尸器。
 func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progress sync.ProgressReporter) (any, error) {
@@ -91,8 +103,6 @@ func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progre
 		batchSize = capitalFlowDefaultBatchSize
 	}
 
-	pipeline := source.NewETLPipeline(e.reg, e.persist)
-
 	var attempted, succeeded, failedChunks int
 	var fetched, persisted, skipped int
 	var lastErr error
@@ -111,7 +121,7 @@ func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progre
 		chunk := params.Symbols[i:stop]
 		attempted++
 
-		res, err := pipeline.Process(ctx, source.FetchRequest{
+		res, err := runIngestStep(ctx, e.reg, e.write, source.FetchRequest{
 			DataType:  source.DataTypeCapitalFlow,
 			Symbols:   chunk,
 			Period:    period,
@@ -121,9 +131,16 @@ func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progre
 		if err != nil {
 			failedChunks++
 			lastErr = err
+			// 计数照收：写面失败的那个 chunk 可能已经落了前几片
+			// （片与片不共享事务），丢掉这些数会让 persisted 系统性少报，
+			// 而取数失败的 chunk 在这里 res 全零，收不出假数。
+			fetched += res.Fetched
+			persisted += res.Persisted
+			skipped += res.Skipped
 			logging.Logger.Warn().Err(err).
 				Int("chunk_start", i).
 				Int("chunk_size", len(chunk)).
+				Int("persisted_so_far", persisted).
 				Msg("capital_flow chunk failed")
 			progress.ReportError(err.Error())
 			progress.ReportProgress(stop, len(params.Symbols), failedChunks)
@@ -137,6 +154,13 @@ func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progre
 	}
 
 	if succeeded == 0 {
+		if persisted > 0 {
+			// 「全失败」不等于「什么都没落」：分片之间不共享事务，前几片真的落了。
+			// 这句话必须写在 error 里，否则运维会按「无事发生」去重跑，
+			// 而对端会把重跑判成内容冲突（409）。
+			return nil, fmt.Errorf("capital_flow: all %d chunk(s) failed, but %d row(s) already landed (shards are not one transaction) — read the 409/5xx before retrying: %w",
+				attempted, persisted, lastErr)
+		}
 		return nil, fmt.Errorf("capital_flow: all %d chunk(s) failed, nothing persisted: %w", attempted, lastErr)
 	}
 
@@ -152,11 +176,16 @@ func (e *capitalFlowExecutor) Execute(ctx context.Context, job *sync.Job, progre
 		"failed_chunks": failedChunks,
 		"fetched":       fetched,
 		"persisted":     persisted,
-		// Skipped 的三处来源在 ETLPipeline.Process 自己身上：normalizer 返
-		// 回 nil Data 的丢弃 + ValidatePoints + DeduplicateWithCount +
-		// BulkInsert 的 per-row 折跳过（pkg/data/source/etl.go）。
-		// 别把它读成「丢的数据不要紧」，要读就得读那四个计数分别从哪来。
+		// Skipped 的出处在 H4 之后分成两侧，读的人必须能分清：
+		//   - core 这一侧：归一化返回 nil 载荷的点（runIngestStep）；
+		//   - 对端那一侧：`assembly.Write` 的 ValidatePoints 丢弃 + 幂等坐标
+		//     重复 + `store.BulkInsert` 的坏载荷单行折跳，三条都由对端计入
+		//     回执的 skipped 后原样带回来。
+		// 别把它读成「丢的数据不要紧」，也别读成「core 筛掉的」——两侧混在这一个数里。
 		"skipped": skipped,
+		// 落库在哪一侧，现在是结果里必须看得见的事实：不写这行，
+		// persisted 会被读成「core 写的」，而排查 409 时要找的服务在另一个进程里。
+		"persisted_via": "data-service /ingest/points",
 	}, nil
 }
 

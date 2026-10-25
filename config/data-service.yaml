@@ -80,3 +80,24 @@ tushare:
   token: ""
   base_url: "https://api.tushare.pro"
   max_retries: 3
+
+# 跨仓写面（QT-40 H4 ①，2026-10-25）。`capital_flow` / `top_list` 这两条作业的
+# **落库那一跳**不在本进程：点投给 `tellurion-data` 的 `POST /ingest/points`
+# （契约 `tellurion-data:docs/api-schema.md` §1，决策 `tellurion-data:docs/adr/0006`）。
+#
+# base_url 出厂留空 = **未接线** ⇒ 这两条作业一律 fail-loud
+# （`ErrIngestWriteUnconfigured`），刻意**不**回落本地 `BulkInsert`：回落等于把
+# 本单要消灭的第二写者藏进一条 fallback 分支里，藏起来之后没人能证明它哪天又活了。
+# 所以这一行没配 = 部署没做完，不是「服务坏了」。
+#
+# token 只能从 env 注入（INGEST_WRITE_TOKEN）；它必须与 data-service 自己的
+# JWT_SECRET 同一套签发，且档位是 `service` 或 `admin`（对端策略表只开这两档）。
+# 配错不是 401 就是 403，作业 error_message 会点名是哪一个。
+ingest_write:
+  base_url: ""
+  # 单次请求的超时。跨仓写是一次 HTTP，不是本地函数调用：窗口要显式给。
+  timeout: "30s"
+  # 每片点数上界。对端硬限 10000（`assembly.MaxPointsPerRequest`），这里写大了
+  # 会被夹住；写小了只是多分几片。**代价**：片与片之间不共享事务，
+  # 一片失败时已落的前面几片不回滚。
+  max_points: 10000

@@ -1,27 +1,33 @@
 package main
 
 // DBT-09 的作业层证据：capital_flow 这条链接上 Tushare moneyflow 之后，
-// **从 HTTP 门真的走一次**，落的是真库 `tellurion.capital_flow`。
+// **从 HTTP 门真的走一次**，最后把点投给写面。
 //
 // 与 capital_flow_job_test.go 的关键差别是「用哪条链」：那边手搭一条
 // `capital_flow:[eastmoney]` 的替身链（DATA-10 时点的生产形状），本文件走
 // **生产的 `buildDataSourceRegistry`** —— 只有真的经过 configureFallbackChains，
 // 「Tushare 优先、eastmoney 兜底」这条例由才有证据，也就才有破坏验证的靶子
-// （把 registry_init.go 的链顺序换回 eastmoney 优先，本文件的落库腿会当场
+// （把 registry_init.go 的链顺序换回 eastmoney 优先，本文件的投点腿会当场
 // 失败在真源不可达上，而不是悄悄由 Tushare 腿替它答完）。
+//
+// 2026-10-25（QT-40 H4 ①）改的是最后一段：落库不再是 core 做的事，所以
+// 「逐字段读回对拍」换成「逐字段对拍投出去的那一批点」。原来那份证据是两件事
+// 的合取，今天只有前半还属于 core：
+//   - ✅ 归一后的值逐列正确（单位换算、符号、真 0 vs 源没给）—— 在投送面上直接证；
+//   - ⬜ 「map 里的 nil / 缺键折成库里的 NULL」—— 主人换成了 `tellurion-data`，
+//     core 侧只能证「源没给的列**键都不出现**，不折 0 投出去」。
 //
 // 三处替身，理由如实写在这儿：
 //   - **作业行用内存 store**（复用 capital_flow_job_test.go 的 memJobStore）：
 //     Queue.Dequeue 取「最老的 pending」而不看 job_type，起真队列会把别的
-//     agent 正在排的作业抢过来打失败。落库那一半没有打折。
-//   - **Tushare 用 httptest 替身**：默认套件不许赌网络与配额。真源那条腿在
-//     dbt09_moneyflow_live_test.go（build tag `dbt09live`）。
-//   - **TushareClient 的 store 传 nil**：这条链的落库面是 ETL 的 BulkInsert，
-//     导入面不写库；nil store 同时让归档闸（call → ingest.raw）在测试里
-//     自然短路，不给共享开发库的 ingest.raw 追加测试噪声。
+//     agent 正在排的作业抢过来打失败。
+//   - **Tushare 与写面都用 httptest 替身**：默认套件不许赌网络与配额。真源那条腿在
+//     dbt09_moneyflow_live_test.go（build tag `dbt09live`），它现在经真写面客户端
+//     投给一个真的 data-service（缺 `H4_LIVE_INGEST_URL` 时按外部条件缺失 skip）。
+//   - **TushareClient 的 store 传 nil**：这条链的取数面不写库；nil store 同时让
+//     归档闸（call → ingest.raw）在测试里自然短路，不给共享开发库追加测试噪声。
 //
-// 探针 symbol 沿用 888888.SH / 888889.SH（不是真实 A 股代码），前后各清一次
-// 并断言清零 —— 与 capital_flow_job_test.go 同一批锚点，不给开发库留野数据。
+// 探针 symbol 沿用 888888.SH / 888889.SH（不是真实 A 股代码）。
 
 import (
 	"bytes"
@@ -39,21 +45,20 @@ import (
 
 	"tellurion/pkg/data"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )
 
-// dbt09 夹具（单位万元；落库期望全部**手算**，不是拿被测代码再算一遍）：
+// dbt09 夹具（源侧单位万元；投点期望全部**手算**，不是拿被测代码再算一遍）：
 //
 //	888888.SH 20260930: elg 100.5−0.5 = 100 万 ⇒ 1_000_000 元
 //	                   lg   50.25−20.25 = 30 万 ⇒   300_000 元
 //	                   md   10−40 = −30 万      ⇒  −300_000 元
-//	                   sm   1−1 = 0             ⇒        0 元（真 0，必须落 0 不是 NULL）
+//	                   sm   1−1 = 0             ⇒        0 元（真 0，必须投 0 不是缺键）
 //	888888.SH 20260929: elg 200−100 = 100 万 ⇒ 1_000_000；lg 10−5 = 5 万 ⇒ 50_000；
 //	                   md 1−2 = −1 万 ⇒ −10_000；sm 0.5−0.5 = 0 ⇒ 0
 //	888889.SH 两日：四档买卖各自相等 ⇒ 八个 0.0
 //
-// 888889.SH 这一票专证「真 0 与 NULL 在库里必须长得不一样」—— 把缺失折成 0
+// 888889.SH 这一票专证「源给了的 0 与源没给的列长得不一样」—— 把缺失折成 0
 // 的实现（DBT-07 那一族）会让它「通过」，而这里它是独立的一腿。
 //
 // dbt09StubBody 按票返回自己的行。用 switch + 切片而不是 map：
@@ -131,14 +136,15 @@ func newDBT09Registry(t *testing.T, stubURL string) *source.Registry {
 }
 
 // newDBT09Harness 的装配顺序与 NewSyncHandler 一致，只把作业行 store 换成
-// 内存替身、把 Tushare 上游指向替身；落库传真库 store。
+// 内存替身、把 Tushare 上游指向替身；写面由 write 参数决定（本文件投给
+// httptest 的 data-service 替身）。
 type dbt09Harness struct {
 	handler *SyncHandler
 	router  *gin.Engine
 	stub    *dbt09TushareStub
 }
 
-func newDBT09Harness(t *testing.T, persist storage.BulkInserter) *dbt09Harness {
+func newDBT09Harness(t *testing.T, write pointsPoster) *dbt09Harness {
 	t.Helper()
 	stub := &dbt09TushareStub{}
 	srv := httptest.NewServer(stub.handler())
@@ -152,9 +158,9 @@ func newDBT09Harness(t *testing.T, persist storage.BulkInserter) *dbt09Harness {
 	jobService.SetRunningCanceller(pool.Cancel)
 
 	reg := newDBT09Registry(t, srv.URL)
-	pool.RegisterExecutor(&capitalFlowExecutor{reg: reg, persist: persist})
+	pool.RegisterExecutor(&capitalFlowExecutor{reg: reg, write: write})
 
-	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: reg}
+	h := &SyncHandler{jobService: jobService, queue: queue, workerPool: pool, registry: reg, ingestWrite: write}
 	router := gin.New()
 	router.POST("/api/sync/jobs", h.createJobHandler)
 	return &dbt09Harness{handler: h, router: router, stub: stub}
@@ -178,13 +184,9 @@ func (h *dbt09Harness) createAndWait(t *testing.T, jobType string, params map[st
 	return waitForMemJob(t, h.handler, created.JobID)
 }
 
-func TestDBT09CapitalFlowJobLandsTushareMoneyflowRows(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanCapitalFlowProbes(t, store)
-	t.Cleanup(func() { cleanCapitalFlowProbes(t, store) })
-	require.Empty(t, readCapitalFlowRows(t, store), "前置失败：探针 symbol 上还有残留行")
-
-	h := newDBT09Harness(t, store)
+func TestDBT09CapitalFlowJobPostsTushareMoneyflowPoints(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newDBT09Harness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints))
 	h.handler.StartWorkerPool()
 	t.Cleanup(h.handler.StopWorkerPool)
 
@@ -206,9 +208,12 @@ func TestDBT09CapitalFlowJobLandsTushareMoneyflowRows(t *testing.T) {
 	assert.Equal(t, 4, result.Fetched)
 	assert.Equal(t, "daily", result.Period)
 
-	// —— 逐字段读回对拍 ——
-	got := readCapitalFlowRows(t, store)
-	require.Len(t, got, 4)
+	// —— 逐字段对拍投出去的那一批点 ——
+	batches := svc.batches(t)
+	require.Len(t, batches, 1, "4 个点在一门上界内 ⇒ 只该有一片")
+	require.Equal(t, source.DataTypeCapitalFlow, batches[0].DataType)
+	byKey := pointsFromBatch(batches[0])
+	require.Len(t, byKey, 4, "投出去的点数必须等于源答的行数：%v", keysOfPoints(byKey))
 
 	// 请求形状：逐 symbol 各一发（两票 = 两发），窗口必须真的带到源上。
 	assert.Len(t, h.stub.bodies, 2, "本门按票逐发请求：两票两发：%v", h.stub.bodies)
@@ -218,42 +223,41 @@ func TestDBT09CapitalFlowJobLandsTushareMoneyflowRows(t *testing.T) {
 		assert.Equal(t, "20260929..20260930", q, "窗口没到源上，行数就由源而不是请求决定：%s", q)
 	}
 
-	for _, r := range got {
-		assert.Equal(t, "tushare_moneyflow", r.Source,
-			"source 列必须记真正供数的那扇门 —— 读方靠它区分 Tushare 分档口径与东财净流入口径")
-		assert.Equal(t, "daily", r.Period)
-		assert.False(t, r.IngestTime.IsZero())
+	for key, p := range byKey {
+		assert.Equal(t, "tushare_moneyflow", p.Source,
+			"%s：source 列必须记真正供数的那扇门 —— 读方据此区分 Tushare 分档口径与东财净流入口径", key)
+		assert.Equal(t, "daily", p.Data["period"], key)
 
-		// 本源**不产出**的列一律 NULL（缺失可见，不折 0）。
-		assert.Nil(t, r.MainBuy, "%s %s main_buy_amount：moneyflow 没有「主力」这一档 ⇒ NULL", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.MainSell, "%s %s main_sell_amount：同上", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.MainNet, "%s %s main_net：不拿 super+large 相加硬凑东财口径", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.MainRatio, "%s %s main_net_ratio：分母（当日成交额）本源不给", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.RetailNet, "%s %s retail_net：散户档是东财定义", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.RetailRatio, "%s %s retail_net_ratio：同上", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.ClosePrice, "%s %s close_price：moneyflow 不带价格", r.Symbol, r.TradeDate)
-		assert.Nil(t, r.ChangePct, "%s %s change_pct：同上", r.Symbol, r.TradeDate)
+		// 本源**不产出**的列连键都不该出现（折 0 投出去 = 宣称该档买卖恰好相等；
+		// 对端把 null 与「没给」都读成没值，而 0 是一个真实断言）。
+		for _, absent := range []string{
+			"main_buy_amount", "main_sell_amount", "main_net", "main_net_ratio",
+			"retail_net", "retail_net_ratio", "close_price", "change_pct",
+		} {
+			assert.NotContains(t, p.Data, absent, "%s：%s 本源不给，不许出现在投送载荷里", key, absent)
+		}
 
 		switch {
-		case r.Symbol == capitalFlowSymA && r.TradeDate.UTC().Format("2006-01-02") == "2026-09-30":
-			assert.InDelta(t, 1_000_000.0, derefFloat(t, r.SuperNet, "super_net"), 1e-6)
-			assert.InDelta(t, 300_000.0, derefFloat(t, r.LargeNet, "large_net"), 1e-6)
-			assert.InDelta(t, -300_000.0, derefFloat(t, r.MediumNet, "medium_net"), 1e-6,
-				"卖大于买必须为负，落进库里还是负")
-			require.NotNil(t, r.SmallNet, "买卖恰好相等是**真 0**，不许落成 NULL")
-			assert.InDelta(t, 0.0, *r.SmallNet, 1e-9)
-		case r.Symbol == capitalFlowSymA:
-			assert.InDelta(t, 1_000_000.0, derefFloat(t, r.SuperNet, "super_net"), 1e-6)
-			assert.InDelta(t, 50_000.0, derefFloat(t, r.LargeNet, "large_net"), 1e-6)
-			assert.InDelta(t, -10_000.0, derefFloat(t, r.MediumNet, "medium_net"), 1e-6)
-			assert.InDelta(t, 0.0, derefFloat(t, r.SmallNet, "small_net"), 1e-9)
+		case p.Symbol == capitalFlowSymA && p.TradeTime.UTC().Format("2006-01-02") == "2026-09-30":
+			assert.InDelta(t, 1_000_000.0, wireValue(t, p, "super_net"), 1e-6, key)
+			assert.InDelta(t, 300_000.0, wireValue(t, p, "large_net"), 1e-6, key)
+			assert.InDelta(t, -300_000.0, wireValue(t, p, "medium_net"), 1e-6,
+				key+"：卖大于买必须为负，投出去还是负")
+			require.Contains(t, p.Data, "small_net",
+				key+"：买卖恰好相等是**真 0**，不许折成缺键或 null")
+			assert.InDelta(t, 0.0, wireValue(t, p, "small_net"), 1e-9, key)
+		case p.Symbol == capitalFlowSymA:
+			assert.InDelta(t, 1_000_000.0, wireValue(t, p, "super_net"), 1e-6, key)
+			assert.InDelta(t, 50_000.0, wireValue(t, p, "large_net"), 1e-6, key)
+			assert.InDelta(t, -10_000.0, wireValue(t, p, "medium_net"), 1e-6, key)
+			assert.InDelta(t, 0.0, wireValue(t, p, "small_net"), 1e-9, key)
 		default:
 			// 888889.SH：四档买卖各相等 ⇒ 四个真 0。这一票专门区分
-			// 「源给了 0」与「源没给」（NULL），两者在库里必须长得不一样。
-			assert.InDelta(t, 0.0, derefFloat(t, r.SuperNet, "super_net"), 1e-9)
-			assert.InDelta(t, 0.0, derefFloat(t, r.LargeNet, "large_net"), 1e-9)
-			assert.InDelta(t, 0.0, derefFloat(t, r.MediumNet, "medium_net"), 1e-9)
-			assert.InDelta(t, 0.0, derefFloat(t, r.SmallNet, "small_net"), 1e-9)
+			// 「源给了 0」与「源没给」，两者在载荷里必须长得不一样。
+			assert.InDelta(t, 0.0, wireValue(t, p, "super_net"), 1e-9, key)
+			assert.InDelta(t, 0.0, wireValue(t, p, "large_net"), 1e-9, key)
+			assert.InDelta(t, 0.0, wireValue(t, p, "medium_net"), 1e-9, key)
+			assert.InDelta(t, 0.0, wireValue(t, p, "small_net"), 1e-9, key)
 		}
 	}
 }
@@ -274,14 +278,16 @@ func waitForMemJob(t *testing.T, h *SyncHandler, jobID string) *sync.Job {
 	return last
 }
 
-// TestDBT09CapitalFlowJobRerunIsIdempotent 钉 upsert 幂等：同一作业重跑
-// 不产生重复行（(symbol, trade_date, period) 冲突键在换源之后不变）。
-func TestDBT09CapitalFlowJobRerunIsIdempotent(t *testing.T) {
-	store := capitalFlowStore(t)
-	cleanCapitalFlowProbes(t, store)
-	t.Cleanup(func() { cleanCapitalFlowProbes(t, store) })
-
-	h := newDBT09Harness(t, store)
+// TestDBT09CapitalFlowJobRerunPostsIdenticalBatches 钉「重跑不制造假冲突」：
+// 载荷里没有时钟、没有随机量，两次跑出去必须逐字节相同。
+//
+// 老的形状是「重跑两次后行数仍是 2」，钉的是 core 侧 upsert 的幂等；H4 ① 之后
+// 幂等在对端（`ON CONFLICT DO NOTHING` + 内容比对），core 证不了它 —— 能证的是
+// 这一侧每次投的都是同一批字节。这一点若破了，对端每次重跑都会 409，
+// 而那看起来像「上游改了历史数据」。
+func TestDBT09CapitalFlowJobRerunPostsIdenticalBatches(t *testing.T) {
+	svc := &stubIngestService{}
+	h := newDBT09Harness(t, ingestPosterFor(t, svc, ingestWriteHardMaxPoints))
 	h.handler.StartWorkerPool()
 	t.Cleanup(h.handler.StopWorkerPool)
 
@@ -291,12 +297,19 @@ func TestDBT09CapitalFlowJobRerunIsIdempotent(t *testing.T) {
 		"end_date":   "20260930",
 	}
 
+	var first string
 	for run := 1; run <= 2; run++ {
 		settled := h.createAndWait(t, "capital_flow", params)
 		require.Equal(t, sync.JobStatusCompleted, settled.Status, "第 %d 次跑失败：%s", run, settled.ErrorMessage)
 
-		got := readCapitalFlowRows(t, store)
-		assert.Len(t, got, 2, "第 %d 次重跑后行数变了 ⇒ upsert 幂等没成立", run)
+		raw, _ := svc.seen()
+		require.Len(t, raw, run, "第 %d 次跑应该又多投一片", run)
+		if run == 1 {
+			first = raw[0]
+			continue
+		}
+		assert.Equal(t, first, raw[run-1],
+			"第 %d 次：两次投送逐字节不一致 ⇒ 对端每次重跑都会撞到假冲突", run)
 	}
 }
 
@@ -309,7 +322,7 @@ func TestDBT09CapitalFlowJobRerunIsIdempotent(t *testing.T) {
 // 真源那条腿在 dbt09_moneyflow_live_test.go（tag `dbt09live`）。
 //
 // 它是破坏验证 (c) 的**对照**：链顺序被换回 eastmoney 优先时，
-// 红的是 newDBT09Registry 里那条顺序断言 + 主落库腿（真源不可达 ⇒ 作业失败），
+// 红的是 newDBT09Registry 里那条顺序断言 + 主投点腿（真源不可达 ⇒ 作业失败），
 // 本用例则证明「失败」从来不会被写成 completed。
 func TestDBT09CapitalFlowJobFailsVisiblyWhenBothLegsAreDown(t *testing.T) {
 	tushareDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -340,7 +353,7 @@ func TestDBT09CapitalFlowJobFailsVisiblyWhenBothLegsAreDown(t *testing.T) {
 	jobService.SetPendingNotifier(queue.NotifyJobAvailable)
 	pool := sync.NewWorkerPool(queue, 1)
 	jobService.SetRunningCanceller(pool.Cancel)
-	pool.RegisterExecutor(&capitalFlowExecutor{reg: reg, persist: &countingBulkInserter{}})
+	pool.RegisterExecutor(&capitalFlowExecutor{reg: reg, write: &countingPoster{}})
 
 	exec, ok := pool.GetExecutor(sync.JobTypeCapitalFlow)
 	require.True(t, ok)
