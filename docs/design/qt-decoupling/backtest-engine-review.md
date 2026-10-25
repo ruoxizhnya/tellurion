@@ -30,7 +30,7 @@
 | ID | 等级 | 现象 | 证据 | 初步方向 |
 |---|---|---|---|---|
 | BE-01 | 🟠 | **反向依赖**：`pkg/kernel`（框架包）import `pkg/backtest`，装配代码住在框架包内 | `pkg/kernel/modules_analysis.go`；非测试 import 实测 | 装配外移到 `cmd/*/wiring`，kernel 只留框架（已记 ADR-D5） |
-| BE-02 | 🟠 | **横向耦合**：回测复用实盘撮合组件，改 `live` 会改回测口径 | `pkg/backtest/engine.go`、`execution/live_bridge.go`、`options.go` 三处 import `pkg/live` | 定义执行 port，回测与实盘各自实现；或明确"同构桥"是有意设计并加回归锁 |
+| BE-02 | ✅ **已结案（QT-51，2026-10-26）** | **横向耦合**：回测复用实盘撮合组件，改 `live` 会改回测口径 | 三处 import 已切断（`engine.go` / `options.go` / `execution/live_bridge.go`）；引擎只认 `execution.ExecutionPort`，适配层住 `cmd/analysis/wiring/live_trader_port.go`；护栏 `internal/repoguard/backtest_live_isolation_test.go`，行为锁 `pkg/backtest/qt51_equivalence_test.go` | 见 [`qt51-execution-port.md`](qt51-execution-port.md)：语义同构、实现分家 |
 | BE-03 | 🟡 | **编排混入能力层**：`job` / `batch` / `walkforward`（应用编排）与 `Engine` / `execution` / `tracker`（引擎内核）同处 `pkg/backtest` | 子包清单：auction batch cache contracts execution job metrics nautilus reporting state tracker walkforward workers | 编排层上移到应用层，能力层只留内核 + 契约 |
 | BE-04 | 🟡 | 策略族被回测**直接**依赖，未走 port | 实测 backtest 的 14 个依赖含 `strategy` | 收敛为 `StrategyRuntime` port |
 | BE-14 | 🟡 | 双引擎路由按**名字/市场**而非**能力** | `EngineRegistry` + `MarketRouter` 已有 fail-closed，但无能力声明 | 引擎声明能力集（频率/市场/特性），按"需求 ∩ 能力"路由 |
@@ -142,7 +142,7 @@
 
 - [ ] BE-05 / BE-06：分析层设计（基准数据源怎么来？归因按 Brinson 还是因子？敏感性扫参数网格？）
 - [ ] BE-07：auction 接线方案（撮合规则、与现有 ExecutionService 的关系）
-- [ ] BE-02：回测/实盘共用执行语义，是"同构桥"还是该拆？（影响回测口径稳定性）
+- [x] BE-02：回测/实盘共用执行语义，是"同构桥"还是该拆？（QT-51 已结案：语义同构、实现分家，见 [`qt51-execution-port.md`](qt51-execution-port.md)）
 - [ ] BE-03：编排层上移的落点（应用层还是独立 orchestration 模块）
 - [x] BE-11：市场摩擦六项的真实完整度（QT-52 已结案，见 [`market-friction-audit.md`](market-friction-audit.md)）
 - [ ] BE-10：Engine 内 httpClient 的用途与去留

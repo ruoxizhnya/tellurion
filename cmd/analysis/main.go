@@ -103,7 +103,9 @@ func main() {
 			return nil, err
 		}
 		eng.SetRiskManager(riskManager)
-		eng.SetLiveTrader(executionTrader)
+		// QT-51：实盘通道经装配层适配成 execution.ExecutionPort 再注入；
+		// 回测包不再认识 pkg/live。
+		wiring.AttachLiveTrader(eng, executionTrader)
 		eng.SetStore(store)
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。

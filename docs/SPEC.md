@@ -3344,40 +3344,41 @@ invalid；计数按 `execAlgoRunDiag` 同款模式落 `fillRunDiag`（末轮
 
 ### Live Trading Bridge
 
-The backtest engine supports seamless transition from simulation to live/paper trading via the `LiveTrader` interface:
+The backtest engine supports seamless transition from simulation to live/paper trading via the `execution.ExecutionPort` contract (QT-51 / BE-02). The engine itself does **not** import `pkg/live`; the `live.LiveTrader` adapter lives in the composition layer:
 
 ```go
-// Attach a LiveTrader to the engine
+// Attach a LiveTrader to the engine (adapter lives in cmd/analysis/wiring)
 trader := live.NewMockTrader(live.MockTraderConfig{InitialCash: 1e6}, logger)
-engine.SetLiveTrader(trader)
+engine.SetLiveTrader(wiring.NewLiveTraderPort(trader))
 
-// Execute a single signal through the live trader
+// Execute a single signal through the execution port
 result, err := engine.ExecuteSignalViaLiveTrader(ctx, signal, currentPrice)
 
 // Execute multiple signals (daily rebalancing)
 results := engine.ExecuteSignalsViaLiveTrader(ctx, signals, prices)
 
-// Health check the trader
+// Health check the port
 err := engine.HealthCheckLiveTrader(ctx)
 ```
 
 **Engine Live Trading Methods**:
 | Method | Purpose |
 |--------|---------|
-| `SetLiveTrader(trader)` | Attach/detach a LiveTrader |
-| `GetLiveTrader()` | Get currently attached trader |
+| `SetLiveTrader(port execution.ExecutionPort)` | Attach/detach an execution port (nil = pure simulation) |
+| `GetLiveTrader()` | Get currently attached execution port |
 | `ExecuteSignalViaLiveTrader(ctx, signal, price)` | Execute one signal |
 | `ExecuteSignalsViaLiveTrader(ctx, signals, prices)` | Batch execute signals |
-| `HealthCheckLiveTrader(ctx)` | Verify trader connectivity |
+| `HealthCheckLiveTrader(ctx)` | Verify port connectivity |
 
-> **CR-49 (ODR-012) verification** — re-grepped `pkg/backtest/engine.go`
-> on 2026-06-10: all 5 methods above are present in
-> `pkg/backtest/engine.go` with matching signatures (lines 1168, 1201,
-> 1208, 1273, 1310). The interface definition in `pkg/live/trader.go`
-> is the canonical source; this table mirrors it. Any future drift
-> must be caught by `go doc pkg/backtest.Engine` diff in CI.
+> **QT-51 (BE-02) verification** — `ExecutionPort` is defined in
+> `pkg/backtest/execution/port.go`（下单 / 撤单 / 成交回报 / 身份 / 健康）;
+> `live.LiveTrader` → `ExecutionPort` 的适配只允许住在
+> `cmd/analysis/wiring/live_trader_port.go`。结构护栏
+> `internal/repoguard/backtest_live_isolation_test.go` 断言 `pkg/backtest`
+> 全树不 import `pkg/live`；行为锁 `pkg/backtest/qt51_equivalence_test.go`
+> 断言挂不挂 port 回测结果逐位相同。
 
-When a LiveTrader is attached, the engine can run in "paper trading" mode where signals are executed through the trader while still tracking performance internally. This enables:
+When an execution port is attached, the engine can run in "paper trading" mode where signals are executed through the port while still tracking performance internally. This enables:
 - **Backtest → Paper Trading**: Same strategy code, different execution backend
 - **Paper Trading → Live Trading**: Swap MockTrader for real broker implementation
 - **Hybrid Mode**: Backtest with live execution for validation

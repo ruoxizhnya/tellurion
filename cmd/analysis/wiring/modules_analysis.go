@@ -226,7 +226,8 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	engine.SetStore(d.Store)
 	engine.SetDataAdapter(d.DataEngine.Adapter)
 	engine.SetRiskManager(d.RiskEngine.RiskManager)
-	engine.SetLiveTrader(d.ExecEngine.Trader)
+	// QT-51：live.LiveTrader → execution.ExecutionPort 的适配只在装配层做。
+	AttachLiveTrader(engine, d.ExecEngine.Trader)
 	// D6：日内预热的取数通道（QT-64）。与 walk-forward 窗口工厂走
 	// 同一个装配函数；nil 时该函数显式 Warn，不留静默出口。
 	AttachMarketDataRouter(engine, d.Router, m.logger)

@@ -43,6 +43,7 @@
 | D29 | **分仓拓扑与命名**：repo=模块/服务、contract 约束边界、**domain 并入 contracts 仓**（修正 D24-1）、S0~S3 迁移阶梯 + 第二轮审查补遗（→ QT-17~19） | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **已裁决（用户 2026-10-20）**；仓名与 module path 唯一真相源见 [repo-inventory.md](repo-inventory.md)（施工前必读）¹ |
 | D30 | **仓清单与命名终稿**：项目定名 **tellurion**、owner 保持 `ruoxizhnya`、**应用/服务用单段短名、库用全名**、12 仓表 + 旧→新映射 + 已裁边界 | [repo-inventory.md](repo-inventory.md) | **已裁决（用户 2026-10-20）** |
 | D31 | **S1 姿态改为 Plan B**：12 仓已建 -> **代码直接落两个新仓**，core/agent 用 require 伪版本 + 本地 go.work（**全程无 replace**）；S2 收窄为「伪版本 -> tag v0.1.0」；core 顶层 5 个数据契约文件留原地 | [project-engineering-file.md](project-engineering-file.md) | **已裁决（用户 2026-10-20）**；替代 D29 第 7 节的 S1 形态与 QT-05 原文 |
+| D32 | **回测/实盘执行语义分离**：语义同构、实现分家 —— `pkg/backtest` 只认 `execution.ExecutionPort`，`live.LiveTrader` 适配只住装配层 | [project-engineering-file.md](project-engineering-file.md) + [qt51-execution-port.md](qt51-execution-port.md) | **已实施（2026-10-26，QT-51）** |
 
 > ¹ repo-inventory 唯一真相源含：两条 module path 规则（应用短名 / 库全名，含 Go 1.25 实测）+ 12 仓表 + 旧→新映射 + 已裁边界 + 已知坑（core 不可被 import、GOPRIVATE、文档引用）。（行内注释移此，防表行断行——refactor-plan-review L1）
 
@@ -102,6 +103,7 @@
 | [p0-remediation-design.md](p0-remediation-design.md) | **P0 修复设计基线（实施前必读）**：20 项 P0（A 执行正确性 / B 协议可实现性 / C 可用性 / D 流程）+ 逐项契约 + 依赖顺序 + 影响面 |
 | [w1-repo-ownership.md](w1-repo-ownership.md) | **W1 跨仓落点与仓归属（施工前定盘，2026-10-23）**：QT-10~16 逐单落点仓/文件 + QT-10/11/22 专项裁决 + 撞车文件与串行边界 |
 | [backtest-engine-review.md](backtest-engine-review.md) | **BE-01~BE-30 问题登记本**（现象 + 证据 + 初步方向，不是方案） |
+| [qt51-execution-port.md](qt51-execution-port.md) | **QT-51 / BE-02 执行语义分离设计**：`ExecutionPort` 方法集、适配层落点、结构/行为双锁、未落项；等价性报告见 [QT51_BACKTEST_EQUIVALENCE_REPORT.md](../../test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md) |
 | [market-friction-audit.md](market-friction-audit.md) | **市场摩擦六类事实核实（QT-52 / BE-11 结案）**：停牌 / 成交量 / 复权 / 分红送股 / 涨跌停 / 集合竞价逐类「完备·部分·缺失」结论 + 证据行号 + 方向性影响 + `auction` 接线方案 |
 | [host-region-overlap.md](host-region-overlap.md) | **宿主区 × 模块静态数据（QT-62）**：地址空间权威定则、静态腿实现（解 Data section）、fail-closed 语义与验收/破坏验证证据 |
 | [kernel-interface-map.md](kernel-interface-map.md) | Go 内核接口面清单（输入 5 类入口 / 输出面），契约外置的输入 |

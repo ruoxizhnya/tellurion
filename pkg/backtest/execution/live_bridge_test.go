@@ -1,11 +1,14 @@
 package execution
 
-// P1-17 (Sprint 6, ODR-013 CQ-001, ADR-020):
+// P1-17 (Sprint 6, ODR-013 CQ-001, ADR-020) / QT-51 (BE-02):
 // LiveBridge 独立单元测试 — 不依赖 Engine 全栈构造。
+//
+// QT-51 起 LiveBridge 面向 execution.ExecutionPort（不再 import pkg/live），
+// 因此本文件的替身是 port 实现而不是 live.LiveTrader。
 //
 // 验证点：
 //   1. Set / Get round-trip
-//   2. ExecuteSignal trader=nil 时返回 (nil, nil)（兼容旧 API）
+//   2. ExecuteSignal port=nil 时返回 (nil, nil)（兼容旧 API）
 //   3. ExecuteSignal currentPrice<=0 报 invalid price 错
 //   4. ExecuteSignal 市价单 / 限价单分别走 price=0 / price=LimitPrice
 //   5. quantity scaling 与强度公式与旧实现 byte-equal
@@ -22,18 +25,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/live"
 )
 
-// fakeLiveTrader — 测试用 LiveTrader stub，只记录调用、不写 broker。
-type fakeLiveTrader struct {
+// fakeExecutionPort — 测试用 ExecutionPort stub，只记录调用、不写 broker。
+type fakeExecutionPort struct {
 	name        string
 	submitCalls []fakeSubmitCall
 	submitErr   error
 	healthErr   error
 
-	// Optional hooks to override the returned OrderResult
-	resultHook func(symbol string, dir domain.Direction, orderType domain.OrderType, qty, price float64) *live.OrderResult
+	// Optional hook to override the returned OrderResult
+	resultHook func(req OrderRequest) *OrderResult
 }
 
 type fakeSubmitCall struct {
@@ -44,49 +46,41 @@ type fakeSubmitCall struct {
 	Price     float64
 }
 
-func (f *fakeLiveTrader) SubmitOrder(ctx context.Context, symbol string, dir domain.Direction, orderType domain.OrderType, qty, price float64) (*live.OrderResult, error) {
+func (f *fakeExecutionPort) SubmitOrder(ctx context.Context, req OrderRequest) (*OrderResult, error) {
 	f.submitCalls = append(f.submitCalls, fakeSubmitCall{
-		Symbol:    symbol,
-		Direction: dir,
-		OrderType: orderType,
-		Quantity:  qty,
-		Price:     price,
+		Symbol:    req.Symbol,
+		Direction: req.Direction,
+		OrderType: req.OrderType,
+		Quantity:  req.Quantity,
+		Price:     req.Price,
 	})
 	if f.submitErr != nil {
 		return nil, f.submitErr
 	}
 	if f.resultHook != nil {
-		return f.resultHook(symbol, dir, orderType, qty, price), nil
+		return f.resultHook(req), nil
 	}
-	return &live.OrderResult{
-		OrderID:   "TEST-" + symbol,
-		Symbol:    symbol,
-		Direction: dir,
-		OrderType: orderType,
-		Quantity:  qty,
-		FilledQty: qty,
-		Price:     price,
+	return &OrderResult{
+		OrderID:   "TEST-" + req.Symbol,
+		Symbol:    req.Symbol,
+		Direction: req.Direction,
+		OrderType: req.OrderType,
+		Quantity:  req.Quantity,
+		FilledQty: req.Quantity,
+		Price:     req.Price,
 		Status:    "filled",
 	}, nil
 }
 
-func (f *fakeLiveTrader) CancelOrder(ctx context.Context, orderID string) error { return nil }
-func (f *fakeLiveTrader) GetOrder(ctx context.Context, orderID string) (*live.OrderResult, error) {
+func (f *fakeExecutionPort) CancelOrder(ctx context.Context, orderID string) error { return nil }
+func (f *fakeExecutionPort) GetOrder(ctx context.Context, orderID string) (*OrderResult, error) {
 	return nil, nil
 }
-func (f *fakeLiveTrader) GetPositions(ctx context.Context) ([]live.PositionInfo, error) {
-	return nil, nil
-}
-func (f *fakeLiveTrader) GetAccount(ctx context.Context) (*live.AccountInfo, error) {
-	return nil, nil
-}
-func (f *fakeLiveTrader) Name() string                          { return f.name }
-func (f *fakeLiveTrader) HealthCheck(ctx context.Context) error { return f.healthErr }
-func (f *fakeLiveTrader) EmergencyFlatten(ctx context.Context, reason string) (*live.EmergencyFlattenResult, error) {
-	// Tests don't exercise emergency flatten; return an empty
-	// result so the interface stays satisfied.
-	return &live.EmergencyFlattenResult{Reason: reason}, nil
-}
+func (f *fakeExecutionPort) Name() string                          { return f.name }
+func (f *fakeExecutionPort) HealthCheck(ctx context.Context) error { return f.healthErr }
+
+// Compile-time check
+var _ ExecutionPort = (*fakeExecutionPort)(nil)
 
 // ----- Tests -----
 
@@ -96,15 +90,15 @@ func newTestLiveBridge() *LiveBridge {
 
 func TestLiveBridge_SetGetRoundTrip(t *testing.T) {
 	b := newTestLiveBridge()
-	assert.Nil(t, b.Get(), "fresh bridge should have nil trader")
+	assert.Nil(t, b.Get(), "fresh bridge should have nil port")
 
-	trader := &fakeLiveTrader{name: "fake"}
-	b.Set(trader)
-	assert.Same(t, trader, b.Get(), "Get should return the trader we just Set")
+	port := &fakeExecutionPort{name: "fake"}
+	b.Set(port)
+	assert.Same(t, port, b.Get(), "Get should return the port we just Set")
 
 	// Setting nil detaches
 	b.Set(nil)
-	assert.Nil(t, b.Get(), "Set(nil) should detach the trader")
+	assert.Nil(t, b.Get(), "Set(nil) should detach the port")
 }
 
 func TestLiveBridge_ExecuteSignal_NilTraderReturnsNil(t *testing.T) {
@@ -112,12 +106,12 @@ func TestLiveBridge_ExecuteSignal_NilTraderReturnsNil(t *testing.T) {
 	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
 	result, err := b.ExecuteSignal(context.Background(), signal, 10.0)
 	require.NoError(t, err)
-	assert.Nil(t, result, "nil trader must return (nil, nil) per backward compat contract")
+	assert.Nil(t, result, "nil port must return (nil, nil) per backward compat contract")
 }
 
 func TestLiveBridge_ExecuteSignal_InvalidPrice(t *testing.T) {
 	b := newTestLiveBridge()
-	b.Set(&fakeLiveTrader{name: "fake"})
+	b.Set(&fakeExecutionPort{name: "fake"})
 
 	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
 	for _, badPrice := range []float64{0, -0.01, -100} {
@@ -129,9 +123,9 @@ func TestLiveBridge_ExecuteSignal_InvalidPrice(t *testing.T) {
 }
 
 func TestLiveBridge_ExecuteSignal_MarketOrder(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake"}
+	port := &fakeExecutionPort{name: "fake"}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	signal := domain.Signal{
 		Symbol:    "600000.SH",
@@ -143,8 +137,8 @@ func TestLiveBridge_ExecuteSignal_MarketOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	require.Len(t, trader.submitCalls, 1)
-	call := trader.submitCalls[0]
+	require.Len(t, port.submitCalls, 1)
+	call := port.submitCalls[0]
 	assert.Equal(t, "600000.SH", call.Symbol)
 	assert.Equal(t, domain.DirectionLong, call.Direction)
 	assert.Equal(t, domain.OrderTypeMarket, call.OrderType)
@@ -153,9 +147,9 @@ func TestLiveBridge_ExecuteSignal_MarketOrder(t *testing.T) {
 }
 
 func TestLiveBridge_ExecuteSignal_LimitOrder(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake"}
+	port := &fakeExecutionPort{name: "fake"}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	signal := domain.Signal{
 		Symbol:     "600000.SH",
@@ -168,17 +162,17 @@ func TestLiveBridge_ExecuteSignal_LimitOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	require.Len(t, trader.submitCalls, 1)
-	call := trader.submitCalls[0]
+	require.Len(t, port.submitCalls, 1)
+	call := port.submitCalls[0]
 	assert.Equal(t, domain.OrderTypeLimit, call.OrderType)
 	assert.Equal(t, 11.5, call.Price, "limit order must use LimitPrice, not currentPrice")
 	assert.Equal(t, 500.0, call.Quantity, "strength=0.5 must scale to 100*5.0=500 lots")
 }
 
 func TestLiveBridge_ExecuteSignal_LimitPriceFallback(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake"}
+	port := &fakeExecutionPort{name: "fake"}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	// Limit order with no explicit LimitPrice → fallback to currentPrice
 	signal := domain.Signal{
@@ -189,14 +183,14 @@ func TestLiveBridge_ExecuteSignal_LimitPriceFallback(t *testing.T) {
 	}
 	_, err := b.ExecuteSignal(context.Background(), signal, 9.5)
 	require.NoError(t, err)
-	require.Len(t, trader.submitCalls, 1)
-	assert.Equal(t, 9.5, trader.submitCalls[0].Price, "missing LimitPrice should fallback to currentPrice")
+	require.Len(t, port.submitCalls, 1)
+	assert.Equal(t, 9.5, port.submitCalls[0].Price, "missing LimitPrice should fallback to currentPrice")
 }
 
 func TestLiveBridge_ExecuteSignal_QuantityScalingCap(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake"}
+	port := &fakeExecutionPort{name: "fake"}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	// strength=200 → scaled = 200*10 = 2000 → quantity = 200000, but cap to 10000
 	signal := domain.Signal{
@@ -206,17 +200,17 @@ func TestLiveBridge_ExecuteSignal_QuantityScalingCap(t *testing.T) {
 	}
 	_, err := b.ExecuteSignal(context.Background(), signal, 10.0)
 	require.NoError(t, err)
-	require.Len(t, trader.submitCalls, 1)
-	assert.Equal(t, 10000.0, trader.submitCalls[0].Quantity, "quantity must be capped at 10000")
+	require.Len(t, port.submitCalls, 1)
+	assert.Equal(t, 10000.0, port.submitCalls[0].Quantity, "quantity must be capped at 10000")
 }
 
 func TestLiveBridge_ExecuteSignal_SubmitError(t *testing.T) {
-	trader := &fakeLiveTrader{
+	port := &fakeExecutionPort{
 		name:      "fake",
 		submitErr: errors.New("broker rejected"),
 	}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
 	result, err := b.ExecuteSignal(context.Background(), signal, 10.0)
@@ -226,9 +220,9 @@ func TestLiveBridge_ExecuteSignal_SubmitError(t *testing.T) {
 }
 
 func TestLiveBridge_ExecuteSignals_BatchWithMissingPrices(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake"}
+	port := &fakeExecutionPort{name: "fake"}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	signals := []domain.Signal{
 		{Symbol: "600000.SH", Direction: domain.DirectionLong},
@@ -256,19 +250,19 @@ func TestLiveBridge_ExecuteSignals_NilTraderReturnsNil(t *testing.T) {
 	b := newTestLiveBridge()
 	signals := []domain.Signal{{Symbol: "600000.SH", Direction: domain.DirectionLong}}
 	results := b.ExecuteSignals(context.Background(), signals, map[string]float64{"600000.SH": 10.0})
-	assert.Nil(t, results, "nil trader must return nil map per backward compat")
+	assert.Nil(t, results, "nil port must return nil map per backward compat")
 }
 
 func TestLiveBridge_HealthCheck_NilTrader(t *testing.T) {
 	b := newTestLiveBridge()
 	err := b.HealthCheck(context.Background())
-	assert.NoError(t, err, "nil trader should be treated as 'no health check needed'")
+	assert.NoError(t, err, "nil port should be treated as 'no health check needed'")
 }
 
 func TestLiveBridge_HealthCheck_DelegatesToTrader(t *testing.T) {
-	trader := &fakeLiveTrader{name: "fake", healthErr: errors.New("broker disconnected")}
+	port := &fakeExecutionPort{name: "fake", healthErr: errors.New("broker disconnected")}
 	b := newTestLiveBridge()
-	b.Set(trader)
+	b.Set(port)
 
 	err := b.HealthCheck(context.Background())
 	require.Error(t, err)

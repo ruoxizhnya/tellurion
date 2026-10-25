@@ -139,6 +139,13 @@ type (
 	BacktestExecutionService = execution.BacktestExecutionService
 	ExecutionBridge          = execution.ExecutionBridge
 	LiveBridge               = execution.LiveBridge
+
+	// QT-51（BE-02）：引擎的出站执行契约与两侧共用的 DTO。
+	// 父包（engine.go / options.go）与外部调用方只认这三个名字，
+	// 不 import pkg/live（结构护栏见 internal/repoguard）。
+	ExecutionPort = execution.ExecutionPort
+	OrderRequest  = execution.OrderRequest
+	OrderResult   = execution.OrderResult
 )
 
 // Constructor wrappers (Go has no function alias, so we delegate).

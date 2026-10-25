@@ -22,7 +22,6 @@ import (
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/backtest/metrics"
 	"tellurion/pkg/execalgo"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/sandbox/wasm"
@@ -170,11 +169,11 @@ type Engine struct {
 	// **装配期种子**（QT-12）：run 期间读写的是 runContext 里那份副本。
 	listing map[string]storage.ListingWindow
 
-	// liveBridge 桥接 backtest 信号到 live/paper trading (P1-17 ADR-020)。
-	// 取代旧 `liveTrader live.LiveTrader` 字段；旧 SetLiveTrader /
-	// GetLiveTrader / ExecuteSignalViaLiveTrader 等方法保留为
-	// backward-compat shim (6 个月) 委托到 bridge。
-	// live 包接口见 pkg/live/trader.go。
+	// liveBridge 桥接 backtest 信号到出站执行通道 (P1-17 ADR-020 / QT-51)。
+	// 持有的是 execution.ExecutionPort（不是 live.LiveTrader）——回测包
+	// 不 import pkg/live；实盘/paper 的适配由装配层注入。
+	// 旧 SetLiveTrader / GetLiveTrader / ExecuteSignalViaLiveTrader 等方法名
+	// 保留为 shim 委托到 bridge；QT-51 起参数/返回类型是 ExecutionPort。
 	liveBridge *LiveBridge
 
 	// executionBridge 桥接 ExecutionService (slippage / commission /
@@ -390,7 +389,7 @@ func NewEngine(v *viper.Viper, provider marketdata.Provider, logger zerolog.Logg
 //	eng, err := NewEngineWithOptions(cfg, provider,
 //	    WithRiskManager(rm),
 //	    WithDataAdapter(adapter),
-//	    WithLiveTrader(mockTrader),
+//	    WithLiveTrader(port),
 //	)
 //
 // Backward compat: NewEngine(v, provider, logger) remains as a thin
@@ -2254,17 +2253,22 @@ func hasSTPrefix(name string) bool {
 	return IsRiskWarningName(name)
 }
 
-// SetLiveTrader injects a LiveTrader for bridging backtest signals to live/paper trading.
-// When set, the engine can optionally execute signals through the trader instead of
-// only simulating internally via Tracker. This is the primary hook for transitioning
-// from backtest → paper trading → live trading.
-// Pass nil to disable live trading and use pure simulation.
+// SetLiveTrader injects an execution port for bridging backtest signals to an
+// outbound execution channel (paper / live). When set, the engine can optionally
+// execute signals through the port instead of only simulating internally via
+// Tracker. This is the primary hook for transitioning from backtest → paper
+// trading → live trading.
+// Pass nil to disable the outbound channel and use pure simulation.
+//
+// QT-51（BE-02）：参数类型是 execution.ExecutionPort，不再是 live.LiveTrader。
+// 实盘/paper 的 live.LiveTrader 先经装配层适配（cmd/analysis/wiring 的
+// AttachLiveTrader）再注入；回测包与 pkg/live 的实现彻底解耦。
 //
 // P1-17 (ADR-020): thin shim to liveBridge.Set(). Retained for
 // backward compatibility (6 months); new code should use
 // e.liveBridge().Set() or EngineOption WithLiveTrader (P1-19).
-func (e *Engine) SetLiveTrader(trader live.LiveTrader) {
-	e.liveBridge.Set(trader)
+func (e *Engine) SetLiveTrader(port ExecutionPort) {
+	e.liveBridge.Set(port)
 }
 
 // SetExecutionService injects a custom ExecutionService for order execution.
@@ -2286,11 +2290,11 @@ func (e *Engine) GetExecutionService() ExecutionService {
 	return e.executionBridge.Get()
 }
 
-// GetLiveTrader returns the currently attached LiveTrader, or nil if none.
+// GetLiveTrader returns the currently attached execution port, or nil if none.
 //
 // P1-17 (ADR-020): thin shim to liveBridge.Get(). Retained for
 // backward compatibility.
-func (e *Engine) GetLiveTrader() live.LiveTrader {
+func (e *Engine) GetLiveTrader() ExecutionPort {
 	return e.liveBridge.Get()
 }
 
@@ -2323,24 +2327,25 @@ func (e *Engine) EvictStates(keepN int) int {
 	return e.stateStore.Evict(keepN)
 }
 
-// ExecuteSignalViaLiveTrader executes a single trading signal through the attached LiveTrader.
-// This is the bridge between backtest signal generation and live/paper order execution.
-// Returns the order result or nil if no LiveTrader is attached.
+// ExecuteSignalViaLiveTrader executes a single trading signal through the attached
+// execution port. This is the bridge between backtest signal generation and
+// paper/live order execution. Returns the order result or nil if no port is attached.
 // The signal's Direction determines buy (DirectionLong) or sell (DirectionClose).
 //
 // P1-17 (ADR-020): thin shim to liveBridge.ExecuteSignal(). All order
 // type / price / quantity logic now lives in LiveBridge; behavior is
 // byte-equivalent to the previous in-line implementation.
-func (e *Engine) ExecuteSignalViaLiveTrader(ctx context.Context, signal domain.Signal, currentPrice float64) (*live.OrderResult, error) {
+func (e *Engine) ExecuteSignalViaLiveTrader(ctx context.Context, signal domain.Signal, currentPrice float64) (*OrderResult, error) {
 	return e.liveBridge.ExecuteSignal(ctx, signal, currentPrice)
 }
 
-// ExecuteSignalsViaLiveTrader executes multiple signals through the LiveTrader in batch.
+// ExecuteSignalsViaLiveTrader executes multiple signals through the attached
+// execution port in batch.
 // This is useful for daily rebalancing where multiple signals are generated at once.
 // Returns a map of symbol → order result for successful executions.
 //
 // P1-17 (ADR-020): thin shim to liveBridge.ExecuteSignals().
-func (e *Engine) ExecuteSignalsViaLiveTrader(ctx context.Context, signals []domain.Signal, prices map[string]float64) map[string]*live.OrderResult {
+func (e *Engine) ExecuteSignalsViaLiveTrader(ctx context.Context, signals []domain.Signal, prices map[string]float64) map[string]*OrderResult {
 	return e.liveBridge.ExecuteSignals(ctx, signals, prices)
 }
 

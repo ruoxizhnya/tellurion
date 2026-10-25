@@ -441,3 +441,17 @@ X1a 协议冻结进 contracts → X1b aggregator 面（PIT/频率/票池/快照 
   3. **两仓必须公开可读**（或 `GOPRIVATE` + 凭证）：core 的 CI / 镜像构建不再有本地目录兜底。**当前两仓 public；若将来转私有，core 的 CI 与镜像构建会同时红**——登记为已知风险。
   4. **`go.work` 是本地产物**：别人机器上没有，新加入者第一次 `go build` 会拉网络版本，看到的契约可能比本地 `../tellurion-contracts` 旧 → 写进 core `AGENTS.md` 的「首次配置」。
 - 状态：**已裁决（用户 2026-10-20 选 Plan B）**；替代 D29 §7 的 S1 形态与 QT-05 原文；D29 的拓扑 / R1~R5 / S0·S2·S3 / C1~C5 不变。工单：QT-05（S1 重写）、QT-07（S2 收窄）、QT-09 ①（新增 pin 祖先检查）。
+
+### ADR-D32：回测/实盘执行语义分离 —— 语义同构、实现分家（QT-51 / BE-02）
+
+- 场景：`pkg/backtest` 在生产 3 个文件（`engine.go` / `options.go` / `execution/live_bridge.go`）直接 import `pkg/live`，改实盘撮合会悄悄改回测口径；`LiveBridge` 同时承担「信号→订单翻译」与「实盘实现依赖」两件事。
+- 决策：**语义同构、实现分家**。
+  1. `pkg/backtest/execution.ExecutionPort` 是引擎唯一认识的出站执行契约（`SubmitOrder` / `CancelOrder` / `GetOrder` / `Name` / `HealthCheck`）；撮合是实现内部语义，不进接口。
+  2. `live.LiveTrader → execution.ExecutionPort` 的适配只住在装配层 `cmd/analysis/wiring/live_trader_port.go`（`NewLiveTraderPort` / `AttachLiveTrader`），是全仓唯一同时 import 两侧的位置。
+  3. `pkg/backtest` 全树（含 `_test.go`）禁止 import `pkg/live`；K5 paper↔backtest 信号对账迁到 `e2e/backtest_live/`。
+  4. 回测主循环的撮合继续走 `ExecutionService` + `tracker`；出站 port 为 nil 即纯模拟，不新增 `SimulatedPort`（避免第二条成交真相）。
+- 理由：切断「回测→实盘」的实现依赖，同时用结构锁 + 行为锁保住两者语义同构；`pkg/live` 实现语义不动（属 QT-45 通道网关域）。
+- 代价：`LiveBridge` 仍留在 `pkg/backtest/execution`（本单只切依赖，未把桥迁出引擎包）；`OrderRequest` / `OrderResult` 是 port 自有 DTO，字段需与实盘侧保持对齐；装配层多一个适配文件与一条正向护栏。
+- 落点（2026-10-26）：`pkg/backtest/execution/port.go`（port + DTO）、`cmd/analysis/wiring/live_trader_port.go`（适配 + 注入）、`internal/repoguard/backtest_live_isolation_test.go`（结构锁）、`pkg/backtest/qt51_equivalence_test.go`（行为锁）；设计见 [qt51-execution-port.md](qt51-execution-port.md)，等价性报告见 [QT51_BACKTEST_EQUIVALENCE_REPORT.md](../../test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md)。
+- 破坏验证：在 `pkg/backtest/execution/live_bridge.go` 临时加 `_ "tellurion/pkg/live"` ⇒ 护栏红（点名该文件）；逐字节还原（SHA-256 相同）⇒ 绿。等价性摘要 `60a2713b…` 在 rebase 前后逐位一致，哨兵 port 调用数 0。
+- 状态：**已实施（2026-10-26，QT-51）**；`go1.25.0 windows/amd64` 实跑 `gofmt` / `go build ./...` / `go vet ./...` / `go test ./... -count=1` 全绿。

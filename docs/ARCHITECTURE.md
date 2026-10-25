@@ -168,6 +168,15 @@ tellurion/
 > 仍在 core 的横切包：`observability` / `auth` / `authz` / `id`（各有 core 侧业务或
 > 装配依赖，kit 无对应物）。跨仓依赖只认 tag（ADR-D31），本仓已无 `replace`。
 
+> **回测/实盘执行语义边界（QT-51 / BE-02，2026-10-26）**：`pkg/backtest` **不 import
+> `pkg/live`**；引擎只认 `pkg/backtest/execution.ExecutionPort`（下单 / 撤单 /
+> 成交回报 / 身份 / 健康），`live.LiveTrader` 的适配只住在装配层
+> `cmd/analysis/wiring/live_trader_port.go`。回测主循环的撮合仍在
+> `execution` + `tracker`，出站 port 为 nil 即纯模拟（与切 port 前逐位一致）。
+> 结构与行为双锁：`internal/repoguard/backtest_live_isolation_test.go` +
+> `pkg/backtest/qt51_equivalence_test.go`。设计与取舍见
+> `docs/design/qt-decoupling/qt51-execution-port.md`。
+
 ---
 
 ## 6. 端口速查
@@ -420,5 +429,5 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 
 ---
 
-_Last updated: 2026-10-21（system-spec-review 订正：compose 服务计数 4→3、§3 补 market/audit schema 分区并如实登记 3 处模块内自建表、D 编号引用改指数据因子蓝图（ADR-031 本体 D1–D5 另有其义）；REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
+_Last updated: 2026-10-26（QT-51 / BE-02：§5 增补回测/实盘执行语义边界——`pkg/backtest` 不 import `pkg/live`，出站契约 `execution.ExecutionPort`，适配层在 `cmd/analysis/wiring`；此前 2026-10-21 system-spec-review 订正：compose 服务计数 4→3、§3 补 market/audit schema 分区并如实登记 3 处模块内自建表、D 编号引用改指数据因子蓝图（ADR-031 本体 D1–D5 另有其义）；REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
 _维护规则：服务/端口/schema 分区变更时更新本文件（AGENTS.md Rule 1）；表数不手抄，只给 grep 口径。_

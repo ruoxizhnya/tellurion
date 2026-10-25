@@ -12,6 +12,7 @@ package backtest
 // （那是 fallback 还活着的表现）。
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -22,6 +23,55 @@ import (
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+// reconcileProbeStrategy 是纯 bar 驱动的批式探针（QT-51 迁出 K5 对账 e2e 后
+// 留在这里的本地副本）：不读 portfolio，信号只由 bar 序列决定。
+type reconcileProbeStrategy struct {
+	name string
+}
+
+func newReconcileProbe(name string) *reconcileProbeStrategy {
+	return &reconcileProbeStrategy{name: name}
+}
+
+func (s *reconcileProbeStrategy) Name() string                     { return s.name }
+func (s *reconcileProbeStrategy) Description() string              { return "local signal probe" }
+func (s *reconcileProbeStrategy) Parameters() []strategy.Parameter { return nil }
+func (s *reconcileProbeStrategy) Configure(map[string]interface{}) error {
+	return nil
+}
+func (s *reconcileProbeStrategy) Cleanup()                                {}
+func (s *reconcileProbeStrategy) Weight(strategy.Signal, float64) float64 { return 1 }
+
+func (s *reconcileProbeStrategy) GenerateSignals(_ context.Context, bars map[string][]domain.OHLCV, _ *domain.Portfolio) ([]strategy.Signal, error) {
+	syms := make([]string, 0, len(bars))
+	for sym := range bars {
+		syms = append(syms, sym)
+	}
+	sort.Strings(syms)
+
+	var out []strategy.Signal
+	for _, sym := range syms {
+		hist := bars[sym]
+		if len(hist) < 2 {
+			continue
+		}
+		prev, cur := hist[len(hist)-2], hist[len(hist)-1]
+		if prev.Close <= 0 || cur.Close <= prev.Close {
+			continue
+		}
+		ret := cur.Close/prev.Close - 1
+		out = append(out, strategy.Signal{
+			Symbol:    sym,
+			Action:    "buy",
+			Strength:  ret,
+			Price:     cur.Close,
+			Date:      cur.Date,
+			Direction: domain.DirectionLong,
+		})
+	}
+	return out, nil
+}
 
 func TestGetSignals_FailLoudOnUnregistered(t *testing.T) {
 	eng, _, symbols := buildSyntheticEngine(t, 2, 5, 1)

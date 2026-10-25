@@ -90,6 +90,10 @@
 ## 前置阻塞（不解决就摘不动）
 
 1. **BE-02 依赖反转**：把 LiveBridge 从引擎移出，改为实盘驱动持有引擎。
+   —— **QT-51 已落地出站契约**：`pkg/backtest` 不再 import `pkg/live`，引擎只认
+   `execution.ExecutionPort`，`live.LiveTrader` 的适配住装配层
+   （[`qt51-execution-port.md`](qt51-execution-port.md)）。**仍未做**的是把
+   LiveBridge 本身迁出引擎包（实盘驱动持有引擎），属后续 E1 剩余项。
 2. **BE-03 编排上移**：job / batch / walkforward 移出 `pkg/backtest`。
 3. **BE-04 策略走 port**：否则摘出去还得拖着 `pkg/strategy`。
 4. **BE-14 能力声明**：引擎声明能力（频率/市场/模式=backtest|live），路由按能力选引擎。

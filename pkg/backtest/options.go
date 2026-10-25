@@ -12,7 +12,7 @@ package backtest
 //
 // 收益：
 //   - 10+ Setter → 1 variadic options pattern
-//   - 必需参数（config, provider）vs 可选参数（riskManager, liveTrader）
+//   - 必需参数（config, provider）vs 可选参数（riskManager, executionPort）
 //     在签名层面分离
 //   - 测试构造更简洁：
 //       NewEngineWithOptions(cfg, prov, WithRiskManager(mockRM), WithLiveTrader(fakeT))
@@ -32,7 +32,6 @@ package backtest
 
 import (
 	"github.com/rs/zerolog"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/sandbox/wasm"
@@ -123,10 +122,14 @@ func WithRiskRulesProvider(p RiskRulesProvider) EngineOption {
 	}
 }
 
-// WithLiveTrader 注入 live / paper trading trader。等价于 SetLiveTrader。
-func WithLiveTrader(trader live.LiveTrader) EngineOption {
+// WithLiveTrader 注入执行通道（QT-51：execution.ExecutionPort）。
+//
+// 实盘 / paper 的 live.LiveTrader 需由装配层先适配成 ExecutionPort
+// （见 cmd/analysis/wiring 的 AttachLiveTrader）；回测包不再 import pkg/live。
+// 等价于 SetLiveTrader。
+func WithLiveTrader(port ExecutionPort) EngineOption {
 	return func(e *Engine) {
-		e.liveBridge.Set(trader)
+		e.liveBridge.Set(port)
 	}
 }
 
