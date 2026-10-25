@@ -18,8 +18,9 @@
 
 六条不变量（本脚本怎么落地）：
   R1 单仓可构建   —— go.mod 里任何把模块指向**仓外文件系统路径**的 `=>` 即红；committed
-                       `go.work` 即红。唯一容忍：agent 的 `replace tellurion => ../tellurion`
-                       —— 它是 S0~S3 编译连体的**已知缺口**，必须登记到 QT-07 才不红（不是静默放行）。
+                       `go.work` 即红。曾经唯一的容忍 = agent 的 `replace tellurion => ../tellurion`
+                       （S0~S3 编译连体的**已知缺口**，登记在 QT-07）—— 它已随 QT-07 ⑥ S3 结案
+                       失效：agent 现在零 import / 零 require core，登记表里不再为它留行。
                        core / contracts / kit 任何 `=>` 都该红（ADR-D31：S1 之后无子 module）。
   R2 单仓可自证   —— 逐仓按类型分派：go 仓要有自证 CI（build/vet/test）；ui 要 CI + web/package.json；
                        docs 要 CI + 链接检查脚本。**占位仓「有 CI 但无测试文件」显式列出，不静默通过**（⑤）。
@@ -40,7 +41,7 @@
 对应的 TASKS.md 核实那个工单号**确实存在**——「登记了才放行，没登记就是红」。这样既满足「未通过项
 必须在台账有单号」，又不会因为脚本里写死一句「算了」就把缺口悄悄吞掉（那是 QT-61 要消灭的噪声）。
 
-注意 --run-builds 会真的编译兄弟仓（含 agent 经 replace 连体编译 core），慢且吃 CPU；默认不开。
+注意 --run-builds 会真的编译兄弟仓（QT-07 ⑥ S3 起 agent 已单仓可构建，不再经 replace 连体编 core），慢且吃 CPU；默认不开。
 """
 
 from __future__ import annotations
@@ -76,8 +77,9 @@ R6_EXEMPT = {
 }
 
 # 已知缺口：(仓, 检查) → (工单号, 该仓台账里应出现的字符串)。脚本核实工单号在台账在册。
+# 这里只放**今天仍未通过、且台账有单号**的项；缺口一旦被修好，那行必须同批删掉
+# （`("tellurion-agent", "R1")` 就是 QT-07 ⑥ S3 结案时删的：agent 已无仓外 replace）。
 KNOWN_GAPS = {
-    ("tellurion-agent", "R1"): ("QT-07", "QT-07"),
     ("tellurion", "R3"): ("QT-08", "QT-08"),
 }
 

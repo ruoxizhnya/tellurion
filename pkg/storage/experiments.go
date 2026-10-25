@@ -20,9 +20,9 @@ import (
 //
 // Deprecated: 实验日志的 owner 已迁至 tellurion-agent 的 pkg/aistore
 // （`ai.experiments`）。本文件的类型与方法只为 core 侧现存调用方保留**只读过渡**
-// ——新代码不要再用。删除期限 **2027-01-31**，前置是 S3（QT-50 完成、agent 删掉
-// `replace tellurion => ../tellurion`）；在那之前 core 的 storage 包仍被 agent 的
-// 测试代码引用。表 DDL 暂留（不删表），见 docs/TASKS.md QT-05 ④。
+// ——新代码不要再用。删除期限 **2027-01-31**；原先登记的前置（S3 = QT-50 完成 + agent 删掉
+// `replace tellurion => ../tellurion`）已于 2026-10-25 结案（QT-07 ⑥），agent 对本仓
+// 零 import，因此剩下的判据只有期限本身。表 DDL 暂留（不删表），见 docs/TASKS.md QT-05 ④。
 
 // 实验状态。running 既是初始态，也是被叫停时的终态 —— 中途叫停的实验永远
 // 停在 running，那正是回路断在哪一步的证据，不能被当成脏数据清掉。

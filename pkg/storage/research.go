@@ -12,9 +12,11 @@ import (
 // Deprecated: research projections moved to tellurion-agent/pkg/aistore
 // (ai.research_*). The types and GetResearchProfile below are kept only as a
 // read-only transition for existing core callers — do not add new users.
-// Deletion deadline: 2027-01-31, after S3 removes the agent's
-// `replace tellurion => ../tellurion`. The research.* DDL stays for now
-// (no DROP); see docs/TASKS.md QT-05 ④.
+// Deletion deadline: 2027-01-31. The prerequisite registered here (S3 removing
+// the agent's `replace tellurion => ../tellurion`) closed 2026-10-25 under
+// QT-07 ⑥ — the agent now imports nothing from this repo — so the deadline is
+// all that is left. The research.* DDL stays for now (no DROP);
+// see docs/TASKS.md QT-05 ④.
 
 // ErrEmptyResearchTicker is returned when a research lookup is made without a
 // ticker.

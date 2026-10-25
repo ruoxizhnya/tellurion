@@ -18,8 +18,9 @@ QT-08 的 R5 只比对各仓 AGENTS 里的版本声明是否一致，核不到�
 另两条仓边（QT-09 ① 的 C1/C2，每个被扫到的仓都核，与本仓有没有 pin 无关）：
   * `go.work` / `go.work.sum` 被 git 跟踪 → RED（本地联调可以存在，入库即把
     三个仓焊成一体，版本依赖就退化成路径依赖）；
-  * `replace` 指向**仓外**路径 → RED。唯一白名单是 agent 的
-    `replace tellurion => ../tellurion`（ADR-D31：S3 删，删之前 agent 编不过）。
+  * `replace` 指向**仓外**路径 → RED。白名单**今天为空**：曾经唯一的例外是 agent 的
+    `replace tellurion => ../tellurion`（拆仓过渡态），它随 QT-07 ⑥ S3（2026-10-25）
+    结案失效——agent 已零 import / 零 require core，那条 replace 已从 agent `go.mod` 删掉。
     指向仓内子目录或「模块 => 模块 vX」的 replace 不在此腿范围。
 
 目标仓从哪来：优先同级 checkout（`<workspace>/tellurion-contracts`），没有则匿名
@@ -63,14 +64,11 @@ PSEUDO_RE = re.compile(
 TAG_RE = re.compile(r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$")
 
 
-# 仓外 replace 的唯一白名单，键 = (仓目录名, 被替换模块, replace 目标原文)。
-# 每一行必须写清「为什么它可以留到哪一天」；新增行等于放行一次跨仓路径依赖，
-# 需要 ADR 级别的裁决，不许在 commit message 里口头豁免。
-LOCAL_REPLACE_WHITELIST: dict[tuple[str, str, str], str] = {
-    ("tellurion-agent", "tellurion", "../tellurion"):
-        "ADR-D31 / QT-07 ⑥：S3 之前 agent 必须靠它编过（core 尚未 HTTP 化）；"
-        "S3 到期即删，届时本行为空",
-}
+# 仓外 replace 的白名单，键 = (仓目录名, 被替换模块, replace 目标原文)。
+# **今天必须是空的。** 每一行等于放行一次跨仓路径依赖，需要 ADR 级别的裁决，
+# 不许在 commit message 里口头豁免；新增行必须同时在这里写清「它可以留到哪一天」，
+# 并且那一条到期就要删——留着过期例外正是 QT-07 ⑥ 收的这次口。
+LOCAL_REPLACE_WHITELIST: dict[tuple[str, str, str], str] = {}
 
 # go.work* 一旦入库，三个仓就被路径焊成一体 —— 本地联调可以有，跟踪不行。
 WORKFILE_NAMES = ("go.work", "go.work.sum")
@@ -691,13 +689,24 @@ def self_test() -> int:
         _commit(agent, "README.md", "agent\n", date_b, "init")
         reds, notes = check_repo_edges(
             agent, "module tellurion-agent\n\nreplace tellurion => ../tellurion\n")
-        expect("agent 的 `replace tellurion => ../tellurion` 在册 → 不红且显式记账",
-               not reds and any("在册" in x for x in notes))
+        expect("agent 的 `replace tellurion => ../tellurion` 不再在册 → 红（S3 结案，白名单为空）",
+               bool(reds) and all("指向仓外" in x for x in reds) and not notes)
 
-        reds, notes = check_repo_edges(
-            agent, "module tellurion-agent\n\nreplace tellurion => ../elsewhere\n")
-        expect("同一仓换成非在册目标 → 红（白名单按目标逐条，不是按仓放行）",
-               bool(reds) and all("指向仓外" in x for x in reds))
+        # 白名单**表**空了，但**机制**还得留着（将来真需要例外要靠 ADR 级裁决往这里加行）。
+        # 所以「在册 → 放行且显式记账」这条分支必须还有人核：表一空就没人走它，
+        # 放行逻辑坏掉也不会红 —— 那正是本次要收的口的另一种形态。
+        probe_key = ("tellurion-agent", "tellurion-probe", "../tellurion-probe")
+        LOCAL_REPLACE_WHITELIST[probe_key] = "夹具专用：只验放行分支，不代表任何真例外"
+        try:
+            reds, notes = check_repo_edges(
+                agent, "module tellurion-agent\n\nreplace tellurion-probe => ../tellurion-probe\n")
+            probe_whitelisted = not reds and any("在册" in x for x in notes)
+            reds, _ = check_repo_edges(
+                agent, "module tellurion-agent\n\nreplace tellurion-probe => ../elsewhere\n")
+        finally:
+            LOCAL_REPLACE_WHITELIST.pop(probe_key, None)
+        expect("登记过的仓换成非在册目标 → 红（白名单按目标逐条，不是按仓放行）",
+               probe_whitelisted and bool(reds) and all("指向仓外" in x for x in reds))
 
     if fails:
         print(f"\n结果：护栏自证 RED —— {len(fails)} 条：{fails}")

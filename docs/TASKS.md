@@ -1,7 +1,7 @@
 ---
 status: active
 last-verified: 2026-10-24
-verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。
+verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。
 ---
 
 # TASKS — 未完成项（第 4 代）
@@ -29,7 +29,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | W0 | QT-03 ✅ | 留痕 hash 体系（run_spec / dataset / artifact_hash） | P0 | 后面所有"可复现"验收都要引用它。**定义 + 向量测试 + 文档收口（2026-10-21）+ 落库（QT-63，2026-10-22）全部完成**；③-⑥ 的 SPEC 评审未触发（返回面没动） |
 | W0 | QT-04 ✅ | 重复信号存量扫描（定 trap / 合并） | P0 | 只读扫描，可与 01~03 并行；结论进 QT-21 |
 | **S1** | QT-05 | **契约层 + 工具层落地**（代码直接写进 `tellurion-contracts` / `tellurion-kit`；domain 并入 contracts、kit 含 db） | P0 | **W0 全绿之后**（W0 定形状、S1 搬形状）；core 用 `require` 伪版本 + 本地 `go.work`，**全程不用 replace**（ADR-D31）。**正文已迁** `tellurion-contracts:docs/TASKS.md`（主单）+ `tellurion-kit:docs/TASKS.md`（QT-05-B kit 腿），见 S1 节指针 |
-| **S2/S3** | QT-17 🔶 / QT-07 🔶 / QT-19 🔶 / QT-09 🔶 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；agent 去 replace | P1 | **W0 + QT-05 全绿之后**；QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
+| **S2/S3** | QT-17 🔶 / QT-07 ✅ / QT-19 🔶 / QT-09 🔶 | **收口**：agent 数据自持（`ai.*`）→ 两仓打 `v0.1.0` 并把伪版本换成 tag → 契约版本策略 → 跨仓护栏 + 契约测试；~~agent 去 replace~~ **已落（2026-10-25，QT-07 ⑥ S3）**：agent 侧删 `replace ../tellurion`，core 侧同批清空两条为它开的过期容忍 | P1 | **W0 + QT-05 全绿之后**；~~QT-17/QT-19 分别是 S3 删 replace 的数据前置与版本前置~~（前置已满足，S3 已结案）。**QT-17 正文已迁** `tellurion-agent:docs/TASKS.md`，见 S2~S3 节指针 |
 | **W1** | QT-10 ✅ | 错误分级 / fail-closed 落地 | P0 | 与 QT-14 同批（EndRun 语义的前提）；**W1 不依赖 S2**（只有 QT-17 可与 W1 并行，见并行指引）。**已完成（2026-10-24；契约腿随 contracts v0.3.0）** |
 | W1 | QT-11 ✅ | per-run 策略实例 | P0 | **已完成（2026-10-23）**；K15 对拍前置；无文件冲突 |
 | W1 | QT-12 ✅ | run 级缓存下沉 + 资源准入 | P0 | **已完成（2026-10-23）**；同一笔内存账，必须一起做 |
@@ -178,6 +178,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **顺带纠正我先前给的一条理由**：我写「它读订单/成交（运行域真相）」——**不准确**。`cmd/dualrun` 读的是**回测内**的成交明细（`pkg/backtest/tracker` 在进程内产出），不碰实盘 `quant.orders`/`fills`。真正理由是：要**同进程**链接 `pkg/backtest` + `pkg/backtest/nautilus` 两套内核（跨进程拿不到同一次运行的逐笔成交），且它是**引擎的验收门**（CI `align-gate`），不是生产服务。
 > 未裁边界由 5 条降为 4 条（U1 留空号，不重编号——避免各仓文档里的 `U3` 指针失效）。
 > **第六批（2026-10-21，本单 ① 自检脚本）**：`tools/check_repo_autonomy.py` 已交付。静态核 R1（仓外 `=>` / committed go.work 即红，唯一容忍 = agent `=> ../tellurion` 作**已登记缺口→QT-07**）、R2（按类型分派；8 个 S0 占位仓「有 CI 无测试」**显式列出、不静默通过**）、R3（AGENTS 依赖章节 + 禁止标记；core 缺字面标题作**已登记缺口→QT-08**）、R5（contracts/kit 跨仓版本声明一致性，core 汇总）、R6（三份边界契约非空；core / docs **显式豁免**并写理由）。已知缺口登记表是单一来源，脚本会去台账核实工单号在册——「登记才放行，没登记就红」。本地对**12 仓全量**跑 GREEN（2 缺口登记 + 2 豁免，均显式）；**破坏验证**：给 kit 塞未登记 `go.work` → RED + exit 1，删除 → 复绿；`--run-builds` 逐仓实跑 build/vet 的接线已单仓 smoke。已接入 core CI 的 docs job 作 R5 汇总入口（core-only checkout 时核 core 自身 + 点名兄弟仓缺席）。修掉一处**假护栏**：R1 正则原先只匹配单行 `^replace`，块形式会漏检 → 改为取任何非注释行的 `=>` 目标。
+>
+> **2026-10-25 订正（B6-1，随 QT-07 ⑥ 结案）**：上面那句「唯一容忍 = agent `=> ../tellurion`（已登记缺口→QT-07）」已失效——agent 的 `go.mod` 里没有任何 `=>` 了，`KNOWN_GAPS` 的 `("tellurion-agent", "R1")` 死行随之删除（留着等于宣称一个不存在的缺口），R1 的文档句改成结案说明。12 仓全量结果与改前基线**逐字相同**（GREEN，缺口 1 条 = core 的 R3、豁免 2 条 = core / docs 的 R6）——那行死登记本来就不触发，删它改的是「宣称」不是「结论」；`--self-test` 的 R1 夹具腿用 `tellurion-fake` 仓名，不受影响。取证见 QT-07 ⑥ 结案两条。
 > **第七批（2026-10-21，自审收尾：脚本两处误判 + 给它一条自证腿）**：通读自己上一批写的 `tools/check_repo_autonomy.py`，逮到两处**会让护栏在关键时刻失真**的缺陷，都改了：
 > ① **go.work 判据写成了 `exists` 而不是 `tracked`** —— 而各仓 AGENTS 明写「本机同时改多个仓时可用 `go.work` 联调，但它**不入库**」。按 exists 判，主任合规地开本机联调就会被判红；第六批那条「给 kit 塞未登记 go.work → RED」的取证**因此是错的**（它测的是一条本不该红的合规状态）。现改为问 git index（`git ls-files --error-unmatch`），`go.work` 与 `go.work.sum` 都核，入库才红。
 > ② **R5 拿整格字符串比对版本** —— 各仓那格的写法天然是「待定（S2 后 `v0.1.0`）」vs「`v0.1.0`」，整格比对会把「S2 半收口」（有的仓已钉、有的还标待定）判成**分叉硬红**，而脚本自己在那条 note 里写着这状态「收口前允许」。现改为只提版本 token（`v\d+\.\d+\.\d+`）并按「钉版 / 计划版」分桶：只有**两个仓都钉了、且钉得不一样**才红；混布只点名（R5-note）。今天 12 仓仍全绿（都还是同一句「待定（S2 后 v0.1.0）」）。
@@ -189,7 +191,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 - **② 上下文**：ADR-D29 §2 五条不变量（R1~R5）。**2026-10-20 复核现状（12 仓）**：core 有 AGENTS + CI；`agent`/`ui`/`docs` 三仓**均无 `AGENTS.md`**，其中 `docs` 还**无 CI、无 `docs/TASKS.md`**；**新增的 8 仓（contracts/kit/data/strategy/risk/analytics/orchestration/broker）有 AGENTS 但全部无 CI**；全部 12 仓 tag 均为 0（core 由 QT-06 解决；contracts/kit 由 **QT-07（S2）** 打 tag——S1 只落代码，见 ADR-D31）。
 - **③ 要求**：① 写 `tools/check_repo_autonomy.py`：逐仓检查 R1~**R6**（R6 = 三份功能边界契约存在且非空），**未通过的项必须在 `docs/TASKS.md`（或该仓 TASKS）有对应单号**，否则红；② `agent` / `ui` / `docs` 各补 `AGENTS.md`（构建/测试命令、模块边界、**依赖的契约版本**、禁止事项、`docs/TASKS.md` 指针）；③ `docs` 仓补 CI（markdown 链接检查 + frontmatter 齐全）与 `docs/TASKS.md`（只放本仓事项，跨仓只留指针）；**8 个新仓各补最小 CI**（`go build ./...` + `go vet ./...` + `go test ./...`），否则 R2「单仓可自证」对它们恒为红；④ core `AGENTS.md` 增「分仓规则」一节（D29 §9 的 C1~C5）；⑤ 脚本**按仓类型分派**：11 个 go 仓查 `go build/vet/test`；`ui` 查 node 构建；`docs` 查链接与 frontmatter——不能用一把 `go build` 量十二个仓；**R1 判据是「`replace` 指向仓外路径 = 红」**；ADR-D31 之后 S1 不再有子 module，所以 core 与两新仓**任何 `=>` 都该红**，唯一白名单是 agent 的 `=> ../tellurion`（S3 删）；⑥ `docs` 仓的跨仓引用改 `repo:path` 纯文本（如 `tellurion:docs/...`；改名前后一律以新名书写，QT-60 负责批量替换），**不做成可点击相对链接**——独立 checkout 时 `../../` 必断，会让 R2 永远红；⑦ 脚本住 core 的 `tools/`，各仓 CI 只自证本仓（R1~R4）；**R5 的跨仓版本比对由 core 汇总跑**。
 - **④ 约束与非目标**：不把 core 的 AGENTS 全文复制到各仓（只写本仓必须知道的）；不引入新 CI 平台；不改任何代码。
-- **⑤ 验收**：脚本对 **12 仓**输出绿（agent 的 R1 以 `known-gap → QT-07` 登记方式通过，不是静默忽略；8 个占位仓的 R2 以「有 CI 但无测试」也要显式列出，不许静默通过）；`docs` 仓与 8 个新仓的 CI 首次绿；**12 仓** `AGENTS.md` 均含「依赖的契约版本」与「禁止事项」两节。
+- **⑤ 验收**：脚本对 **12 仓**输出绿（agent 的 R1 以 `known-gap → QT-07` 登记方式通过，不是静默忽略；**2026-10-25 订正：缺口已随 QT-07 ⑥ S3 结案消失，`KNOWN_GAPS` 里那行已删，agent 的 R1 现在是真绿而不是登记放行**；8 个占位仓的 R2 以「有 CI 但无测试」也要显式列出，不许静默通过）；`docs` 仓与 8 个新仓的 CI 首次绿；**12 仓** `AGENTS.md` 均含「依赖的契约版本」与「禁止事项」两节。
 - **⑥ 边界**：只做入口与自检；拆仓本身是 QT-07。
 
 ---
@@ -911,7 +913,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **正文已整体迁至 `tellurion-agent:docs/TASKS.md`「QT-17」**（六字段逐字保留；任务台账批量重分布）。本单本就是 agent 仓的活（`ai.*` schema 与 store 落 agent），执行与验收在彼处，此处不镜像；改动请去彼处改，勿在此回填正文。
 > **本仓侧衔接两处**（随主单执行）：③-③ 的仪器域只读 port（`TradingCalendar`/`ListingWindow`）由 core 提供，其 endpoint + DTO + 鉴权随 QT-50 ③-③/④ 统一落 `docs/openapi.yaml`（QT-67 已落 `2a4b076`）；④ 的 core 侧 `experiments.go`/`research.go` 已于 2026-10-25 标 `Deprecated`，删除期限 2027-01-31（见 QT-05 ④）。S3 删 replace 的数据前置语义不变（`kit/db` 由 QT-05 提供）。
 
-### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] 🔶
+### QT-07 · 两仓打 tag 并把伪版本切成版本依赖（S2 → S3）[P1] ✅ ①~⑥ 全部结案（2026-10-25）
 
 - **① 目标**：`tellurion-contracts` / `tellurion-kit` 各自**单仓可构建、可自证**（R1~R5 全成立）；core 与 agent 从「伪版本」切到「`v0.1.0`」；agent 最终删掉 `../tellurion` replace。
 - **② 上下文**：`repo-topology-and-naming.md` §7/§8（D29）+ **ADR-D31**；前置 = W0 + QT-05 全绿。**两仓在 S1 已有实现与真实伪版本依赖**——本单**不再 `git init`、不再迁目录**（原 ①/② 已随 Plan A 作废），只做「伪版本 → tag」与自治补齐。**分两次合入**：S2（①~⑤）先合；S3（⑥）等 QT-17 收口 + agent 去掉对 core 实现包的 import 后再合——不要因为 ⑥ 未完成而卡住 ①~⑤。
@@ -923,7 +925,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
   ⑤ S2-e：把 `tools/check_contract_pin.py` 接进 CI（QT-09 ①），并在 core `AGENTS.md` 写 3 行「契约 pin 怎么 bump」；
   ⑥ S3（**依赖 QT-50 ✅（2026-10-24）+ QT-17 收口 + agent 去 core 实现包 import**）：agent 删 `../tellurion` replace 与 CI 的 rewrite 步骤；agent 只依赖两个新仓的 tag + HTTP。**注意 S3 是唯一允许删该 replace 的时点**，提前删 = agent 立刻编不过。
 - **④ 约束与非目标**：**不改任何业务逻辑**（只换版本号）；不在拆仓同时做 HTTP 化（那是 QT-50）；不为"减少仓数"合并两仓（依赖方向不同：contracts 依赖 kit 的 decimal/errors，kit 零业务）；不发布 release note（CHANGELOG 见 QT-19）。
-- **⑤ 验收**：两仓单独 checkout 后 `go build ./...` + `go test ./...` 绿（不 checkout core/agent）；core / agent `go list -m` 显示 `v0.1.0` 且**无 `=>`**；`make contracts-pin-check` 绿；`tools/check_repo_autonomy.py` 对两仓全绿；切 tag 前后同参回测**逐位一致**（报告归档）；agent 的 R1 在 S3 后转绿。
+- **⑤ 验收**：两仓单独 checkout 后 `go build ./...` + `go test ./...` 绿（不 checkout core/agent）；core / agent `go list -m` 显示 `v0.1.0` 且**无 `=>`**；`make contracts-pin-check` 绿；`tools/check_repo_autonomy.py` 对两仓全绿；切 tag 前后同参回测**逐位一致**（报告归档）；agent 的 R1 在 S3 后转绿（**2026-10-25 结案实测：已转绿**，判据与取证见本单「⑥ 结案取证」）。
 - **⑥ 边界**：只做版本切换与自治补齐；X 线六个服务仓**不在本单**（真起进程时另立）。
 
 > **进度（2026-10-23，S2 ①~⑤ 落地；⑥ 未动）**：
@@ -933,7 +935,12 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > - **S2-d 反向护栏**：core `tools/check_contract_pin.py` 新增 C1/C2 两腿——`go.work`/`go.work.sum` 被 git 跟踪即红（本地联调可用、入库即焊死）；`replace` 指向仓外路径即红，唯一白名单是 agent 的 `tellurion => ../tellurion`（按「仓 + 模块 + 目标原文」逐条登记，换目标即红）。
 > - **S2-e pin 接线**：`make contracts-pin-check`（自证 + 实扫）早已在 CI `docs` job；core `AGENTS.md` §0 三条 bump 纪律已落（`1e82483`）。
 > - **实跑取证**：`check_contract_pin.py --self-test` **18 条腿 GREEN**；实扫 **2 个 pin GREEN**（`tellurion-contracts@e742e35e84e3`，`origin/main` 祖先）；11 个同级 go 仓里没有 `go.work*` 被跟踪。
-> - **未完成**：⑥ S3（删 agent replace + CI rewrite 步骤）。**2026-10-25 实测订正卡点**：QT-50 已于 2026-10-24 ✅、QT-17 已 🔶（①②③④⑤ 已落，仅余基因表切换），所以「等 QT-50 + QT-17」这句已过期；真正的卡点是 **agent 生产代码仍 import core 的 15 个实现包 / 23 个文件**（`backtest` `bootstrap` `data/source` `expression` `httpserver` `marketdata` `observability` `risk` `sandbox/runner` `sandbox/staticcheck` `statistics` `strategy` `strategy/expression` `strategy/monitor` `auth`；另有 20 个测试文件）。这些包必须逐项 HTTP 化 / 契约化 / 去重后，replace 才可删。
+> - ~~**未完成**：⑥ S3（删 agent replace + CI rewrite 步骤）~~ → **已结案（2026-10-25，记录见下两条）**。当时登记的卡点原文照录，免得丢掉来历：**agent 生产代码仍 import core 的 15 个实现包 / 23 个文件**（`backtest` `bootstrap` `data/source` `expression` `httpserver` `marketdata` `observability` `risk` `sandbox/runner` `sandbox/staticcheck` `statistics` `strategy` `strategy/expression` `strategy/monitor` `auth`；另有 20 个测试文件），这些包必须逐项 HTTP 化 / 契约化 / 去重后 replace 才可删。
+> - **⑥ S3 结案（2026-10-25，B6-1）**：上面那 15 个包已由 QT-17 S3-a~d 逐项切完，`replace tellurion => ../tellurion` 与 CI 的 rewrite 步骤**已在 agent 侧删除**（`tellurion-agent:docs/adr/0001` 的收口记录 + 该仓 `docs/s3-decoupling-plan.md` S3-d 节）。本仓收的是**这条例外在 core 侧的三处残留**：
+>   ① `tools/check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` **清空**——那条 `("tellurion-agent", "tellurion", "../tellurion")` 的夹具腿从「在册 → 不红」改成「不在白名单 → 红」（腿 17，过期例外不许悄悄复活）；「在册 → 放行且记账」的分支**不删**，改由夹具临时登记一行来核（腿 18，`finally` 还原）——表一空那条放行逻辑就没人走了，那正是本次要收的口的另一种形态；
+>   ② `tools/check_repo_autonomy.py`（QT-08 的 R1）里同一条过期容忍——`KNOWN_GAPS` 的 `("tellurion-agent", "R1")` 死行删除（agent 已无仓外 `=>`，这行今天不触发、留着等于宣称有个不存在的缺口），文档句「唯一容忍 = agent…」改为结案说明；
+>   ③ 口径订正：`AGENTS.md` §0「契约 pin 怎么 bump」第 2 条、本单 ⑤ 的「agent 的 R1 在 S3 后转绿」、QT-08 第六批记录、QT-50 的「对 S3 的含义」注、`pkg/storage/experiments.go` 与 `research.go` 的 `Deprecated:` 前置句、`docs/TASKS.md` 跨仓依赖总览的 agent 行。
+> - **⑥ 结案取证（2026-10-25）**：**agent 三查**——生产+测试 `.go` 对 `tellurion/pkg*` 的 import **0 处**（`grep -rn --include=*.go 'tellurion/pkg'` 的 11 条命中全是注释）、`go.mod` 既无 `require tellurion` 也无任何 `=>`、CI `.github/workflows/ci.yml` 只有一次 `actions/checkout`（不再 checkout core、不再 `go mod edit -replace`）。**护栏**：`check_contract_pin.py --self-test` **18 条腿 GREEN**（EXIT=0）、实扫 `--offline` **9 个 pin 全是 main 祖先**（EXIT=0）；`check_repo_autonomy.py --self-test` EXIT=0、全量 12 仓 GREEN（缺口 **1** 条 = core 的 R3 + 2 条 R6 豁免，**与改前基线逐字相同**——那条 `("tellurion-agent","R1")` 死行本来就不触发，删它改的是「宣称」而不是「结论」）。**破坏验证**：把过期那行逐字塞回 `LOCAL_REPLACE_WHITELIST` → 腿 17 当场红 + `结果：护栏自证 RED —— 1 条` + EXIT=1；逐字节还原 → 18 腿复绿 EXIT=0。
 
 
 ### QT-09 · 跨仓依赖护栏 + 契约测试（S2）[P1] ✅ · **①~⑤ 落地（2026-10-23）；2026-10-24 结案核对三腿重跑 GREEN，CI 单侧覆盖面限制在册**
@@ -960,6 +967,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **进度（2026-10-23，②④⑤ + ③ 落地）**：
 > - **① 三条腿齐**：`check_contract_pin.py` 除 pin 祖先外，新增 **C1**（`go.work`/`go.work.sum` 被 git 跟踪即红）与 **C2**（`replace` 指向仓外路径即红；白名单按「仓 + 模块 + 目标原文」逐条，agent 的 `tellurion => ../tellurion` 是唯一在册行，S3 到期删）。自证腿 11 → **18 条**（新增：未入库 go.work 放行、入库红、仓外 replace 红、仓内子目录 replace 绿、`模块 => 模块 vX` 绿、白名单命中只记在册、同仓换目标即红）。
+> - **2026-10-25 S3 结案（B6-1，触发单是 QT-07 ⑥）**：上面那句「agent 的 `tellurion => ../tellurion` 是唯一在册行，S3 到期删」今天到期了——`LOCAL_REPLACE_WHITELIST` 已清空（机制与「按目标逐条」语义保留，只是表里没有行）。夹具两条腿一起改：腿 17 从「在册 → 不红且记账」翻成「**不在白名单 → 红**」（过期例外不许悄悄复活），腿 18 改成临时登记一行探针 → 验「在册不红且记账」**且**同仓非在册目标仍红，`finally` 还原——否则表一空，放行分支就再没人核，那是同一种失效的另一种形态。**腿数仍是 18**，`--self-test` 与实扫退出 0。
 > - **② examples/**：契约仓 `examples/marketprovider`、`examples/enginerunner`（`package main`，不进导出面）。
 > - **③ 契约测试**：契约仓 `conformance/cases.json`（**33 条 / 9 kind**）是唯一真相；三方各自读同一份 JSON 实算比对——契约侧 `go test ./conformance`（28 条）、core `pkg/conformance`（`trade_fees` 走真实 `tracker.NewTracker`/`ExecuteTrade`，5 条）、agent `internal/conformance`（`fee_defaults_via_yaml` 走真实 YAML 生成器，4 条）。**覆盖矩阵是显式 `sides`**：写进 sides 的侧没跑就是红；语料为空/重复 id/未知侧/未知 kind 全部 fail-loud。跨仓编排 `make contracts-conformance`（`tools/check_contract_conformance.py`，未 checkout 的侧打 `::warning` 并写「N 侧跳过」，**不算通过**）。
 > - **④ PR 模板**：`.github/PULL_REQUEST_TEMPLATE.md` 四段必填 + `tools/check_pr_body`（仅 `pull_request` 事件，其他事件显式跳过）。
@@ -1122,6 +1130,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > ⚠️ **对 S3 的含义（不夸大）**：本单把 agent↔core 的 wire 面与鉴权落齐了，但**不等于** agent 现在就能删
 > `replace ../tellurion` —— 客户端尚未实现（G10），且 agent 仍有 **64 处 core 实现包 import（43 文件：生产 23 + 测试 20，15 个包）**（2026-10-25 实测，见 QT-17 / QT-07 ⑥ 记录）。
+>
+> **⚠️ 上面那句已过期（同日 2026-10-25 结案，B6-1）**：agent 对 core 实现包的 import 现为 **0 处**，`go.mod` 既无 `require tellurion` 也无任何 `=>`，CI 不再 checkout core —— `replace ../tellurion` 已删（判据与取证记在 QT-07 ⑥ 结案两条里）。G10 那句「六类动作的 HTTP 客户端」是 agent 侧的**功能余项**，不再是 S3 的前置。本条原文照留只为记录当时的判断，**不要照抄进新单**。
 
 ### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] ⬜
 
@@ -1684,7 +1694,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >   - **KT-04 ✅（2026-10-23）**：kit 侧 `httpclient` 两条缺陷已修并归档（`tellurion-kit:docs/TASKS.md`）——重试每次重建 reader（不再发空 body）；4xx（429 除外）由「`err == nil` 的成功」改为 `nil` + `*errors.AppError`（按状态映射错误码，**breaking**，ADR 0002）。**core 侧处置：不改**——本仓 `pkg/httpclient` 仍是同一份代码的旧副本（每轮复用 reader、4xx 当成功），core 切 kit 依赖属 QT-05 主单；切换后调用点（`pkg/data/tushare.go`、`pkg/backtest/engine.go`、`pkg/marketdata/http_provider.go`）都已先判 `err != nil`，4xx 语义只会变严格。
 >   - **KT-06 ✅（2026-10-23）**：kit 侧两条定标缺陷已修（`tellurion-kit:docs/TASKS.md` 结案）——`shift < 0` 改走分母侧定标（`2.5 / 1` 在 scale 0 由 `2` 改 `3`）、`shift > 0` 越界由静默 `break` 改 `ErrOverflow`（守卫收紧到 `math.MaxInt64/10`）。**core 侧处置：同批同步**——本仓 `pkg/decimal` 的 `Div` 已替换为 kit 修后同一份实现（原副本停在「文档写 banker's、实现 tie 向零」的旧分叉，一并对齐 KT-03 口径；该包零生产调用、repoguard 在册），补 `TestDiv_ResultScaleBelowDividendScale` / `TestDiv_OverflowFailsClosed` 同款测试，`go test ./pkg/decimal/` 绿。
 > - **X 线 6 个服务仓**（`tellurion-data` / `tellurion-strategy` / `tellurion-risk` / `tellurion-analytics` / `tellurion-orchestration` / `tellurion-broker`）：**QT-40~45 + QT-41b**（2026-10-21 自本仓「五、X 线」逐字展开迁入各仓 `docs/TASKS.md` 为正式六字段单；本仓留指针表，见「五、X 线」）。M5/M8 公共前置仍以本仓「五、X 线」开头两条为准。
-> - **`tellurion-agent` 仓**：**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏。
+> - **`tellurion-agent` 仓**：~~**S3 前仍依赖本仓源码**（replace），不可单仓构建 —— 这是 `known-gap`，对应 QT-07 收尾段，不是遗漏~~ → **已结案（2026-10-25，QT-07 ⑥ S3）**：agent 对本仓零 import、`go.mod` 无 `require tellurion` / 无 `=>`、CI 不 checkout 本仓，单仓可构建成立；本仓侧同批清掉了两条为它开的过期容忍（`check_contract_pin.py` 的白名单行 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行）。
 > - **`tellurion-docs` 仓**（旧 `quant-trading-docs`）：**NT v2.0.0 正式版升级**（`docs/guides/nt-sidecar-operations.md`）——唯一外部等待项。⚠️ QT-02 的 `FillTiming` 一旦切换，NT 侧必须同步实现 `next_open`，否则 K15 会报 `ErrFillTimingMismatch`；升版时把这条加进验收门。**ADR-D 升格单** ⬜（M9：D24/D25/D29/D30 已裁决且直接驱动施工（QT-05/07/60），须按 `tellurion-docs:docs/adr/` 流程升格为正式 ADR；升格完成前设计集 README 的升格路径注记保留——正文立单在该仓 `docs/TASKS.md`）。
 
 ---
