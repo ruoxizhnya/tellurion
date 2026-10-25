@@ -479,11 +479,40 @@ func TestIntegration_BacktestJob_Lifecycle(t *testing.T) {
 	require.NotNil(t, got["started_at"], "started_at must be set after UpdateJobStarted")
 
 	result := []byte(`{"sharpe": 1.5, "trades": 42}`)
-	require.NoError(t, store.UpdateJobCompleted(ctx, id, result))
+	require.NoError(t, store.UpdateJobCompleted(ctx, id, "completed", result))
 	got, _ = store.GetBacktestJob(ctx, id)
 	assert.Equal(t, "completed", got["status"])
+	assert.Equal(t, "completed", got["result_status"], "有效结果写 result_status=completed")
 	require.NotNil(t, got["completed_at"], "completed_at must be set")
 	assert.JSONEq(t, string(result), string(got["result"].([]byte)))
+}
+
+// B6-3：invalid 是结果结论，不是生命周期失败 —— 行仍是 completed。
+func TestIntegration_BacktestJob_InvalidResultStatus(t *testing.T) {
+	store, ctx := setUp(t)
+	id := "job-invalid-1"
+	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
+		"id":          id,
+		"strategy_id": "x",
+		"params":      json.RawMessage(`{}`),
+		"universe":    "all",
+		"start_date":  "2024-01-01",
+		"end_date":    "2024-01-31",
+		"status":      "pending",
+	}))
+	require.NoError(t, store.UpdateJobStarted(ctx, id))
+
+	result := []byte(`{"status": "invalid", "invalid_reasons": [{"code": "no_trades"}]}`)
+	require.NoError(t, store.UpdateJobCompleted(ctx, id, "invalid", result))
+
+	got, err := store.GetBacktestJob(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, "completed", got["status"], "invalid 的队列生命周期仍是 completed")
+	assert.Equal(t, "invalid", got["result_status"], "结果结论是 invalid")
+	assert.JSONEq(t, string(result), string(got["result"].([]byte)), "invalid 不得丢弃结果体")
+	if msg, ok := got["error_msg"]; ok {
+		assert.Empty(t, msg, "invalid 不是引擎故障，error 必空")
+	}
 }
 
 func TestIntegration_BacktestJob_FailurePath(t *testing.T) {
@@ -504,6 +533,7 @@ func TestIntegration_BacktestJob_FailurePath(t *testing.T) {
 	got, err := store.GetBacktestJob(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, "failed", got["status"])
+	assert.Equal(t, "failed", got["result_status"], "引擎故障写 result_status=failed")
 	assert.Equal(t, "boom", got["error_msg"])
 }
 

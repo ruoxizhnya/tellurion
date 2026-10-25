@@ -195,6 +195,18 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Fail(c, http.StatusInternalServerError, "failed to parse stored result")
 				return
 			}
+			// B6-3：status 与 result_status 同源（K9 三值）。同步/异步两条写路径
+			// 都把结论落在 result_status；迁移前的存量行回落到结果体里的 status。
+			// 「跑完但无效」的 status 是 completed + result_status=invalid，不再
+			// 被读成 failed、也不再 404。
+			status := job.ResultStatus
+			if status == "" {
+				status, _ = report["status"].(string)
+			}
+			if status == "" {
+				status = backtest.StatusCompleted
+			}
+			report["status"] = status
 			c.JSON(http.StatusOK, report)
 		})
 
@@ -376,6 +388,13 @@ func lookupBacktestResponse(c *gin.Context, backtestID string, engine *backtest.
 	}
 	if stored.ID == "" {
 		stored.ID = backtestID
+	}
+	// B6-3：status 以持久列的 result_status 为权威（与 report 端点同源）；
+	// 迁移前的存量行回落到结果体，结果体也缺时视为 completed。
+	if job.ResultStatus != "" {
+		stored.Status = job.ResultStatus
+	} else if stored.Status == "" {
+		stored.Status = backtest.StatusCompleted
 	}
 	return stored, nil
 }

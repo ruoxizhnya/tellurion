@@ -16,6 +16,7 @@ package main
 // "completed"），这里立刻红。
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -113,4 +114,74 @@ func TestBacktestReport_CompletedStaysCompleted(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, "completed", got.Status, "正常路径行为必须与改前一致")
 	assert.Empty(t, got.InvalidReasons, "有效运行不得带 invalid_reasons")
+}
+
+// seedStoredJob 落一条已收尾的作业（走 JobStore 的写路径，模拟同步/异步
+// 两条路径落库后的形态），返回 router。
+func seedStoredJob(t *testing.T, id, resultStatus, body string) (*gin.Engine, *memJobStore) {
+	t.Helper()
+	eng := newReadPathEngine(t)
+	store := newMemJobStore()
+	reg := contracts.NewEngineRegistry()
+	reg.Register(contracts.DefaultKernel, eng)
+	svc := backtest.NewJobService(store, reg, zerolog.Nop())
+
+	require.NoError(t, store.CreateBacktestJob(context.Background(), map[string]any{
+		"id":          id,
+		"strategy_id": "momentum",
+		"params":      []byte(`{}`),
+		"universe":    "CSI300",
+		"start_date":  "2024-01-02",
+		"end_date":    "2024-02-02",
+		"status":      "pending",
+	}))
+	require.NoError(t, store.UpdateJobStarted(context.Background(), id))
+	require.NoError(t, store.UpdateJobCompleted(context.Background(), id, resultStatus, []byte(body)))
+
+	r := gin.New()
+	registerBacktestRoutes(r, eng, reg, svc, nil, zerolog.Nop())
+	return r, store
+}
+
+// B6-3 核心腿（持久读面）：内存态里没有这次运行、库里有 invalid 行时，
+// GET /:id/report 必须 200 + status=invalid + reasons —— 不得因为
+// status != "completed" 落 404（那是把 invalid 读成 failed 的旧行为）。
+func TestBacktestReport_StoredInvalidRowStaysReadable(t *testing.T) {
+	const id = "bt-stored-invalid"
+	// 结果体故意不带 status：三值的唯一权威是持久列的 result_status，
+	// 回落到结果体会在这里露馅（读成 completed）。
+	r, _ := seedStoredJob(t, id, "invalid",
+		`{"id":"bt-stored-invalid","invalid_reasons":["no_trades"]}`)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backtest/"+id+"/report", nil))
+	require.Equal(t, http.StatusOK, w.Code, "invalid 行必须可读（200），body=%s", w.Body.String())
+
+	var got struct {
+		Status         string   `json:"status"`
+		InvalidReasons []string `json:"invalid_reasons"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got), "响应不是 JSON: %s", w.Body.String())
+	assert.Equal(t, "invalid", got.Status, "report 的 status 必须与 result_status 同源")
+	assert.Equal(t, []string{"no_trades"}, got.InvalidReasons, "结果体不得被丢")
+}
+
+// B6-3 反证腿：GET /api/backtest/:id 两轴都可见 —— status=completed 是
+// 队列生命周期，result_status=invalid 是结果结论，合并其一都是回归。
+func TestBacktestGetJob_ExposesBothAxes(t *testing.T) {
+	const id = "bt-stored-invalid"
+	r, _ := seedStoredJob(t, id, "invalid",
+		`{"id":"bt-stored-invalid","status":"invalid","invalid_reasons":["no_trades"]}`)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backtest/"+id, nil))
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var got struct {
+		Status       string `json:"status"`
+		ResultStatus string `json:"result_status"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "completed", got.Status, "invalid 的队列生命周期仍是 completed")
+	assert.Equal(t, "invalid", got.ResultStatus, "结果结论必须可见")
 }

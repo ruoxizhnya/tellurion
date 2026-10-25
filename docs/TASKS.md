@@ -1309,6 +1309,42 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 
 ---
 
+### B6-3 · core K9-correct 持久读面（`backtest_jobs.result_status`）[P0] ✅（2026-10-25）
+
+- **① 目标**：把「跑完但结果无效」从「引擎故障」里拆出来 —— 异步 invalid 不再落 `status=failed`、不再丢结果体；`backtest_jobs` 增 `result_status`（与 orchestration `run.backtest_jobs` 的 DDL 对齐），report 端点在同步/异步两条路径上都按 K9 三值返回 `status`，让 analytics 侧「缺 status → 409」不再被触发。
+- **② 上下文**：`pkg/backtest/job` 的异步 invalid 分支调 `UpdateJobFailed(jobID, "backtest produced an invalid run: …")` —— 结果体被丢弃、`error_message` 冒充原因；`cmd/analysis` 的 `GET /api/backtest/:id/report` 只认 `job.Status=="completed"`，于是 invalid 行 404。下游 `tellurion-analytics` 的 `ResultReader` 以「缺 status」判 409（该仓 `ARCHITECTURE §6.1` / `TASKS` 施工记录），根因在本仓的持久面。
+- **③ 要求**：① `backtest_jobs` 追加 `result_status VARCHAR(20)`，CHECK `IS NULL OR IN ('completed','invalid','failed')`，索引同步；历史 009 建表原文不改（迁移只允许追加）；② 两轴不合并：`status`（队列生命周期）与 `result_status`（K9 结论）各写各的 —— 有效结果 `completed/completed`；无效结果 `completed/invalid` 且 error 空、结果体保留；引擎故障 `failed/failed`；③ `UpdateJobCompleted` 必须显式携带 `resultStatus`（不再有「写了 completed 但结论未知」的调用点）；④ report 端点（含 `lookupBacktestResponse`）以持久列 `result_status` 为 `status` 的唯一权威，存量行回落到结果体、再回落到 `completed`。
+- **④ 约束与非目标**：不改 K9 冻结的 `BacktestResponse` 27 项字段与三值语义；不引入第四值；不把 `result_status` 塞进 `quant.run_provenance`（那仍只存输入身份）；不动 analytics 仓代码（跨仓边界）；不改历史迁移的 `.sql` 镜像（唯一执行路径仍是 `migrationStatements()`）。
+- **⑤ 验收**：异步 invalid → 行 `status=completed` / `result_status=invalid` / `error` 空 / 结果体含 `status:"invalid"` 与 `invalid_reasons`；同步 `SaveSyncResult` 按 `resp.Status` 写三值；库内没有 `result_status` 时 report 仍能读（回落腿）；删除列或改坏结论映射必须红，逐字节还原后绿。
+- **⑥ 边界**：只做 core 的持久写面与读面；analytics 消费端换 URL / 删 409 属该仓；orchestration 的 `run.run_artifacts` 读面属 B6-4。
+
+> **✅ 完成记录（2026-10-25，本地 main；不 push）**
+>
+> **① DDL（Migration 059）**：`pkg/storage/postgres.go` 的 `migrationStatements()` 末尾追加 5 条幂等语句——`ADD COLUMN IF NOT EXISTS result_status` / `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT … CHECK (… IN ('completed','invalid','failed'))` / `CREATE INDEX IF NOT EXISTS idx_bj_result_status` / 存量回填 `completed`。只追加，未改 Migration 009 原文。
+> **② 写面**：`pkg/storage/backtest_jobs.go` 的 `UpdateJobCompleted(ctx, jobID, resultStatus, result)` 同时写 `status='completed'` 与 `result_status`；`UpdateJobFailed` 写 `status='failed'` + `result_status='failed'`；`Get/List` 多扫一列 `result_status`（NULL 时不出现在 map 里）。
+> **③ 两轴同源**：`pkg/backtest/job/job.go` 新增 `resultStatusOf(resp.Status)` 唯一映射点；异步 invalid 分支改为「补 `Status=invalid` → marshal → `UpdateJobCompleted(..., invalid, body)`」，不再调 `UpdateJobFailed`、不再丢结果体；`SaveSyncResult` 同映射；`JobStore` 接口签名加 `resultStatus`（编译期强制每个调用点表态）；`JobRecord` / `Job` 增 `ResultStatus`（JSON `result_status`）。
+> **④ 读面**：`cmd/analysis/handlers_backtest.go` 的 report 端点在持久路径上以 `job.ResultStatus` 覆盖结果体的 `status`（回落顺序：列 → 结果体 → `completed`）；`lookupBacktestResponse` 同口径。invalid 行 `status=completed`，因此 200 可读，不再 404。
+> **⑤ 测试**：`pkg/backtest/job/obs01_invalid_run_test.go`（异步 invalid 的两轴 + 结果体保留；有效运行 `result_status=completed`）；`cmd/analysis/handlers_backtest_readpath_test.go`（持久 invalid 行 report 200 + `status=invalid` + reasons；`GET /api/backtest/:id` 两轴均可见，且结果体故意不带 `status` 以证明列是唯一权威）；`pkg/storage/integration_test.go` 补 invalid / failed 的 `result_status` 断言（`-tags integration`，需真 PG）。
+> **⑥ 破坏验证（两条腿，实测）**：
+> - 腿 A：把 `job.go` 的 invalid 分支结论改成 `contracts.StatusCompleted` ⇒ `TestJobService_InvalidRunPersistsAsInvalidResult` 红（`expected invalid / actual completed`，EXIT=1）；逐字节还原后 SHA-256 与改前一致（`RESTORED_SHA_MATCH=True`），测试复绿。
+> - 腿 B：把 report 的 `status := job.ResultStatus` 改成 `status := ""` ⇒ `TestBacktestReport_StoredInvalidRowStaysReadable` 红（读成 `completed`，EXIT=1）；逐字节还原后 SHA-256 一致（`RESTORED_SHA_MATCH=True`），复绿。
+> **⑦ 实跑（干净 worktree，仅叠加本单 9 个文件；本机 Go 1.25.0）**：
+> ```
+> go build ./...   BUILD_EXIT=0
+> go vet ./...     VET_EXIT=0
+> go test ./...    TEST_EXIT=0
+> ok  tellurion/pkg/backtest/job   0.749s
+> ok  tellurion/cmd/analysis      0.199s
+> ok  tellurion/pkg/storage       0.736s
+> ```
+> **⑧ 未落项 / 偏差（如实登记）**：
+> 1. 本仓**没有 `docs/db-schema.md`**（建表真相一直在 `docs/ARCHITECTURE.md` 的「分区结构」节 + `postgres.go`），故表变更记在 `ARCHITECTURE.md`，不另造文件。
+> 2. 「analytics 侧 409 消失」中，**core 侧前置已达成**（report 端点对 invalid 行返回带 `status` 的 200）；analytics 仓的读面与 409 分支未在本仓改动（跨仓边界）。
+> 3. `pkg/storage/integration_test.go` 的新断言需真 PG，本机无 DSN，**未实跑**（`-tags integration` 由 CI/有库环境覆盖）。
+> 4. 验证是在 `git worktree` 的干净 HEAD（`83a2efd`）上叠加本单文件完成的：共享工作区当时有另一批并发改动（`risk_events.go` 等未跟踪/在改），不属于本单，未纳入提交；其中 `risk_events.go` 的 `http.MultiStatus` 编译错误仅为让验证跳过该文件而改成 `http.StatusMultiStatus`，**该文件未跟踪、未提交**。
+
+---
+
 ### QT-67 · 日历 / 上市窗口只读端点（D24 第 7 类动作）[P1] ✅（2026-10-24）
 
 - **① 目标**：给 agent 一条粗粒度只读通道取 `TradingCalendar` / `ListingWindow`，让 agent 侧最后一处 `tellurion/pkg/storage` 生产 import 可以删掉（QT-17 ③ 的前置）。

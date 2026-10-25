@@ -53,10 +53,14 @@ type JobService struct {
 
 // JobStore is the subset of storage operations needed by JobService.
 // Uses plain types to avoid import cycles with pkg/storage.
+//
+// B6-3：UpdateJobCompleted 显式携带 K9 result_status（completed / invalid）。
+// 「跑完但无效」与「跑完且有效」都写 status='completed'，区别只在结果结论 ——
+// 两轴不合并，invalid 不得再被读成 failed。
 type JobStore interface {
 	CreateBacktestJob(ctx context.Context, job map[string]any) error
 	UpdateJobStarted(ctx context.Context, jobID string) error
-	UpdateJobCompleted(ctx context.Context, jobID string, result []byte) error
+	UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error
 	UpdateJobFailed(ctx context.Context, jobID string, errMsg string) error
 	GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error)
 	ListBacktestJobs(ctx context.Context, limit int) ([]map[string]any, error)
@@ -66,18 +70,19 @@ type JobStore interface {
 // JobRecord holds the raw fields of a backtest job as stored in the DB.
 // The Params and Result fields are stored as JSON bytes.
 type JobRecord struct {
-	ID          string
-	StrategyID  string
-	Params      []byte // JSONB
-	Universe    string
-	StartDate   string
-	EndDate     string
-	Status      string
-	Result      []byte // JSONB
-	ErrorMsg    string
-	CreatedAt   time.Time
-	StartedAt   *time.Time
-	CompletedAt *time.Time
+	ID           string
+	StrategyID   string
+	Params       []byte // JSONB
+	Universe     string
+	StartDate    string
+	EndDate      string
+	Status       string
+	ResultStatus string // K9 三值：completed / invalid / failed；pending/running 为空
+	Result       []byte // JSONB
+	ErrorMsg     string
+	CreatedAt    time.Time
+	StartedAt    *time.Time
+	CompletedAt  *time.Time
 }
 
 // jobRecordToMap converts a JobRecord to map[string]any for JobStore interface.
@@ -93,6 +98,9 @@ func jobRecordToMap(j *JobRecord) map[string]any {
 		"result":      j.Result,
 		"error_msg":   j.ErrorMsg,
 		"created_at":  j.CreatedAt,
+	}
+	if j.ResultStatus != "" {
+		m["result_status"] = j.ResultStatus
 	}
 	if j.StartedAt != nil {
 		m["started_at"] = *j.StartedAt
@@ -118,6 +126,9 @@ func mapToJobRecord(m map[string]any) *JobRecord {
 	}
 	if v, ok := m["result"].([]byte); ok {
 		j.Result = v
+	}
+	if v, ok := m["result_status"].(string); ok {
+		j.ResultStatus = v
 	}
 	if v, ok := m["error_msg"].(string); ok {
 		j.ErrorMsg = v
@@ -207,18 +218,19 @@ type CreateJobRequest struct {
 
 // Job is the public API response for a job.
 type Job struct {
-	ID          string          `json:"id"`
-	StrategyID  string          `json:"strategy_id"`
-	Params      json.RawMessage `json:"params"`
-	Universe    string          `json:"universe"`
-	StartDate   string          `json:"start_date"`
-	EndDate     string          `json:"end_date"`
-	Status      string          `json:"status"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	CompletedAt *time.Time      `json:"completed_at,omitempty"`
+	ID           string          `json:"id"`
+	StrategyID   string          `json:"strategy_id"`
+	Params       json.RawMessage `json:"params"`
+	Universe     string          `json:"universe"`
+	StartDate    string          `json:"start_date"`
+	EndDate      string          `json:"end_date"`
+	Status       string          `json:"status"`
+	ResultStatus string          `json:"result_status,omitempty"`
+	Result       json.RawMessage `json:"result,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	StartedAt    *time.Time      `json:"started_at,omitempty"`
+	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
 }
 
 // CreateJob creates a new backtest job record and starts it in a background goroutine.
@@ -487,11 +499,12 @@ func (s *JobService) StartJob(parentCtx context.Context, jobID string) {
 			return
 		}
 
-		// OBS-01：无效运行（空票池 / 0 成交 / 零值日期 / 垃圾指标）不得再报
-		// 「Backtest completed successfully」，也不得持久化成 completed ——
-		// 它走失败路径，原因 Code 可见，让作业调用方能判出「这次不算成功」。
+		// OBS-01 / B6-3：无效运行（空票池 / 0 成交 / 零值日期 / 垃圾指标）是
+		// **结果结论**（K9 invalid），不是生命周期失败：status 仍写 completed、
+		// result_status 写 invalid，结果体（带 Status=invalid 与 InvalidReasons）
+		// 完整保留。旧实现走 UpdateJobFailed 把 invalid 读成 failed 且丢弃结果体，
+		// 让下游（analytics）拿到缺 status 的 404 —— 这里不再有那条路径。
 		if len(result.InvalidReasons) > 0 {
-			reason := "backtest produced an invalid run: " + strings.Join(result.InvalidReasons, ", ")
 			s.logger.Error().
 				Str("job_id", jobID).
 				Dur("elapsed", elapsed).
@@ -499,8 +512,22 @@ func (s *JobService) StartJob(parentCtx context.Context, jobID string) {
 				Int("universe_max_size", derefIntOr(result.UniverseMaxSize, -1)).
 				Strs("invalid_reasons", result.InvalidReasons).
 				Msg("Backtest produced an invalid run — result marked Status=invalid")
-			if dbErr := s.store.UpdateJobFailed(jobCtx, jobID, reason); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark invalid run as failed")
+			if result.Status == "" {
+				result.Status = contracts.StatusInvalid
+			}
+			resultJSON, mErr := json.Marshal(result)
+			if mErr != nil {
+				s.logger.Error().Err(mErr).Str("job_id", jobID).Msg("Failed to marshal invalid backtest result")
+				if dbErr := s.store.UpdateJobFailed(context.Background(), jobID, fmt.Sprintf("failed to marshal result: %v", mErr)); dbErr != nil {
+					s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark job as failed")
+				}
+				s.cancelFuncs.Delete(jobID)
+				return
+			}
+			if dbErr := s.store.UpdateJobCompleted(jobCtx, jobID, resultStatusOf(result.Status), resultJSON); dbErr != nil {
+				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to persist invalid run result")
+			} else {
+				s.logger.Info().Str("job_id", jobID).Msg("Invalid run result persisted (status=completed, result_status=invalid)")
 			}
 			s.cancelFuncs.Delete(jobID)
 			return
@@ -525,7 +552,7 @@ func (s *JobService) StartJob(parentCtx context.Context, jobID string) {
 			return
 		}
 
-		if err := s.store.UpdateJobCompleted(jobCtx, jobID, resultJSON); err != nil {
+		if err := s.store.UpdateJobCompleted(jobCtx, jobID, resultStatusOf(result.Status), resultJSON); err != nil {
 			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Failed to persist job result to database")
 		} else {
 			s.logger.Info().Str("job_id", jobID).Msg("Job result persisted successfully")
@@ -735,7 +762,7 @@ func (s *JobService) SaveSyncResult(ctx context.Context, resp *contracts.Backtes
 		return fmt.Errorf("failed to mark job started: %w", err)
 	}
 
-	if err := s.store.UpdateJobCompleted(ctx, resp.ID, resultJSON); err != nil {
+	if err := s.store.UpdateJobCompleted(ctx, resp.ID, resultStatusOf(resp.Status), resultJSON); err != nil {
 		return fmt.Errorf("failed to persist job result: %w", err)
 	}
 
@@ -764,19 +791,31 @@ func parseUniverse(universe string) []string {
 // recordToJob converts an internal JobRecord to a public Job.
 func recordToJob(r *JobRecord) *Job {
 	return &Job{
-		ID:          r.ID,
-		StrategyID:  r.StrategyID,
-		Params:      r.Params,
-		Universe:    r.Universe,
-		StartDate:   r.StartDate,
-		EndDate:     r.EndDate,
-		Status:      r.Status,
-		Result:      r.Result,
-		Error:       r.ErrorMsg,
-		CreatedAt:   r.CreatedAt,
-		StartedAt:   r.StartedAt,
-		CompletedAt: r.CompletedAt,
+		ID:           r.ID,
+		StrategyID:   r.StrategyID,
+		Params:       r.Params,
+		Universe:     r.Universe,
+		StartDate:    r.StartDate,
+		EndDate:      r.EndDate,
+		Status:       r.Status,
+		ResultStatus: r.ResultStatus,
+		Result:       r.Result,
+		Error:        r.ErrorMsg,
+		CreatedAt:    r.CreatedAt,
+		StartedAt:    r.StartedAt,
+		CompletedAt:  r.CompletedAt,
 	}
+}
+
+// resultStatusOf 把 ResultSpec.Status 映射成 completed 行上的 K9 result_status。
+// 只有 completed / invalid 会走到这里（失败行由 UpdateJobFailed 写 'failed'）。
+// 未知/空值按 completed 处理：它们是「跑完且有结果体」的调用方契约，不能因为
+// 内核少填一个字段就把有效结果读成失败。
+func resultStatusOf(respStatus string) string {
+	if respStatus == contracts.StatusInvalid {
+		return contracts.StatusInvalid
+	}
+	return contracts.StatusCompleted
 }
 
 // failMalformedReservedKey 把保留键类型畸形的作业判为 failed

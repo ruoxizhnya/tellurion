@@ -1212,6 +1212,21 @@ func migrationStatements() []string {
 	// 迁移债见 docs/TASKS.md QT-63。
 	migrations = append(migrations, RunProvenanceSchemaDDL...)
 
+	// Migration 059（B6-3）：backtest_jobs.result_status —— K9 三值的持久化面。
+	// 与 orchestration `run.backtest_jobs` 的 DDL 对齐（completed / invalid /
+	// failed），两轴**不合并**：status 仍是队列生命周期，result_status 才是
+	// 结果结论。历史 009 的建表语句不改写（迁移只允许追加）。
+	migrations = append(migrations, []string{
+		`ALTER TABLE backtest_jobs ADD COLUMN IF NOT EXISTS result_status VARCHAR(20)`,
+		`ALTER TABLE backtest_jobs DROP CONSTRAINT IF EXISTS backtest_jobs_result_status_check`,
+		`ALTER TABLE backtest_jobs ADD CONSTRAINT backtest_jobs_result_status_check
+			CHECK (result_status IS NULL OR result_status IN ('completed','invalid','failed'))`,
+		`CREATE INDEX IF NOT EXISTS idx_bj_result_status ON backtest_jobs(result_status)`,
+		// 存量回填：迁移前完成的作业只可能是有效结果（旧代码把 invalid 写成
+		// failed），补成 completed 让读面无需猜。
+		`UPDATE backtest_jobs SET result_status = 'completed' WHERE status = 'completed' AND result_status IS NULL`,
+	}...)
+
 	return migrations
 }
 

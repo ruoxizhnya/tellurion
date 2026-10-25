@@ -124,11 +124,12 @@ func (m *memJobStore) UpdateJobStarted(ctx context.Context, jobID string) error 
 	return nil
 }
 
-func (m *memJobStore) UpdateJobCompleted(ctx context.Context, jobID string, result []byte) error {
+func (m *memJobStore) UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[jobID]; ok {
 		j["status"] = "completed"
+		j["result_status"] = resultStatus
 		j["result"] = result
 		now := time.Now()
 		j["completed_at"] = now
@@ -141,6 +142,7 @@ func (m *memJobStore) UpdateJobFailed(ctx context.Context, jobID string, errMsg 
 	defer m.mu.Unlock()
 	if j, ok := m.jobs[jobID]; ok {
 		j["status"] = "failed"
+		j["result_status"] = "failed"
 		j["error_msg"] = errMsg
 	}
 	return nil
