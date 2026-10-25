@@ -19,6 +19,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
+	"tellurion/cmd/analysis/wiring"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/authz"
@@ -102,7 +103,11 @@ func initLogger() zerolog.Logger { return bootstrap.InitLogger() }
 
 // buildAlertSystem constructs the AlertManager + PeriodicAlertLoop
 // (P2 alert, ODR-025) from viper config under alert.*.
-func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop) {
+//
+// 返回 error 只来自 QT-42 X3c 的告警回传装配（显式启用但配置不合法）：
+// 调用方（main.go）据此 fail-fast，不让「risk 侧 alerts 恒空集」成为
+// 一次坏配置的静默后果。
+func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
 	alertCfg := alert.AlertManagerConfig{
 		MaxPositionWeight: v.GetFloat64("alert.max_position_weight"),
 		MaxSectorWeight:   v.GetFloat64("alert.max_sector_weight"),
@@ -118,6 +123,14 @@ func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManag
 	recorder := alert.NewRecorderChannel(v.GetInt("alert.recorder_capacity"))
 	alertManager := alert.NewAlertManager(alertCfg, logger)
 	alertManager.AddChannel(recorder)
+
+	// QT-42 X3c 的 core 腿：detector / Fire 出来的告警按 `POST /api/risk/events`
+	// 回传给 risk 服务（risk 的 `monitor/alerts` 与 `monitor/evaluate` 只读
+	// `risk.risk_events`，没有这条腿就恒是空集）。挂在 recorder 之后 ⇒ 与
+	// LogChannel / WebhookChannel 共用同一次 dispatch，不需要第二条循环。
+	if err := wiring.AttachRiskEventsFromConfig(v, alertManager, logger); err != nil {
+		return nil, nil, err
+	}
 
 	alertLoopCfg := PeriodicAlertConfig{
 		Interval:     time.Duration(v.GetInt("alert.interval_sec")) * time.Second,
@@ -138,7 +151,7 @@ func buildAlertSystem(v *viper.Viper, executionTrader live.LiveTrader, riskManag
 		Int("history_limit", alertLoopCfg.HistoryLimit).
 		Int("recorder_capacity", recorder.Len()).
 		Msg("AlertManager + PeriodicAlertLoop attached in-process (P2 alert)")
-	return alertManager, alertLoop
+	return alertManager, alertLoop, nil
 }
 
 // dataServices bundles the data-layer services that depend on the

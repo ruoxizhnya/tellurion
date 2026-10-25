@@ -115,6 +115,26 @@ risk_service:
   resolve_enabled: false
   resolve_url: "http://localhost:8083"
   resolve_timeout: "10s"
+  # QT-42 X3c 的 core 腿（告警生产侧接线）：把 pkg/alert 的 detector 告警按
+  # POST /api/risk/events 回传，risk 的 monitor/alerts 与 monitor/evaluate 因此
+  # 不再是空集。events_enabled=false ⇒ 不注册通道（本部署视为未接入 risk 服务）。
+  # 事件映射：run_id 固定 "core:alert-loop"、order_id = Alert.ID、event_seq=0、
+  # verdict="alert"、payload = Alert 原样 JSON（risk 投影要 rule/severity/message）。
+  # events_url **必填**（启用时）：**不**回落到上面的 url —— :8085 是 analysis 自己
+  # （P1-15 合并后的进程内风控），没有这个端点，回落等于把「少配一项」变成每条
+  # 告警 404、且要等告警真触发才看得见，所以装配期直接拒。
+  # 端口口径待收敛：`tellurion-risk:cmd/riskservice` 的 `-addr` 默认是 127.0.0.1:8086，
+  # 而上面的 resolve_url 写的是 8083 —— 两者不一致，按你实际的部署填，别照抄注释。
+  # events_token 为空 ⇒ 不带 Authorization；risk 侧 policy 表要 trader/admin 角色，
+  # 配了 AUTH_JWT_SECRET 而无凭据会收到 401 并记 error 日志。token 只从 env
+  # RISK_SERVICE_EVENTS_TOKEN 注入（本文件不放真值）。
+  # 交付是异步 best-effort：Send 只入队（满 256 条丢弃并告警），批量 207/5xx 不重发。
+  events_enabled: false
+  events_url: ""
+  events_timeout: "10s"
+  events_batch_size: 50
+  events_flush_interval: "30s"
+  events_token: ""
 
 # In-process risk manager config (absorbed from risk-service.yaml).
 # Used by the backtest engine via WithRiskManager(rm) so all risk
@@ -147,6 +167,8 @@ risk_manager:
 #   1. LogChannel (always-on, structured zerolog)
 #   2. WebhookChannel (when webhook_url is set)
 #   3. RecorderChannel (in-process ring buffer for /api/alerts/history)
+#   4. RiskEventSink (when risk_service.events_enabled — POST /api/risk/events,
+#      the producer behind risk's monitor/alerts; see the risk_service block)
 #
 # A 0 or empty value disables the corresponding rule. The
 # defaults below mirror ODR-023's recommended production values.

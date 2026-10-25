@@ -24,6 +24,11 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │  只经 /api/* 打后端（AUD-32：nginx 托管在宿主 8080）
   ├──► analysis-service :8085 ──► PostgreSQL :5432（唯一数据面）
   │                             ──► Redis :6379（缓存）
+  │                             ──► risk-service :8083（源码在 tellurion-risk 仓，X3）
+  │                                两个出站调用，都不在热路径：run 提交时取规则快照
+  │                                hash（QT-66，`POST /api/risk/resolve`）；告警异步回传
+  │                                （QT-42 X3c，`POST /api/risk/events`，开关
+  │                                `risk_service.events_enabled`，默认关）
   ├──► ai-service :8086 ────────►（源码在 tellurion-agent 仓，
   │                               ADR-027 拆仓；compose 经 additional_contexts
   │                               构建；analysis 对 copilot/pipeline/explore/
