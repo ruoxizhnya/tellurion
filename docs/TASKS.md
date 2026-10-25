@@ -1047,7 +1047,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 | QT-40 | X1 数据服务（统一协议 + aggregator + `dataset_snapshot_hash`） | `tellurion-data:docs/TASKS.md` |
 | QT-41 | X2 策略资产服务（定义/版本/artifact/resolve） | `tellurion-strategy:docs/TASKS.md` |
 | QT-41b | X2 策略编译服务（Go 子集 → artifact 管线）——**D 已裁决（2026-10-21），⛔ 解除** | `tellurion-strategy:docs/TASKS.md` |
-| QT-42 | X3 风控服务（规则真相源 + 进程内 RiskPolicy） | `tellurion-risk:docs/TASKS.md` |
+| QT-42 | X3 风控服务（规则真相源 + 进程内 RiskPolicy） | `tellurion-risk:docs/TASKS.md`。**F3 剩余半边（bundle → `RiskPolicy`）⛔ 等 `QT-74`**：规则 `params` 的字段名 / 单位 / scope 消费口径在源头未冻结 ⇒ core 不能猜（取证见本仓 QT-66 ⑦；派发块 H3 核对，2026-10-25） |
+| QT-74 | X3 规则参数词典（四类规则的 `params` 字段名 / 单位 / scope 口径）——**F3 消费链的前置** | `tellurion-risk:docs/TASKS.md`「一、本仓任务」末（2026-10-25 由 H3 前提核对展开成六字段，正文与验收全在该仓，本仓只留本条指针） |
 | QT-43 | X4 分析服务（基准 / 归因 / 敏感性 / 蒙特卡洛） | `tellurion-analytics:docs/TASKS.md` |
 | QT-44 | X5 编排 / worker 服务（job/batch/walkforward 上移） | `tellurion-orchestration:docs/TASKS.md` |
 | QT-45 | X6 交易通道网关（XTPTrader / MockTrader 两实现） | `tellurion-broker:docs/TASKS.md` |
@@ -1349,6 +1350,14 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⑤ 破坏验证（一条腿）**：把 `provenance.go` 的 `RiskRulesHash: riskRulesHash` 改成 `RiskRulesHash: ""` ⇒ `TestQT66_RiskRulesHashIsRecordedAndMovesRunSpec` 三处断言红（hash 为空 + 换快照 `run_spec_hash` 不变）；逐字节还原后 sha256 与改前**完全相同**（`9acc013e…`）且测试转绿。
 >
 > **⑥ 边界遵守**：未改 QT-03 / QT-63 的 canonical 与列清单；未动 risk 仓端点与规则算法；未加 per-run 远程读规则正文（逐 bar 裁决仍进程内）；未做 QT-44 的对外 provenance 端点。
+>
+> **⑦ 剩余半边的前提核对（2026-10-25，派发块 H3 主体）**：H3 要求 core「调 `POST /api/risk/resolve` 取 bundle → `rule.ParseBundle` → 构建进程内 `RiskPolicy` ⇒ 限额不再来自 `risk_manager.*`」。**按源码核对，这条本批做不了，且工单两处前提为假**；risk 侧核对 ✅（`policy.go:29/36` 含 `service`、`:32` `/audit` 未加，`87c6aa9`），**零代码改动**，门禁 `go build/vet/test ./... -count=1` 三条 EXIT=0。
+> - **⑦-1 阻塞（根本）：参数词典不存在。** risk 的 `SnapshotRule.Params` 是 opaque JSONB，四类规则**没有任何成文字段名 / 单位**（risk 自证夹具就是 `{"pct":2.5}` / `{"max_pct":10}`，`tellurion-risk:internal/rule/snapshot_test.go:143-144`）；本仓的限额面是 14 个标量（[pkg/risk/manager.go:13-28](../pkg/risk/manager.go#L13) ← [pkg/bootstrap/engine.go:38-51](../pkg/bootstrap/engine.go#L38) 的 `risk_manager.*`）。两边对不上表 ⇒ 只能由 core 猜单位（`max_pct = 10` 是 10% 还是 10 倍？差两个数量级），正面撞 H3 自己的禁区「不许在 core 侧自造一套 risk 规则解释」。`risk.limits` 补不上洞：`tellurion-risk:docs/db-schema.md` §1 明写「只建表，读写路径与端点未冻结」。⇒ **源头立单 `QT-74`**（正文在 `tellurion-risk:docs/TASKS.md`，本仓不镜像），顺序 **QT-74 → `Snapshot`/`Bundle` 迁 contracts 发版 → core 消费**，不可颠倒。
+> - **⑦-2 工单的迁仓口径与计划冲突**：H3 写「迁 contracts 是本单前置子步，不是可选项」，而本仓派发计划 [cross-repo-dispatch-plan-2026-10-25.md](design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md) 第 3 节派发块 G4 原文裁的是「**迁 contracts 是下一张单，不是本单**」。按后者执行：本批**不发 contracts 版本**——词典未定就迁形状，等于把一个零外部消费方的 DTO 升格成契约（contracts `AGENTS.md` §3 禁「只有单个仓使用的类型」，也正是该仓 `service-dto-migration-decision-material.md` §0 对 QT-45/QT-43 判「不迁」的同一条理由）。
+> - **⑦-3 工单自述的串行前置未落**：H3 写「与 H1 的 QT-71 同仓串行」，实测 QT-71 本仓 ①~③ **未开工**（`pkg/auth` grep `RoleService` = **0 命中**、`cmd/analysis/route_policy.go` 无 service 档位、本文件 QT-71 状态仍 ⬜）⇒ H3 排在了自己的前置之前。
+> - **⑦-4 生产 `service` token 到不了角色判定**（risk 已报协调者，源码复核成立）：`tellurion-kit:auth/httpadapter/httpadapter.go:139-141` 对非数字 subject 直接 401，而 `tellurion-kit:auth/service_token.go:46` 把裁-17 的 `sub=service:<repo>` 原样签进 `Subject`。两条腿的测试都没覆盖这条缝：kit 的 httpadapter 测试里 `IssueServiceToken` 零命中，risk 的 `TestPolicy_*` 走 `IssueTokens(1, …)` 的数字 subject（`tellurion-risk:internal/httpapi/auth_test.go:55`）⇒ **夹具绿不等于生产链路绿**。
+> - **⑦-5 订正一处取包口径（利好）**：工单要求 core 走 `bundle`，实测 `resolve` 的响应**已整包内嵌快照**（`tellurion-risk:internal/httpapi/api.go:127-130` `resolveBody.Snapshot`），且 `resolve` 已开 `service` ⇒ **不需要**给 `GET /snapshots/{hash}/bundle` 开档位，risk 未落项第 5 条的「若 core 直接拉 bundle 需新开一单」条件**不触发**。
+> - **⑦-6 验收按实测拆读（三条里两条已在账）**：「改 risk 规则 → `run_spec_hash` 变」✅（`TestQT66_RiskRulesHashIsRecordedAndMovesRunSpec`，[pkg/backtest/qt66_risk_rules_test.go:113](../pkg/backtest/qt66_risk_rules_test.go#L113)）；「同 hash 两次逐位一致」+「篡改 ⇒ `ErrSnapshotMismatch` fail-closed」✅（risk 侧 `TestAPI_ResolveLatestAndSnapshotByteIdentity` + `internal/rule/snapshot_test.go:266` 篡改腿）；**唯一未落 = 「run 的限额来自 risk 快照」**，被 ⑦-1 卡住 ⇒ 本单不整条关闭，H3 主体记 **⛔ 等 `QT-74`**。
 
 ---
 
