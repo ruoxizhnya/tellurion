@@ -61,48 +61,115 @@ func TestIsDigits(t *testing.T) {
 	assert.True(t, isDigits("000001"))
 }
 
-// parseContractDate is where the schema's "format: date" is enforced. The
-// second test below records, WITHOUT changing it, that snapshot.fetched_at is
-// declared "format: date-time" in contracts/snapshot.schema.json while this
-// parser accepts the calendar-date layout only: an on-contract producer that
-// emits "2026-05-06T03:00:00Z" is rejected for the whole snapshot. That is a
-// contract/implementation disagreement for the owner to settle — pinning the
-// current behaviour keeps it from drifting silently in either direction.
+// parseContractDate is where the schema's "format: date" is enforced for the
+// PIT anchors. The table pins all four shapes named by the DBT-14 acceptance:
+// a calendar date is accepted; RFC3339 with Z, RFC3339 with an offset and a
+// garbage string are rejected. fetched_at no longer goes through this parser
+// (裁-16 gave it its own, wider one), which is exactly why these cases must
+// keep proving it was not widened along with it.
 func TestParseContractDate(t *testing.T) {
 	t.Parallel()
 
-	ts, ok, err := parseContractDate("ann_date", "2026-04-29")
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), ts)
+	cases := []struct {
+		name    string
+		value   string
+		want    time.Time
+		wantOK  bool
+		wantErr string
+	}{
+		{"calendar date", "2026-04-29", time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), true, ""},
+		{"RFC3339 Z", "2026-04-29T00:00:00Z", time.Time{}, false, "ann_date must be YYYY-MM-DD"},
+		{"RFC3339 +08:00", "2026-04-29T00:00:00+08:00", time.Time{}, false, "ann_date must be YYYY-MM-DD"},
+		{"garbage", "29/04/2026", time.Time{}, false, "ann_date must be YYYY-MM-DD"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, ok, err := parseContractDate("ann_date", tc.value)
+			assert.Equal(t, tc.wantOK, ok)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, ts)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, ts.IsZero())
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 
-	// Whitespace tolerated, empty is "absent" not "invalid" — the caller
-	// decides whether absence is an error.
-	ts, ok, err = parseContractDate("ann_date", "  2026-04-29 ")
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), ts)
+	t.Run("report_period keeps the same strictness", func(t *testing.T) {
+		for _, v := range []string{"2026-04-29T00:00:00Z", "20260429"} {
+			_, ok, err := parseContractDate("report_period", v)
+			require.Errorf(t, err, "report_period=%q must be rejected", v)
+			assert.False(t, ok)
+			assert.Contains(t, err.Error(), "report_period must be YYYY-MM-DD")
+		}
+	})
 
-	_, ok, err = parseContractDate("ann_date", "")
-	require.NoError(t, err)
-	assert.False(t, ok, "an empty value must be reported as absent, not invalid")
+	t.Run("whitespace and empty", func(t *testing.T) {
+		// Whitespace tolerated, empty is "absent" not "invalid" — the caller
+		// decides whether absence is an error.
+		ts, ok, err := parseContractDate("ann_date", "  2026-04-29 ")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC), ts)
 
-	_, ok, err = parseContractDate("ann_date", "   ")
-	require.NoError(t, err)
-	assert.False(t, ok)
+		for _, v := range []string{"", "   "} {
+			_, ok, err := parseContractDate("ann_date", v)
+			require.NoError(t, err)
+			assert.False(t, ok, "an empty value must be reported as absent, not invalid")
+		}
+	})
 }
 
-func TestParseContractDate_RejectsNonCalendarLayouts(t *testing.T) {
+// TestParseFetchedAt pins 裁-16's shape table for the one field that is
+// declared "format: date-time" in contracts/snapshot.schema.json: date-only is
+// a 00:00Z day marker, RFC3339 is an exact instant converted to UTC, and
+// anything else is rejected. The last case matters: a date-time without an
+// offset is not RFC3339, and reading it as UTC would be a guess.
+func TestParseFetchedAt(t *testing.T) {
 	t.Parallel()
-	for _, layout := range []string{"ann_date", "report_period", "fetched_at"} {
-		for _, v := range []string{"20260429", "29/04/2026", "2026-4-29", "2026-04-29T00:00:00Z"} {
-			_, ok, err := parseContractDate(layout, v)
-			require.Error(t, err, "%s=%q must be rejected", layout, v)
-			assert.False(t, ok)
-			assert.Contains(t, err.Error(), "must be YYYY-MM-DD")
-			assert.Contains(t, err.Error(), layout)
-		}
+
+	cases := []struct {
+		name    string
+		value   string
+		want    time.Time
+		wantOK  bool
+		wantErr string
+	}{
+		{"date-only day marker", "2026-05-06", time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC), true, ""},
+		{"RFC3339 Z", "2026-05-06T03:00:00Z", time.Date(2026, 5, 6, 3, 0, 0, 0, time.UTC), true, ""},
+		{"RFC3339 +08:00 converts to UTC", "2026-05-06T11:00:00+08:00", time.Date(2026, 5, 6, 3, 0, 0, 0, time.UTC), true, ""},
+		{"garbage", "06-05-2026", time.Time{}, false, "fetched_at must be RFC3339 or YYYY-MM-DD"},
+		{"date-time without offset", "2026-05-06T03:00:00", time.Time{}, false, "fetched_at must be RFC3339 or YYYY-MM-DD"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, ok, err := parseFetchedAt("fetched_at", tc.value)
+			assert.Equal(t, tc.wantOK, ok)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, ts)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, ts.IsZero())
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+
+	t.Run("whitespace and empty", func(t *testing.T) {
+		ts, ok, err := parseFetchedAt("fetched_at", "  2026-05-06T03:00:00Z ")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, time.Date(2026, 5, 6, 3, 0, 0, 0, time.UTC), ts)
+
+		for _, v := range []string{"", "   "} {
+			_, ok, err := parseFetchedAt("fetched_at", v)
+			require.NoError(t, err)
+			assert.False(t, ok, "an empty value must be reported as absent, not invalid")
+		}
+	})
 }
 
 func TestParseNumber(t *testing.T) {

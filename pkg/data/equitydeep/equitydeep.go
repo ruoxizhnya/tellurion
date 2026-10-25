@@ -48,11 +48,17 @@ const (
 	FieldOCFNet            = "ocf_net"
 )
 
-// snapshotDateLayout is the only date form the contract allows
-// (JSON Schema "format: date"). Deliberately strict: the repo has a second,
-// compact YYYYMMDD form on the HTTP-handler side, and accepting both here would
-// hide a producer-side format drift.
+// snapshotDateLayout is the only date form the contract allows for the PIT
+// anchors report_period and ann_date (JSON Schema "format: date"). Deliberately
+// strict: the repo has a second, compact YYYYMMDD form on the HTTP-handler
+// side, and accepting both here would hide a producer-side format drift.
 const snapshotDateLayout = "2006-01-02"
+
+// snapshotFetchedAtLayout is the "format: date-time" shape that
+// contracts/snapshot.schema.json declares for fetched_at. RFC3339 always
+// carries an offset; a date-time without one is not accepted because its UTC
+// interpretation would be a guess.
+const snapshotFetchedAtLayout = time.RFC3339
 
 // ToTsCode normalizes a bare 6-digit ticker into a ts_code, e.g.
 // 600519 → 600519.SH. The exchange rule mirrors the repo's existing
@@ -109,6 +115,32 @@ func parseContractDate(field, value string) (time.Time, bool, error) {
 		return time.Time{}, false, fmt.Errorf("%s must be YYYY-MM-DD, got %q", field, value)
 	}
 	return ts.UTC(), true, nil
+}
+
+// parseFetchedAt parses snapshot.fetched_at, which is declared "format:
+// date-time" by contracts/snapshot.schema.json but has always been emitted by
+// some producers as a calendar date. Both shapes are accepted and normalized to
+// UTC (裁-16, 2026-10-25):
+//
+//   - RFC3339 with an offset → the exact instant, converted to UTC;
+//   - YYYY-MM-DD → 00:00:00Z, a day marker rather than a precise instant.
+//
+// This is deliberately a separate parser: parseContractDate stays strict for
+// ann_date / report_period, the PIT anchors that must never accept a time of
+// day. An empty value is reported as absent so the caller can fall back to the
+// ingest record.
+func parseFetchedAt(field, value string) (time.Time, bool, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return time.Time{}, false, nil
+	}
+	if ts, err := time.Parse(snapshotFetchedAtLayout, v); err == nil {
+		return ts.UTC(), true, nil
+	}
+	if ts, err := time.Parse(snapshotDateLayout, v); err == nil {
+		return ts.UTC(), true, nil
+	}
+	return time.Time{}, false, fmt.Errorf("%s must be RFC3339 or YYYY-MM-DD, got %q", field, value)
 }
 
 // stringSuffixUnit maps a source-side magnitude suffix onto a unit_scale key.

@@ -33,7 +33,7 @@
     "fetched_at": {
       "type": "string",
       "format": "date-time",
-      "description": "抓取时点；缺失时以 ingest.raw.fetched_at 为准。"
+      "description": "抓取时点；缺失时以 ingest.raw.fetched_at 为准。兼容 date-only（YYYY-MM-DD）：视为当日 00:00:00Z 的日标记，而非精确时点；date-time 一律归一为 UTC 后落库。"
     },
     "unit": {
       "type": "string",

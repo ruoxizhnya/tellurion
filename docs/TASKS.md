@@ -1573,16 +1573,24 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >    另：⑧ 的「真库落库日期」那条腿今天**确认拿不到** —— `docker ps` 无输出（引擎未运行）且仓内无 `.env`
 >    （无 DSN），不是忘了跑。
 
-> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。五单状态仍为 ⬜ —— **材料不等于裁决**；DBT-15 未执行任何 `DELETE` / `TRUNCATE`。
+> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。**2026-10-25 订正**：裁-16（DBT-14）已裁决并施工完成（本单 ✅）；其余四单仍为 ⬜ —— **材料不等于裁决**；DBT-15 未执行任何 `DELETE` / `TRUNCATE`。
 
-### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ⬜ · **裁-16（2026-10-25）：改实现，两者都吃、落库归一**
+### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ✅（2026-10-25） · **裁-16：改实现，两者都吃、落库归一**
 
 - **① 目标**：契约（`snapshot.schema.json`）与实现（`pkg/data/equitydeep`）对 `fetched_at` 的形状**只有说法一种**，且该说法被测试钉住。
-- **② 上下文**（DBT-11 实测逮到，2026-10-19，已用测试钉住现状未改任何一边）：`contracts/snapshot.schema.json` 把 `fetched_at` 声明为 `format: date-time`，而实现只收 `YYYY-MM-DD`（`pkg/data/equitydeep/equitydeep.go:102`）——**严格按契约发 date-time，整条请求 400**。钉子是 `pkg/data/equitydeep` 里新增的 `TestNormalize_ContractDateLayoutIsCalendarDateOnly`。同处另一条较弱的事实：`DecodeSnapshot` 不校验 schema 的 `required` 列表，靠 `Normalize` 兜住（也已钉）。
+- **② 上下文**（DBT-11 实测逮到，2026-10-19，已用测试钉住现状未改任何一边）：`contracts/snapshot.schema.json` 把 `fetched_at` 声明为 `format: date-time`，而实现只收 `YYYY-MM-DD`（`pkg/data/equitydeep/equitydeep.go:102`）——**严格按契约发 date-time，整条请求 400**。钉子是 `pkg/data/equitydeep` 里新增的 `TestNormalize_ContractDateLayoutIsCalendarDateOnly`（2026-10-25 随裁-16 施工改名为 `TestNormalize_FetchedAtAcceptsDateAndDateTime`）。同处另一条较弱的事实：`DecodeSnapshot` 不校验 schema 的 `required` 列表，靠 `Normalize` 兜住（也已钉）。
 - **③ 要求（裁-16 已定，2026-10-25）**：① **改实现**，契约保留 `format: date-time`；② 新增**独立** `parseFetchedAt`（**不放宽**共用的 `parseContractDate`）：RFC3339（带偏移）转 UTC 存，`YYYY-MM-DD` 视为当日 `00:00:00Z` 的**日标记**（不是精确时点）；③ 契约 `snapshot.schema.json` 的 `description` 补一句「兼容 date-only，归一为 00:00Z 日标记」，SPEC 的 citation/snapshot 形状节同步；④ `ann_date` / `report_period` **保持严格 `YYYY-MM-DD`**（PIT 锚点仍是 `ann_date`，`fetched_at` 只作同键多版本排序位）。
 - **④ 约束与非目标**：不改 `ann_date` 的 PIT 语义（`GetFundamentalsDetailAsOf` 强制 `ann_date<=$1` 是本表存在的理由）；不动 `field_dictionary.yaml` 的白名单内容（raw_names 变更属兼容性决策，文件头已注明需与 `evals/data_quality/spot_check.py` 同步）；不改 `pkg/domain` 字段（`pkg/domain/spec_drift_test.go:190` 会双向钉 SPEC 锚点）。
 - **⑤ 验收**：表驱动四例（`date` / `Z` / `+08:00` / 垃圾串）结论符合裁-16；同日两条按 `fetched_at` 取最新的用例成立；**护栏**：`ann_date` 仍拒 date-time；PIT 查询用例（`GetFundamentalsDetailAsOf`）不动且绿；`go test ./pkg/data/equitydeep/ ./cmd/data/ -count=1` 绿；**破坏验证**：把 `parseFetchedAt` 改回只收 `YYYY-MM-DD` ⇒ date-time 用例红，逐字节还原后绿。
 - **⑥ 边界**：只做 `fetched_at` 这一处形状漂移；其余 schema/实现不一致的发现列进本单正文附列，不顺手改。
+
+> **✅ 完成记录（2026-10-25，裁-16 施工）**
+> - **实现**：`pkg/data/equitydeep/equitydeep.go` 新增**独立** `parseFetchedAt`（RFC3339 带偏移 → UTC；`YYYY-MM-DD` → 当日 `00:00:00Z` 日标记；无偏移的 date-time 与垃圾串一律拒绝）。`parseContractDate` **未放宽**，`ann_date` / `report_period` 仍只收 `YYYY-MM-DD`；`Normalize` 的 `fetched_at` 改走新解析器，回退链（snapshot → `ingest.raw` → 报错）与报错次序不变。
+> - **契约/SPEC**：`contracts/snapshot.schema.json` 保留 `format: date-time`，`description` 补「兼容 date-only，归一为 00:00Z 日标记」；`docs/SPEC.md` 证据服务约束节同步一条。
+> - **测试**：`TestParseFetchedAt` 表驱动四例（date / Z / +08:00 / 垃圾串，另加无偏移反例）；`TestParseContractDate` 改四例表驱动并断言未放宽；`TestNormalize_FetchedAtAcceptsDateAndDateTime` 取代原「记录漂移」钉子；`TestNormalize_SameDayFetchedAtKeepsTimeOrder` 钉住同日两条按 `fetched_at` 可排序；`TestEquityDeepIngestDoor_SameDayLatestWins`（真库腿）钉住 PIT 查询取最新；`ann_date` 拒 date-time 的护栏并入 `TestNormalize_ContractViolationsAreErrors`。既有 PIT 用例（`GetFundamentalsDetailAsOf`）**未改**。
+> - **真跑（真实输出）**：`gofmt -l pkg/data/equitydeep cmd/data` 空；`go build ./...`、`go vet ./...`、`go test ./... -count=1` **全绿**（`pkg/data/equitydeep 0.283s`、`cmd/data 7.357s`；无 `TEST_DATABASE_DSN`，真库腿按既有约定 `SkipNoDB`）。
+> - **破坏验证**：临时删掉 `parseFetchedAt` 的 RFC3339 分支（改回只收 `YYYY-MM-DD`）→ `TestParseFetchedAt/RFC3339_Z`、`TestParseFetchedAt/RFC3339_+08:00_converts_to_UTC`、`TestNormalize_FetchedAtAcceptsDateAndDateTime`、`TestNormalize_SameDayFetchedAtKeepsTimeOrder` 全部红；逐字节还原后 `SHA256=7893F70134630C7EDE3BE2D1C563A3148277D03E3D826EBDB84060837A26E005` 与改前一致，复跑绿。
+> - **未落（如实）**：本机无 PostgreSQL（`docker ps` 无输出、`TEST_DATABASE_DSN` 未设置、postgres MCP 无连接 profile），`TestEquityDeepIngestDoor_SameDayLatestWins` 的 SQL 断言本轮**未实际执行**（按 `SkipNoDB` 跳过，编译通过）；设 DSN 后需重跑该腿才算闭环。
 
 ### DBT-15 · `ingest.raw` 里 155 行历史探针假归档的处置 [P2] ⬜
 

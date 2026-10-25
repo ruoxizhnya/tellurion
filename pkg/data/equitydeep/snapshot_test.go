@@ -7,9 +7,9 @@ package equitydeep
 // ODR-055 registered this package as the highest-priority coverage gap: the
 // rules below had never been executed by a test, so each was only asserted in
 // prose. These tests pin the behaviour that exists today — they do not redefine
-// it. Where the implementation and the upstream contract disagree, the
-// disagreement is recorded rather than papered over (see
-// TestNormalize_ContractDateLayoutIsCalendarDateOnly).
+// it. The one drift DBT-11 recorded (fetched_at: date-time in the contract,
+// date-only in the implementation) was settled by 裁-16 on 2026-10-25 and is
+// pinned by TestNormalize_FetchedAtAcceptsDateAndDateTime below.
 
 import (
 	"encoding/json"
@@ -244,11 +244,12 @@ func TestNormalize_ContractViolationsAreErrors(t *testing.T) {
 		{"malformed ticker", func(s *Snapshot) { s.Ticker = "60051" }, "expected 6 digits"},
 		{"unknown exchange suffix", func(s *Snapshot) { s.Ticker = "600519.HK" }, "unknown exchange"},
 		{"malformed ann_date", func(s *Snapshot) { s.AnnDate = "20260429" }, "ann_date must be YYYY-MM-DD"},
+		{"ann_date as date-time", func(s *Snapshot) { s.AnnDate = "2026-04-29T00:00:00Z" }, "ann_date must be YYYY-MM-DD"},
 		{"missing ann_date", func(s *Snapshot) { s.AnnDate = "" }, "ann_date is required"},
 		{"malformed report_period", func(s *Snapshot) { s.ReportPeriod = "20260331" }, "report_period must be YYYY-MM-DD"},
 		{"missing report_period", func(s *Snapshot) { s.ReportPeriod = "" }, "report_period is required"},
 		{"unit outside unit_scale", func(s *Snapshot) { s.Unit = "USD" }, "not in the unit_scale table"},
-		{"malformed fetched_at", func(s *Snapshot) { s.FetchedAt = "06-05-2026" }, "fetched_at must be YYYY-MM-DD"},
+		{"malformed fetched_at", func(s *Snapshot) { s.FetchedAt = "06-05-2026" }, "fetched_at must be RFC3339 or YYYY-MM-DD"},
 		{"empty data", func(s *Snapshot) { s.Data = map[string]any{} }, "data is empty"},
 		{"nil data", func(s *Snapshot) { s.Data = nil }, "data is empty"},
 	}
@@ -510,25 +511,74 @@ func TestNormalize_OneFieldCannotBlockAnother(t *testing.T) {
 	assert.Len(t, res.Dropped, 2)
 }
 
-// ─── documented drift between the code and snapshot.schema.json ─────────────
+// ─── fetched_at shape (DBT-14 / 裁-16) ─────────────────────────────────────
 
-// TestNormalize_ContractDateLayoutIsCalendarDateOnly records, WITHOUT changing
-// it, that snapshot.fetched_at is declared "format: date-time" in
-// contracts/snapshot.schema.json but is parsed with the calendar-date layout
-// only, so an on-contract producer is rejected for the whole snapshot. Fixing
-// it is a contract decision, not a test decision.
-func TestNormalize_ContractDateLayoutIsCalendarDateOnly(t *testing.T) {
+// TestNormalize_FetchedAtAcceptsDateAndDateTime is the acceptance table for
+// 裁-16: snapshot.schema.json declares "format: date-time", producers have
+// historically sent a calendar date, and both now land in the row normalized to
+// UTC. A date-only value is a day marker (00:00Z), not an exact instant; an
+// RFC3339 value keeps its instant so same-day versions stay orderable.
+func TestNormalize_FetchedAtAcceptsDateAndDateTime(t *testing.T) {
 	t.Parallel()
 	n := NewNormalizer(mustTestDictionary(t), "akshare")
 
-	s := validSnapshot()
-	s.FetchedAt = "2026-05-06"
-	_, err := n.Normalize(s, "ingest.raw:abc", ingestTime)
-	require.NoError(t, err, "YYYY-MM-DD is what the implementation accepts today")
+	cases := []struct {
+		name  string
+		value string
+		want  time.Time
+	}{
+		{"date-only is a 00:00Z day marker", "2026-05-06", time.Date(2026, 5, 6, 0, 0, 0, 0, time.UTC)},
+		{"RFC3339 Z keeps the instant", "2026-05-06T03:00:00Z", time.Date(2026, 5, 6, 3, 0, 0, 0, time.UTC)},
+		{"RFC3339 +08:00 converts to UTC", "2026-05-06T11:00:00+08:00", time.Date(2026, 5, 6, 3, 0, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := validSnapshot()
+			s.FetchedAt = tc.value
 
-	s = validSnapshot()
-	s.FetchedAt = "2026-05-06T03:00:00Z"
-	_, err = n.Normalize(s, "ingest.raw:abc", ingestTime)
-	require.Error(t, err, "the schema's own date-time form is rejected today (documented drift)")
-	assert.Contains(t, err.Error(), "fetched_at must be YYYY-MM-DD")
+			res, err := n.Normalize(s, "ingest.raw:abc", ingestTime)
+			require.NoError(t, err)
+			require.Len(t, res.Rows, 1)
+			assert.Equal(t, tc.want, res.Rows[0].FetchedAt)
+		})
+	}
+
+	t.Run("garbage is still rejected", func(t *testing.T) {
+		s := validSnapshot()
+		s.FetchedAt = "06-05-2026"
+
+		_, err := n.Normalize(s, "ingest.raw:abc", ingestTime)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "fetched_at must be RFC3339 or YYYY-MM-DD")
+	})
+}
+
+// TestNormalize_SameDayFetchedAtKeepsTimeOrder pins the property the PIT query
+// relies on: two versions fetched on the same day are two rows whose fetched_at
+// instants still sort, so "the latest fetched_at wins" can pick the later one.
+// A day marker is deliberately not invented for a date-only producer, but when
+// the producer does send RFC3339 the order is preserved rather than flattened.
+func TestNormalize_SameDayFetchedAtKeepsTimeOrder(t *testing.T) {
+	t.Parallel()
+	n := NewNormalizer(mustTestDictionary(t), "akshare")
+
+	earlier := validSnapshot()
+	earlier.FetchedAt = "2026-05-06T03:00:00Z"
+	earlier.Data = map[string]any{"营业总收入": json.Number("100")}
+
+	later := validSnapshot()
+	later.FetchedAt = "2026-05-06T09:00:00+00:00"
+	later.Data = map[string]any{"营业总收入": json.Number("120")}
+
+	earlyRes, err := n.Normalize(earlier, "ingest.raw:early", ingestTime)
+	require.NoError(t, err)
+	lateRes, err := n.Normalize(later, "ingest.raw:late", ingestTime)
+	require.NoError(t, err)
+	require.Len(t, earlyRes.Rows, 1)
+	require.Len(t, lateRes.Rows, 1)
+
+	assert.True(t, lateRes.Rows[0].FetchedAt.After(earlyRes.Rows[0].FetchedAt),
+		"same-day versions must stay orderable by fetched_at")
+	assert.Equal(t, earlyRes.Rows[0].AnnDate, lateRes.Rows[0].AnnDate,
+		"the pair differs only in fetch time, not in announcement date")
 }

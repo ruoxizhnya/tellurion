@@ -235,6 +235,9 @@ citation = { source, dataset, key, as_of, content_hash }
   的唯一门：它**拒绝** `ingest.raw` 不认识的 `content_hash`，并把该哈希盖在每一行
   `snapshot_uri` 上 —— 没有可解析的原始响应在背后，任何数字都进不了
   `fundamentals_detail`；
+- `snapshot.fetched_at` 接受 `format: date-time`（RFC3339，带偏移，归一为 UTC）与
+  `YYYY-MM-DD`（视为当日 `00:00:00Z` 的**日标记**，不是精确时点）；`ann_date` /
+  `report_period` 仍严格 `YYYY-MM-DD`，PIT 锚点不受影响（DBT-14 / 裁-16，2026-10-25）；
 - **EquityDeep（数据底座）不得自建数据副本**，运行期经本 API 只读取数；
 - 该设计在架构层面消除 ODR-047 记录的 P0 假阳性缺陷（校验对象由"文本"变为"citation 元组 + JSON Pointer"）。
 

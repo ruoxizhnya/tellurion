@@ -136,7 +136,7 @@ func (n *Normalizer) Normalize(s *Snapshot, snapshotURI string, ingestFetchedAt 
 	}
 
 	fetchedAt := ingestFetchedAt
-	if ts, ok, err := parseContractDate("fetched_at", s.FetchedAt); err != nil {
+	if ts, ok, err := parseFetchedAt("fetched_at", s.FetchedAt); err != nil {
 		return Result{}, err
 	} else if ok {
 		fetchedAt = ts

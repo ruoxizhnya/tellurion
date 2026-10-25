@@ -427,6 +427,59 @@ func TestEquityDeepIngestDoor_RejectsBeforeWriting(t *testing.T) {
 	assert.Equal(t, int64(0), edCount(t, store, `SELECT count(*) FROM ingest.raw WHERE content_hash = $1`, hash))
 }
 
+// TestEquityDeepIngestDoor_SameDayLatestWins is DBT-14's "同日两条取最新" leg:
+// two snapshots of one announcement fetched at 03:00Z and 09:00Z on the same
+// day are two rows (fetched_at is part of the primary key), and the unchanged
+// PIT query resolves the pair to the later instant. The query is deliberately
+// not modified by DBT-14 — this test pins that the new fetched_at shape feeds
+// it the ordering it already expects.
+func TestEquityDeepIngestDoor_SameDayLatestWins(t *testing.T) {
+	dsn := testenv.DatabaseDSN()
+	if dsn == "" {
+		testenv.SkipNoDB(t)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	store, err := storage.NewPostgresStoreConnected(ctx, dsn)
+	require.NoError(t, err, "[testdb] TEST_DATABASE_DSN 已设置但连不上（fail-loud）")
+	t.Cleanup(store.Close)
+	srv := newEquityDeepTestDoor(t, store)
+
+	probe := fmt.Sprintf("dbt14-same-day-%d", time.Now().UnixNano())
+	hash := edPostRaw(t, srv, fmt.Sprintf(`{"probe":%q,"snapshots":[]}`, probe))
+	snapshotURI := "ingest.raw:" + hash
+	t.Cleanup(func() {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cleanCancel()
+		if _, err := store.DB().Exec(cleanCtx, `DELETE FROM fundamentals_detail WHERE snapshot_uri = $1`, snapshotURI); err != nil {
+			t.Errorf("cleanup: delete fundamentals_detail: %v", err)
+		}
+		if _, err := store.DB().Exec(cleanCtx, `DELETE FROM ingest.raw WHERE content_hash = $1`, hash); err != nil {
+			t.Errorf("cleanup: delete ingest.raw: %v", err)
+		}
+	})
+
+	early := `{"ticker":"` + edDemoTicker + `","report_period":"2026-03-31","ann_date":"2026-04-29",` +
+		`"fetched_at":"2026-05-06T03:00:00Z","data":{"营业总收入":100}}`
+	late := `{"ticker":"` + edDemoTicker + `","report_period":"2026-03-31","ann_date":"2026-04-29",` +
+		`"fetched_at":"2026-05-06T09:00:00Z","data":{"营业总收入":120}}`
+
+	resp := edDo(t, srv, http.MethodPost, "/api/ingest/equitydeep?content_hash="+url.QueryEscape(hash), early+"\n"+late+"\n")
+	require.Equal(t, http.StatusCreated, resp.status, "body: %s", resp.body)
+	assert.Equal(t, int64(2), edCount(t, store, `SELECT count(*) FROM fundamentals_detail WHERE snapshot_uri = $1`, snapshotURI),
+		"two same-day instants are two versions, not one overwritten row")
+
+	asOf := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	rows, err := store.GetFundamentalsDetailAsOf(ctx, []string{equitydeep.FieldTotalRevenue}, asOf)
+	require.NoError(t, err)
+	got := filterByTsCodeAndField(rows, edDemoTsCode, equitydeep.FieldTotalRevenue)
+	require.Len(t, got, 1, "the PIT query folds the two versions into one reading")
+	require.NotNil(t, got[0].Value)
+	assert.InDelta(t, 120, *got[0].Value, 1e-9, "the latest fetched_at wins")
+	assert.Equal(t, time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC), got[0].FetchedAt.UTC())
+}
+
 // TestEquityDeepIngestHandler_ValidationErrorsBeforeTheStore needs no database:
 // each case has to fail before the store is touched, which a nil store proves —
 // reaching it would panic instead of answering. Same technique as
