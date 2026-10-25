@@ -11,6 +11,8 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 状态：`⬜ 待做` / `🔶 进行中` / `⛔ 阻塞（有未解除前置）` / `✅ 完成（附日期）`
 > 每张 task 六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../AGENTS.md)。
 
+> **第三轮裁决入账（2026-10-25）**：第二轮 16 条已全部拍定（主任口径「全部按建议」），正文见 `docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md` §五。本仓直接相关：① QT-51 = **收口分支 `task/qt51-execution-port`（`7c89aae`，1 ahead / 9 behind）**，不重做第二种形态；② contracts 新建 `risk` 包（`Bundle`/`ParseBundle` 留 risk）；⑤ 回填只批 9 张（**运维执行**）；⑰ `market.index_daily` owner = core；⑱ X0 写端点前置 orchestration 的 R5；⑲ `/report` 改结论态放行；⑫ promote 走面 B1；⑬ kit 发版后本仓升 pin。**本文件不镜像正文。**
+
 **本代的特殊性**：这不是一份「新功能清单」，是**先把契约冻死、再改实现**的施工顺序；同时按 ADR-D29 **把契约从本仓拆成独立仓**（S0 可立即做，S1 排在 W0 后，S2/S3 逐级验收）。wave-0 五行**不改任何行为**（只写契约/常量/差异报告），目的是让后面 25 张单不必返工。**跳序施工 = 第二次 ABI 破坏 + 基准全量重跑**。
 
 > **命名基线（ADR-D30）**：项目定名 **tellurion**，owner 保持 `ruoxizhnya`；**应用/服务用单段短名、库用全名**。本台账「② 上下文」里的 `quant-trading*` 是**改名前的现状描述**（不改）；「③ 要求」里的名字是**目标态**（QT-60 完成后生效）。仓名与 module path 的唯一真相源是 [`repo-inventory.md`](design/qt-decoupling/repo-inventory.md)。

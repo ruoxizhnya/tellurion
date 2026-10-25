@@ -292,26 +292,29 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 
 > **编号说明**：①~⑬ 是本表原编号；⑭ / ⑮ / ⑯ 在 [裁决记录](cross-repo-decision-record-2026-10-25.md)（**⑯ = service token**，即本表 ⑬ 那条的裁决记录编号）。新增项从 **⑰** 起，避免与裁决记录撞号。
 > **逐条建议见 [终版建议（c）](pending-decisions-recommendations-2026-10-25c.md)**：含全量 22 条总表、对第二轮文档 ①/②/⑧/⑰ 的订正，以及台账外新项 ㉑（g3 worktree）/ ㉒（broker R9/R10）。
+> **✅ 2026-10-25：本表全部拍定**（主任口径「全部按建议」）。逐条裁决与落点见[裁决记录 §五](cross-repo-decision-record-2026-10-25.md)；下表状态列已改为裁决结果 + 施工状态。
 
-| 事项 | 卡住哪个单 | 状态 / 需要你给什么 |
+| 事项 | 卡住哪个单 | 状态 / 裁决（2026-10-25 全部拍定，详见[裁决记录 §五](cross-repo-decision-record-2026-10-25.md)） |
 |---|---|---|
-| **① QT-51 的设计取舍** | **H2** | **仍待裁**。台账 ③-③：「若保留『同构桥』为有意设计，必须写明并在测试里锁住『改 live 不改回测结果』」；设计文档 `backtest-engine-review.md:145` 有一条**未勾 checkbox** 就是这条。**需你勾**：拆 port，还是保留同构桥并锁死行为 |
-| **② risk 快照类型迁 contracts 的落点** | **H3** | **已被 QT-74 改判但仍待裁**：QT-74 ④ 原文「**不**迁 contracts（那是词典落定后、core 真要消费时的下一张单）」⇒ **仍需你拍**：① 迁到 contracts 的哪个包（新建 `risk` 包？还是并入 `engine`）？② **`ParseBundle` 要不要一起迁**（它是 risk 的实现细节，迁进 contracts 就成了「contracts 有实现」，与 ADR-0001 ② 冲突） |
-| **③ worker 进程归谁** | ~~H5~~ | **✅ 已消解**：core 腿 `cmd/worker` 已落（`106b35c`），**两仓仍零 import**（worker 只按 orchestration 的 api-schema 走 HTTP） |
-| **④ 第二写者的停法** | **H4** | **⚠️ 只消解了一半**：`ac6b7e0` 停的是 `capital_flow` / `top_list` 两条；core 仍直写 `market.index_daily`（`pkg/storage/index_daily.go:31`）且 ETL 裸表名写 `public.*`。**新登记为 ⑰** |
-| **⑤ 生产库回填的执行授权** | **H4** | **仍待裁**。裁决 ⑨ 已定「暂不授权」⇒ **需你给**：core 停第二写者已确认后，是否授权 + **由谁执行**（本方案**不安排**任何 agent 去写生产库） |
-| **⑥ UI 三服务栈的起法** | **H7**（ui） | **仍待裁**。AUD-61 ① 批 16 条结构漂移，**前置已解除**（重构分支已并入），**今天的障碍是跑不起栈**。**需你给**：栈由谁起（本机 Docker 不可用：实测 `docker info` 报 `//./pipe/dockerDesktopLinuxEngine` 不存在）——还是先只跑「不需要后端」的那部分？ |
-| **⑦ XTP 柜台环境** | **H7**（broker） | **仍待裁**。仍缺 P1~P5 五项外部条件（SDK / 测试账号 / 出网 / C 工具链 / 盯盘时间窗），**本仓与 core 与本机与 CI 四处都没有 SDK**。**需你给**：这五项有没有一项能提供；没有 ⇒ QT-45 保持 ⛔ 不排期 |
-| **⑧ docs DOC-10 的范围** | **H7**（docs） | **仍待裁**。立项依据：§7 的「已知过渡态」写「六个服务仓只有占位 `doc.go`」、阶梯表写「X1~X6 未触发」——**今天已不成立**（六仓都实装了）。**需你拍**：只改 §7 的事实描述，还是连阶梯表一起重写 |
-| **⑨ `broker.order_acks` 保留期** | **H7**（broker） | **仍待裁**。台账未落项：「`broker.order_acks` 的**保留期未定**（当前不自动删）」。**需你给**：保留多久 / 谁负责清理 |
-| **⑩ AI 生成物载体形态**（12:30 版漏列） | **QT-32** 后续 | agent QT-32-A ⑦①：三选一**无默认值** —— `carrier=wasm` + 12 个 host 函数 ABI（对齐 QT-26/30/31 的 `wasmSignalProvider`）/ `carrier=so`（Windows 不支持）/ 维持 ADR-024 的「只审阅不执行」。**需你拍** |
-| **⑪ R3 的 RunSpec 形状** | **H6**（analytics） | 台账未落项 ②：「完整 RunSpec 的装配属执行侧（**R3 未裁**）」⇒ **需你裁 R3**，否则 `base_run_spec` 只有 `run_id` 这半永远填不上 |
-| **⑫ promote 审批人从哪来**（**原「取 JWT claims 的可行性」已订正**） | **H8**（strategy）+ **core 的「谁来调 promote」** | **裁决 ⑭ 的落地前提被实测推翻**：strategy 仓**零鉴权**（`JWT_SECRET\|Bearer \|Authorization\|RequireRole\|Roles\b` 全仓 0 命中；无 auth/role/guard/middleware 文件；`go.mod` **无 kit** ⇒ kit auth 没进这个仓；12 条路由全裸），且 core 全仓 `grep "/promote"` = **0 命中** ⇒ **今天既没有鉴权、也没有调用方**。**需你裁三个面之一**：**面 A** 给 strategy 引入 kit auth（= 给它第一套鉴权，会把 12 条路由全裸的问题一次打开，且要新 pin kit）；**面 B** core 转发审批人（仍是 caller 自报形态，且 core 今天没有调用方）；**面 C** 独立管理面（**与「不造第二套鉴权」冲突**，除非复用面 A）。**另需你答**：promote 端点该**谁来调**（core 的 QT-32/QT-66 闭环在等它） |
-| **⑬ ⛔ service token 在 httpadapter 上必然 401**（**18:45 实测新发现的真缺陷**） | **H3**（core 调 risk）+ 裁-17 整条服务间链路 | **代码已修（方向 3：按 role 分流，只豁免 service 角色）**，见 [第二轮建议 §0](pending-decisions-recommendations-2026-10-25b.md)。**但未验证、未发版**：本机无 Go 工具链 ⇒ `go build/vet/test` 一条未跑；**未打 `v0.1.4`、三仓 pin 仍钉 `v0.1.1`** ⇒ **「service token 仍 401」这个线上事实未变**。**需你**：在有 Go 的环境跑门禁 → 打 tag → 三仓升 pin |
-| **⑰ ⛔ H4 物理搬迁被 core 剩余写者挡住**（**二次订正新发现**） | **H4** | 需你定：core 的 `market.index_daily` 直写（`pkg/storage/index_daily.go:31`）与 11 条同步腿的 `public.*` 写，是**迁到 data** 还是**明确保留 core 写**；要不要立项。本方案**不排期**物理搬迁 |
-| **⑱ X0 生产者的契约**（**二次订正新发现**） | **H5** / 后续 X0 单 | orchestration 无 artifact 写入端点、core worker 不回传三 hash。需你定：写入端点归 orchestration（谁调 / 写者身份 / 幂等），还是 worker 直写库（与「零 import core」「不双写」冲突） |
-| **⑲ analytics R1 读面语义**（台账在册，未进待裁表） | **H6** | 读面按队列态放行还是按结论态放行（直接影响 pending/running 与 K9 `failed` 的 404/409）；改在 core |
-| **⑳ AUD-61 ① 的 testid 范围**（台账在册，未进待裁表） | **H7**（ui） | 工单 ④ 禁止动 `web/src`，但按「优先 data-testid」需要给 `NavTiles.vue` / `MarketMetrics.vue` / `AppSidebar.vue` 补 testid。允许放宽 ④，还是只用现有类锚 |
+| **① QT-51 的设计取舍** | **H2** | ✅ **已裁 = 拆 port**，以分支 `task/qt51-execution-port`（`7c89aae`）收口；不按 b 的「删 shim + bridge 外移」重做；合入后另立小单删 5 个零调用 shim |
+| **② risk 快照类型迁 contracts 的落点** | **H3** | ✅ **已裁 = 新建 `contracts/risk` 包**；迁 wire 类型 + 冻结枚举 + hash 纯函数 + 4 哨兵；`Bundle`/`ParseBundle` 不迁；**编码逐字节不许改** |
+| **③ worker 进程归谁** | ~~H5~~ | ✅ **已消解**：core 腿 `cmd/worker` 已落（`106b35c`），两仓零 import |
+| **④ 第二写者的停法** | **H4** | 🔁 **并入 ⑰**：`capital_flow` / `top_list` 已停；余 3 张 A 集表 + `index_daily` 归属见 ⑰ |
+| **⑤ 生产库回填的执行授权** | **H4** | ✅ **已裁 = 分批授权 9 张「core 无写者」的 A 集表**；3 张等停写；执行者是运维，不是 agent |
+| **⑥ UI 三服务栈的起法** | **H7**（ui） | ✅ **已裁 = 两轨**：无栈的 `typecheck/lint/vitest` 现在做；e2e 等 Docker Desktop / CI；视觉基线本机重生成 |
+| **⑦ XTP 柜台环境** | **H7**（broker） | ✅ **已裁 = 保持 ⛔，不投人、不排期** |
+| **⑧ docs DOC-10 的范围** | **H7**（docs） | ✅ **已裁 = §7 整块订正**（阶梯表 + 三条过渡态 + 一行状态表）+ `docs/README.md:40`；§8 以后不动 |
+| **⑨ `broker.order_acks` 保留期** | **H7**（broker） | ✅ **已裁 = 90 天**，只删 `ack IS NOT NULL`，先加 `updated_at` 部分索引；90 天登记为暂定假设 |
+| **⑩ AI 生成物载体形态** | **QT-32** 后续 | ✅ **已裁 = 默认 `carrier="dsl"`**，L3 才 wasm，`so` 删除；hash 用 `StrategyVersionInput{Carrier:"dsl"}` |
+| **⑪ R3 的 RunSpec 形状** | **H6**（analytics） | ✅ **已裁 = 终态即执行侧装配**（worker `run_id` 锚点回源）；analytics 不补全，未落项关闭 |
+| **⑫ promote 审批人从哪来** | **H8**（strategy）+ core | ✅ **已裁 = 面 B1**：core 网关 + `X-Actor` + 受信 service token；strategy **只对 promote/internal 三端点**接 kit 校验，端口仅集群内可达 |
+| **⑬ ⛔ service token 在 httpadapter 上必然 401** | **H3** + 裁-17 整条链路 | ✅ **已裁 = 方向 3**（按 role 分流）；代码已改 + 端到端用例已写；**未验证/未发版/三仓仍钉 `v0.1.1`** ⇒ 线上仍 401 |
+| **⑰ ⛔ H4 物理搬迁被 core 剩余写者挡住** | **H4** | ✅ **已裁 = `index_daily` owner 归 core，data 撤认领并删重复 DDL/TableNames/C 集条目**；A 集物理搬迁等 3 张停写 |
+| **⑱ X0 生产者的契约** | **H5** / X0 单 | ✅ **已裁 = orchestration 开 artifact 写端点（service 角色），worker 调它**；前置 = orchestration 先做 R5 鉴权 |
+| **⑲ analytics R1 读面语义** | **H6** / core | ✅ **已裁 = 结论态放行**：404 只给不存在，pending/running 409 `run_result_incomplete`，failed 409 `run_result_failed` |
+| **⑳ AUD-61 ① 的 testid 范围** | **H7**（ui） | ✅ **已裁 = 允许窄例外**：只给 3 个组件加 `data-testid`，纯增量、单独 commit |
+| **㉑ g3 worktree / 分支**（台账外新增） | — | ✅ **已裁 = 确认文档已落 main 后删除**；不可逆，**待主任授权** |
+| **㉒ broker R9 / R10**（台账外新增） | **H7**（broker） | ✅ **已裁 = R10 现在修**（映射读失败改 `ErrIdempotencyStoreUnavailable`）；**R9 暂缓到 X6c** |
 
 ---
 

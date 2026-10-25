@@ -1,14 +1,15 @@
 ---
 status: active
 last-verified: 2026-10-25
-verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25，主任口径）；本文件是**裁决真相源**，各仓台账只留指针不镜像正文。
+verified-by: 三轮裁决合并：第一轮 15 条（§一）+ 第二轮 16 条（§五，2026-10-25 按 c 建议全部拍定）。本文件是**裁决真相源**，各仓台账只留指针不镜像正文。
 ---
 
 # 跨仓裁决记录 · 2026-10-25
 
-> 配套：[跨仓施工分组方案](cross-repo-dispatch-plan-2026-10-25.md)（分组与派发原文）· [裁决建议](cross-repo-decision-recommendations-2026-10-25.md)（每条建议的依据与取舍过程）。
-> 本文件是**15 条待裁决项的落定口径**。各仓台账（`tellurion` / `tellurion-analytics` / `tellurion-data` / `tellurion-strategy` / `tellurion-agent` / `tellurion-orchestration` / `tellurion-broker` / `tellurion-docs`）只留**一行指针**，**不镜像正文**（双写必然漂移）。
-> 取证时刻：2026-10-25 12:00 之后。**以实测为准**，台账与实测冲突时本文件与实测同侧。
+> 配套：[跨仓施工分组方案](cross-repo-dispatch-plan-2026-10-25.md)（分组与派发原文）· [第二轮逐条论证（b）](pending-decisions-recommendations-2026-10-25b.md) · **[终版建议（c）](pending-decisions-recommendations-2026-10-25c.md)**。
+> 本文件是**裁决真相源**。各仓台账（`tellurion` / `tellurion-analytics` / `tellurion-data` / `tellurion-strategy` / `tellurion-agent` / `tellurion-orchestration` / `tellurion-broker` / `tellurion-docs` / `tellurion-kit`）只留**一行指针**，**不镜像正文**（双写必然漂移）。
+> 取证时刻：2026-10-25。**以实测为准**，台账与实测冲突时本文件与实测同侧。
+> **编号分区**：§一 的 ①~⑯ 是**第一轮**编号；§五 的 ①~⑳㉑㉒ 是**第二轮清单（wave2 §5）**的编号。两套编号不同域，引用时必须带「§一 / §五」。
 
 ---
 
@@ -16,22 +17,22 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 
 | # | 事项 | 裁决 | 落点（谁改哪个文件） | 状态 |
 |---|---|---|---|---|
-| ① | `service` token 的分发面与部署清单归属 | **专用 `service` 角色 + 长期 access token**（裁-17 定稿，不复用 `trader`）；**部署清单归 core `deploy/k8s/`** | core：`docs/TASKS.md` QT-71 ③-⑦ + `deploy/k8s/` 新增两份清单 | 待 QT-71 开工时落 |
-| ② | QT-73 五包切包的语义变更 | **已随 QT-73 落地**：只切包不改语义，两条行为差异**如实登记、报协调者**；**不返工**（见 §2.1） | core：`docs/TASKS.md` QT-73 完成记录已登记 | ✅ 已落 |
-| ③ | `analysis` 契约包 owner | **不建 `analysis` 包**；DTO 留 analytics 本仓，按 contracts ADR-0001 ①「第二个使用方出现时才迁」 | analytics：`docs/TASKS.md` QT-43 R2 口径改写 | 待落 |
-| ④ | QT-32 是否本代范围 | **本代做**，拆两步：先补 promote 审批留痕，再做 AI 侧接线；**AI 生成侧归 agent 仓** | core QT-32 + agent QT-32-A（**已立单**） | 🔶 agent 侧施工中 |
-| ⑤ | `ingest.raw` 残留行处置 | **追认删除已执行**（不可回滚）；**在 main 重做 3 笔纯文档落账**，**不 cherry-pick** `task/g3-data` 的 7 笔 | core：`docs/TASKS.md` DBT-15 + `docs/SPEC.md` | 待落 |
-| ⑥ | `fundamentals_detail` 的产出方 | **接受「不可得」成文**；同时把「需要谁产出什么格式」写成**对外产出请求** | core：`docs/TASKS.md` DBT-16 + `docs/SPEC.md`（`:1876` 那行阻塞理由已被证伪，须改写） | 待落 |
-| ⑦ | `capital_flow` / `top_list` 归属 | **接受「仅储备、暂无读方」**；并按 g3 分支的口径订正落账（`top_list` **在 cron 名单但无排程行 = 事实上不日更**） | core：`docs/TASKS.md` DBT-17 + `docs/SPEC.md` | 待落 |
-| ⑧ | `mining.Proposer` 归属 | **归 agent 仓**；core 只保留 `mining.Proposer` 接口作为冻结契约 + 跨仓任务索引加一条指针 | core：DBT-18 指针；agent：另立六字段单 | 待落 |
-| ⑨ | `visible_at` 生产库回填授权 | **暂不授权**；等 core 先停第二写者，回填属**运维动作**不是 agent 动作 | data：`docs/TASKS.md` QT-40 未落项 | 待落 |
-| ⑩ | `docs/openapi.yaml` 写入权 | **同意 QT-72 独占写**，但**加一条自检**（写完跑生产路由表 ↔ yaml 双向对拍） | core：`docs/TASKS.md` QT-72 ⑤ | 待落 |
-| ⑪ | U6 / U8 两条未裁边界 | **U6 暂缓**（本轮不裁，标「本轮不裁」）；**U8 现在就裁 = 归 `ai.*`** | core：`docs/design/qt-decoupling/repo-inventory.md` §3.1 + data `docs/db-schema.md` §1.3 撤认领行 | 待落 |
-| ⑫ | XTP 柜台环境 | **本轮不投人**；G7 降级为「决策材料 + 触发条件」（**已落**） | broker：`docs/TASKS.md` QT-45（**已落**） | ✅ 已落 |
-| ⑬ | `producer_pending` 字段名 | **允许 QT-72 自定并两侧同步**；**删掉「等编排」这一层**——`producer_pending` 是多余的第四态 | core：`docs/TASKS.md` QT-72 ② | 待落 |
-| ⑭ | promote 闸门的审批人身份 | **审批人取 JWT claims 的 `sub`**；闸门落在 **agent 仓**、strategy 侧只保留状态机 | strategy：`docs/TASKS.md` 登记；core QT-32 | 待落 |
-| ⑮ | QT-73「零语义五包」前提 | **已被 QT-73 落地实测订正**（`clock` 的 8 处引用全在被删目录内 ⇒ 保留代码零引用；`logging`/`httpclient` 两条行为差异如实登记） | core：`docs/TASKS.md` QT-73 完成记录 | ✅ 已落 |
-| **⑯** | ⛔ **service token 在 httpadapter 上必然 401**（2026-10-25 18:45 实测新发现） | **待裁**：三个方向（放宽 httpadapter 校验 / 强制数字 subject / 按 role 分流），**本轮不替你选** | kit（发版 `v0.1.4`）+ risk / data / analytics（升 pin） | ⛔ 待裁 |
+| ① | `service` token 的分发面与部署清单归属 | **专用 `service` 角色 + 长期 access token**（裁-17 定稿，不复用 `trader`）；**部署清单归 core `deploy/k8s/`** | core：`docs/TASKS.md` QT-71 ③-⑦ + `deploy/k8s/` | ✅ 已落（QT-71，`aaf37bc` / `134b283`） |
+| ② | QT-73 五包切包的语义变更 | **已随 QT-73 落地**：只切包不改语义，两条行为差异**如实登记、报协调者**；**不返工**（见 §2.1） | core：`docs/TASKS.md` QT-73 完成记录 | ✅ 已落 |
+| ③ | `analysis` 契约包 owner | **不建 `analysis` 包**；DTO 留 analytics 本仓，按 contracts ADR-0001 ①「第二个使用方出现时才迁」 | analytics：`docs/TASKS.md` QT-43 R2 口径 | ✅ 已落（`api-schema.md` §6.4 + 守卫） |
+| ④ | QT-32 是否本代范围 | **本代做**，拆两步：先补 promote 审批留痕，再做 AI 侧接线；**AI 生成侧归 agent 仓** | core QT-32 + agent QT-32-A | 🔶 agent 侧施工中；**promote 入口改由 §五 ⑫ 定** |
+| ⑤ | `ingest.raw` 残留行处置 | **追认删除已执行**（不可回滚）；**在 main 重做 3 笔纯文档落账**，**不 cherry-pick** `task/g3-data` 的 7 笔 | core：`docs/TASKS.md` DBT-15 + `docs/SPEC.md` | ✅ 已落（DBT-15，164+2 行，12,134→11,968） |
+| ⑥ | `fundamentals_detail` 的产出方 | **接受「不可得」成文**；同时把「需要谁产出什么格式」写成**对外产出请求** | core：`docs/TASKS.md` DBT-16 + `docs/SPEC.md` | ✅ 已落（DBT-16） |
+| ⑦ | `capital_flow` / `top_list` 归属 | **接受「仅储备、暂无读方」**；`top_list` 的真实状态 = 「在 cron 名单 + 无排程行 = 事实上不日更」 | core：`docs/TASKS.md` DBT-17 + `docs/SPEC.md` | ✅ 已落（DBT-17） |
+| ⑧ | `mining.Proposer` 归属 | **归 agent 仓**；core 只保留 `mining.Proposer` 接口作为冻结契约 + 指针 | core：DBT-18 指针；agent：另立六字段单 | ✅ 已落（DBT-18） |
+| ⑨ | `visible_at` 生产库回填授权 | **原裁「暂不授权」已被 §五 ⑤ 取代**：改为按表分批，9 张「core 无写者」的 A 集表可授权 | data：`docs/TASKS.md` QT-40 未落项 | 🔁 被 §五 ⑤ 取代 |
+| ⑩ | `docs/openapi.yaml` 写入权 | **同意 QT-72 独占写**，并加「生产路由表 ↔ yaml 双向对拍」自检 | core：`docs/TASKS.md` QT-72 ⑤ | ✅ 已落（QT-72） |
+| ⑪ | U6 / U8 两条未裁边界 | **U6 暂缓**（本轮不裁）；**U8 现在就裁 = 归 `ai.*`** | `repo-inventory.md` §3.1 + data `db-schema.md` §1.3 | ✅ 已落（U8；U6 标本轮不裁） |
+| ⑫ | XTP 柜台环境 | **本轮不投人**；G7 降级为「决策材料 + 触发条件」 | broker：`docs/TASKS.md` QT-45 | ✅ 已落 |
+| ⑬ | `producer_pending` 字段名 | **core 不引入**；它是 orchestration 侧自己的响应提示位 | orchestration：QT-44 的 X0 行 | ✅ 已裁；**提示位实现并入 §五 ⑱** |
+| ⑭ | promote 闸门的审批人身份 | **已被 §五 ⑫ 取代**：strategy 零鉴权、零调用方，原「取 JWT `sub`」没有承载体 | strategy / core | 🔁 被 §五 ⑫ 取代 |
+| ⑮ | QT-73「零语义五包」前提 | **已被 QT-73 落地实测订正**（`clock` 保留代码零引用；`logging`/`httpclient` 两条行为差异如实登记） | core：`docs/TASKS.md` QT-73 完成记录 | ✅ 已落 |
+| **⑯** | ⛔ **service token 在 httpadapter 上必然 401** | **已裁：方向 3 —— 按 `claims.Role == "service"` 分流，只豁免 service 角色**；kit 侧代码已改 + 端到端用例已写 | kit（`v0.1.4`）+ risk / data / analytics（升 pin） | 🔶 代码已改，**未验证 / 未发版 / 三仓仍钉 `v0.1.1`**（见 §五 ⑬） |
 
 ---
 
@@ -330,6 +331,42 @@ verified-by: 跨仓施工分组的 15 条待裁决项全部拍定（2026-10-25�
 2026-10-25 11:00 实测 core 工作区有 11 项未提交改动（`cmd/analysis/{main,setup}.go`、`cmd/analysis/wiring/risk_events*.go`、`config/analysis-service.yaml`、`docs/TASKS.md`、`pkg/storage/{integration_test,postgres}.go` + 3 个 `pkg/storage/alert_outbox*.go` 新文件）—— 那是 **QT-42 X3c 二批「告警回传改成持久 outbox」**的施工。
 **实测更新**：该批**已提交**（`a53fe95` / `0cb8e9f` / `aa729f2`）⇒ core 工作区**不再有那 11 项**。
 ⇒ **本轮所有 core 侧文档改动都发生在干净基线上**（除本轮自己的改动外无他人 WIP 混入）。
+
+---
+
+## 五、第二轮清单的 16 条裁决（2026-10-25，按 c 的建议全部拍定）
+
+> **编号**：本节的 ①~⑳㉑㉒ 是 [第二批分组方案 §5](cross-repo-dispatch-plan-wave2-2026-10-25.md) 的编号，**不是** §一 的编号。引用时带「§五」。
+> **依据与代价**：逐条论证在 [终版建议（c）](pending-decisions-recommendations-2026-10-25c.md)；本节只写**裁决 / 落点 / 状态**。
+> 拍定时间：2026-10-25（主任口径「全部按建议」）。
+
+| # | 事项 | 裁决 | 落点 | 状态 |
+|---|---|---|---|---|
+| ① | QT-51 拆 port 还是同构桥 | **拆 port**，以分支 `task/qt51-execution-port`（`7c89aae`）为基线收口；**不再执行** b 的「删 shim + `LiveBridge` 外移」；5 个零调用 shim 合入后另立小单删 | core：QT-51 + `backtest-engine-review.md:145` 勾选 | ⬜ 待收口（rebase + 有 Go 的环境复跑门禁） |
+| ② | risk 快照迁 contracts | **新建 `contracts/risk` 包**：迁 `Snapshot` / `SnapshotRule` / `Scope` / `RuleType` + 冻结词表 + hash 纯函数 + 4 个哨兵；**`Bundle` / `ParseBundle` / `ForScope` 留 risk**；**编码逐字节搬运，禁止换 Canonical**；必须带固定向量 + 跨仓对拍腿 | contracts（`v0.7.0`）+ risk（首个 contracts pin）+ core | ⬜ 待施工 |
+| ⑤ | 生产 `visible_at` 回填 | **只授权 9 张「core 无写者」的 A 集表**：`ohlcv_minute` / `realtime_quote` / `capital_flow` / `top_list` / `limit_up_pool` / `announcements` / `news` / `hot_search` / `global_ohlcv`；`ohlcv_daily_qfq` / `sectors` / `stock_sector_map` 等 core 停写后再批；`market.index_daily` 不在 A 集、不回填；**执行者是运维** | data：QT-40 未落项 + core：QT-40 记录 | ⬜ 待运维执行（agent 只交取证与语句） |
+| ⑥ | UI 三服务栈怎么起 | **两轨**：无栈的 `typecheck/lint/vitest` 现在做；e2e 等 Docker Desktop（或 CI）；视觉基线在本机重生成 | ui：AUD-61 ① 批 | ⛔ 等外部条件（Docker/CI） |
+| ⑦ | XTP 柜台环境 | **保持 ⛔，本轮不投人、不排期**；不做无 SDK 的假实现 | broker：QT-45 | ✅ 已裁（维持 ⛔） |
+| ⑧ | DOC-10 范围 | **§7 整块按实仓订正**：阶梯表（S-1~S3、X1~X6）+ 三条过渡态 + 一行状态表；外加 `docs/README.md:40` 的 QT-60 行；**§8 以后与阶梯表的设计理由不动**；W0 三腿先核再改 | docs：DOC-10 | ⬜ 待施工 |
+| ⑨ | `broker.order_acks` 保留期 | **90 天**；只删 `ack IS NOT NULL`；先加 `(updated_at) WHERE ack IS NOT NULL` 部分索引；单批 ≤ 5000 行；90 天登记为**暂定假设**（柜台可查窗口未知，若更长改 180） | broker：`db-schema.md` §1.1 + 清理作业 | ⬜ 待施工 |
+| ⑩ | AI 生成物载体 | **默认 `carrier="dsl"`**；仅 L3 才 `wasm`；**`carrier="so"` 删除**；`artifact_hash` 用 `StrategyVersionInput{Carrier:"dsl"}` 产出 | agent：QT-32-A 后续单 + strategy 资产服务 | ⬜ 待施工 |
+| ⑪ | R3 的 RunSpec 形状 | **终态 = 执行侧装配**（core `cmd/worker` 用 `run_id` 锚点从 `backtest_jobs` 回源）；analytics 的 `{run_id}` 是终态，不是 interim | core：`internal/orchestrationworker/spec.go`；analytics：QT-43 未落项关闭 | ✅ 已裁（无需改代码） |
+| ⑫ | promote 审批人从哪来 | **面 B1**：core 作唯一对外入口（新增 strategy client + 转发路由，`route_policy` = trader/admin；从 JWT `sub` 写受信 `X-Actor`，用 service token 调 strategy）；strategy **只对 `/promote` + 两条 `/internal/*`** 引 kit service-token 校验；`X-Actor` 缺失 = 400 `actor_required`；端口仅集群内/回环 | core（QT-32）+ strategy（QT-32 闸门腿） | ⬜ 待施工（取代 §一 ⑭） |
+| ⑬ | service token 401 | **方向 3**：`claims.Role == "service"` 分流，只豁免 service 角色；kit 代码已改 + 端到端用例已写；**必须先在 Go 环境跑门禁 → 提交 → 发 `v0.1.4` → risk/data/analytics 升 pin** | kit（`v0.1.4`）+ risk / data / analytics | 🔶 代码已改、**未验证/未提交/未发版**（= §一 ⑯） |
+| ⑰ | `index_daily` 归属 + 第二写者 | **owner = core**（Migration 057 是唯一 DDL）；**data 撤认领**：删 `internal/schema/market.go:301` 的建表/索引、`TableNames()` 条目、`visible_at.go:54` 的 C 集条目、`db-schema.md:25/151` 的认领，并加守卫；A 集物理 `SET SCHEMA` 等 3 张 core 停写后再做 | core：Migration 057 注释；data：schema + 文档 | ⬜ 待施工（两套 DDL 是**先建表者定形**，优先于搬迁） |
+| ⑱ | X0 生产者契约 | **orchestration 新增 artifact 写端点**（service 角色），**worker 调它、不直写库**；幂等沿用 `SaveArtifact`；**前置 = orchestration 先接 R5 鉴权**（kit + policy） | orchestration：QT-44 的 X0 行；core：`cmd/worker` / `internal/orchestrationworker` | ⬜ 待施工 |
+| ⑲ | R1 读面语义 | **结论态放行**：404 只给「不存在」；queued/running → 409 `run_result_incomplete`；failed → 409 `run_result_failed`；completed+invalid 维持 200 + `status="invalid"`；Migration 059 已丢失的历史 invalid 信息登记为不可恢复 | core：`cmd/analysis/handlers_backtest.go:191` + openapi + ui 错误处理 | ⬜ 待施工 |
+| ⑳ | AUD-61 testid 边界 | **允许窄例外**：只给 `NavTiles.vue` / `MarketMetrics.vue` / `AppSidebar.vue` 加 `data-testid`（纯增量属性，不改类/结构/文案），单独 commit；工单 ④ 按此修订 | ui：AUD-61 ① 批 | ⬜ 待施工 |
+| ㉑ | g3 worktree / 分支处置 | 确认 DBT-15/16/17 三笔文档结论已在 main（core 台账已 ✅）后，**删除 worktree + `task/g3-data` 分支**；删除前如需留痕先打 `archive/g3-data` tag | core：worktree / branch | ⛔ 待主任授权（不可逆） |
+| ㉒ | broker R9 / R10 | **R10 现在修**：`mock.go:415`（QueryOrder）与 `:358`（CancelOrder）的映射读失败从 `ErrChannelDown` 改为 `ErrIdempotencyStoreUnavailable`（哨兵与 wire 码已存在），两处同口径 + 各一条用例；**R9 暂缓到 X6c**，三条差异写进 `x6c-xtp-readiness.md` §8 验收清单 | broker：`internal/gateway/mock.go` + 文档 | ⬜ 待施工 |
+
+### 五.1 关键前提（施工前必读）
+
+- **① 的分支不在 origin**：`task/qt51-execution-port` 本地 `1 ahead / 9 behind main`，worktree 在 `C:/Users/ruoxi/Workspace/tellurion-qt51`。合入前必须 rebase 并在**有 Go 的环境**重跑全量门禁；分支自带的等价性报告是旧基线产物，不能当合并后的证据。
+- **⑰ 不是文档问题**：core `pkg/storage/postgres.go:1180` 与 data `internal/schema/market.go:301` 的 `index_daily` DDL 形状不同（`id`/`UNIQUE`/`VARCHAR(64)`/`CHECK` vs 复合 PK/`VARCHAR(32)`/`volume DEFAULT 0`），两个 `CREATE IF NOT EXISTS` 谁先跑谁定形。**data 必须删掉自己那份**。
+- **⑲ 是既有端点的状态码语义变更**：openapi / UI 的 `/report` 错误处理 / e2e 要同笔改；analytics 的 wire 码已经就绪。
+- **⑫ 的服务 token 必须有验证方**：strategy 今天没有 kit，也没有任何鉴权。若只加 `X-Actor` 不加校验，token 是装饰；所以三端点必须接 kit `auth/httpadapter`，其余 9 条靠端口隔离，并在 `api-schema.md` 写明。
+- **⑬ 在发版前，线上事实仍是 `service` token 401**：不要在任何台账写「服务间链路已通」。
 
 ---
 
