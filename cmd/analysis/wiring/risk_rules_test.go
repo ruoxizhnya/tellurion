@@ -28,10 +28,11 @@ import (
 const qt66Hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 type qt66Server struct {
-	mu     sync.Mutex
-	method string
-	path   string
-	body   string
+	mu      sync.Mutex
+	method  string
+	path    string
+	body    string
+	headers http.Header
 }
 
 func (s *qt66Server) handler(status int, resp string) http.HandlerFunc {
@@ -40,6 +41,7 @@ func (s *qt66Server) handler(status int, resp string) http.HandlerFunc {
 		_, _ = buf.ReadFrom(r.Body)
 		s.mu.Lock()
 		s.method, s.path, s.body = r.Method, r.URL.Path, buf.String()
+		s.headers = r.Header.Clone()
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -51,6 +53,38 @@ func (s *qt66Server) captured() (method, path, body string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.method, s.path, s.body
+}
+
+func (s *qt66Server) capturedAuth() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.headers.Get("Authorization")
+}
+
+// TestHTTPRiskRulesProvider_SendsServiceToken：risk 开了 secret 后，
+// 不带 Bearer 的 resolve 恒 401（policy 表是 trader|admin）⇒ 每个 run failed。
+func TestHTTPRiskRulesProvider_SendsServiceToken(t *testing.T) {
+	srv := &qt66Server{}
+	ts := httptest.NewServer(srv.handler(http.StatusOK, `{"risk_rules_hash":"`+qt66Hash+`"}`))
+	defer ts.Close()
+
+	p, err := NewHTTPRiskRulesProviderWithToken(ts.URL, " svc-token ", time.Second)
+	require.NoError(t, err)
+	_, err = p.ResolveRiskRulesHash(context.Background(), "")
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer svc-token", srv.capturedAuth(), "token 必须去掉首尾空白后进 Bearer")
+}
+
+func TestHTTPRiskRulesProvider_OmitsTokenWhenEmpty(t *testing.T) {
+	srv := &qt66Server{}
+	ts := httptest.NewServer(srv.handler(http.StatusOK, `{"risk_rules_hash":"`+qt66Hash+`"}`))
+	defer ts.Close()
+
+	p, err := NewHTTPRiskRulesProvider(ts.URL, time.Second)
+	require.NoError(t, err)
+	_, err = p.ResolveRiskRulesHash(context.Background(), "")
+	require.NoError(t, err)
+	assert.Empty(t, srv.capturedAuth(), "空 token 不许发 Authorization（回环免密形态）")
 }
 
 func TestHTTPRiskRulesProvider_SendsLatestByDefault(t *testing.T) {
@@ -163,12 +197,27 @@ func TestAttachRiskRulesFromConfig_DisabledMeansNotConfigured(t *testing.T) {
 func TestAttachRiskRulesFromConfig_EnabledAttaches(t *testing.T) {
 	v := viper.New()
 	v.Set("risk_service.resolve_enabled", true)
-	v.Set("risk_service.resolve_url", "http://127.0.0.1:8083")
+	v.Set("risk_service.resolve_url", "http://127.0.0.1:8086")
 	v.Set("risk_service.resolve_timeout", "3s")
 
 	eng := newQT66Engine(t)
 	require.NoError(t, AttachRiskRulesFromConfig(eng, v, zerolog.Nop()))
 	assert.True(t, eng.HasRiskRulesProvider())
+}
+
+// TestAttachRiskRulesFromConfig_MissingResolveURLFailsFast：resolve_url 为空
+// 时**不**回落到 risk_service.url（那一项指向 analysis 自己 :8085，没有
+// /api/risk/resolve）；必须在装配期拒，而不是等第一个 run 404。
+func TestAttachRiskRulesFromConfig_MissingResolveURLFailsFast(t *testing.T) {
+	v := viper.New()
+	v.Set("risk_service.resolve_enabled", true)
+	v.Set("risk_service.url", "http://localhost:8085")
+
+	eng := newQT66Engine(t)
+	err := AttachRiskRulesFromConfig(eng, v, zerolog.Nop())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve_url")
+	assert.False(t, eng.HasRiskRulesProvider())
 }
 
 func TestAttachRiskRulesFromConfig_EnabledWithBadConfigFailsFast(t *testing.T) {

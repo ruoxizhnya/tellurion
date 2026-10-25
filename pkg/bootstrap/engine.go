@@ -20,7 +20,9 @@ func BuildBacktestEngine(v *viper.Viper, logger zerolog.Logger) (*backtest.Engin
 	if dataServiceURL == "" {
 		dataServiceURL = "http://localhost:8081"
 	}
-	httpProvider := marketdata.NewHTTPProvider(dataServiceURL, logger)
+	// data 服务已上鉴权闸（裁-15）：配了 secret 的部署必须带服务间凭证，
+	// 否则取数全线 401。token 为空时不发头（回环 + 无 secret 的开发态）。
+	httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL, v.GetString("data_service.token"), logger)
 	engine, err := backtest.NewEngine(v, httpProvider, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize backtest engine")

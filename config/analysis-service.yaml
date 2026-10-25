@@ -94,6 +94,10 @@ redis:
 # 反而会打断容器间的调用。compose 与 k8s 都会用同名 env 覆盖这两项。
 data_service:
   url: "http://data-service:8081"
+  # 裁-15：tellurion-data 已上鉴权闸（`/datasets/*` 要 viewer 角色）。
+  # 配了 secret 的部署必须在这里给服务间凭证，否则 core 取数全线 401。
+  # token 只从 env 注入（DATA_SERVICE_TOKEN），本文件不放真值。
+  token: ""
 
 # strategy_service.url 已随 OBS-11（2026-10-09）删除：策略服务 standby
 # （ADR-012），信号只从引擎本地注册表产出，不存在 per-day HTTP fallback。
@@ -111,9 +115,13 @@ risk_service:
   # risk_rules_hash 记空串 + not_configured（唯一允许空串的情形）。
   # 启用后取不到（no_approved_rules / snapshot_not_found / 5xx / 超时）⇒
   # run 直接 failed（risk_rules_unavailable），不会用默认限额继续跑。
-  # resolve_url 为空时回落上面的 url；resolve_timeout 缺省 10s。
+  # resolve_url 必填（**不**回落到上面的 url：那一项指向 analysis 自己的
+  # 进程内风控 :8085，没有 /api/risk/resolve）。tellurion-risk 默认 :8086。
+  # resolve_token：服务间凭证。risk 配了 AUTH_JWT_SECRET 后必填，否则 401。
+  # resolve_timeout 缺省 10s。
   resolve_enabled: false
-  resolve_url: "http://localhost:8083"
+  resolve_url: "http://localhost:8086"
+  resolve_token: ""
   resolve_timeout: "10s"
   # QT-42 X3c 的 core 腿（告警生产侧接线）：把 pkg/alert 的 detector 告警按
   # POST /api/risk/events 回传，risk 的 monitor/alerts 与 monitor/evaluate 因此

@@ -16,7 +16,9 @@ package wiring
 // 配置（`risk_service.*`）：
 //   - `resolve_enabled`：显式开关。false = 本部署未接入 risk 服务，
 //     provenance 记空串 + `not_configured`（裁-11 唯一允许空串的情形）。
-//   - `resolve_url`：risk 服务基址；缺省回落到 `risk_service.url`。
+//   - `resolve_url`：risk 服务基址（必填；**不**回落到 `risk_service.url`，
+//     后者指向 analysis 自己的进程内风控，没有该端点）。
+//   - `resolve_token`：服务间凭证（Bearer）。risk 开 secret 后必填，否则 401。
 //   - `resolve_timeout`：单次 resolve 超时，缺省 10s。
 //
 // 配置了但取不到（no_approved_rules / snapshot_not_found / 5xx / 超时）
@@ -49,11 +51,22 @@ const (
 // HTTPRiskRulesProvider 是 `backtest.RiskRulesProvider` 的 HTTP 实现。
 type HTTPRiskRulesProvider struct {
 	endpoint string
+	token    string
 	client   *http.Client
 }
 
-// NewHTTPRiskRulesProvider 构造 provider。baseURL 只允许 http/https。
+// NewHTTPRiskRulesProvider 构造 provider（不带凭证）。baseURL 只允许 http/https。
 func NewHTTPRiskRulesProvider(baseURL string, timeout time.Duration) (*HTTPRiskRulesProvider, error) {
+	return NewHTTPRiskRulesProviderWithToken(baseURL, "", timeout)
+}
+
+// NewHTTPRiskRulesProviderWithToken 构造带 `Authorization: Bearer` 的 provider。
+//
+// 为什么必须有：risk 仓的 `POST /api/risk/resolve` 在 policy 表里是
+// trader|admin（auth.go 的 requireAuth 一律 fail-closed）。risk 一旦配了
+// secret，不带凭证的调用恒 401 ⇒ 裁-11 口径下每个 run 直接 failed。
+// token 为空时不发头（回环 + 无 secret 的本地开发仍免密）。
+func NewHTTPRiskRulesProviderWithToken(baseURL, token string, timeout time.Duration) (*HTTPRiskRulesProvider, error) {
 	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	u, err := url.Parse(base)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -64,6 +77,7 @@ func NewHTTPRiskRulesProvider(baseURL string, timeout time.Duration) (*HTTPRiskR
 	}
 	return &HTTPRiskRulesProvider{
 		endpoint: base + riskResolvePath,
+		token:    strings.TrimSpace(token),
 		client:   &http.Client{Timeout: timeout},
 	}, nil
 }
@@ -102,6 +116,9 @@ func (p *HTTPRiskRulesProvider) ResolveRiskRulesHash(ctx context.Context, pinned
 		return "", fmt.Errorf("risk resolve: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if p.token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.token)
+	}
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
@@ -172,17 +189,19 @@ func AttachRiskRulesFromConfig(eng *backtest.Engine, v *viper.Viper, logger zero
 
 	base := strings.TrimSpace(v.GetString("risk_service.resolve_url"))
 	if base == "" {
-		base = strings.TrimSpace(v.GetString("risk_service.url"))
-	}
-	if base == "" {
-		return fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url / risk_service.url 都为空")
+		// 刻意**不**回落到 `risk_service.url`：那一项指向 analysis 自己
+		// （:8085，P1-15 合并后的进程内风控），它没有 `/api/risk/resolve`。
+		// 回落到那里等于把「少配一项」变成「每个 run 都 404 → failed」，
+		// 且失败点推迟到提交时才出现。宁可装配期直接拒。
+		return fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
+			"（tellurion-risk 的默认地址是 http://localhost:8086；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
 	}
 	timeout := v.GetDuration("risk_service.resolve_timeout")
 	if timeout <= 0 {
 		timeout = defaultRiskRulesResolveTimeout
 	}
 
-	provider, err := NewHTTPRiskRulesProvider(base, timeout)
+	provider, err := NewHTTPRiskRulesProviderWithToken(base, v.GetString("risk_service.resolve_token"), timeout)
 	if err != nil {
 		return err
 	}
@@ -190,6 +209,7 @@ func AttachRiskRulesFromConfig(eng *backtest.Engine, v *viper.Viper, logger zero
 	logger.Info().
 		Str("endpoint", base+riskResolvePath).
 		Dur("timeout", timeout).
+		Bool("with_token", strings.TrimSpace(v.GetString("risk_service.resolve_token")) != "").
 		Msg("risk rules resolve provider attached (QT-66)")
 	return nil
 }

@@ -100,7 +100,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	// data-engine（第 3 位）：行情能力。构造逻辑与接管前
 	// buildBacktestEngine + buildDataServices 的对应行逐字一致。
 	dataMod := wiring.NewDataEngineModule(func() (marketdata.Provider, *marketdata.DataAdapter, error) {
-		httpProvider := marketdata.NewHTTPProvider(dataServiceURL(v), logger)
+		httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL(v), v.GetString("data_service.token"), logger)
 		pgProvider := marketdata.NewPostgresProvider(store, logger)
 		adapter := marketdata.NewDataAdapter(nil, pgProvider, httpProvider, logger)
 		return httpProvider, adapter, nil
