@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // ActivitySourceTushare 是 market_activity source 列的 tushare 取值。

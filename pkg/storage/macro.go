@@ -27,7 +27,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // MacroSeriesFilter 宏观指标查询条件。Indicator 必填（指标目录见

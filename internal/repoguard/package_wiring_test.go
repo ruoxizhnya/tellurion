@@ -71,7 +71,6 @@ import (
 // 一旦列了「已经有人用」的包，就在替死代码打掩护。
 var unwiredPackages = map[string]string{
 	"tellurion/pkg/api":               "P2-16 API 版本化基础设施（APIVersionMiddleware）；各服务目前各自手写 /api/v1，待统一接线",
-	"tellurion/pkg/decimal":           "待采用：定点小数工具库，portfolio / 回测仍用 float64，迁移未排期（AUD-46 裁决保留，与另外 11 个能力包同型）",
 	"tellurion/pkg/backtest/auction":  "P1-6 集合竞价撮合（9:15-9:25 / 14:57-15:00），待回测引擎接线",
 	"tellurion/pkg/alert/systemalert": "系统级运维告警（数据同步停滞 / 回测失败 / 策略退化），待运维链路接线",
 	// 2026-10-24 (QT-26)：pkg/sandbox/wasm 从本表移除 —— pkg/backtest 的
@@ -99,8 +98,16 @@ var unwiredPackages = map[string]string{
 // no resistance at all).
 //
 // 2026-09-22 (AUD-46): pkg/metrics.
+// 2026-10-25 (QT-73): 横切五包（errors / decimal / clock / logging / httpclient）
+// 已整目录切到 github.com/ruoxizhnya/tellurion-kit，core 侧不留转发壳。同一能力
+// 只保留一份实现，旧副本若再出现就说明有人把两份实现又摆回来了。
 var retiredPackages = map[string]string{
-	"tellurion/pkg/metrics": "ADR-017 §1 的四个核心指标（backtest_duration_seconds / http_client_requests_total / llm_tokens_total / cache_hit_ratio）由 pkg/observability 实现（deps.Metrics *observability.Metrics）。pkg/metrics 是竞争实现，只与它重叠一个指标名 —— 两者同时接线会重复注册 backtest_duration_seconds 并 panic。要加指标请加进 observability（一个注册表）",
+	"tellurion/pkg/metrics":    "ADR-017 §1 的四个核心指标（backtest_duration_seconds / http_client_requests_total / llm_tokens_total / cache_hit_ratio）由 pkg/observability 实现（deps.Metrics *observability.Metrics）。pkg/metrics 是竞争实现，只与它重叠一个指标名 —— 两者同时接线会重复注册 backtest_duration_seconds 并 panic。要加指标请加进 observability（一个注册表）",
+	"tellurion/pkg/errors":     "已切至 github.com/ruoxizhnya/tellurion-kit/errors（QT-73 一期）",
+	"tellurion/pkg/decimal":    "已切至 github.com/ruoxizhnya/tellurion-kit/decimal（QT-73 一期）",
+	"tellurion/pkg/clock":      "已切至 github.com/ruoxizhnya/tellurion-kit/clock（QT-73 一期）",
+	"tellurion/pkg/logging":    "已切至 github.com/ruoxizhnya/tellurion-kit/logging（QT-73 一期）",
+	"tellurion/pkg/httpclient": "已切至 github.com/ruoxizhnya/tellurion-kit/httpclient（QT-73 一期）",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {

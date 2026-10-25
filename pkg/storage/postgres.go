@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 )
 
 // PostgresStore handles PostgreSQL/TimescaleDB operations.

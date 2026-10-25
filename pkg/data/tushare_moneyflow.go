@@ -56,7 +56,7 @@ import (
 	"strings"
 	"time"
 
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // cnyPerWanYuanUnit 把 Tushare 资金流类接口的「万元」折成规范层的「元」（CNY）。

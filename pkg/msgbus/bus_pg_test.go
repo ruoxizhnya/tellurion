@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/msgbus"
 	"tellurion/pkg/testenv"

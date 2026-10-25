@@ -23,7 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // 错误码。前端可以按 code 分支，不必去匹配中文文案。

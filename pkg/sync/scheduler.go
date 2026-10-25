@@ -10,7 +10,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 )
 
 // Scheduler manages cron-based sync schedules and integrates with the job queue.

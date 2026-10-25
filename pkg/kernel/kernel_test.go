@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/kernel"
 	"tellurion/pkg/msgbus"
 )

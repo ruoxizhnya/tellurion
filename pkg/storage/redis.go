@@ -9,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 )
 
 // RedisCache implements the Cache interface using Redis.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/sync/types"
 )
 

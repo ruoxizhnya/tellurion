@@ -26,7 +26,7 @@ package kernel
 import (
 	"context"
 
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/msgbus"
 )

@@ -25,8 +25,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )

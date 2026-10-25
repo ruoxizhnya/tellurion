@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 )
 
 // JobExecutor is the interface that must be implemented to execute a specific job type.

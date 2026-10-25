@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 )
 
 // Queue manages the lifecycle of sync jobs using a PostgreSQL-backed queue.

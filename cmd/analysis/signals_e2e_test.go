@@ -30,8 +30,8 @@ import (
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"

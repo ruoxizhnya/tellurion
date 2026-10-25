@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // SupplyChainSourceTushare 是产业链四表 source 列的 tushare 取值（CSV 导入

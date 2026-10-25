@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/marketdata"
 )
 

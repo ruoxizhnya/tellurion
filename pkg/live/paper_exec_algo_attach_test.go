@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/strategy"
 )

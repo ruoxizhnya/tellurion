@@ -40,11 +40,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"github.com/spf13/viper"
 	"tellurion/cmd/analysis/wiring"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
-	"tellurion/pkg/clock"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/kernel"
 	"tellurion/pkg/live"

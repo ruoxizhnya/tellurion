@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/backtest/execution"
-	"tellurion/pkg/logging"
 )
 
 // newEngineWithSlippage 造一个只关心滑点装配的引擎（其余配置取默认）。

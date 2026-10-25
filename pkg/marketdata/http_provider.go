@@ -10,8 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
-	"tellurion/pkg/httpclient"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"github.com/ruoxizhnya/tellurion-kit/httpclient"
 )
 
 type httpProvider struct {

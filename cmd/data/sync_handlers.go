@@ -15,9 +15,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )

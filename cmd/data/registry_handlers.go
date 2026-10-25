@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/logging"
 )
 
 // registryCacheTTL is the freshness window for the cached /status payload.

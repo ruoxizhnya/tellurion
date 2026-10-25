@@ -3,7 +3,7 @@ package risk
 import (
 	"fmt"
 
-	"tellurion/pkg/errors"
+	"github.com/ruoxizhnya/tellurion-kit/errors"
 	"tellurion/pkg/statistics"
 )
 

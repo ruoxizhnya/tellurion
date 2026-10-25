@@ -28,8 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/sync"
 )

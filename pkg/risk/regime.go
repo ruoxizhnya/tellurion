@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/errors"
+	"github.com/ruoxizhnya/tellurion-kit/errors"
 	"tellurion/pkg/statistics"
 )
 

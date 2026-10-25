@@ -23,7 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // saveIndexDailySQL —— 幂等落库一条指数日线。数值列走 EXCLUDED 直传

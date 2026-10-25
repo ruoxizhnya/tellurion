@@ -27,7 +27,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // saveMarketActivitySQL —— 幂等落库一个活跃度观测。数值列走 EXCLUDED 直传

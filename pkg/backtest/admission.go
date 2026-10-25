@@ -28,9 +28,9 @@ import (
 	"sync"
 	"time"
 
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest/cache"
-	apperrors "tellurion/pkg/errors"
 )
 
 // admissionFromViper 从 config 读准入闸的四个旋钮（QT-12 ④）。

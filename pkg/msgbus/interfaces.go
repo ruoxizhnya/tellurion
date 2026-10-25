@@ -39,7 +39,7 @@ import (
 	"fmt"
 	"time"
 
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 )
 
 // Handler 是消息订阅回调。同步执行：Publish 返回前，该 topic 的

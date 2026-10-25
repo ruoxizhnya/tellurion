@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 func newRecorder(t *testing.T, h gin.HandlerFunc) *httptest.ResponseRecorder {

@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/cache"
-	apperrors "tellurion/pkg/errors"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )

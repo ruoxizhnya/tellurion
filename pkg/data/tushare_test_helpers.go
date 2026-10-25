@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/httpclient"
+	"github.com/ruoxizhnya/tellurion-kit/httpclient"
 	"tellurion/pkg/storage"
 )
 

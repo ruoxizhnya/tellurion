@@ -23,9 +23,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apperrors "tellurion/pkg/errors"
 
 	"tellurion/pkg/testenv"
 )

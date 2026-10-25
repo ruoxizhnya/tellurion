@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"sync"
 
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/msgbus"
 )

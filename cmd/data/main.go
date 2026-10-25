@@ -9,10 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/data"
 	"tellurion/pkg/data/equitydeep"
 	"tellurion/pkg/data/source"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 )
 

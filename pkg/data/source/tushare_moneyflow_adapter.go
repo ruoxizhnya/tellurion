@@ -31,8 +31,8 @@ import (
 	"strconv"
 	"time"
 
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"tellurion/pkg/data"
-	apperrors "tellurion/pkg/errors"
 )
 
 // moneyflowMaxSpanDays 是单次 Fetch 允许的日历日跨度上限（同

@@ -16,7 +16,7 @@ import (
 	"errors"
 	"testing"
 
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 func TestErrTradingCalendarNotSynced_IsDataQualityNotInvalidInput(t *testing.T) {

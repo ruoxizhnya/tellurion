@@ -32,7 +32,7 @@ import (
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 
-	apperrors "tellurion/pkg/errors"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // runContext 承载一个 run 的全部可变运行态。字段一律不导出：只有本包

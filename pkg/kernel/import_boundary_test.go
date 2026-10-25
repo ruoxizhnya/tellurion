@@ -53,9 +53,9 @@ var businessFamilyPrefixes = []string{
 // Kernel 接口签名里（`Clock() clock.Clock` / `Bus() msgbus.MsgBus` /
 // `Store() eventstore.EventStore`），是框架契约的一部分，不是业务依赖。
 var frameworkAllowedExact = map[string]string{
-	"tellurion/pkg/clock":      "Kernel.Clock 的返回类型（替换点①）",
-	"tellurion/pkg/msgbus":     "Kernel.Bus 的返回类型 + kernel.boot/shutdown 发布通道",
-	"tellurion/pkg/eventstore": "Kernel.Store 的返回类型 + 生命周期事件落库",
+	"github.com/ruoxizhnya/tellurion-kit/clock": "Kernel.Clock 的返回类型（替换点①）",
+	"tellurion/pkg/msgbus":                      "Kernel.Bus 的返回类型 + kernel.boot/shutdown 发布通道",
+	"tellurion/pkg/eventstore":                  "Kernel.Store 的返回类型 + 生命周期事件落库",
 }
 
 func TestKernelImportsNoBusinessFamily(t *testing.T) {

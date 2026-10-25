@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/clock"
+	"github.com/ruoxizhnya/tellurion-kit/clock"
 )
 
 // ─── StreamRunner：逐 bar 执行器 ─────────────────────────────────────

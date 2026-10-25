@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apperrors "tellurion/pkg/errors"
 )
 
 // 频率字面量（与 pkg/data 的 mcFreqMonthly/Daily 同值；storage 包不

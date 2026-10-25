@@ -24,13 +24,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/authz"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/data"
 	"tellurion/pkg/data/equitydeep"
 	"tellurion/pkg/httpserver"
-	"tellurion/pkg/logging"
 	"tellurion/pkg/storage"
 )
 

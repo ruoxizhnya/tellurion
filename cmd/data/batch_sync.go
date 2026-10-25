@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"tellurion/pkg/logging"
+	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/sync"
 )
 

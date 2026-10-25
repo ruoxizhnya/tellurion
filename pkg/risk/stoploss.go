@@ -7,7 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/errors"
+	"github.com/ruoxizhnya/tellurion-kit/errors"
 )
 
 // StopLossChecker handles dynamic stop loss calculations using ATR.
