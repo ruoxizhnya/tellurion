@@ -225,7 +225,7 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 | contracts / kit 两库真实可用 | contracts `v0.6.0`（远端 tag）、kit `v0.1.4`（远端 tag，2026-10-26 订正；审计时为 `v0.1.3`）；core/data/agent 已 pin；`dataprotocol` 导出面 447→465 |
 | agent 去 `replace`（S3） | agent `go.mod` 无 `replace`、无 core `require`；agent 内 `"tellurion/` import = 0 |
 | 跨仓硬纪律 | 12 仓 `go.work` 均未跟踪；`replace` 仅存在于旧 `quant-trading-agent`（不在 12 仓） |
-| 文档结构齐套 | `check_repo_docs.py`：12/12 齐套、缺件 0；`check_doc_links.py`：活跃层 222 条 / 0 断 |
+| 文档结构齐套 | `check_repo_docs.py`：12/12 齐套、缺件 0；`check_doc_links.py`：活跃层 223 条 / 0 断（2026-10-26 复跑；审计时 222） |
 | 产品叙事 | PRODUCT 已按「三角色 + 一座底座 + 扩展舱」改写，并如实声明「六条扩展舱今天只有 data 真被消费」 |
 
 ---
