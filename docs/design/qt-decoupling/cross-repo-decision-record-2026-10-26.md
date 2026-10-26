@@ -125,16 +125,25 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 
 ---
 
-## 三、环境前置（2026-10-26 实测，已解除）
+## 三、环境前置（2026-10-26 实测；**各仓引用环境口径以本节为准，别再各写一份**）
 
-| 项 | 实测 | 结论 |
+> **为什么要这一节**：各仓台账里今天并存着两套相反的环境结论——`tellurion-data:docs/TASKS.md` 与
+> `tellurion-analytics:docs/TASKS.md` 都用「本机无 Go 工具链 ⇒ 验收证据 = CI 退出码」当作不复跑的理由，
+> 而 `tellurion-orchestration:docs/TASKS.md` 记的是「5432 未监听 ⇒ PG 腿 skip」。两段都写于 2026-10-25/26，
+> 结论却互相打脸。**统一实测如下**，凡与之冲突的行都要订正而不是照抄。
+
+| 项 | 实测（2026-10-26 本批复测） | 结论 |
 |---|---|---|
-| Go | `C:\Users\ruoxi\AppData\Local\Programs\go1.25.14\bin\go.exe` = go1.25.14；此前不在 PATH，已加入用户级 PATH | ✅ 10 仓 `go build ./...` EXIT=0 |
-| Docker | Docker Desktop 4.92.0 / Engine 29.8.0 | ✅ daemon 可达 |
-| 六服务镜像 | data / risk / strategy / analytics / orchestration / broker 全部 build 成功 | ✅ |
-| core / ai 镜像 | `Dockerfile.service`（main）与 agent `Dockerfile` 均 build 成功 | ✅ |
+| Go | `C:\Users\ruoxi\AppData\Local\Programs\go1.25.14\bin\go.exe` = **go1.25.14**，可执行。**但默认 Git Bash 的 PATH 里没有它**：`command -v go` 空，必须先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"`（本节原文曾写「已加入用户级 PATH」，那条对本 agent 的 shell 不成立） | ✅ 门禁**可在本机复跑**；「本机无 Go」从此不许当前置 |
+| Go 门禁实跑（data 一仓） | `gofmt -l .` 空；`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全 **EXIT=0**，`-v` 下 **4 条 SKIP**（全是 `TestPG_BulkInsert_*`） | ✅ 只证 data；其余 9 仓的「build EXIT=0」是上一批的结论，本批未复跑，按仓各自现跑 |
+| `-race` | `go env CGO_ENABLED` = 0；`go build -race ./internal/schema` **EXIT=2**（`-race requires cgo`），本机无 C 编译器 | ⛔ race 腿归 CI，不许写「本机 -race 全绿」 |
+| PostgreSQL | `netstat -ano` 里 **5432 零条监听**；容器 `odh-test-pg` `Exited (255) 4 weeks ago` | ⛔ 本机无库 ⇒ 所有 `*_TEST_DSN` 腿**只能 skip**；skip ≠ 通过 |
+| Docker | Docker Desktop 4.92.0 / **Engine 29.8.0 可达**；`docker ps -q` = **0 个在跑**，`docker ps -aq` = 5 个（`quant-trading-{analysis,data,ai,strategy}-service-1` + `odh-test-pg`，全部 `Exited (255)`） | ✅ daemon 可用；⚠️ 「无容器」要说清是「没有在跑的容器」，不是「没有容器」 |
+| 六服务镜像 | data / risk / strategy / analytics / orchestration / broker 全部 build 成功 | ✅（上批结论，本批未复跑） |
+| core / ai 镜像 | `Dockerfile.service`（main）与 agent `Dockerfile` 均 build 成功 | ✅（上批结论，本批未复跑） |
 | 聚合栈 | `up --wait` → 5/6 healthy；analytics `/healthz` 404（见 #4） | 🔶 修复后单容器已 healthy（`f010606`）；**整栈 6/6 未复跑** |
 | 端口 | 5173 / 8085 / 8086 空闲 | ✅ AUD-61 ① 前置解除 |
+| Python 门禁 | 取 `check_deploy_consistency.py` 这类带 `✓` 输出的检查器退出码，**必须先 `export PYTHONIOENCODING=utf-8`**；GBK 控制台下它打印时抛 `UnicodeEncodeError` ⇒ **EXIT=1 假红**（见 #10） | ⚠️ 退出码要先确认不是编码假红 |
 
 ---
 
