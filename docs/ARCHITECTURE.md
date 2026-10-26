@@ -34,9 +34,9 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │                                （QT-42 X3c，`POST /api/risk/events`，开关
   │                                `risk_service.events_enabled`，默认关）
   ├──► ai-service :8086 ────────►（源码在 tellurion-agent 仓，
-  │                               ADR-027 拆仓；compose 经 additional_contexts
-  │                               构建；analysis 对 copilot/pipeline/explore/
-  │                               tools 四族路由纯反代）
+  │                               ADR-027 拆仓；compose 直接以 agent 仓
+  │                               为构建上下文；analysis 对 copilot/pipeline/
+  │                               explore/tools 四族路由纯反代）
   ├──► data-service :8081 ──────► tushare.pro 摄取（唯一外部数据入口）
 ```
 

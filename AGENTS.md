@@ -87,7 +87,7 @@
 | 后端 API | Go + Gin | :8085 |
 | 前端 SPA | Vue 3 + Naive UI | :5173 (dev) —— **不在本仓**（`tellurion-ui`） |
 | 数据服务 | Go + Gin | :8081 |
-| **AI 服务** | Go + Gin | :8086（**源码在 `tellurion-agent` 仓**，2026-10-09 AI 拆仓；compose 经 additional_contexts 构建） |
+| **AI 服务** | Go + Gin | :8086（**源码在 `tellurion-agent` 仓**，2026-10-09 AI 拆仓；compose 直接以 agent 仓为构建上下文，无需 core 命名上下文） |
 | **风控 + 执行** | **in-process** | **合并到 analysis (per ODR-021, P1-15)** |
 | 数据库 | PostgreSQL | :5432 |
 | 缓存 | Redis | :6379 |

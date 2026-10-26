@@ -75,7 +75,7 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **依据实测**：`risk-deployment.yaml` 写 `containerPort: 8086`，实际默认 `8089`；`analytics-deployment.yaml` 写 8087，与实际一致，但同属无升格 ADR 的容器清单。
 - **落地动作**：删两份文件；`docs/guides/deploy-config.md` 同步为「六仓 compose 为准，k8s 仅 data 保留」。
 - **代价**：失去「risk / analytics 可 k8s 部署」的旧证据；与 ADR-036 口径一致。
-- **落点 / 状态**：`tellurion:deploy/k8s/`；⬜ 待施工。
+- **落点 / 状态**：`tellurion:deploy/k8s/`；✅ 已删两份（2026-10-26，`git status` 显示两条 `D`）；`check_deploy_consistency.py` 复跑 exit 0；`deploy/k8s/` 现 **8 份**（data / analysis / web / configmap / ingress / namespace / postgres-statefulset / redis-deployment）。
 
 ### 6 · contracts `v0.7.0` 与 pin 矩阵
 
@@ -118,9 +118,9 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **事项**：检查器只取 `BindEnv` 第一个参数，误报 `JWT_SECRET` 无读点，CI 部署门禁变红。
 - **裁决**：修别名解析（解析 `BindEnv` 的 env 别名参数）+ 一条破坏验证（删别名 ⇒ 必须红）。
 - **依据实测**：`tellurion:pkg/bootstrap/config.go:25` 有 `BindEnv("auth.jwt_secret", "JWT_SECRET", "AUTH_JWT_SECRET")`；检查器 `tools/check_deploy_consistency.py:203-207` 只取第一个参数。
-- **落地动作**：改 `_GO_KEY_CALL` 的别名解析；补夹具；跑一次全量门禁。
+- **落地动作**：改 `_GO_KEY_CALL` 的别名解析（新增 `_GO_BINDENV_CALL` 收 `BindEnv` 全部大写别名实参）；跑一次全量门禁。
 - **代价**：小；不修则 CI 门禁不可信。
-- **落点 / 状态**：`tellurion:tools/check_deploy_consistency.py`；⬜ 待施工。
+- **落点 / 状态**：`tellurion:tools/check_deploy_consistency.py`；✅ 已修（2026-10-26）：exit 0；**破坏验证**（把 `config.go:25` 的 `JWT_SECRET` / `AUTH_JWT_SECRET` 别名删到只剩配置键）→ 两条假阳性复现、exit 1；逐字节还原后 exit 0。
 
 ---
 

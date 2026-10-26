@@ -82,7 +82,7 @@ ok  	tellurion/tools/coveragegate	0.097s
 | 工件 | 路径 | 现状 |
 |---|---|---|
 | core 单仓多进程镜像 | `Dockerfile.service` | `:24` build `/app/data-service` ← `./cmd/data`；`:25` build `/app/analysis-service` ← `./cmd/analysis`；`:36-37` 只 COPY 这两个二进制 |
-| core 主 compose | `docker-compose.yml` | `:62-118` `data-service`（`context: .` + `Dockerfile.service`，`:76` 发布 `127.0.0.1:8081`）；`:120-208` `analysis-service`（同 Dockerfile，8085）；`:218-259` `ai-service`（`context: ../tellurion-agent` + `additional_contexts: core=.`，8086） |
+| core 主 compose | `docker-compose.yml` | `:62-118` `data-service`（`context: .` + `Dockerfile.service`，`:76` 发布 `127.0.0.1:8081`）；`:120-208` `analysis-service`（同 Dockerfile，8085）；`:218-259` `ai-service`（`context: ../tellurion-agent`，**无 `additional_contexts`**，entrypoint `/app/deploy/wait-for-deps.sh`，8086） |
 | 六服务聚合 compose | `docker-compose.services.yml`（**已跟踪**，131 行） | `name: tellurion-services`；`postgres:16-alpine`（:15）+ data(:32) / risk(:49) / strategy(:65) / analytics(:82) / orchestration(:104) / broker(:119)；全部 `ports` 带 `127.0.0.1:` |
 
 历史教训已写进 `Dockerfile.service:20-23` 的注释（ODR-021 删 `cmd/risk` 与 `cmd/execution`、REV-16 删 `cmd/strategy`）——
@@ -95,7 +95,7 @@ ok  	tellurion/tools/coveragegate	0.097s
 | V1 | `docker compose -f docker-compose.services.yml config -q` | 聚合文件自洽 | **exit 0** |
 | V2 | `docker compose -f docker-compose.yml -f docker-compose.services.yml config -q` | 两份可合并 | **exit 0**（但见 1.3 冲突） |
 | V3 | `docker compose -f docker-compose.yml config -q` | 主文件自洽 | exit 0 |
-| V4 | `python tools/check_deploy_consistency.py` | compose ↔ k8s ↔ 代码三方一致 | **exit 1（2 条）** |
+| V4 | `python tools/check_deploy_consistency.py` | compose ↔ k8s ↔ 代码三方一致 | **exit 0（2026-10-26 已修）**；修前 `exit 1（2 条假阳性）`，见下方原文与订正 |
 | V5 | `docker compose ... build` | 镜像真构建 | **已验（2026-10-26）**：六服务 + core + ai 镜像构建成功 |
 | V6 | `docker compose ... up -d` + 健康检查 | 真跑 | **已验一半（2026-10-26）**：聚合栈起，5/6 healthy（analytics `/healthz` 404，见裁决记录 #4） |
 
@@ -107,9 +107,9 @@ V4 的两条（原文）：
   - deploy/k8s/data-deployment.yaml 注入的 JWT_SECRET 全仓没有任何读取点（AUD-39）
 ```
 
-判读：这两条**不是**本单引入的，且 `check_deploy_consistency.py:203-207` 的 `_GO_KEY_CALL` 正则只取
-`BindEnv` 第一个参数 ⇒ 属于**误报（假阳性）**。它决定了 V4 今天**不能**作为本单的硬门禁，
-只能作为「不得变得更红」的基线（仍是 2 条）。
+判读（**已订正，2026-10-26**）：这两条**不是**本单引入的，且 `check_deploy_consistency.py:203-207` 的 `_GO_KEY_CALL`
+正则只取 `BindEnv` 第一个参数 ⇒ 属于**误报（假阳性）**。裁决 #10 已补 `_GO_BINDENV_CALL` 收别名实参：复跑
+**exit 0**；破坏验证（删别名）复现两条、exit 1，还原后 exit 0。V4 现可作为硬门禁。
 
 ### 1.3 合并后的真冲突（必须由拍板解决）
 

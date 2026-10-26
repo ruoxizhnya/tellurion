@@ -45,7 +45,7 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 **实测**
 
 - 六仓均已实装，`cmd/*service` 监听默认值：data `:8081`、risk `127.0.0.1:8086`、strategy `127.0.0.1:8085`（另有 `cmd/compiler`）、analytics `127.0.0.1:8087`、orchestration `127.0.0.1:8088`；broker 无 `cmd/`（仍是 port 实现，符合 M5 结论）。
-- core `deploy/k8s/` 已有 **10 份清单**，其中 `risk-deployment.yaml`（`containerPort: 8086`）与 `analytics-deployment.yaml`（`containerPort: 8087`）是**真实容器部署**。
+- core `deploy/k8s/` 审计时有 **10 份清单**；其中 `risk-deployment.yaml`（`containerPort: 8086`，与现值 8089 不符）与 `analytics-deployment.yaml` 写的是**真实容器部署**。**2026-10-26 裁决 #5 已删这两份，现 8 份**；`data-deployment.yaml` 保留（`:8081` 与现值一致）。
 - 未找到任何「risk / analytics 进程升格」ADR：现行 ADR-032~035 讲的是拓扑/载体/仓清单，均未裁决升进程；ADR-027 仍是 **Proposed**，且其 §2.1 明确判定 risk 与 engine **同进程**。
 
 **为什么这是偏离**

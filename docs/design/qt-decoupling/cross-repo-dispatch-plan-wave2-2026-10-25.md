@@ -88,7 +88,7 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 
 ### H6 · analytics：`QT-43` 收尾（token 分发 + `base_run_spec` 完整装配）
 
-**实测复核（2026-10-25 二次订正）**：R2 **✅**；**token 分发也已落**——`cmd/analyticsservice/main.go:46-94` 已接 `-core-token` / `-data-token`（`ca95f1e`，已在 `origin/main`），`deploy/k8s/analytics-deployment.yaml:62-69` 已有 `secretKeyRef`。
+**实测复核（2026-10-25 二次订正）**：R2 **✅**；**token 分发也已落**——`cmd/analyticsservice/main.go:46-94` 已接 `-core-token` / `-data-token`（`ca95f1e`，已在 `origin/main`），旧 k8s analytics 清单 `:62-69` 已有 `secretKeyRef`（**该清单已于 2026-10-26 裁决 #5 删除**；token 分发代码仍在原位）。
 **组内串行原因**：无（本批无代码单）。
 **可立刻做的**：**没有**——「有 token 就能用」本仓已保证；剩下的是**运维签发/注入**，不属本仓代码。
 **在等外部产物的**：`base_run_spec` 完整装配卡 R3（§5 ⑪）；R1 两条偏差卡读面语义（§5 ⑲）。
@@ -335,7 +335,7 @@ risk 仓在 2026-10-25 新立了 **QT-74 · 规则参数词典**（`tellurion-ri
 | 11 | core QT-66 ⑦-4：「生产 `service` token 到不了角色判定」 | **复核成立且仍是活的**：kit `v0.1.1` 的 `IssueServiceToken` 允许非数字 subject（`auth/service_token.go:30/42/46`），而 `auth/httpadapter/httpadapter.go:139` 用 `claims.UserIDInt64()`（`auth/claims.go:29` = `ParseInt`）⇒ `service:risk` 这类 subject **必然 401**。risk / data / analytics 三仓**都钉在 kit `v0.1.1`** ⇒ **裁-17 的服务间链路今天全线走不通** | ⇒ **升级为待裁决第 ⑬ 条**（三个方向 + 「必须补一条端到端用例」的硬要求），已落 [裁决记录 ⑯](cross-repo-decision-record-2026-10-25.md) |
 | 12 | core QT-66 ⑦-3：「QT-71 本仓 ①~③ **未开工**……本文件 QT-71 状态仍 ⬜」 | **已过期**：QT-71 **已落**（`aaf37bc` / `134b283`）——`pkg/auth/auth.go:40` `RoleService` 已在、`:48` `IsValid()` 已含它、`cmd/analysis/route_policy.go` 已有 Service 档位、部署清单 10 份 | ⇒ **已加订正块**；H3 的真实阻塞只剩 ⑦-1（参数词典 → QT-74） |
 | 13 | 本版 H2：「QT-51 未开工 / 无设计 / 第一步出设计」 | **已证伪**：`task/qt51-execution-port`（`7c89aae`）已有 `ExecutionPort` 实现、设计文档、等价性报告；`pkg/backtest` 对 `pkg/live` import = 0；分支不在 origin，落后 main 6 笔；分支自述「已裁决」但 main 无裁决记录 | ⇒ H2 改为「收口」；合入等 §5 ① |
-| 14 | 本版 H6：「token 分发可立刻做」 | **已过期**：`ca95f1e` 已在 `origin/main`，`cmd/analyticsservice/main.go:46-94` 已接 token，`deploy/k8s/analytics-deployment.yaml:62-69` 已有 secretRef | ⇒ H6 无可开工代码单 |
+| 14 | 本版 H6：「token 分发可立刻做」 | **已过期**：`ca95f1e` 已在 `origin/main`，`cmd/analyticsservice/main.go:46-94` 已接 token，旧 k8s analytics 清单 `:62-69` 已有 secretRef（清单 2026-10-26 已删） | ⇒ H6 无可开工代码单 |
 | 15 | 本版 H5：「X0 生产者是本仓单可施工」 | **已证伪**：orchestration 无 artifact 写入端点；core `cmd/worker` / `internal/orchestrationworker` 对三 hash 零命中 | ⇒ 归 §5 ⑱，跨仓 |
 | 16 | data QT-40 X1d：「建表（19 张）」 | **实际 23 张**：`market` 19 + `ingest` 4（`TableNames()` 23 条） | ⇒ 改 data 台账表数 |
 | 17 | 本版 §5 ④：「第二写者已消解」 | **不成立**：只停了 2 条；core 仍写 `market.index_daily` 与 `public.*` | ⇒ 新增 ⑰ |

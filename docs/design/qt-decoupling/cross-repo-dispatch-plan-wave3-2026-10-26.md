@@ -60,7 +60,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 | **K2** | 撤认领 `index_daily` | data | ⑰：删重复 DDL / C 集 / 豁免行 / 归属行，加「本仓不建该表」护栏 | 无 | Go（CI） | ⬜ 可立即派 |
 | **K3** | 幂等错误映射 + 回执保留期 | broker | ㉒R10 两处映射改 `ErrIdempotencyStoreUnavailable`；⑨ 加 `reserved_at` 部分索引 + 90 天清理（只删 `ack IS NOT NULL`） | 无 | Go（CI） | ⬜ 可立即派 |
 | **K4** | `/report` 结论态放行 | core | ⑲：`job.Status != "completed"` 的 4 处 404 改成三态（不存在 404 / 未完成 409 / 失败 409）+ openapi 同步 | 无 | Go（CI） | ⬜ 可立即派 |
-| **K5** | 部署路径两个真 bug | core | `Dockerfile.service` 删已删除的 `./cmd/strategy`；`check_deploy_consistency.py` 解析 `BindEnv` 别名（当前假阳性） | 无 | Docker（可选）+ Go | ⬜ 可立即派 |
+| **K5** | 部署路径两个真 bug | core | `Dockerfile.service` 删已删除的 `./cmd/strategy`；`check_deploy_consistency.py` 解析 `BindEnv` 别名（当前假阳性） | 无 | Docker（可选）+ Go | ✅ 已落（2026-10-26，`605f6f4` 前身：checker exit 0 + 破坏验证） |
 | **K6** | testid 窄例外 | ui | ⑳：`NavTiles.vue` / `MarketMetrics.vue` / `AppSidebar.vue` 只加 `data-testid`，单独 commit | 无 | Node | ⬜ 可立即派 |
 | **K7** | artifact 写端点 + R5 | orchestration | ⑱：引 kit + 端点级鉴权 + `POST /api/runs/{id}/artifacts`（service 角色） | 无（kit `v0.1.4` 已发） | Go（CI） | ⬜ 可立即派 |
 | **K8** | promote 闸门鉴权与留痕 | strategy | ⑫：引 kit + 三端点 service-token + 审批人取 core 网关 `X-Actor` + 落审计 | 无（kit `v0.1.4` 已发） | Go（CI） | ⬜ 可立即派 |
@@ -149,7 +149,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 - **③ 要求**：① 删掉 `Dockerfile.service` 里 `cmd/strategy` 那一行（**不改**另外两行的产物名与镜像结构）；② `check_deploy_consistency.py` 解析 `BindEnv` 的**全部**字符串参数（含 `Get*` 与 `os.Getenv` 的既有形态不变）；③ 若 CI 有该步骤，保持其位置不变。
 - **④ 约束**：**不**把六个服务仓纳入 compose（那是 §5-C 的裁决，不在本单）；**不**改 compose 的服务名与端口；**不**动 `deploy/k8s/` 的任何清单；**不**新写 Dockerfile。
 - **⑤ 验收**：① `docker build -f Dockerfile.service .` 退出 0（有 Docker 的环境；无 Docker 时以「`go build ./cmd/analysis ./cmd/data` 均退出 0」代替并如实注明）；② `python tools/check_deploy_consistency.py` 退出 **0**；③ **破坏验证**：把 `BindEnv` 的别名参数删到只剩第一个 ⇒ 该脚本必须重新退出 1（证明它不再假阳性，是真的在读）；逐字节还原后退出 0；④ compose 配置语法校验（`docker compose config -q`，有 Docker 时）。
-  **本轮实测基线（2026-10-26，可复跑）**：`python tools/check_deploy_consistency.py` 退出 **1**，报恰好两条 —— `analysis-deployment.yaml` / `data-deployment.yaml` 注入的 `JWT_SECRET`「全仓没有任何读取点」。修好后这两条必须消失且退出 0。
+  **本轮实测基线（2026-10-26，可复跑）**：修前 `python tools/check_deploy_consistency.py` 退出 **1**，报恰好两条 —— `analysis-deployment.yaml` / `data-deployment.yaml` 注入的 `JWT_SECRET`「全仓没有任何读取点」。**已修（2026-10-26，裁决 #10）**：新增 `_GO_BINDENV_CALL` 收别名实参 ⇒ 复跑 **exit 0**；破坏验证（删 `config.go:25` 的别名）复现两条、exit 1，还原后 exit 0。另 #5 已删 `risk-` / `analytics-deployment.yaml`，k8s 清单 10 → 8 份。
 - **⑥ 边界**：只修这两处。部署形态该不该纳入六服务，留给裁决。
 
 ### K6 · ui 三个组件的 `data-testid` 窄例外
