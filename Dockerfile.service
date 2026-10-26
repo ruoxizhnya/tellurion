@@ -17,13 +17,11 @@ COPY . .
 
 # Build all services
 #
-# ODR-021 (P1-15) 已把 risk / execution 合并进 analysis，cmd/risk 与
-# cmd/execution 随之删除。这两行此前一直留着，docker build 会直接
-# `stat /app/cmd/risk: directory not found` 失败 —— 也就是说 compose 这条
-# 链路从服务合并那天起就没能构建成功过（本地一直是 go run，CI 也不构建镜像，
-# 所以没人撞到）。
+# ODR-021 (P1-15) 删了 cmd/risk 与 cmd/execution；REV-16 又删了 cmd/strategy
+# （策略资产/编译已拆到 tellurion-strategy）。这里只构建本仓仍存在的两个进程：
+# analysis-service 与 data-service。历史教训：删目录时必须同步删 Dockerfile 的
+# build/COPY 行——编译期不检查，只有真 build 才炸，而 CI 不构建镜像就会一直静默。
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/data-service ./cmd/data && \
-    CGO_ENABLED=0 GOOS=linux go build -o /app/strategy-service ./cmd/strategy && \
     CGO_ENABLED=0 GOOS=linux go build -o /app/analysis-service ./cmd/analysis
 
 # Final stage
@@ -36,7 +34,6 @@ RUN apk add --no-cache ca-certificates curl
 
 # Copy binaries from builder
 COPY --from=builder /app/data-service /app/data-service
-COPY --from=builder /app/strategy-service /app/strategy-service
 COPY --from=builder /app/analysis-service /app/analysis-service
 
 # Copy config files

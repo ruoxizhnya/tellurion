@@ -1,0 +1,131 @@
+# tellurion · 六个服务仓的本地聚合（ADR-036 G0）
+#
+# 用法：
+#   docker compose -f docker-compose.services.yml up --build
+#
+# 定位：只跑「六个服务 + PostgreSQL」，用于验证每仓的 Dockerfile / deploy / health。
+# core（analysis/agent）不在本文件里；需要时用 core 自己的 compose 或本机进程，
+# analytics 的 ANALYTICS_CORE_URL 默认指向宿主 8085。
+#
+# 数据自治：同一个 PG 实例、按 schema 隔离（market/ingest、risk、strategy、analysis、run），
+# 不要求每个服务一个物理库（ADR-036 §3）。
+name: tellurion-services
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tellurion
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tellurion-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tellurion"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  data:
+    build:
+      context: ../tellurion-data
+      dockerfile: Dockerfile
+    image: tellurion-data:dev
+    command: ["-addr", "0.0.0.0:8081"]
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+      DATA_MARKET_SCHEMA: market
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  risk:
+    build:
+      context: ../tellurion-risk
+      dockerfile: Dockerfile
+    image: tellurion-risk:dev
+    command: ["-addr", "0.0.0.0:8089"]
+    ports:
+      - "127.0.0.1:8089:8089"
+    environment:
+      RISK_DATABASE_URL: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  strategy:
+    build:
+      context: ../tellurion-strategy
+      dockerfile: Dockerfile
+    image: tellurion-strategy:dev
+    command: ["-addr", "0.0.0.0:8090", "-cache-dir", "/data/artifacts"]
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      STRATEGY_DATABASE_URL: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+    volumes:
+      - tellurion-strategy-artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analytics:
+    build:
+      context: ../tellurion-analytics
+      dockerfile: Dockerfile
+    image: tellurion-analytics:dev
+    command: ["-addr", "0.0.0.0:8087"]
+    ports:
+      - "127.0.0.1:8087:8087"
+    environment:
+      ANALYTICS_DATABASE_DSN: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+      ANALYTICS_CORE_URL: ${ANALYTICS_CORE_URL:-http://host.docker.internal:8085}
+      ANALYTICS_DATA_URL: http://data:8081
+      ANALYTICS_ARTIFACT_URL: http://orchestration:8088
+      ANALYTICS_ORCHESTRATION_URL: http://orchestration:8088
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  orchestration:
+    build:
+      context: ../tellurion-orchestration
+      dockerfile: Dockerfile
+    image: tellurion-orchestration:dev
+    command: ["-addr", "0.0.0.0:8088"]
+    ports:
+      - "127.0.0.1:8088:8088"
+    environment:
+      ORCHESTRATION_DSN: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  broker:
+    build:
+      context: ../tellurion-broker
+      dockerfile: Dockerfile
+    image: tellurion-broker:dev
+    command: ["-addr", "0.0.0.0:8091", "-account-id", "mock", "-cash", "100000000"]
+    ports:
+      - "127.0.0.1:8091:8091"
+    restart: unless-stopped
+
+volumes:
+  tellurion-pg:
+  tellurion-strategy-artifacts:
