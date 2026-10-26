@@ -89,10 +89,10 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 ### 7 · QT-51 合入
 
 - **事项**：执行 port 已在未合入分支落地（`git log` tip `e015a83`），Go 环境已恢复。
-- **裁决**：**rebase 到本地 main**（当前 `49cfdd5`，不是 origin/main），跑 `gofmt -l .` / `go build ./...` / `go vet ./...` / `go test ./... -count=1`，全绿后 ff merge；分支留 `archive/qt51-execution-port` tag 作回滚点。
-- **依据实测**：分支 `1 ahead`（origin/main `5b9dc11`）、本地 main 领先 origin **7 笔**（`git rev-list --count origin/main..main` = 7，本地 main `7735ab8`；本笔写入时记的「3 笔」与 #7 上一行记的「当前 `49cfdd5`」都是当时快照，**每推一笔就变，判据是现跑命令**）；本机已 `go build ./...` 通过（QT-51 工作树，EXIT=0），`vet` / `test` 本轮未跑。
-- **落地动作**：`git rebase main` → 四道门禁 → `git merge --ff-only`；不重写第二种形态。⚠️ **两条实测补充（2026-10-26 再复测）**：① 分支 tip 现为 `e015a83`、**1 ahead / 7 behind** 本地 main，真冲突只有 `docs/TASKS.md` 一处（Go 侧零冲突，取证见 wave3 K10 ③）；② 本机 Go 1.25.14 可用但**不在默认 Git Bash 的 PATH**，跑门禁前先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"`。
-- **代价**：一次全仓测试；rebase 冲突集中在 `cmd/analysis` 与 `pkg/backtest`。
+- **裁决**：**rebase 到本地 main**（以合入当时的本地 main 为准，不是 origin/main；裁决当时是 `49cfdd5`，本批落账后已到 `0617f54` —— 别照抄哈希），跑 `gofmt -l .` / `go build ./...` / `go vet ./...` / `go test ./... -count=1`，全绿后 ff merge；分支留 `archive/qt51-execution-port` tag 作回滚点。
+- **依据实测**：分支与 main 的差 = **branch-only 1 / main-only 10**（2026-10-26 本批落账后，`git rev-list --left-right --count main...task/qt51-execution-port` 现跑；本地 main `0617f54`、origin/main `5b9dc11`，`git rev-list --count origin/main..main` = 10）。同一天先后记过 3 / 7 / 10 —— **本批自己的三笔文档提交就把它从 7 推到 10**，所以这两个数只许现跑，不许引用。本机 `go build ./...` 已通过（QT-51 工作树，EXIT=0），`vet` / `test` 未跑。
+- **落地动作**：`git rebase main` → 四道门禁 → `git merge --ff-only`；不重写第二种形态。⚠️ **两条实测补充（2026-10-26 再复测）**：① 分支 tip `e015a83` 未变、**真冲突只有 `docs/TASKS.md` 一处**（两侧改动交集 3 个文件全是文档，Go 侧零冲突；取证见 wave3 K10 ③）；② 本机 Go 1.25.14 可用但**不在默认 Git Bash 的 PATH**，跑门禁前先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"`。
+- **代价**：一次全仓测试；~~rebase 冲突集中在 `cmd/analysis` 与 `pkg/backtest`~~ → **该估计已被实测证伪**：Go 侧零冲突，文档侧只有 `docs/TASKS.md` 一处真冲突（另两处自动合并）。
 - **落点 / 状态**：`tellurion:task/qt51-execution-port`；⬜ 待施工。
 
 ### 8 · `SVC-*` 立单状态
