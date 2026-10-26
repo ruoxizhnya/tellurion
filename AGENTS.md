@@ -17,7 +17,7 @@
 |---|---|---|
 | **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
 | `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.6.0`，2026-10-24 发版：QT-40 X1a 新增 `dataprotocol/` —— `UnifiedDataPoint` 七字段 + `ToJSON`/`DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465；`go.mod` 2026-10-25 实测已切，**禁 `replace`**） |
-| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.3`（2026-10-25）；本仓 **`require v0.1.1`**，QT-73 一期已切 `errors` / `decimal` / `clock` / `logging` / `httpclient` 五包（2026-10-25）；二期 `statistics` / `httpserver` 待 KT-10 后另单 |
+| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.4`（2026-10-25，`KT-11`：`role=service` 的 token 不再被 subject 的 `int64` 校验 401）；本仓 **`require v0.1.1`**（不受影响——本仓 `pkg/auth` 早有 `RoleService` 特例，QT-73 一期只切 `errors` / `decimal` / `clock` / `logging` / `httpclient` 五包，`auth` 不在其中）；二期 `statistics` / `httpserver` 已随 `KT-10` / `v0.1.3` 补齐，另单切包 |
 | `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
 | `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |
 | `tellurion-data` | 数据面唯一入口（connector / aggregator） | 触发后接管 `market` / `ingest`；本仓改为只读 API |
@@ -108,7 +108,10 @@
 
 > ⚠️ **本节的框图是"拆仓前的整体服务视角"**，用来讲清系统怎么搭，**不是本仓的目录说明**。
 > 本仓只实现其中两件：**analysis-service（:8085）** 与 **data-service（:8081）**；
-> 前端（Browser）在 `tellurion-ui`，AI 服务（:8086）在 `tellurion-agent`，其余能力服务尚未立项。
+> 前端（Browser）在 `tellurion-ui`，AI 服务（:8086）在 `tellurion-agent`；六个能力服务仓**已按 ADR-036（2026-10-26）定性为服务**：
+> G0/G1/G2 并行补部署、接口与数据，G3 切读/停写按依赖串行；risk = 控制面服务 + core 进程内裁决，broker = 服务（Mock MVP）。
+> 今天只有 data 读链与 risk 客户端（默认关）被本仓真消费，其余四条待 G3 —— 状态见
+> `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`。**不要把「仓已实装」读成「服务已接入」。**
 > 看本仓实际目录请直接跳 §3。
 
 **分层视角（ADR-023，顶层架构）**: 三层。**分界线是「能否无人值守」，不是「静态 vs 动态」**：
@@ -195,7 +198,7 @@ Browser (Vue SPA :5173)
 | ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`） | **AI 实验员 + 人类监督者实验室** — 三层模型（AI 编排 / 能力 / 数据）+ EquityDeep 降为数据底座 + 挖掘/红队双 agent + **校准优于准确率** | 编排者从 2 个收敛到 1 个；可监督性成为一等需求 |
 | ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`） | **策略执行载体是表达式，LLM 生成的代码只是 artifact** — 意图类型 → 确定性默认表达式映射；不做 `plugin.Open` | 起点确定、可审阅、可复现；**自由度在这里是负债** |
 
-详见: ADR.md（`tellurion-docs:docs/ADR.md`）（共 24 条 ADR：ADR-001~024）
+详见: ADR.md（`tellurion-docs:docs/ADR.md`）（**累计 36 条** ADR，编号 ADR-001~036 全部存在；**现行 30 条**：009/010/012 已归档、014 由 ADR-020 §6 取代、021/022 由 ADR-023 取代）
 
 ---
 
@@ -606,8 +609,8 @@ type Strategy interface {
 | 类型 | 目录 | 职责 | 示例 |
 |------|------|------|------|
 | 设计文档 | `docs/` | 解释系统设计原理和架构 | VISION.md, SPEC.md |
-| 决策文档 | `docs/adr/` | 记录架构决策的上下文和影响 | adr-001 ~ adr-024 |
-| 运营决策 | `docs/archive/odr/` | 记录运营/流程/治理决策 | odr-001 ~ odr-065 |
+| 决策文档 | `tellurion-docs:docs/adr/`（本仓已随文档拆仓迁走） | 记录架构决策的上下文和影响 | 现行 31 条（编号至 adr-036） |
+| 运营决策 | `tellurion-docs:docs/archive/odr/`（本仓已迁走） | 记录运营/流程/治理决策 | odr-001 ~ odr-067 |
 | 任务文档 | `docs/TASKS.md` | 统一追踪可执行任务 | — |
 | 参考文档 | `docs/` | 持续维护的状态/进度文档 | ROADMAP.md, TASKS.md |
 | 指南文档 | `docs/guides/` | 迁移、部署等操作指南 | archive/migration-phase3-to-phase4.md |
@@ -842,6 +845,7 @@ Please continue from where we left off.
 - **审计状态** (2026-06-29 ODR-043): 4 维度审计完成, 12 Critical / 18 High / 10 Medium 问题点; 5 真实 bug 已识别待修复
 - **架构定位** (2026-09-16, Accepted — ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`） / ODR-048（`tellurion-docs:docs/archive/odr/odr-048-top-level-product-redefinition.md`）, 取代 ADR-022（`tellurion-docs:docs/archive/superseded-adr/adr-022-unified-research-platform.md`） / ADR-021): **一间单人自托管实验室** — AI 实验员（唯一编排者，会循环）操作底座，人当实验室主任；EquityDeep 从「工作面」**降为数据底座**（产业链图谱 + 研究洞察），不再是第二个 agent。三层模型见 §2。执行载体见 ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`）（表达式，不是 LLM 生成的代码）。
 - **全栈静态审查** (2026-09-21, ODR-065（`tellurion-docs:docs/archive/odr/odr-065-fullstack-static-review.md`）): 24 项发现（5 Critical / 9 High / 6 Medium / 4 Low）。**Critical 5 项与 High 8 项已全部关闭**（AUD-01~13）；Medium/Low 在 [TASKS.md](docs/TASKS.md) 的 AUD-14~29。
+- **第四轮·目的对齐审计** (2026-10-26, [purpose-alignment-audit-2026-10-26.md](docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md)): 底座主线（W0/W1-W2/S3/contracts+kit）未跑歪；**X 线支线跑偏** —— 六仓实装（+51k Go LOC）而 core 未减负，只有 data 一条读链真接线，部署路径曾断（`Dockerfile.service` 曾 build 已删除的 `cmd/strategy`；2026-10-26 已删该 build/COPY 行），risk/analytics 有 k8s 清单但无升格 ADR，4 簇 DDL 双 owner（market/run/strategy/ai）+ risk 裁决权双真相。**候选处置未立单，不得开工**。
 
 ### 任务追踪
 > **Phase 3 任务追踪**: [docs/TASKS.md](docs/TASKS.md)
@@ -872,6 +876,9 @@ Please continue from where we left off.
 | **基本面深度不足** (`stock_fundamentals` 仅 pe/pb/roe 三标量) | **部分收口（DBT-07，2026-10-17）**：`stock_fundamentals` **已灌数** —— 真库 112 行（Tushare `fina_indicator`，600000.SH / 000001.SZ 全期截面）；此前 0 行的真因是**从未执行过灌数**（被「免费额度不可得」的误判挡住）。灌数中逮到并修复真缺陷：`fina_indicator` 会剔除该期全空的列，旧实现按固定索引解包 ⇒ roe 值写进 pe 列；现按响应 `fields` 建列名→索引映射（钉子 `pkg/data/dbt07_normalize_nameindex_test.go`）。⚠️ **深财务纵向（`fundamentals_detail`）的阻塞理由已被 DBT-11 实测订正（2026-10-19）** —— 旧登记「依赖 `ingest.raw` 归档快照，当前无 raw 入库（`EQD-P1-2` 待做）」**两句皆假**：该表今天 12,108 行，自动归档腿早在生产装配里（`pkg/data/tushare.go:220` `call()` 内 → `pkg/data/tushare_raw.go:31 archiveRaw` → `pkg/storage/ingest_raw.go:50 SaveRawIngest`），EQD-P1-2 亦已于 `7b5dd8e`（2026-09-15）结案（门/字典/normalizer/五个纵向因子读方全在册）。真正缺的是两件：① **没有生产者往 `POST /api/ingest/equitydeep` 投 snapshot**；② Tushare 免费权限**给不出**所需 8 个 field_code —— 纯读库取证（0 次 API 调用）：全仓 25 条 `tushare.fina_indicator` 的 `fields` 只有一种形状 `[ts_code, ann_date, end_date, roe, roa, gross_margin]`，与 `total_revenue` / `operating_cost` / `contract_liability` / `ocf_net` / `net_profit_attr` / `total_assets` / `equity_attr` / `inventory` 一个都不对得上，且这 6 名经字典查找全部 miss。写入门已于 2026-10-19 **端到端真跑一次**（真 HTTP 门 → 真库 → PIT 读回，`0 → 5 → 0` 行、零残留；`pkg/data/equitydeep` 覆盖率 0% → 100%）。⇒ 仍**不要**假设深财务纵向字段可用；读方降级语义是 `ErrNoFundamentalsDetail`（`pkg/data/equitydeep/equitydeep.go:67`）。`pe/pb/roe` 三标量已可用，但银行股无 pe （`GetFundamentalsSnapshot` 带 `AND pe IS NOT NULL`，快照 0 行 ≠ 表内无数据）。工单：`docs/TASKS.md` 的 DBT-16（生产者）与 DBT-14（`fetched_at` 契约漂移）。逐表结论见 SPEC「深财务族数据缺口」节 |
 | **eastmoney 日线资金流端点本机不可达**（[DATA-10]，2026-10-16） | 端点结论**不变**：`/api/qt/stock/fflow/daykline/get` 这条 path 本机 push2 恒 502、push2his 连接重置（浏览器同结果；同主机 `ulist.np` / `kline` / `fflow/kline` 都 200 —— 不是 UA、不是参数、不是本机 TLS 栈）。但**「表仍是 0 行」已收口（DBT-09，2026-10-19，`1a1bb38`）**：`capital_flow` 链首选换成 Tushare `moneyflow`（真库实测 `code=0` 可得），eastmoney 降为兜底 ⇒ `capital_flow` **0 → 18 行**。⚠️ **口径代价要如实读**：表内数值现在是 **Tushare 的分档成交额**形态（万元 ×10000 在同步边界折成元），`main_net` / `main_buy_amount` / `main_sell_amount` / 两个 ratio / `retail_*` / `close_price` / `change_pct` 本源不给 ⇒ 落 NULL（实测 18/18 全 NULL，不是 0）；两族口径混在同一张表里**靠 `source` 列区分**，任何读方按东财含义解释这些列之前必须先读 `source`。该表目前**零读方**（无 handler / 无因子 / 无前端读它），故刻意**不进** cron 名单（日更 = 把当天整桶免费配额烧在没人读的表上）；用途归 DBT-17。真源腿挂在 build tag `dbt09live`（`cmd/data/dbt09_moneyflow_live_test.go`），`data10live` 那条东财腿仍红在源侧 |
 | **~~`parseEastmoneyDate` 解析失败静默回落「今天」~~（DBT-13 ✅ 收口 2026-10-21）** | **已修，不再是需要规避的问题**：`pkg/data/source/eastmoney_sectors_adapter.go` 的日期解析曾在不认识的形状时 `return time.Now().UTC()` —— 把「我读不懂」接管成「日期就是今天」，违反本仓「缺失≠一个看起来合理的值」。2026-10-19 被真源腿撞上实测： datacenter 龙虎榜返回**带时刻**的 `"2026-09-24 00:00:00"`，而它原先只认三种纯日期形状（其中 `"2006-01-02"` 还重复列了一次）⇒ 每一行落库日期都变成当天。DBT-10 已补齐带时刻两种形状、并在 top_list 路径加了「TRADE_DATE 缺失/空串当场失败」+「越界窗口整页失败」两道兜底，**回落本体已收口（DBT-13，2026-10-21）**：`parseEastmoneyDate` → `parseEastmoneyDateStrict`，认不出即 `ok=false`，全仓 `time.Now()` 作为**解析兜底**的形状只剩这一处（多行 grep 取证：`pkg/clock`、`pkg/live/margin`、`cmd/analysis` 那三处是墙钟提供者，不是兜底）；三个调用点全部迁完 —— `fetchTopList` 对「没给日期」「读不懂」分别当场失败（与「窗口越界」三种报文互不相同，各有断言），`juchao_adapter.go` 的 placeholder 调用已删、改按实测形状读 `announcementTime`（真源取证：epoch **毫秒**，`1786723200000` ⇒ 北京时间的 2026-08-15 午夜；折成**交易所日历日**落 UTC 零点，与同族链路一致且不依赖机器时区），兜底腿是 `adjunctUrl` 的日期段，两条都读不懂 ⇒ 拒收该行。**遗留口径（如实登记，不是缺陷）**：`fetchSectorList`（`:134`）与 `fetchLimitUpPool`（`:596`）的 `tradeDate` 取墙上时钟，因为这两个端点是**当日快照**、源不给逐行日期 —— 读这两张表前先知道「日期 = 跑作业那天」是语义设定而非解析结果。判据与取证见 `docs/TASKS.md` DBT-13 结案记录 |
+
+| **`check_deploy_consistency.py` 假阳性**（2026-10-26） | 它报 `JWT_SECRET`「全仓无读取点」，实际读点在 `pkg/bootstrap/config.go:25` 的 `v.BindEnv("auth.jwt_secret", "JWT_SECRET", "AUTH_JWT_SECRET")`；检查器 `tools/check_deploy_consistency.py:203-207` 只解析 `BindEnv` 第一个参数。**修好前，这条门禁的红不能当结论**（该步在 CI 里）。修法与破坏验证见第四轮审计 P0-3。 |
+| ~~**`Dockerfile.service` 构建不出来**~~（**2026-10-26 已修**） | 原 `:26` 仍 `go build ./cmd/strategy`（目录 REV-16 已删），compose 的 data/analysis 都用它。**已删该 build/COPY 行**；`SVC-DEPLOY-01` 继续跟踪聚合 compose 与 CI 镜像构建。 |
 
 ### ODR-011 Multi-Source Integration Risks (CR-48, ODR-012)
 

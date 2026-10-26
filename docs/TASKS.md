@@ -1,7 +1,7 @@
 ---
 status: active
-last-verified: 2026-10-24
-verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
+last-verified: 2026-10-26
+verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务、G0/G1/G2 并行、G3 切读串行、旧实现退役总单）；第四轮·目的对齐审计（2026-10-26，见 `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`；不改既有单状态，只加审计指针）。第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
 ---
 
 # TASKS — 未完成项（第 4 代）
@@ -11,6 +11,22 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > 状态：`⬜ 待做` / `🔶 进行中` / `⛔ 阻塞（有未解除前置）` / `✅ 完成（附日期）`
 > 每张 task 六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../AGENTS.md)。
 
+> **第四轮·目的对齐审计（2026-10-26）**：审的是「做出来的部分有没有偏离原始目的」，不是进度。结论：**底座主线（契约冻结 W0 / 执行正确性 W1-W2 / agent 去 replace S3 / contracts+kit）没有跑歪**；**X 线服务拆分支线跑偏**——六仓已实装（合计 51k Go LOC）、core 一件没减（202k LOC 仍在原地）、今天只有 data 一条读链真被 core 消费、部署路径曾断（`Dockerfile.service` 曾 build 已删除的 `cmd/strategy`；**2026-10-26 已删该 build/COPY 行，见下**）、risk/analytics 有 k8s 清单但没有升格 ADR。另有 4 簇 DDL 双 owner（market / run / strategy / ai）+ risk 裁决权双真相。**审计只列证据，不代裁**；候选单见该文 §六，**未立单不得开工**。正文：`docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`。本文件不镜像正文。
+>
+> **第五轮·并行服务化 MVP（2026-10-26，ADR-036）**：六仓定位为**服务**；**G0/G1/G2 并行**补 `Dockerfile` + 各仓 `deploy/` + `config` + 接口/数据，**G3 切读/停写按依赖串行**，G4 各服务收口；core 热路径不拆，risk 保留「控制面服务 + 进程内裁决」，broker 先落 Mock 服务。各仓任务正文在 `tellurion-*:docs/TASKS.md` 的 `SVC-*-G0` / `SVC-*-G3`；core 只留跨仓退役、双 owner 清单与部署修复三张总单（下表），**不镜像各仓正文**。
+>
+> | 单号 | 类型 | 目标 | 验收 |
+> |---|---|---|---|
+> | `SVC-DEPLOY-01` | core | 修 `Dockerfile.service`（删已删除的 `cmd/strategy`）+ 建聚合 compose，作为本地唯一部署真相 | `docker compose -f docker-compose.yml -f docker-compose.services.yml config` 通过；core data/analysis/ai 可构建 |
+> | `SVC-DUAL-01` | core | 全量双 owner 清单（market / run / strategy / ai + risk 裁决权），逐表写 writer / reader / 新 owner / 四步状态 | 清单入 `docs/design/qt-decoupling/`；每行有 `repo:path:line`；无「不知道谁写」的表 |
+> | `SVC-RETIRE-INDEX` | core | 旧实现退役总单：data / run / strategy / risk / analytics / broker / ai 七条退役线，绑定各仓 G3 | 每条有 owner、删除对象、停写判据、回滚；旧路径零调用后才可标 ✅ |
+>
+> **退役单 ID**：`SVC-CORE-DATA-RETIRE` / `SVC-CORE-RUN-RETIRE` / `SVC-CORE-STRAT-RETIRE` / `SVC-CORE-RISK-RETIRE` / `SVC-CORE-AN-RETIRE` / `SVC-CORE-BROKER-RETIRE` / `SVC-CORE-AI-RETIRE`；逐条覆盖矩阵见审计 §五之二（3 条已有、4 条缺删除）。
+>
+> **⚠️ 立单状态（2026-10-26 复测）**：上表三行与七个退役 ID **均无六字段正文**（全文件只在 `:20-24` 的表格里出现），按「未立单不得开工」**暂不可派发**。可复用工件已入库：`Dockerfile.service`（只 build `./cmd/data` / `./cmd/analysis`）与 `docker-compose.services.yml`（六服务 + PG16，`config -q` 通过）；build/run 仍未验（本机无 Go、Docker daemon 未起）。
+>
+> **施工记录（2026-10-26）**：六仓 `Dockerfile` + 各仓 `deploy/` 已落；`docker compose config` 6/6 + 聚合 1/1 通过；**本机 Docker daemon 未起，build/run 未验**。broker 新增 `cmd/brokergateway`（`/healthz`、`/version`），订单 HTTP 面归 `SVC-BROKER-G1`。端口：data 8081 / risk 8089 / strategy 8090 / analytics 8087 / orchestration 8088 / broker 8091。
+>
 > **第三轮裁决入账（2026-10-25）**：第二轮 16 条已全部拍定（主任口径「全部按建议」），正文见 `docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md` §五。本仓直接相关：① QT-51 = **收口分支 `task/qt51-execution-port`（`7c89aae`，1 ahead / 9 behind）**，不重做第二种形态；② contracts 新建 `risk` 包（`Bundle`/`ParseBundle` 留 risk）；⑤ 回填只批 9 张（**运维执行**）；⑰ `market.index_daily` owner = core；⑱ X0 写端点前置 orchestration 的 R5；⑲ `/report` 改结论态放行；⑫ promote 走面 B1；⑬ kit 发版后本仓升 pin。**本文件不镜像正文。**
 
 **本代的特殊性**：这不是一份「新功能清单」，是**先把契约冻死、再改实现**的施工顺序；同时按 ADR-D29 **把契约从本仓拆成独立仓**（S0 可立即做，S1 排在 W0 后，S2/S3 逐级验收）。wave-0 五行**不改任何行为**（只写契约/常量/差异报告），目的是让后面 25 张单不必返工。**跳序施工 = 第二次 ABI 破坏 + 基准全量重跑**。
@@ -916,11 +932,15 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > **⚠️ 2026-10-25 18:45 实测订正（⑭ 的落地前提被推翻）**：`QT-32-A` 虽已 ✅，但它登记的 ⑦ 是后续单，其中 ⑦③ 明写：「『未过 promote 的产物被回测路径拒绝』的**执行侧**那条腿在 core + 资产服务（**QT-32 主单 ⑤**），本仓无法替它作证」⇒ **本单 ⑤ 的执行侧腿仍待做**。
 > 而该腿的落点（promote 端点）**今天既无鉴权也无调用方**：strategy 仓**零鉴权**（全仓 `JWT_SECRET|Bearer |Authorization|RequireRole|Roles\b` = **0 命中**、无 auth/role/guard/middleware 文件、`go.mod` **无 `tellurion-kit`**、`internal/httpapi/api.go:42-56` 的 **12 条路由全部无保护**），core 全仓 `grep "/promote"` = **0 命中**。
 > ⇒ **本单 ⑤ 在「审批人从哪来」被裁之前不可施工**；详见 [第二批分组方案 H8 与 §5 ⑫](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)。
->
+
 > **⑭ 审批人身份 = JWT claims 的 `sub`；闸门落在 agent 仓，strategy 侧只保留状态机**
 > **依据（实测）**：strategy 侧**审计维度缺两项** —— 全仓 `approved_by|approver|audit` = **0 命中**（无审批人字段、无独立审计表）；`internal/asset/pgstore.go:393` `Promote(...)` 的 `log` 参数在 `service.go` 调用处**硬编码为 `"promoted"`** ⇒ 落进 `strategy.strategy_artifacts.compile_log` 的只有「结论」，**没有「谁批的」**。
 > **落地动作**：① strategy 侧 `Promote` 端点增**必填**审批人入参（**不许 caller 自报身份** —— 沿用 risk 仓 `Actor` 字段用 `json:"-"` 防自报的做法，或直接从 JWT claims 取）；② 落库进 `compile_log`（追加式，已有机制）或新开 `strategy.strategy_promotions` 审计表（留痕三件套：**审批人 / 时间 / 结论**）；③ agent 仓 `QT-32-A` 把「promote 人工闸门」写成必经步骤，验收含「未过 promote 的产物被回测路径拒绝（fail-closed 用例）」。
 > **代价**：③-② 要求的「闸门记录进审计，审批人/时间/结论留痕」**只落三分之一**（今天只有「结论」的一部分）⇒ AI 产物的生产责任链断在「谁批的」这一环，日后无法追责。
+
+> **🔁 2026-10-26 订正（上面「不可施工」的前提已解除；⑭ 已被 ⑫ 取代）**：⑫ 已裁（面 B1：promote 走 **core 网关 + `X-Actor`**；strategy **只对 promote/internal 三端点**引 kit service-token 校验，端口仅集群内可达），且 kit **`v0.1.4` 已发版并 push**（service token 的非数字 subject 不再 401；risk/data/analytics 三仓已升 pin）。⑭「审批人取 JWT `sub`」因此**没有承载体**（strategy 无用户态登录），实现口径以 ⑫ 为准。
+> ⇒ **⑤ 拆成两半**：**strategy 侧**（引 kit + 三端点鉴权 + 审批人留痕）= 第三批 **K8**；**core 执行侧拒绝腿**（未 promote 的产物被回测路径 fail-closed）= **K11**（前置 K8 + K10 合入）。
+> 本单整体仍记 **⬜**——⑤ 的两半都还没做，不因「前提解除」而改状态。分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md)。
 
 ---
 
@@ -1221,7 +1241,7 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 >
 > **⚠️ 上面那句已过期（同日 2026-10-25 结案，B6-1）**：agent 对 core 实现包的 import 现为 **0 处**，`go.mod` 既无 `require tellurion` 也无任何 `=>`，CI 不再 checkout core —— `replace ../tellurion` 已删（判据与取证记在 QT-07 ⑥ 结案两条里）。G10 那句「六类动作的 HTTP 客户端」是 agent 侧的**功能余项**，不再是 S3 的前置。本条原文照留只为记录当时的判断，**不要照抄进新单**。
 
-### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] 🔶（实现已在未合入分支，待复取 + 裁决）
+### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] 🔶（实现已在未合入分支，裁决已下，待复取）
 
 - **① 目标**：改实盘撮合不会悄悄改变回测口径；两者共享的是**契约**，不是实现。
 - **② 上下文**：BE-02；实测 `pkg/backtest` 对 `pkg/live` 的 import 在 **6 个文件**（3 生产：`engine.go` / `options.go` / `execution/live_bridge.go`；3 测试：`fakes_test.go` / `signal_reconcile_e2e_test.go` / `execution/live_bridge_test.go`）——原写「三处」只是生产面；main 上无设计，设计在未合入分支（见下）。
@@ -1234,6 +1254,10 @@ verified-by: 第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（AD
 > `pkg/backtest` 对 `pkg/live` import = **0**；`pkg/backtest/execution/port.go` 已落 `ExecutionPort`；设计见 `docs/design/qt-decoupling/qt51-execution-port.md`、等价性报告见 `docs/test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md`（两文件都在该分支上，main 没有）。
 > **分支自述「已裁决并落地（2026-10-26）」，但 main 的 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 没有这条裁决** ⇒ 合入前需主任确认。本单在 main 上记 **🔶**，不记 ✅。
 > **未复跑**：本机 `PATH` 无 `go`（`go: command not found`），分支的门禁输出是自述，不是本轮复取结果；复取命令见 [`cross-repo-dispatch-plan-wave2-2026-10-25.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) 的 H2 节。
+
+> **🔁 2026-10-26 订正（上面「裁决记录没有这条裁决」不成立）**：实测 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) **§五 ①（:371）已有**该裁决 —— 「拆 port，以分支 `task/qt51-execution-port`（`7c89aae`）为基线收口；不再执行 b 的『删 shim + `LiveBridge` 外移』；5 个零调用 shim 合入后另立小单删」。
+> ⇒ 本单**不缺裁决**，缺的只有两件：**rebase**（分支实测 **1 ahead / 13 behind** main（2026-10-26 复测），此前记的 6 / 9 / 11 / 12 behind 都是旧快照）与**在有 Go 的环境复跑门禁 + 重跑等价性报告**。
+> 施工分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md) 的 **K10**（⛔ 等 Go 环境）。
 
 ### QT-52 · 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价）[P1] ✅（2026-10-22）
 

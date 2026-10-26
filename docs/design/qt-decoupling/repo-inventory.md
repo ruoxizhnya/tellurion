@@ -80,7 +80,7 @@ require github.com/ruoxizhnya/tellurion v0.0.0
 
 > 占位仓的含义：**有仓、有边界、无实现**。README 写明触发条件，AGENTS 写明「台账出现本仓单号前不要写实现」，避免 agent 进去后凭空造代码。
 
-### 1.2 X 线六仓 × ADR-027 §2 对账（M5 硬前置，✅ 2026-10-21 结案）
+### 1.2 X 线六仓 × ADR-027 §2 对账（M5 硬前置，✅ 2026-10-21 结案；⚠️ **2026-10-26 已被 ADR-036 取代**——六仓 = 六服务，以下保留作历史对账）
 
 > **判据来源**（逐条读原文，不转述）：`tellurion-docs:docs/adr/adr-027-modular-decomposition-to-independent-services.md` 的 §2.1 / §2.4 / §2.6.1 / §2.6.2 / §2.6.4 / §4 / §7（状态 **Proposed**），配合 [`service-extraction-plan.md`](service-extraction-plan.md) §1 的五条判据。
 > **ADR-027 的拓扑口径**：§2.6.4 服务拓扑 **3 → 5** = 回测服务 · ai-service · 策略服务 · data-service · reduction-service（compose 容器 7）。X 线列的是六个**能力边界**，六个能力边界 ≠ 六个进程。
@@ -152,7 +152,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 | **`docs/openapi.yaml`** | **归 core**（服务端点的唯一真相源，D7「现状不动」口径）；contracts 仓只收生成物 **`dto/`**（`oapi-codegen` 生成，**禁手改**，CI 重生成 diff 为空）。2026-10-20 补裁（refactor-plan-review M3）；agent↔core 新端点随 QT-50 ③-③ 入表 |
 | **`docs/SPEC.md`** | **归 core**（`ResultSpec` 等冻结规范文本）；S2 后其四契约节与 contracts 仓 `engine/` **互锁**——改一处必须同步另一仓（合规测试双向钉，见 `tellurion:docs/TASKS.md` 冻结 schema 变更评审硬规则）。2026-10-20 补裁（refactor-plan-review M3） |
 | **策略编译服务的落点** | **`tellurion-strategy:cmd/compiler`**（独立进程/容器、镜像锁 toolchain 版本，2026-10-21 **D 裁决**，见 `tellurion-strategy:docs/TASKS.md` QT-41b ②）。**修订** ADR-027 §2.6.1/§2.6.4「编译工具链在 ai-service」那句；不放 agent 仓（agent 只生成源码并调用编译服务），不新建第 13 个仓 |
-| **X 线六仓是否等于六个进程** | **不等于**（2026-10-21 M5 对账，见 §1.2）。拓扑内有位子的是 `data` / `strategy`；`risk` / `analytics` / `orchestration` / `broker` 四仓今天只到「仓内实现 + core 侧 port」，容器升格各需一条 ADR（ADR-027 §7「不同时拆多个服务」优先） |
+| **X 线六仓是否等于六个进程** | ~~**不等于**（2026-10-21 M5 对账，见 §1.2）~~ → **ADR-036（2026-10-26）已裁：六仓 = 六服务**。G0/G1/G2 并行补部署、接口与数据，G3 切读/停写按依赖串行；risk 保留「控制面服务 + core 进程内裁决」；broker 先落 Mock 服务。旧 M5 结论保留作历史 |
 
 ---
 
@@ -162,7 +162,7 @@ git commit -m "chore: 改名到 tellurion" && git push -u origin main
 > 这张表在 2026-10-20 审查时建立——之前 `cmd/dualrun` 的归属只写在 `tellurion-orchestration` 的 AGENTS 里，等于没人知道去哪看。
 >
 > **当前 7 条编号（U2~U8）**：U1 已于 2026-10-20 裁决（`cmd/dualrun` 留 core，见 §3）；U3 已于 2026-10-21 裁决作废（`strategy_state` 不迁 `run`，见下）。**编号不回收**——U1 留空号，避免各仓文档里的 `U3` 指针失效。
-> **U6 / U7 / U8 由 2026-10-21 的 M5 对账开出**（来源见 §1.2 的 R1 / R4 / R6）；三条都**不阻塞 X 线的 port 收口**，但阻塞对应仓的容器升格。
+> **U6 / U7 / U8 由 2026-10-21 的 M5 对账开出**（来源见 §1.2 的 R1 / R4 / R6）；三条都**不阻塞 X 线的 port 收口**。**2026-10-26 ADR-036 后，容器升格不再逐仓另立 ADR**：ADR-036 是总纲；单服务切读/停写用本仓任务单记录，拓扑再变仍须新 ADR。
 
 | # | 待裁事项 | 现状 | 备选与倾向 | 影响 |
 |---|---|---|---|---|

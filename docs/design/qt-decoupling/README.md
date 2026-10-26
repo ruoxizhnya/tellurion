@@ -1,6 +1,6 @@
 # qt-decoupling · 解耦与模块化重构设计集（索引）
 
-> 建立：2026-10-19 ｜ 状态：**部分已裁决/已定稿**（D24/D25/D26/D28 用户拍板、D29 分仓拓扑、**D30 仓清单与命名**）；其余为草案。**全部未实施**（实现前须按台账立单走验收）
+> 建立：2026-10-19 ｜ 状态：**部分已裁决/已定稿**（D24/D25/D26/D28 用户拍板、D29 分仓拓扑、**D30 仓清单与命名**）；其余为草案。**部分已实施**（D5 装配外移、D31 分仓形态等已落；**实施状态以 `tellurion:docs/TASKS.md` 台账为准**，本文只记设计与裁决。第四轮目的对齐审计见 [purpose-alignment-audit-2026-10-26.md](purpose-alignment-audit-2026-10-26.md)）
 > 范围：让 tellurion 从「核心仓强耦合 + agent 编译期绑定」演进为**端口化模块化单体（Ports & Adapters）**；「切成独立服务」保留为随时可做的能力，而非现在就付出的代价。
 > 对齐既有裁决：ADR-027（先进程内模块化，服务拆分是可选后续部署形态）、ADR-028/029（表达力分层 + WASM 轨道）、ADR-031（内核可插拔）。
 > 升格路径：ADR-D 系列为本设计集内部草案编号；正式裁决后按 `tellurion-docs:docs/adr/` 既有流程升格（对照先例：`docs/design/kernel/kernel-pluggable-nt-ready.md` → ADR-031）。
@@ -107,6 +107,7 @@
 | [kernel-interface-map.md](kernel-interface-map.md) | Go 内核接口面清单（输入 5 类入口 / 输出面），契约外置的输入 |
 | [external-wasm-proposal-review.md](external-wasm-proposal-review.md) | 第三方 Wasm 方案评审（3 条不成立；发现 P0 缺陷 `WithCloseOnContextDone` 缺失） |
 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 头脑风暴记录（与 ADR-027 对齐、WASM 机制、contracts 三层、能力化模型） |
+| [purpose-alignment-audit-2026-10-26.md](purpose-alignment-audit-2026-10-26.md) | **第四轮·目的对齐审计（2026-10-26）**：五层证据链复核「已做部分是否偏离原始目的」；结论（底座主线未跑歪 / X 线支线跑偏）+ P0/P1/P2 发现 + 待裁项 + 本轮文档维护清单 |
 | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **分仓拓扑与命名（D29，施工前必读）**：五条 repo autonomy 不变量 + 分仓拓扑与命名规则（现 4 库；12 仓为上限/当前规划，以 repo-inventory 为准）+ domain 归属裁定 + 现状差距实测 + S0~S3 阶梯 + 8 步建仓 checklist + 跨仓依赖五规则 |
 
 ## 贯穿纪律（摘要）
