@@ -108,6 +108,7 @@
 | [external-wasm-proposal-review.md](external-wasm-proposal-review.md) | 第三方 Wasm 方案评审（3 条不成立；发现 P0 缺陷 `WithCloseOnContextDone` 缺失） |
 | [brainstorm-2026-10-19.md](brainstorm-2026-10-19.md) | 头脑风暴记录（与 ADR-027 对齐、WASM 机制、contracts 三层、能力化模型） |
 | [purpose-alignment-audit-2026-10-26.md](purpose-alignment-audit-2026-10-26.md) | **第四轮·目的对齐审计（2026-10-26）**：五层证据链复核「已做部分是否偏离原始目的」；结论（底座主线未跑歪 / X 线支线跑偏）+ P0/P1/P2 发现 + 待裁项 + 本轮文档维护清单 |
+| [core-governance-decision-materials-2026-10-26.md](core-governance-decision-materials-2026-10-26.md) | **core 治理 B 组决策材料（2026-10-26，不可执行 / 0 代码）**：部署面 owner 两选一 + `Dockerfile.service` 目标二进制清单 + 四道验收命令实测退出码；55 表全量归属清单（32 双 owner / 23 core 自有，逐行 `repo:path:line` + 对拍方式 + 停写条件）；索引退役判据（`pg_indexes` 前后快照、`DROP INDEX` 未裁项、7 个重名）；七条退役线机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单 |
 | [repo-topology-and-naming.md](repo-topology-and-naming.md) | **分仓拓扑与命名（D29，施工前必读）**：五条 repo autonomy 不变量 + 分仓拓扑与命名规则（现 4 库；12 仓为上限/当前规划，以 repo-inventory 为准）+ domain 归属裁定 + 现状差距实测 + S0~S3 阶梯 + 8 步建仓 checklist + 跨仓依赖五规则 |
 
 ## 贯穿纪律（摘要）

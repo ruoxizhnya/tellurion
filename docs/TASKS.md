@@ -23,7 +23,11 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **退役单 ID**：`SVC-CORE-DATA-RETIRE` / `SVC-CORE-RUN-RETIRE` / `SVC-CORE-STRAT-RETIRE` / `SVC-CORE-RISK-RETIRE` / `SVC-CORE-AN-RETIRE` / `SVC-CORE-BROKER-RETIRE` / `SVC-CORE-AI-RETIRE`；逐条覆盖矩阵见审计 §五之二（3 条已有、4 条缺删除）。
 >
-> **⚠️ 立单状态（2026-10-26 复测）**：上表三行与七个退役 ID **均无六字段正文**（全文件只在 `:20-24` 的表格里出现），按「未立单不得开工」**暂不可派发**。可复用工件已入库：`Dockerfile.service`（只 build `./cmd/data` / `./cmd/analysis`）与 `docker-compose.services.yml`（六服务 + PG16，`config -q` 通过）；build/run 仍未验（本机无 Go、Docker daemon 未起）。
+> **⚠️ 立单状态（2026-10-26 复测）**：上表三行与七个退役 ID **均无六字段正文**（全文件只在 `:20-24` 的表格里出现），按「未立单不得开工」**暂不可派发**。可复用工件已入库：`Dockerfile.service`（只 build `./cmd/data` / `./cmd/analysis`）与 `docker-compose.services.yml`（六服务 + PG16，`config -q` 通过）；build/run 仍未验（**2026-10-26 同日订正：本机有 Go 1.25.0 且三条门禁已跑通；Docker daemon 仍未起，镜像 build/run 未验**）。
+>
+> **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；两处代码注释漂移只登记未修。**
+>
+> **门禁基线（2026-10-26 本轮真实输出）**：`go build ./...` exit 0；`go vet ./...` exit 0；`go test ./... -count=1` exit 0（ok=70 / FAIL=0 / 无测试包=3）；`docker compose -f docker-compose.yml config -q` exit 0；`docker compose -f docker-compose.services.yml config -q` exit 0；两份合并 `config -q` 也 exit 0，**但合并后 8081 被 `data`（服务仓）与 `data-service`（core 进程）同时发布**；`python tools/check_deploy_consistency.py` **仍 exit 1**（2 条 `JWT_SECRET` 假阳性，未被本轮修）。
 >
 > **施工记录（2026-10-26）**：六仓 `Dockerfile` + 各仓 `deploy/` 已落；`docker compose config` 6/6 + 聚合 1/1 通过；**本机 Docker daemon 未起，build/run 未验**。broker 新增 `cmd/brokergateway`（`/healthz`、`/version`），订单 HTTP 面归 `SVC-BROKER-G1`。端口：data 8081 / risk 8089 / strategy 8090 / analytics 8087 / orchestration 8088 / broker 8091。
 >
