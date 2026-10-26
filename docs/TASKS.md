@@ -23,7 +23,9 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **退役单 ID**：`SVC-CORE-DATA-RETIRE` / `SVC-CORE-RUN-RETIRE` / `SVC-CORE-STRAT-RETIRE` / `SVC-CORE-RISK-RETIRE` / `SVC-CORE-AN-RETIRE` / `SVC-CORE-BROKER-RETIRE` / `SVC-CORE-AI-RETIRE`；逐条覆盖矩阵见审计 §五之二（3 条已有、4 条缺删除）。
 >
-> **⚠️ 立单状态（2026-10-26 复测 + 裁决）**：三张总单原只有表格行。现 `SVC-DUAL-01` / `SVC-RETIRE-INDEX` 已在下方「六、SVC 总单（2026-10-26 立单）」补六字段；`SVC-DEPLOY-01` 记 **🔶（不标 ✅）**——`Dockerfile.service` 修复与聚合 compose 已入库，六服务 + core + ai 镜像均构建成功、聚合栈 5/6 healthy；analytics `/healthz` 已随 `tellurion-analytics` `f010606` 修复（单容器 200 + healthy），剩余腿 = 复跑聚合栈 6/6 healthy。七个退役 ID 的机械判据正文见 B 组材料 §4，不再各自立单。
+> **⚠️ 立单状态（2026-10-26 复测 + 裁决）**：三张总单原只有表格行。现 `SVC-DUAL-01` / `SVC-RETIRE-INDEX` 已在下方「六、SVC 总单（2026-10-26 立单）」补六字段；`SVC-DEPLOY-01` 记 **🔶（不标 ✅）**——`Dockerfile.service` 修复与聚合 compose 已入库，六服务 + core + ai 镜像均构建成功、聚合栈 5/6 healthy；analytics `/healthz` 已随 `tellurion-analytics` `f010606` 修复（单容器 200 + healthy），剩余腿 = 复跑聚合栈 6/6 healthy。七个退役 ID 的机械判据正文见 B 组材料 §4。
+>
+> **⚠️ 上面那句「不再各自立单」已于同日晚些时候被本批推翻（2026-10-26）**：六个服务仓的 `SVC-*-G3` 单在 ⑥ 边界里逐条指向 `SVC-CORE-<X>-RETIRE`，而条目不存在 = 七条死引用；且 `SVC-RETIRE-INDEX` 自己 ④ 写明「不执行删除」，索引无法被完成；ADR-036 §5.2 又要求「删除/迁移旧实现的任务必须显式立单」。⇒ 六条执行单已落在下方「**六之二、退役执行单与四项跨仓缺口**」（判据逐字抄材料 §4，不重新发明），第七条 `SVC-CORE-AI-RETIRE` 目前在 agent 仓（R4 偏差，挪单待裁）。冲突的取证与三条理由逐条写在那一节开头。
 >
 > **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；代码注释漂移两处均已于 2026-10-26 订正（agent `Dockerfile` 随 `cc51e84`；`bulk_insert_ddl_test.go` 随 `SVC-DEPLOY-01` 收尾笔）。**
 >
@@ -63,6 +65,153 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 - **④ 约束与非目标**：本单只给判据与索引，**不执行删除**；不改 `pkg/storage/postgres.go`；不碰生产库；不包含索引 `DROP INDEX`（另有材料 §3 的未裁项）。
 - **⑤ 验收**：七条全有 owner + 删除对象 + 判据 + 回滚；随机抽 2 条判据命令，退出码与材料 §4 基线一致；各仓 G3 单能反查本单。
 - **⑥ 边界**：不覆盖动态拼表名；不替代各仓 G3 的代码删除验收；不处理 `task/g3-data` 遗留。
+
+---
+
+## 六之二、退役执行单与四项跨仓缺口（2026-10-26 立单）
+
+> **为什么这些单必须存在（与上一节那句「不再各自立单」的冲突，如实登记）**：
+> 1. ADR-036 §5.2 原文「删除/迁移旧实现的**任务必须显式立单**，不能只写 deprecated」，§6 的退役表又写明
+>    「未覆盖的（AI / strategy / risk / analytics / data 代码退役）**新增单**」；
+> 2. 六个服务仓的 `SVC-*-G3` 单在 ⑥ 边界里**逐条指向** `SVC-CORE-<X>-RETIRE`
+>    （取证：`tellurion-data:docs/TASKS.md:38`、`tellurion-orchestration:44/55`、`tellurion-strategy:45`、
+>    `tellurion-risk:80`、`tellurion-analytics:47`、`tellurion-broker:44/55`），而本仓此前**只有 ID 清单、没有条目**
+>    —— 那是七个指向不存在的单的死引用，G3 的「旧路径零调用」因此无法被机械验收；
+> 3. `SVC-RETIRE-INDEX` 自己 ④ 写明「本单只给判据与索引，**不执行删除**」⇒ 它是索引，不是工单；
+>    索引永远不可能被「执行完成」关闭。
+> 上面第 26 行那句「不再各自立单」与这三条冲突，本批按 ADR-036 与六个 G3 单的既有指向**补齐条目**，
+> ID 一个都不新造。若主任坚持不立单，正确动作是反过来把六仓 G3 的 ⑥ 指针删掉——那会让退役再次无主。
+>
+> **⑤ 验收的四列（grep 模式 / 今天基线 / 归零目标 / 反向护栏）逐字抄自**
+> [`core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md) §4.1~§4.7
+> （材料 §7.4：「不要重新发明判据」）。基线数是 **2026-10-26 实测**，会随施工漂移 ⇒ 开工时**当场重跑取当前值**，
+> 归零断言只对当前值成立。
+>
+> **计数口径（材料 §4 原文，七条通用）**：所有计数都是 `-- '*.go' ':!*_test.go'` 的**生产侧**，
+> 且 `git grep` 不区分注释。归零断言必须再加一道注释过滤，否则「删掉注释」也能变绿，那是**假绿**：
+> `git grep -nE '<pat>' -- '*.go' ':!*_test.go' | grep -vE ':[0-9]+:\s*//'`
+>
+> **组内固定顺序（材料 §5.1）**：`DEPLOY-01 → DUAL-01 → RETIRE-INDEX → DATA → RUN → STRAT → RISK → AN → BROKER → AI`。
+> 七条**全部触** `pkg/storage/postgres.go` ⇒ **严格串行，一单一次编辑该文件，禁止两个 agent 并行改**。
+> `DATA-RETIRE` 另触 `Dockerfile.service`（所以必须紧跟 `SVC-DEPLOY-01`）。
+>
+> **共同的 ④ 禁区（七条都适用，不再逐条重复）**：
+> ① 不对生产库执行 `DROP TABLE` / `DROP INDEX`（材料 §3.2 P3「是否允许 DROP INDEX」**未裁**，仍是待决项）；
+> ② 不改六个服务仓的任何文件（各仓 G3 自证）；
+> ③ 不并行改 `pkg/storage/postgres.go`；
+> ④ 旧路径未零调用前不得把单标 ✅（`SVC-RETIRE-INDEX` ③ 的原句）；
+> ⑤ 删 DDL 与删该 DDL 的**防漂移断言**必须同批，否则「DDL 删了、测试先红」会被当成回归。
+
+### SVC-CORE-DATA-RETIRE · core 侧行情/同步数据面退役（ADR-036 G3）[P0] ⬜（串行第 4）
+
+- **① 目标**：core 不再持有 `market` / `ingest` 域的 DDL、写点与 ETL 实现——数据面唯一 owner 变成本仓之外的那个仓（`tellurion-data`），本仓只经 HTTP 读。
+- **② 上下文**：判据正文 = 材料 §4.1；ADR-036 §6 退役表第 1 行；删除对象四类：core 版 22 张 market/ingest 表 DDL 与索引、`pkg/data` 的 connector/ETL/因子实现、`cmd/data` 的同步/调度腿、`pkg/storage/{bulk_insert,ohlcv,stocks,calendar,sector,cache,ingest_raw,sync_jobs,index_daily,market_activity}.go`。反向护栏今天不存在（需新建）。
+- **③ 要求**：① 按材料 §4.1「删除对象」四类删除，表名清单逐条对照（见 ⑤ ①）；② **同批**改 `pkg/storage/bulk_insert_ddl_test.go` 的 `codeReferenced`（`sync_jobs` / `sync_schedules` / `factor_genes` / `strategy_genes` / `market.index_daily`），否则 DDL 删了测试先红；③ `cmd/data` 删空后**同批**删 `Dockerfile.service:24` 的 `./cmd/data` build 腿与对应 `COPY`（材料 §1.5 明写「若改二进制清单必须同批改 `:24-25` 与 `:36-37`」）；④ `postgres.go:544` / `:582` 两条 Migration 052/054 的一次性换算随表一并删；⑤ 新建 `internal/repoguard/storage_market_tables_retired_test.go`（静态读 `postgres.go`，零 `CREATE TABLE` 断言 + `pkg/data` 目录不存在断言）。
+- **④ 例外（本单对本组的唯一偏离，需主任确认）**：材料 §4.1 的 22 名里含 `market.index_daily`，而**第三轮裁决 ⑰ 已定 `market.index_daily` owner = core**（正文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) §五 ⑰；写路径实测 `pkg/storage/index_daily.go:31`）。两者不可同时成立 ⇒ **本单按 21 名执行，`market.index_daily` 除外**，其 `CREATE TABLE` / 写点保留；若主任改判「随簇退役」，需同批订正 ⑰ 与本条，不许在施工中口头改。
+- **⑤ 验收**（四条 grep 全部归零，注释过滤后）：
+  | # | grep 模式 | 2026-10-26 基线 | 归零目标 |
+  |---|---|---|---|
+  | ① | `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(stocks\|ohlcv_daily_qfq\|trading_calendar\|dividends\|index_constituents\|splits\|realtime_quote\|ohlcv_minute\|capital_flow\|sectors\|stock_sector_map\|top_list\|limit_up_pool\|announcements\|news\|hot_search\|global_ohlcv\|market_activity\|ingest\.raw\|sync_jobs\|sync_schedules)\b` | **23 行**（22 活写点 + 1 注释 `pkg/storage/sync_jobs.go:81`） | **0** |
+  | ② | `NewETLPipeline` | **7**（6 注释 + 1 定义，零调用） | **0**（连定义一起删） |
+  | ③ | `\.BulkInsert\(` | **1**（`pkg/data/source/etl.go:115`） | **0** |
+  | ④ | `"tellurion/pkg/data` | **29 行 / 24 文件** | **0** |
+  反向护栏：新建的 repoguard 断言 `postgres.go` 对上表 21 名**零** `CREATE TABLE` 且 `pkg/data` 目录不存在；**破坏验证**：加回一行 `CREATE TABLE IF NOT EXISTS stocks (...)` 或加回一行 `import "tellurion/pkg/data"` ⇒ 护栏必须红，逐字节还原后复绿。全仓 `go build/vet/test ./... -count=1` 绿。
+- **⑥ 边界**：只删 core；`tellurion-data` 侧的切读与 `X1d` 停写归 `SVC-DATA-G3`；跨仓待核 K1（切读接口面不对齐）/ K2（index_daily 形状）/ K3（10 张「有表无写者」）归 data 仓，本单不代答。
+
+### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] ⬜（串行第 5）
+
+- **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
+- **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
+- **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135`、`:511` 的 `SetStore`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
+- **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。
+- **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
+- **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
+
+### SVC-CORE-STRAT-RETIRE · core `strategies` 表与资产注册腿退役（ADR-036 G3）[P0] ⬜（串行第 6）
+
+- **① 目标**：策略**定义**的真相源变成本仓之外的 `tellurion-strategy`；core 的 `strategies` 表与 DB 腿删除，**运行时 `pkg/strategy` 保留**（ADR-036 §6 明写「运行时 `pkg/strategy` 保留」）。
+- **② 上下文**：判据正文 = 材料 §4.3；删除对象 = `strategies` 表 DDL + `pkg/storage/strategies.go` + `pkg/strategy/db.go` 的 DB 腿；表名**不含** `quant.strategy_state` / `quant.external_signals`（裁决 U3：`strategy_state` 留 core）。
+- **③ 要求**：① 删 DDL 与 `pkg/storage/strategies.go`；② `pkg/strategy/db.go` 的 DB 腿改走 strategy 服务（本地 registry 保留或改 HTTP，二选一在单内定死并写进 `docs/SPEC.md`）；③ 新建 repoguard：`pkg/strategy/**` 禁出现 `strategies` 表名。
+- **④ 约束与非目标**：**⛔ 前置**（材料 §4.3「前置」）= strategy 侧 `strategy.strategy_definitions` + 版本链要有**唯一写者**，且软删语义先对齐（跨仓待核 K5）；不动引擎、不动 WASM host、不动内置策略。
+- **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+strategies\b` 基线 **2** → **0**；② `FROM[[:space:]]+strategies\b` 基线 **5** → **0**；③ `SaveStrategyConfig|ListStrategyConfigs|DeleteStrategyConfig|SeedStrategies` 基线 **19 行**（`pkg/storage/strategies.go` 5 方法定义 + 5 doc 注释 + 9 处调用：`pkg/strategy/db.go:47/:52/:57/:62/:72/:145`、`pkg/storage/strategies.go:155`、`cmd/analysis/setup.go:336`、`pkg/strategy/db.go:98` 注释）→ **0**。反向护栏破坏验证：给 `pkg/strategy` 加一行含 `strategies` 的 SQL ⇒ 红；还原复绿。
+- **⑥ 边界**：core 删除；strategy 仓侧的切读与注册表退役归 `SVC-STRAT-G3`。
+
+### SVC-CORE-RISK-RETIRE · core 限额配置真相退役（ADR-036 G3，裁决权收口）[P0] ⬜（串行第 7）
+
+- **① 目标**：进程内 `RiskPolicy` 的**限额真相源**从 core 自己的配置改成 risk 服务下发的规则快照；检测器与同步裁决**留在本进程**（U7 已裁，ADR-036 §6 第 4 行「只退役规则源，不退役裁决」）。
+- **② 上下文**：判据正文 = 材料 §4.4，**本单不是表退役**（表级 0 行，`public.audit_logs` ≠ `risk.audit_logs`，不动）；删除对象 = `config/analysis-service.yaml` 的 `alert.*` / `risk_manager.*` 作为**限额来源**的那一半；包路径 `pkg/risk`、`cmd/analysis/wiring`（`risk_rules.go`）。
+- **③ 要求**：① 把 14 个 `risk_manager.*` 标量（`pkg/bootstrap/engine.go:38-51`）与 5 个 `alert.*` 阈值（`cmd/analysis/setup.go:112-144`）的来源改为 `bundle → rule.ParseBundle → RiskPolicy`；② 配置只允许保留**默认值兜底**，不许再是限额真相；③ 契约侧 `contracts/risk` 的 `Bundle → ParseBundle` 必须有测试（跨仓单 `CT-03`）；④ `resolve_enabled` 出厂变 `true` 并长期有观测（今天 `config/analysis-service.yaml:122` = `false`）。
+- **④ 约束与非目标**：**⛔ 前置**（材料 §4.4「阻塞」）= `bundle → RiskPolicy` 未接（第三轮裁决 ② 只建了契约包的**材料**，`contracts/risk` 目录今天不存在，实测 `ls tellurion-contracts` 无 `risk`）⇒ **本单排在 `QT-42` F3 之后不可达**；不把检测器搬出进程；不让逐笔裁决走网络（ADR-036 §6 第 2 条）。
+- **⑤ 验收**：① `v\.Get(Float64\|String\|Int)\("alert\.` 基线 **11 行** → 降到「仅默认值兜底」或 **0**；② `v\.Get(Float64\|Int)\("risk_manager\.` 基线 **14 行** → 同上；③ `resolve_enabled` 基线 **1**（值 `false`）→ `true`；④ 限额常量不得再出现在 `config/*.yaml`（真相在 risk 快照），反向护栏 = 契约侧 `Bundle → ParseBundle` 固定向量测试在位。
+- **⑥ 边界**：core 侧配置真相退役；risk 仓侧的 `bundle` 可解析性归 `SVC-RISK-G3`。
+
+### SVC-CORE-AN-RETIRE · core 分析产品化实现退役或冻结（ADR-036 G3）[P1] ⬜（串行第 8）
+
+- **① 目标**：`pkg/backtest/metrics` / `pkg/backtest/reporting` 要么移交 `tellurion-analytics`、要么**显式裁决留在 core 并冻结引用面**——不允许第三种状态「既是实现又没人负责」。
+- **② 上下文**：判据正文 = 材料 §4.5；无直接表（产出落 `analysis.*`，属 analytics 仓）；今天 3 处 import。
+- **③ 要求**：先在单内落**归属结论**（迁移 / 保留并冻结），再按结论执行：迁移则删两包并把口径交出去；保留则把这 3 条 import 写进 `internal/repoguard` 允许清单（冻结快照，新增一条即红）。
+- **④ 约束与非目标**：**⛔ 前置**（材料 §4.5「阻塞」）= analytics 的 `analysis.benchmarks` 写方法生产**零调用** ⇒ 先要有真写者（跨仓待核 K7）；不改指标公式口径；不动 `handlers_backtest.go` 的读面语义。
+- **⑤ 验收**：`tellurion/pkg/backtest/(metrics|reporting)` 基线 **3**（`cmd/analysis/handlers_backtest.go:19`、`cmd/dualrun/main.go:38`、`pkg/backtest/engine.go:23`）→ 迁移结局 = **0**；冻结结局 = **恰好 3 且新增即红**（护栏破坏验证：加第 4 条 import ⇒ repoguard 红）。
+- **⑥ 边界**：core 侧归属与删除；analytics 侧的写者与消费接线归 `SVC-AN-G1` / `SVC-AN-G3`。
+
+### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ⬜（串行第 9）
+
+- **① 目标**：交易**通道**实现（Mock 撮合、订单存储、对账、保证金、XTP 骨架）离开 core，由 `tellurion-broker` 经 HTTP/契约提供；core 只留订单/成交/持仓**运行域真相**（`quant`）。
+- **② 上下文**：判据正文 = 材料 §4.6；删除对象 = `pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/`（今天 `pkg/live` = 24 个生产文件）。
+- **③ 要求**：① 删上述实现；② 新建 repoguard：全仓禁 `import "tellurion/pkg/live"` 与 `tellurion/pkg/live/` 子包；③ 与 `QT-51` 的 `ExecutionPort` 对齐——port 未合入主干前，本单第 ② 条会把「回测经 port 用 live」的合法形态一并杀掉，所以**必须排在 QT-51 合入之后**。
+- **④ 约束与非目标**：**⛔ 前置**（材料 §4.6「阻塞」）= `SVC-BROKER-G1`（订单 HTTP 面）+ `broker.order_acks` 的 ack 往返先要通；`tellurion-broker` 今天只有 `internal/reconcile` 的**快照**对账，不是 writer 对拍。**表名维度为空**：`orders` 的 DDL 只存在于**不被执行**的 `migrations/003_create_orders_table.sql`、`migrations/00000003_3_supporting_tables/up.sql:68`、`contracts/kernel_modules.schema.sql:138` ⇒ `migrate()` 不建 `orders`（实测 `git grep 'CREATE TABLE IF NOT EXISTS orders' -- pkg/storage/postgres.go` = 0）⇒ **本单不动 `postgres.go`**（是本组唯一例外，串行序里仍按 §5.1 走）。
+- **⑤ 验收**：① `"tellurion/pkg/live"` 基线 **18 个文件 / 20 行** → **0**；② `tellurion/pkg/live/` 子包引用基线 **5**（`reconciliation` / `margin` / `broker/xtp` 等）→ **0**；`NewPostgresOrderStore` 生产调用今天 **0**，须保持 0。反向护栏 = 往任意 core 文件加一行 `import "tellurion/pkg/live"` ⇒ repoguard 红；还原复绿。
+- **⑥ 边界**：core 删除；broker 仓侧的订单面与 G3 切读归 `SVC-BROKER-G1` / `SVC-BROKER-G3`。
+
+> **第七条 `SVC-CORE-AI-RETIRE` 不在本节**：条目已在 `tellurion-agent:docs/TASKS.md:183`（六字段齐，判据 = 材料 §4.7：表名 7 张 `experiments, factor_hypothesis, factor_genes, strategy_genes, research.profile, research.conclusion, research.question`；基线 ① **6** ② **3** ③ **7**；归零 0/0/0；反向护栏复用 agent 侧 `pkg/aistore/schema_core_drift_test.go:117` 与 `cmd/ai/experiment_stopwrite_integration_test.go:28`）。
+> ⚠️ **这本身是一条 R4 偏差**（「本仓 `docs/TASKS.md` 只放本仓可完成的单」）：删除对象全在 **core**（`pkg/storage/{experiments,factor_hypothesis}.go`、`pkg/mining` 落库腿、`cmd/data/mining_cmd.go`、`postgres.go:47` 的 `SeedBuiltinFactorHypotheses` 启动 seed），agent 侧无法完成。**待裁**：把它挪进本节的执行单序列（串行第 10），或按材料 §5.1 保持在 agent 仓并把 core 侧删除动作改为一条指向本仓的工单。挪单前不要开工。
+
+### QT-75 · core 二期切 kit `statistics` / `httpserver` 并升 pin `v0.1.4` [P1] ⬜
+
+- **① 目标**：QT-73 的二期落地——core 的统计与 HTTP 服务端两包改指 kit，core 的 kit pin 从 `v0.1.1` 升到当前最新 `v0.1.4`。
+- **② 上下文**：QT-73 一期 ✅（`170f09a`，五包 90 处），执行顺序总览第 106 行自己写着「二期 `statistics`/`httpserver` 先补 kit（KT-10），另单」——**KT-10 已于 2026-10-25 ✅**，二期「另单」此前不存在；实测 `tellurion/go.mod:16` = `tellurion-kit v0.1.1`（落后三版），而 risk / data / analytics 已 pin `v0.1.4`。
+- **③ 要求**：① `go get github.com/ruoxizhnya/tellurion-kit@v0.1.4` + `go mod tidy`（只提交 `go.mod`/`go.sum`）；② 删 `pkg/statistics`、`pkg/httpserver`，import 改指 kit 同名包；③ 逐包核对语义差异并如实登记口径变化（kit `check_scope` 把「包移动」记作 **breaking**，core 侧要写清是否影响调用方）；④ `make contracts-pin-check` 绿；⑤ 同批更新 `AGENTS.md` §0 依赖表与 QT-07 进度行（Rule 1：文档与代码同笔）。
+- **④ 约束与非目标**：**不加 `replace`**（白名单今天为空）；不改 kit 仓源码；不动 contracts pin（`v0.6.0` 不变）；一期已切的五包不重切。
+- **⑤ 验收**：`go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码为 0；`git grep -c '"tellurion/pkg/statistics"\|"tellurion/pkg/httpserver"'` = **0**；`go.mod` 读数为 `v0.1.4`；`make contracts-pin-check` 绿；`internal/repoguard` 若钉住横切包唯一实现，须同批改对。
+- **⑥ 边界**：core 两包 + pin + 台账；kit 侧的包缺口属 KT-10（已闭），不再回改 kit。
+
+### QT-76 · 告警 outbox 三条已登记缺口的收口 [P1] ⬜
+
+- **① 目标**：把 `QT-42` X3c 施工记录里三条**被明文推给「另一条单」**的缺口收成一条可执行单并关闭。
+- **② 上下文**：正文见本仓 QT-42 的 X3c 块（`docs/TASKS.md:1166` ③④ 与 `:1180` ⑨）：③ `ListPendingAlertOutbox` 不 claim 行（无 `FOR UPDATE SKIP LOCKED`），两进程同跑重发同一批；④ `alert_id` 撞键 ⇒ 第二条一行不落，「要真正闭合需要给行身份加每进程 nonce，**那是另一条单**」；⑨ 关停预算「给它加『关停期只给一个总预算 / 到点即弃』的界**是另一条单**」。落点实测：`pkg/storage/alert_outbox.go`（DDL `:59`、索引 `:75`、`ListPendingAlertOutbox` `:116`）、`cmd/analysis/wiring/risk_events.go`、`pkg/alert/manager.go:362`（`Alert.ID` 形状）、`pkg/bootstrap/server.go:249`（关停序列）。
+- **③ 要求**：① relay 读取改**行级 claim**（`FOR UPDATE SKIP LOCKED` + 领取超时回退），使多进程不重发；② `Alert.ID` 的行身份加**每进程 nonce**（不改 risk 侧去重坐标的语义：`alert_id == order_id` 这条等式若被打破，必须同步把回写与读面口径改完并写进 `docs/SPEC.md`）；③ 关停期给**一个总预算**，到点即弃但**不删行**（行留在 outbox 由下一进程带走，与 `:1164` 的「不允许丢」一致）。
+- **④ 约束与非目标**：不改 risk 侧的 `events` 请求体上限与信封形状；不动 `pending → sent` 状态词表与 `failed` 保留行语义；不引入 MQ；`events_enabled` 出厂默认值不在本单改（归 QT-77 的部署面）。
+- **⑤ 验收**：三条各有一条先红后绿的行为用例——① 两个 relay 并发跑同一批 pending ⇒ 断言每条只被投一次（破坏验证：去掉 `SKIP LOCKED` ⇒ 重发计数变红）；② 同一秒内两个进程造出同 `<rule>-<epoch>-<seq>` 的两条不同告警 ⇒ 两条都落行（破坏验证：删 nonce ⇒ 第二条不落、红）；③ 关停注入 `events_timeout × 3` 的慢上游 ⇒ 总耗时 ≤ 预算且**行数不丢**（破坏验证：把预算去掉 ⇒ 超预算红）。全仓三条命令绿。
+- **⑥ 边界**：core 侧 outbox 与 relay；risk 侧的去重与 `duplicates` 计数不动。
+
+### QT-77 · 服务间凭证的来源、签发与分发成文并落部署 [P1] ⬜
+
+- **① 目标**：让「服务之间怎么拿到并轮换凭证」成为一件有配置、有文档、有机械判据的事，而不是每仓各自硬塞一把共享 `JWT_SECRET`。
+- **② 上下文**：QT-50 未落第 5 条的三面拆分（裁-17）里，「凭证来源未定」与「没有部署清单」两句已被 `SVC-DEPLOY-01` **部分解除**——实测 `docker-compose.services.yml:43/59/96` 与 `tellurion-analytics/deploy/compose.yaml:22` 已注入 `JWT_SECRET`，`docker-compose.yml:99/:165/:231` 也有。**仍然为真的缺口**：① core 的出站凭证是**静态配置串**（`cmd/analysis/wiring/risk_rules.go:21` 的 `resolve_token`），没有任何仓在**签发**——kit `IssueServiceToken`（KT-09）的调用者实测**只有 kit 自己的测试**（全仓 grep：`tellurion-kit/auth/httpadapter/httpadapter_test.go:133` 等），② `sub=service:<repo>` 的命名与分发无清单，③ orchestration / broker 两仓今天**没有鉴权**（`SVC-ORCH-G1` ⛔、`SVC-BROKER-G1` ⛔），worker → orchestration 这一跳是裸 HTTP。
+- **③ 要求**：① 一份**签发与分发**成文（谁签发、env 变量名、有效期、轮换与吊销语义、每仓的 `sub`），写进本仓 `docs/SPEC.md` 的鉴权节并指回裁-17；② 把签发入口接进启动或运维脚本（消费 kit `IssueServiceToken`，不自造 token 逻辑）；③ 给六服务 + core 的 compose/deploy 清单补齐 `sub` 与 secret 来源，使「开 secret 的部署下 200」这条验收**变成可执行**；④ orchestration / broker 的鉴权腿只在各自 `SVC-*-G1` 单里做，本单提供签发口径与清单，不替它们写策略表。
+- **④ 约束与非目标**：不引入新第三方依赖；不做 mTLS/OIDC（单人自托管，多租户与 RBAC 是负担）；不改 kit `auth` 的校验语义（要改走 kit 单）；不改用户侧 token 的 `int64` subject 校验（KT-11 的裁决边界）。
+- **⑤ 验收**：① 成文可指（`docs/SPEC.md` 一节 + 六仓 deploy 清单各有一条来源注记）；② 一条真跑：用 kit 签一个 `sub=service:core` 的 token 打 risk `POST /api/risk/resolve` 与 data `POST /ingest/points`，两条都 **200**；不带 token 时 risk 那条 **401**（证明档位真的在拦）；③ 破坏验证：把 core 的 `resolve_token` 置空 ⇒ 该腿响亮失败而不是静默走匿名；④ 全仓三条命令绿。
+- **⑥ 边界**：签发与分发的**口径 + 部署清单 + core 出站**；各服务仓的策略表归各自 `SVC-*-G1`。
+
+### QT-78 · 归因输入的 artifact 生产者（portfolio-snapshot / factor-exposures） [P1] ⬜
+
+- **① 目标**：让 analytics 的 Brinson / 因子归因**拿到真输入**——期末持仓与逐因子暴露由 core 侧产出并经 HTTP 投递，不再是「计算面全绿但永远返回缺输入」。
+- **② 上下文**：消费端已存在（实测 `tellurion-analytics:internal/upstream/upstream.go:318` `GetPortfolioSnapshot` 打 `{base}/{runID}/portfolio-snapshot`、`:330` `GetFactorExposures` 打 `/factor-exposures`；缺数据折成 `IncompleteError{Missing:"holdings"}` / `"factor_exposures"`）；**生产端零**：core 全仓 grep `factor_exposures` = **0 命中**，orchestration 也没有 artifact 写端点（`tellurion-orchestration:docs/TASKS.md:57` 自证「`run_artifacts` 生产者与写端点未落」）。analytics 台账 F2 一句「Brinson / 因子归因缺 holdings / 暴露输入」自 2026-10-22 至今无单。
+- **③ 要求**：① 在 run 终态时由引擎/tracker 产出这两类 artifact（形状与本仓 `docs/SPEC.md` 对齐，含 `dataset_hash`，与 analytics 的新增必填项同源：`holdings.dataset_hash` / `factor_exposures.dataset_hash` / `benchmark_sector_weights` / `benchmark_sector_returns`）；② 投递走 orchestration 的 `POST /api/runs/jobs/{id}/artifacts`（裁决 ⑱：core worker **不直写库**），**⛔ 前置 = `SVC-ORCH-G2` 把该写端点落出来**；③ `cmd/worker` 的领活路径带上产出与上报；④ 缺输入时 fail-closed（不许编一个空持仓让归因「算得出」）。
+- **④ 约束与非目标**：不在 analytics 侧造生产者（那是上游的实现，本仓不 import）；不改 `BacktestResponse` 的 27 项冻结字段；不在契约未定形前手写第四份 DTO（若需要跨进程形状，先走 `CT-04`）；不接真钱路径。
+- **⑤ 验收**：① 一次真 run 后，orchestration 侧 `run.run_artifacts` 有两类行且 hash 非空；② analytics 端 `GET` 该 run 的归因不再返回 `IncompleteError`，而是给出分项和 ≈ 总收益（容差按 analytics `docs/TASKS.md:131` 的口径写明）；③ 反证腿：删掉持仓产出 ⇒ analytics 必须回到 `IncompleteError{Missing:"holdings"}`，而不是返回一份看起来正常的报告；④ 全仓三条命令绿。
+- **⑥ 边界**：core 的产出与投递；写端点与 schema 归 orchestration，消费与公式归 analytics。
+
+### QT-79 · `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） [P1] ⛔（前置 = D-DEPLOY-1 拍板）
+
+- **① 目标**：ADR-036 §5.1 那句「core 的 `deploy/` 只留 **analysis / worker / dualrun** + 共享基础设施」成为现实——今天这两个二进制**不在任何镜像、不在任何 compose**。
+- **② 上下文**：实测 `Dockerfile.service:24-25` 只 build `./cmd/data` 与 `./cmd/analysis`，`:36-37` 的 COPY 与之一一对应（材料 §1.5 判定「本项已自洽」），但 `cmd/worker`、`cmd/dualrun` 两个源包都存在却**未进镜像**（材料 §1.5 表内明写「今天只能裸跑」）；`grep worker\|dualrun` 在 `Dockerfile.service` / `docker-compose.yml` / `docker-compose.services.yml` 三份里 **0 命中**；`cmd/dualrun` 是引擎验收门（K15 双跑，已裁留 core），`cmd/worker` 领 orchestration 的 run。未决的**部署面 owner** 选择题 = 材料 §1.4 **D-DEPLOY-1（A/B/C，建议 A）至今未拍**。
+- **③ 要求**：① 先由主任拍 D-DEPLOY-1，再按拍板结果决定 worker/dualrun 进哪个栈；② 给 `cmd/worker` 一个可部署形态（无监听 ⇒ 健康判据用「心跳成功 + 能领到活」，不许假造 HTTP `/healthz`）；③ 给 `cmd/dualrun` 一个可执行入口（验收门性质：一次性任务，跑完退出码即结论）；④ 若改二进制清单，**同批**改 `Dockerfile.service:24-25` 与 `:36-37`（材料 §1.5 原文，防「build 了但没 COPY」的旧 bug 形态）；⑤ `python tools/check_deploy_consistency.py` 保持 exit 0。
+- **④ 约束与非目标**：不引入 K8s（ADR-036 §5.1：本地唯一真相 = compose）；不把 `cmd/ai` 塞进本仓镜像（跨仓 context）；不动六服务仓的 `deploy/`；不在本单裁 8081 归谁（那句属 D-DEPLOY-1 的收口动作 2）。
+- **⑤ 验收**：机械判据 V7（材料 §1.5 原式）——`git grep -oE '\-o /app/[a-z-]+' -- Dockerfile.service` 与 `COPY --from=builder /app/[a-z-]+` 两个集合**一一对应且不多不少**；`docker compose -f docker-compose.yml -f docker-compose.services.yml config` exit 0；worker 容器起后日志出现「注册 + 领取」两条、退出码非 0 当 orchestration 不可达（fail-closed，不是空跑成功）；dualrun 一次执行的差异报告落在预期的路径。
+- **⑥ 边界**：core 的部署资产；服务仓 deploy 归各自 `SVC-*-G0`（已 ✅）。
+
+> **本节新单的一条跨仓指针**：`QT-80`（事件行带 `actor` = 加列 + 写审计）正文已立在 `tellurion-risk:docs/TASKS.md`——来源是 risk 台账 `:422` 那句「要让事件带调用方身份 = 加列 + 加审计写（DDL 变更，**另立单**），不在本票范围」。本仓只留指针，不镜像正文（R4）。
 
 ---
 
@@ -1265,7 +1414,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >    **contracts v0.3.0 无此包** → 报 **G0D-C5**；本批**没有**手写或伪造生成物，openapi 仍是唯一 wire 真相。
 > 3. **第 7 类动作**（交易日历 / 上市窗口查询）已由 **裁-04**（2026-10-24）确认，落两条只读端点（QT-67 ✅）。
 > 4. **第 8 类动作**（`POST /api/walkforward` + `POST /api/risk/detect_regime`）由 **裁-12**（2026-10-25）确认登记：两条都是「一次请求覆盖整段范围」的粗粒度查询，S3-c-1 / S3-c-3 的 HTTP 化以此为前提。**已落（2026-10-25）**：`agentCoarseActions` 10 条（第 7/8 类各两条）+ openapi `x-agent-coarse-action` 双标 + `coarseActionCount` 10 + SPEC D24「八类 / 10 条」；`go test ./cmd/analysis -run TestAgentCoarseActions` 四条腿全绿（双向对拍 / 粒度 / 权限层 / 401）。口径订正：按**类**算是第 8 类、按**条目**是第 9~10 条（此前口述的「第 9 类」是条目数）。
-> 5. **服务间凭证传递（B6-2）**：判据按 **裁-17** 拆成三面后才可执行——(丙) `core→risk resolve` 与 `analytics→上游` 是真 401、需要出站带凭证；(甲) `core→cmd/data` 的四条 GET 面本仓 `authz` **不管读面**，唯一有档位的是 `POST /api/v1/ohlcv/bulk`，且出厂 compose 里 `data-service` **没接 `JWT_SECRET`**，所以这一跳的「开 secret」是要新做的事、需拍；(乙) `core→tellurion-data` 的真前置是**把那六条取数端点搬进 data 仓并定档位**（该仓今天只注册 3 条路由，未登记路由 403，token 不解决）。**凭证来源未定**（现只有共用一把 `JWT_SECRET`），且**三腿共用的部署前置今天不存在**——没有任何清单给 risk / data / analytics 配 `JWT_SECRET`，所以「开 secret 的部署下 200」这条验收当前不可执行，先要一份部署改动 + 一条 token 来源裁决（见裁-17 末段）。本仓侧只做口径，不动代码。
+> 5. **服务间凭证传递（B6-2）**：判据按 **裁-17** 拆成三面后才可执行——(丙) `core→risk resolve` 与 `analytics→上游` 是真 401、需要出站带凭证；(甲) `core→cmd/data` 的四条 GET 面本仓 `authz` **不管读面**，唯一有档位的是 `POST /api/v1/ohlcv/bulk`，且出厂 compose 里 `data-service` **没接 `JWT_SECRET`**，所以这一跳的「开 secret」是要新做的事、需拍；(乙) `core→tellurion-data` 的真前置是**把那六条取数端点搬进 data 仓并定档位**（该仓今天注册 **4** 条——`GET /health` / `GET /datasets/resolve` / `GET /datasets/{hash}` / `POST /ingest/points`，实测 `internal/httpapi/server.go:69-80`；**2026-10-26 订正：原文写「只注册 3 条」是 `POST /ingest/points` 接线前的快照**；未登记路由 403，token 不解决）。**凭证来源未定**（现只有共用一把 `JWT_SECRET`），且**三腿共用的部署前置今天不存在**——没有任何清单给 risk / data / analytics 配 `JWT_SECRET`，所以「开 secret 的部署下 200」这条验收当前不可执行，先要一份部署改动 + 一条 token 来源裁决（见裁-17 末段）。本仓侧只做口径，不动代码。
 >
 > ⚠️ **对 S3 的含义（不夸大）**：本单把 agent↔core 的 wire 面与鉴权落齐了，但**不等于** agent 现在就能删
 > `replace ../tellurion` —— 客户端尚未实现（G10），且 agent 仍有 **64 处 core 实现包 import（43 文件：生产 23 + 测试 20，15 个包）**（2026-10-25 实测，见 QT-17 / QT-07 ⑥ 记录）。
