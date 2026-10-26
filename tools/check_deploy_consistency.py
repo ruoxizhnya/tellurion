@@ -205,6 +205,11 @@ _GO_KEY_CALL = re.compile(
     r"|GetStringMap|GetStringMapString|GetTime|BindEnv)"
     r'\(\s*"([a-z0-9_.]+)"'
 )
+# `BindEnv("auth.jwt_secret", "JWT_SECRET", "AUTH_JWT_SECRET")` 的第 2 个及
+# 以后的实参才是**真正的 env 名**；只按第一个实参推导会漏掉别名（AUD-39 曾因此
+# 把 analysis / data 清单里的 `JWT_SECRET` 误报成「零读取者」）。
+_GO_BINDENV_CALL = re.compile(r'\.BindEnv\(([^)\n]*)\)')
+_GO_ENV_ALIAS_LITERAL = re.compile(r'"([A-Z][A-Z0-9_]*)"')
 # viper.UnmarshalKey("trading", …) 覆盖整个子树 → 记成前缀 TRADING_。
 _GO_UNMARSHAL_KEY_CALL = re.compile(r'UnmarshalKey\(\s*"([a-z0-9_.]+)"')
 # viper.Sub("backtest") 同理。注意 time.Time.Sub 也命中 `.Sub(`，但它的实参
@@ -258,7 +263,8 @@ def derive_readable_env_names() -> tuple[set[str], set[str]]:
     只看**非测试**文件：测试读某个键不代表生产读它。返回 (精确名, 前缀)。
 
     覆盖的读取形态：`Get*("a.b")` / `BindEnv("a.b")` / `os.Getenv("A")` →
-    精确名；`UnmarshalKey("a")` / `Sub("a")` → 前缀 `A_`（整棵子树）；
+    精确名；`BindEnv("a.b", "A", "B")` 的别名实参 A / B 也是精确名；
+    `UnmarshalKey("a")` / `Sub("a")` → 前缀 `A_`（整棵子树）；
     `ConfigKey* = "a.b"` 这类常量定义 → 精确名。
 
     **不覆盖** `viper.Unmarshal(&整个结构体)`（已删的 cmd/strategy 曾这样读 server.*）——
@@ -273,6 +279,10 @@ def derive_readable_env_names() -> tuple[set[str], set[str]]:
         text = path.read_text(encoding="utf-8", errors="replace")
         for m in _GO_KEY_CALL.finditer(text):
             names.add(m.group(1).upper().replace(".", "_"))
+        for m in _GO_BINDENV_CALL.finditer(text):
+            # 第一实参是配置键（上面已覆盖），这里补别名实参。
+            for alias in _GO_ENV_ALIAS_LITERAL.finditer(m.group(1)):
+                names.add(alias.group(1))
         for m in _GO_CONFIG_KEY_CONST.finditer(text):
             names.add(m.group(1).upper().replace(".", "_"))
         for regex in (_GO_UNMARSHAL_KEY_CALL, _GO_SUB_CALL):

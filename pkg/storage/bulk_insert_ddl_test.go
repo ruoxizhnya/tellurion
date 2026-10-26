@@ -51,8 +51,8 @@ func TestTableMapper_TablesDeclaredInInlineDDL(t *testing.T) {
 	codeReferenced := map[string]string{
 		"sync_jobs":      "pkg/storage/sync_jobs.go（同步作业队列）",
 		"sync_schedules": "pkg/storage/sync_jobs.go（cron 定时同步）",
-		"factor_genes":   "pkg/ai/gene_pool/factor_pool.go（因子基因池）",
-		"strategy_genes": "pkg/ai/gene_pool/strategy_pool.go（策略基因池）",
+		"factor_genes":   "tellurion-agent:pkg/ai/gene_pool/factor_pool.go（因子基因池；AI 已拆仓，core 只保留建表 DDL）",
+		"strategy_genes": "tellurion-agent:pkg/ai/gene_pool/strategy_pool.go（策略基因池；同上）",
 		// DATA-12：指数日线表由 pkg/storage/index_daily.go 直接 SQL 读写
 		// （LatestIndexBars / SaveIndexDailyBatch），不在 TableMapper 里。
 		"market.index_daily": "pkg/storage/index_daily.go / pkg/storage/ohlcv.go（指数日线读写）",
