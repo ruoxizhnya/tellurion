@@ -21,12 +21,12 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 | 2 | 双 owner 表清单 | **只做五列只读清单**（run / strategy / risk / ai），market 按 ⑰ 继续；不排全量四步计划 | `core-governance-decision-materials-2026-10-26.md` §2 | ⬜ 待施工 |
 | 3 | 旧仓 archive | **先打 tag，不删**；删除留到 S1 出口后 | 4 个 `quant-trading*` 仓 | ⬜ 待施工 |
 | 4 | analytics `/healthz` 缺失 | **补无鉴权 `GET /healthz` + 单测**，保留 Dockerfile / compose 健康检查 | `tellurion-analytics:cmd/analyticsservice` | ✅ 已提交 `f010606`（2026-10-26） |
-| 5 | core k8s risk / analytics 清单 | **删两份**；保留 `data-deployment.yaml`（端口一致） | `tellurion:deploy/k8s/` | ⬜ 待施工 |
+| 5 | core k8s risk / analytics 清单 | **删两份**；保留 `data-deployment.yaml`（端口一致） | `tellurion:deploy/k8s/` | ✅ 已落（2026-10-26 `ecc4f2d`；`deploy/k8s/` 实测 8 份，无 risk / analytics 两份） |
 | 6 | contracts `v0.7.0` 与 pin 矩阵 | risk 包落 main 后打 `v0.7.0`；同批 core / agent kit 升 `v0.1.4`，risk / core 升 contracts | contracts tag + 三仓 `go.mod` | ⬜ 待施工 |
 | 7 | QT-51 合入 | **rebase 到本地 main**，跑全量门禁，ff merge；分支留 tag 作回滚点 | `tellurion:task/qt51-execution-port` | ⬜ 待施工 |
 | 8 | `SVC-*` 立单 | 补 `SVC-DUAL-01` / `SVC-RETIRE-INDEX` 六字段；`SVC-DEPLOY-01` 记 🔶（不标 ✅） | `tellurion:docs/TASKS.md` | ✅ 两单六字段已落（`DEPLOY-01` 仍 🔶） |
 | 9 | orchestration / broker 零 contracts | **本轮不做**；等各自 G1/G3 接线时一次接入 | 两仓 `go.mod` | ⬜ 延后 |
-| 10 | `check_deploy_consistency.py` 假阳性 | **修 `BindEnv` 别名解析 + 破坏验证** | `tellurion:tools/check_deploy_consistency.py` | ⬜ 待施工 |
+| 10 | `check_deploy_consistency.py` 假阳性 | **修 `BindEnv` 别名解析 + 破坏验证** | `tellurion:tools/check_deploy_consistency.py` | ✅ 已修（2026-10-26 `ecc4f2d`；退出码见 §二 #10 的环境条件） |
 
 ---
 
@@ -75,7 +75,7 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **依据实测**：`risk-deployment.yaml` 写 `containerPort: 8086`，实际默认 `8089`；`analytics-deployment.yaml` 写 8087，与实际一致，但同属无升格 ADR 的容器清单。
 - **落地动作**：删两份文件；`docs/guides/deploy-config.md` 同步为「六仓 compose 为准，k8s 仅 data 保留」。
 - **代价**：失去「risk / analytics 可 k8s 部署」的旧证据；与 ADR-036 口径一致。
-- **落点 / 状态**：`tellurion:deploy/k8s/`；✅ 已删两份（2026-10-26，`git status` 显示两条 `D`）；`check_deploy_consistency.py` 复跑 exit 0；`deploy/k8s/` 现 **8 份**（data / analysis / web / configmap / ingress / namespace / postgres-statefulset / redis-deployment）。
+- **落点 / 状态**：`tellurion:deploy/k8s/`；✅ 已删两份（2026-10-26，`ecc4f2d`）；`check_deploy_consistency.py` 复跑 exit 0（**取该退出码需 `PYTHONIOENCODING=utf-8`，理由见 #10**）；`deploy/k8s/` 现 **8 份**（data / analysis / web / configmap / ingress / namespace / postgres-statefulset / redis-deployment，实测 `ls` 计数）。
 
 ### 6 · contracts `v0.7.0` 与 pin 矩阵
 
@@ -90,8 +90,8 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 
 - **事项**：执行 port 已在未合入分支落地（`git log` tip `e015a83`），Go 环境已恢复。
 - **裁决**：**rebase 到本地 main**（当前 `49cfdd5`，不是 origin/main），跑 `gofmt -l .` / `go build ./...` / `go vet ./...` / `go test ./... -count=1`，全绿后 ff merge；分支留 `archive/qt51-execution-port` tag 作回滚点。
-- **依据实测**：分支 `1 ahead`（origin/main `5b9dc11`）、本地 main 领先 origin 3 笔；本机已 `go build ./...` 通过（QT-51 工作树，EXIT=0），`vet` / `test` 本轮未跑。
-- **落地动作**：`git rebase main` → 四道门禁 → `git merge --ff-only`；不重写第二种形态。
+- **依据实测**：分支 `1 ahead`（origin/main `5b9dc11`）、本地 main 领先 origin **7 笔**（`git rev-list --count origin/main..main` = 7，本地 main `7735ab8`；本笔写入时记的「3 笔」与 #7 上一行记的「当前 `49cfdd5`」都是当时快照，**每推一笔就变，判据是现跑命令**）；本机已 `go build ./...` 通过（QT-51 工作树，EXIT=0），`vet` / `test` 本轮未跑。
+- **落地动作**：`git rebase main` → 四道门禁 → `git merge --ff-only`；不重写第二种形态。⚠️ **两条实测补充（2026-10-26 再复测）**：① 分支 tip 现为 `e015a83`、**1 ahead / 7 behind** 本地 main，真冲突只有 `docs/TASKS.md` 一处（Go 侧零冲突，取证见 wave3 K10 ③）；② 本机 Go 1.25.14 可用但**不在默认 Git Bash 的 PATH**，跑门禁前先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"`。
 - **代价**：一次全仓测试；rebase 冲突集中在 `cmd/analysis` 与 `pkg/backtest`。
 - **落点 / 状态**：`tellurion:task/qt51-execution-port`；⬜ 待施工。
 
@@ -120,7 +120,8 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **依据实测**：`tellurion:pkg/bootstrap/config.go:25` 有 `BindEnv("auth.jwt_secret", "JWT_SECRET", "AUTH_JWT_SECRET")`；检查器 `tools/check_deploy_consistency.py:203-207` 只取第一个参数。
 - **落地动作**：改 `_GO_KEY_CALL` 的别名解析（新增 `_GO_BINDENV_CALL` 收 `BindEnv` 全部大写别名实参）；跑一次全量门禁。
 - **代价**：小；不修则 CI 门禁不可信。
-- **落点 / 状态**：`tellurion:tools/check_deploy_consistency.py`；✅ 已修（2026-10-26）：exit 0；**破坏验证**（把 `config.go:25` 的 `JWT_SECRET` / `AUTH_JWT_SECRET` 别名删到只剩配置键）→ 两条假阳性复现、exit 1；逐字节还原后 exit 0。
+- **落点 / 状态**：`tellurion:tools/check_deploy_consistency.py`；✅ 已修（2026-10-26，`ecc4f2d`）：**破坏验证**（把 `config.go:25` 的 `JWT_SECRET` / `AUTH_JWT_SECRET` 别名删到只剩配置键）→ 两条假阳性复现、exit 1；逐字节还原后 exit 0。
+  ⚠️ **「exit 0」有环境条件（2026-10-26 复测）**：本机的 GBK 控制台（cmd 默认 code page）会让它在打印 `✓` 那一行抛 `UnicodeEncodeError` ⇒ **exit 1**，内容其实全绿。取结论前必须 `export PYTHONIOENCODING=utf-8`（那样实测 exit 0，9 条 `✓` + 1 条已登记的 `ai-service k8s 未部署` 提示）；CI 在 ubuntu/UTF-8 上不受影响。**别把这条编码假红读成门禁红，也别在无 UTF-8 的环境下引用「exit 0」。**
 
 ---
 

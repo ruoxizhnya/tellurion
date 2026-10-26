@@ -27,7 +27,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 
 | 仓 | 远端对齐 | 未完成标题 | 备注 |
 |---|---|---|---|
-| tellurion | 0 ahead / 0 behind | **QT-32 ⬜（:903）**、**QT-51 🔶（:1226）** | 工作区有第四轮审计的 6 改 + 1 新增（未提交） |
+| tellurion | 0 ahead / 0 behind | **QT-32 ⬜（:903）**、**QT-51 🔶（:1226）** | ~~工作区有第四轮审计的 6 改 + 1 新增（未提交）~~ → **2026-10-26 再核：那批已整体提交（`4f44dd6` / `49cfdd5` / `7735ab8` 等），工作树干净**；QT-51 段行号已漂到 `docs/TASKS.md:1275`——表内行号随并发提交漂移，引用前先 grep，别照抄 |
 | tellurion-contracts | 0/0 | 无 | `risk` 包**不存在**（②未开工） |
 | tellurion-kit | 0/0 | KT-11 🔶（:182） | **`v0.1.4` 已打 tag 并 push**（台账仍写「待发版」） |
 | tellurion-data | 0/0 | QT-40 🔶（:22） | ⑰ 未开工 |
@@ -45,7 +45,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 ### 0.2 本批**能**开工与**不能**开工的分界
 
 - **能**：22 条裁决里凡是「已拍定 + 落点在单仓 + 不需要外部条件」的，全部进本批（K1~K9、K11）。
-- **不能**（只出决策材料）：第四轮目的对齐审计 §六 的 A~F（新提出、未裁决）；以及需要 Go 环境复跑门禁才能合入的 K10。
+- **不能**（只出决策材料）：第四轮目的对齐审计 §六 的 A~F（新提出、未裁决）。~~以及需要 Go 环境复跑门禁才能合入的 K10~~ → **K10 已于 2026-10-26 改判「可派」**：Go 1.25.14 在本机可用（只是不在默认 Git Bash 的 PATH，需显式 export），前置不再是外部条件。
 - **明确不动**：QT-45 / XTP（⑦ 已裁「本轮不投人」）；`task/g3-data` 遗留（㉑ 已发生，仅需追认）。
 
 ---
@@ -65,7 +65,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 | **K7** | artifact 写端点 + R5 | orchestration | ⑱：引 kit + 端点级鉴权 + `POST /api/runs/{id}/artifacts`（service 角色） | 无（kit `v0.1.4` 已发） | Go（CI） | ⬜ 可立即派 |
 | **K8** | promote 闸门鉴权与留痕 | strategy | ⑫：引 kit + 三端点 service-token + 审批人取 core 网关 `X-Actor` + 落审计 | 无（kit `v0.1.4` 已发） | Go（CI） | ⬜ 可立即派 |
 | **K9** | `contracts/risk` 包 | contracts | ②：新建 `risk` 包，wire 类型 + 冻结枚举 + hash 纯函数 + 4 哨兵，**编码逐字节搬运** | **K1 完成**（词典先定形） | Go（CI，要发 `v0.7.0`） | ⛔ 等 K1 |
-| **K10** | QT-51 分支收口 | core | ①：从 `task/qt51-execution-port` 拉新 worktree → rebase 到 main → 解 3 处冲突 → 复跑门禁 → 合入 | **有 Go 的环境**（本机无） | **必须 Go** | ⛔ 等环境 |
+| **K10** | QT-51 分支收口 | core | ①：从 `task/qt51-execution-port` 拉新 worktree → rebase 到 main → 复跑门禁 → 合入（冲突面实测：仅 `docs/TASKS.md` 一处真冲突，Go 侧零冲突，见 §K10） | **无**（Go 1.25.14 在本机可用，只是不在默认 PATH；见 §5 外部条件） | **必须 Go**（显式 PATH）+ CI（`-race`） | 🔶 可派（环境已解除） |
 | **K11** | 未过 promote 产物被回测路径拒绝 | core | QT-32 ⑤ 执行侧腿：AI 产物未 promote ⇒ 回测路径 fail-closed | **K8 完成** + K10 合入 | Go（CI） | ⛔ 等 K8 |
 
 **同仓串行关系（硬）**：core 的 K4 → K5 → K10 → K11 **必须依次**（K10 要独占 worktree；K11 会碰 `pkg/backtest` 与 K10 同面）。其余各组**跨仓，互不相干**。
@@ -188,11 +188,11 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 - **⑤ 验收**：① 固定向量测试绿；② 对拍腿绿（两侧 hex 相同）；③ `go test ./... -count=1` 绿 + `tools/check_api_surface` 绿；④ 破坏验证：把编码里的排序去掉 ⇒ 向量测试必须红；把某个字段的长度前缀改成明文分隔 ⇒ 对拍腿必须红；⑤ risk 仓在**不升 pin**的情况下切到别名后仍全绿（这一条在 risk 侧验收，跨仓时由 K9 交付说明给出步骤）。
 - **⑥ 边界**：只做「契约落形状 + 对拍」。core 侧消费（`bundle → RiskPolicy`）与 risk 的 Store/HTTP 都不在本单。
 
-### K10 · core QT-51 分支收口（⛔ 等 Go 环境）
+### K10 · core QT-51 分支收口（环境前置已解除；剩 rebase + 复跑门禁 + 重跑等价性报告）
 
 - **① 目标**：把 `_ ExecutionPort` 的拆 port 形态合入 main，使 `pkg/backtest` 对 `pkg/live` 的生产 import 归零。
-- **② 落点（实测）**：分支 `task/qt51-execution-port`（tip `7c89aae`，**1 ahead / 12 behind main**，**不在 origin**），22 个文件；main 侧今天仍有 **6 个文件** import `pkg/live`（生产 3：`pkg/backtest/engine.go` / `options.go` / `execution/live_bridge.go`；测试 3）。裁决在 `cross-repo-decision-record-2026-10-25.md` §五 ①。
-- **③ 要求**：① `git worktree add` 从该分支拉一个**新** worktree（旧 `tellurion-qt51` 目录已不存在，**不要**复用路径）；② rebase 到 main，解 `pkg/backtest/engine.go` / `aliases.go` / 文档三处冲突；③ 在**有 Go 的环境**复跑 `gofmt -l .` / `go build ./...` / `go vet ./...` / `go test ./... -count=1`，并单跑 `internal/repoguard`、`pkg/backtest/execution`、`cmd/analysis/wiring` 三组；④ **等价性报告必须重跑**——分支自带的那份是旧基线上跑的，不能当合入后证据；⑤ 合入后另立小单删 5 个零调用 shim（先 grep 仍为 0）；`SetLiveTrader` 保留。
+- **② 落点（2026-10-26 再复测）**：分支 `task/qt51-execution-port`（tip `e015a83`，**1 ahead / 7 behind** 本地 main `7735ab8`，**不在 origin**——`git ls-remote origin refs/heads/task/qt51*` 0 命中），**24 个文件**；main 侧今天仍有 **6 个文件** import `pkg/live`（生产 3：`pkg/backtest/engine.go` / `options.go` / `execution/live_bridge.go`；测试 3）。裁决在 `cross-repo-decision-record-2026-10-25.md` §五 ①。
+- **③ 要求**：① `git worktree add` 从该分支拉一个**新** worktree（旧 `tellurion-qt51` 目录已不存在，**不要**复用路径）；② rebase 到 main——**冲突面实测（同日订正，原写「解 `engine.go` / `aliases.go` / 文档三处」不成立）**：merge-base `5b9dc11`，两侧改动交集 = **3 个文件且全是文档**（`docs/TASKS.md` / `docs/ARCHITECTURE.md` / `docs/design/qt-decoupling/README.md`），**Go 侧零冲突**；`git merge-tree --write-tree main task/qt51-execution-port` 的真冲突**只有 `docs/TASKS.md` 一处**，另两处自动合并；③ 复跑 `gofmt -l .` / `go build ./...` / `go vet ./...` / `go test ./... -count=1`，并单跑 `internal/repoguard`、`pkg/backtest/execution`、`cmd/analysis/wiring` 三组——⚠️ 本机 Go 1.25.14 **可用但不在默认 Git Bash 的 PATH**（`command -v go` 空），先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"` 再跑，`-race` 本机跑不了（`CGO_ENABLED=0`、无 C 编译器），这条腿留 CI；④ **等价性报告必须重跑**——分支自带的那份是旧基线上跑的，不能当合入后证据；⑤ 合入后另立小单删 5 个零调用 shim（先 grep 仍为 0）；`SetLiveTrader` 保留。
 - **④ 约束**：**不**按 wave2-b 的旧方案重做（「删 shim + LiveBridge 外移」已作废）；**不**新增 `ExecutionPort` 之外的抽象；**不**改回测撮合行为（`pkg/backtest/execution` 的 `ExecutionService` 不动）；**不**在无 Go 的环境宣告完成。
 - **⑤ 验收**：① 上述四条门禁的**真实退出码为 0**（贴输出，不接受自述）；② `pkg/backtest` 对 `pkg/live` 的生产 import = 0，且有 `internal/repoguard` 的护栏测试钉住；③ 同一策略回测结果与 main **逐位一致**（等价性报告重跑后的新数字）；④ `task/qt51-execution-port` 合入后可从本地与远端删除（合入即已收敛）。
 - **⑥ 边界**：只做执行语义边界与合入。通道网关（QT-45）与实盘链路不碰。
@@ -236,10 +236,10 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 
 | 组 | 前置 | 说明 |
 |---|---|---|
-| K10 | **有 Go 的环境**（本机无） | rebase + 复跑门禁 + 重跑等价性报告；建议独占 worktree |
+| K10 | ~~**有 Go 的环境**（本机无）~~ → **已解除**：Go 1.25.14 本机可用，默认 Git Bash PATH 里没有它，需显式 `export PATH="…\go1.25.14\bin:$PATH"` | rebase + 复跑门禁 + 重跑等价性报告；建议独占 worktree |
 | K11 | **K10 合入 + K8 完成** | 拒绝腿落在 `pkg/backtest` / `pkg/strategy`，与 K10 同面，必须在其后 |
 
-> **core 的四组顺序是硬的**：K4 → K5 →（K10，需环境）→ K11。任何两组同时动 core，都会让 `gofmt`/CI 的「这次红是谁造成的」失去答案。
+> **core 的四组顺序是硬的**：K4 → K5 →（K10，环境前置已解除）→ K11。任何两组同时动 core，都会让 `gofmt`/CI 的「这次红是谁造成的」失去答案。
 
 ---
 
@@ -277,7 +277,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 |---|---|---|---|
 | 1 | kit `docs/TASKS.md:182` 曾写 KT-11「🔶 进行中（**待 CI 门禁与发版**）」，施工序 S2.7 也把「打 `v0.1.4`」列为待办 | **本轮实测时已被并发施工方结案**：`f2c5605 docs(tasks): KT-11 结案 —— v0.1.4 已发版、三仓已升 pin`，当前该行已是 `✅ 完成（2026-10-25，已发 v0.1.4）`；`git tag` 有 `v0.1.4`；三仓 `go.mod` 已 `v0.1.4` | **无需处置**（已闭合）。留此行为证：本批取证时点早于该结案，避免把「已修」再修一遍 |
 | 2 | core `docs/TASKS.md` QT-51 段：「分支自述已裁决并落地，但 **main 的裁决记录没有这条裁决** ⇒ 合入前需主任确认」 | `cross-repo-decision-record-2026-10-25.md:371` **已有** ① 「QT-51 拆 port …以分支为基线收口」 | **已修（本篇写入时同步）**：该段追加 2026-10-26 订正块，标题「待复取 + 裁决」改为「裁决已下，待复取」 |
-| 3 | core QT-51 标题「实现已在未合入分支」+ `:1226` | 分支仍在（`task/qt51-execution-port`），实测 **1 ahead / 12 behind**（早前文档写 9 behind / 11 behind，均为旧快照） | 以 12 behind 为准；K10 的 rebase 工作量按 12 笔估。**2026-10-26 复测**：分支已 rebase 到 origin/main（tip `e015a83`），当前 **1 ahead / 3 behind 本地 main**，工作量按 3 笔估 |
+| 3 | core QT-51 标题「实现已在未合入分支」+ `:1226` | 分支仍在（`task/qt51-execution-port`），实测 **1 ahead / 12 behind**（早前文档写 9 behind / 11 behind，均为旧快照） | 以 12 behind 为准；K10 的 rebase 工作量按 12 笔估。**2026-10-26 复测**：分支已 rebase 到 origin/main（tip `e015a83`），当前 **1 ahead / 3 behind 本地 main**，工作量按 3 笔估。**同日再复测（本批落账时）**：本地 main 已推进到 `7735ab8` ⇒ **1 ahead / 7 behind**，QT-51 段现落在 `docs/TASKS.md:1275`。**结论：behind 这个数每推一笔 main 就变一次，谁都不许再往文档里写死**——要判 rebase 工作量就现跑 `git rev-list --left-right --count main...task/qt51-execution-port`；「1 ahead」与「不在 origin」两条至今未变 |
 | 4 | 第四轮审计 §一：「除 data 读链外**没有一条**真正进入生产回路」 | core **有** `POST /api/risk/resolve` 调用点（`cmd/analysis/wiring/risk_rules.go:45`），但开关 `risk_service.resolve_enabled: **false**`（`config/analysis-service.yaml:122`）、`events_enabled: false`（`:143`） | 两句话**并不冲突**，但必须写清口径：**「代码已接线、部署默认关」** ≠ 「没有调用方」。建议在审计 §一 补半句，否则下一次会被读成「risk 生产者不存在」 |
 | 5 | orchestration `AGENTS.md` §4：「kit 未引入（**远端最新 `v0.1.3`**）」 | kit 远端已有 `v0.1.4`（tag 已 push） | **已修（2026-10-26）**：`tellurion-orchestration:AGENTS.md:57` 与 `tellurion-broker:AGENTS.md:53` 已改为 `v0.1.4`；两仓仍未引入，这一半不变 |
 | 6 | data `docs/db-schema.md:25` 把 `market.index_daily` 列为本仓表 | 该表 owner 已裁为 core（⑰）；core 侧写点在 `tellurion:pkg/storage/index_daily.go:31`、定义在 core Migration 057 | K2 同时改 `:25` 与 `:151`；**:79 的「core 仍是写者」一句是对的，保留** |
