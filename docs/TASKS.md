@@ -23,19 +23,46 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **退役单 ID**：`SVC-CORE-DATA-RETIRE` / `SVC-CORE-RUN-RETIRE` / `SVC-CORE-STRAT-RETIRE` / `SVC-CORE-RISK-RETIRE` / `SVC-CORE-AN-RETIRE` / `SVC-CORE-BROKER-RETIRE` / `SVC-CORE-AI-RETIRE`；逐条覆盖矩阵见审计 §五之二（3 条已有、4 条缺删除）。
 >
-> **⚠️ 立单状态（2026-10-26 复测）**：上表三行与七个退役 ID **均无六字段正文**（全文件只在 `:20-24` 的表格里出现），按「未立单不得开工」**暂不可派发**。可复用工件已入库：`Dockerfile.service`（只 build `./cmd/data` / `./cmd/analysis`）与 `docker-compose.services.yml`（六服务 + PG16，`config -q` 通过）；build/run 仍未验（**2026-10-26 同日订正：本机有 Go 1.25.0 且三条门禁已跑通；Docker daemon 仍未起，镜像 build/run 未验**）。
+> **⚠️ 立单状态（2026-10-26 复测 + 裁决）**：三张总单原只有表格行。现 `SVC-DUAL-01` / `SVC-RETIRE-INDEX` 已在下方「六、SVC 总单（2026-10-26 立单）」补六字段；`SVC-DEPLOY-01` 记 **🔶（不标 ✅）**——`Dockerfile.service` 修复与聚合 compose 已入库，六服务 + core + ai 镜像均构建成功、聚合栈 5/6 healthy；analytics `/healthz` 已随 `tellurion-analytics` `f010606` 修复（单容器 200 + healthy），剩余腿 = 复跑聚合栈 6/6 healthy。七个退役 ID 的机械判据正文见 B 组材料 §4，不再各自立单。
 >
-> **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；两处代码注释漂移只登记未修。**
+> **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；代码注释漂移原记两处，其中 agent `Dockerfile` 那处已随 `cc51e84` 订正，剩 `bulk_insert_ddl_test.go` 一处只登记未修。**
 >
 > **门禁基线（2026-10-26 本轮真实输出）**：`go build ./...` exit 0；`go vet ./...` exit 0；`go test ./... -count=1` exit 0（ok=70 / FAIL=0 / 无测试包=3）；`docker compose -f docker-compose.yml config -q` exit 0；`docker compose -f docker-compose.services.yml config -q` exit 0；两份合并 `config -q` 也 exit 0，**但合并后 8081 被 `data`（服务仓）与 `data-service`（core 进程）同时发布**；`python tools/check_deploy_consistency.py` **仍 exit 1**（2 条 `JWT_SECRET` 假阳性，未被本轮修）。
 >
-> **施工记录（2026-10-26）**：六仓 `Dockerfile` + 各仓 `deploy/` 已落；`docker compose config` 6/6 + 聚合 1/1 通过；**本机 Docker daemon 未起，build/run 未验**。broker 新增 `cmd/brokergateway`（`/healthz`、`/version`），订单 HTTP 面归 `SVC-BROKER-G1`。端口：data 8081 / risk 8089 / strategy 8090 / analytics 8087 / orchestration 8088 / broker 8091。
+> **施工记录（2026-10-26）**：六仓 `Dockerfile` + 各仓 `deploy/` 已落；`docker compose config` 6/6 + 聚合 1/1 通过。**同日复测（Go 1.25.14 / Docker Engine 29.8.0）**：六服务镜像、core `Dockerfile.service`、agent `Dockerfile` 全部构建成功；聚合栈 `up --wait` = **5/6 healthy**；`analytics /healthz` = **404**（G0 验收缺口，已由 `tellurion-analytics` `f010606` 修复：单容器 `/healthz` 200 + healthy；**整栈 6/6 未复跑**）。broker 新增 `cmd/brokergateway`（`/healthz`、`/version`），订单 HTTP 面归 `SVC-BROKER-G1`。端口：data 8081 / risk 8089 / strategy 8090 / analytics 8087 / orchestration 8088 / broker 8091。
+>
+> **第六轮裁决入账（2026-10-26）**：主任口径「全部按建议」，10 条正文见 `docs/design/qt-decoupling/cross-repo-decision-record-2026-10-26.md`。本仓直接相关：#1 冻结 X 线新增；#2 双 owner 五列清单；#5 删 k8s 的 risk / analytics 两份；#6 contracts `v0.7.0` 与 pin 矩阵；#7 QT-51 rebase → 四道门禁 → ff merge；#8 两单六字段（下方「六、SVC 总单」）；#10 修 `check_deploy_consistency.py`。环境前置：Go **1.25.14** + Docker **Engine 29.8.0** 已实测可用。**本文件不镜像正文。**
 >
 > **第三轮裁决入账（2026-10-25）**：第二轮 16 条已全部拍定（主任口径「全部按建议」），正文见 `docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md` §五。本仓直接相关：① QT-51 = **收口分支 `task/qt51-execution-port`（`7c89aae`，1 ahead / 9 behind）**，不重做第二种形态；② contracts 新建 `risk` 包（`Bundle`/`ParseBundle` 留 risk）；⑤ 回填只批 9 张（**运维执行**）；⑰ `market.index_daily` owner = core；⑱ X0 写端点前置 orchestration 的 R5；⑲ `/report` 改结论态放行；⑫ promote 走面 B1；⑬ kit 发版后本仓升 pin。**本文件不镜像正文。**
 
 **本代的特殊性**：这不是一份「新功能清单」，是**先把契约冻死、再改实现**的施工顺序；同时按 ADR-D29 **把契约从本仓拆成独立仓**（S0 可立即做，S1 排在 W0 后，S2/S3 逐级验收）。wave-0 五行**不改任何行为**（只写契约/常量/差异报告），目的是让后面 25 张单不必返工。**跳序施工 = 第二次 ABI 破坏 + 基准全量重跑**。
 
 > **命名基线（ADR-D30）**：项目定名 **tellurion**，owner 保持 `ruoxizhnya`；**应用/服务用单段短名、库用全名**。本台账「② 上下文」里的 `quant-trading*` 是**改名前的现状描述**（不改）；「③ 要求」里的名字是**目标态**（QT-60 完成后生效）。仓名与 module path 的唯一真相源是 [`repo-inventory.md`](design/qt-decoupling/repo-inventory.md)。
+
+---
+
+## 六、SVC 总单（2026-10-26 立单）
+
+> 裁决正文：`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-26.md` §二 #8。下列两单原只有表格行，现补六字段。
+> 详细材料（55 行归属 / 七条退役判据）在 `docs/design/qt-decoupling/core-governance-decision-materials-2026-10-26.md` §2 / §4，本文件不镜像。
+
+### SVC-DUAL-01 · 双 owner 全量清单（⬜ 2026-10-26 立单）
+
+- **① 目标**：把 run / strategy / risk / ai 四簇的 DDL 双 owner 与 risk「裁决权双真相」写成一张只读清单，逐行可核，作为 G3 停写判据的输入。
+- **② 上下文**：B 组材料 §2 已有 55 行归属（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；market 簇按裁决 ⑰ 已定、K2 在做，本单不重开；审计 §三 P0-2 给出四簇证据。
+- **③ 要求**：五列——owner / 当前写者 / 读方 / 对拍方式 / 停写条件；run / strategy / risk / ai 全覆盖；risk 单列「裁决权」而非同表双写；每行有 `repo:path:line`；不得出现空 owner 或「不知道谁写」。
+- **④ 约束与非目标**：只读清单；不改 DDL、不建对拍工具、不排四步计划、不动 market 簇（K2 范围）；不裁决停写先后。
+- **⑤ 验收**：清单入 `docs/design/qt-decoupling/`；四簇每簇至少 1 行；随机抽 3 行路径可命中；每行五列齐全；与 `core-governance-decision-materials-2026-10-26.md` §2 的 55 行不矛盾。
+- **⑥ 边界**：不覆盖动态拼表名（材料 §2.4 已登记）；不改生产库；不替代各仓 G3 的停写验收。
+
+### SVC-RETIRE-INDEX · 旧实现退役总单（⬜ 2026-10-26 立单）
+
+- **① 目标**：为 data / run / strategy / risk / analytics / broker / ai 七条退役线给出机械判据，作为各仓 G3 的验收总索引。
+- **② 上下文**：B 组材料 §4 已给每条 grep 模式 + 今日基线 + 归零目标 + 反向护栏；审计 §五之二：3 条已有退役任务、4 条缺删除。
+- **③ 要求**：每条写 owner、删除对象、停写判据、回滚；判据必须可机械执行（grep / 命令退出码）；与各仓 G3 单双向指针；旧路径零调用后才可标 ✅。
+- **④ 约束与非目标**：本单只给判据与索引，**不执行删除**；不改 `pkg/storage/postgres.go`；不碰生产库；不包含索引 `DROP INDEX`（另有材料 §3 的未裁项）。
+- **⑤ 验收**：七条全有 owner + 删除对象 + 判据 + 回滚；随机抽 2 条判据命令，退出码与材料 §4 基线一致；各仓 G3 单能反查本单。
+- **⑥ 边界**：不覆盖动态拼表名；不替代各仓 G3 的代码删除验收；不处理 `task/g3-data` 遗留。
 
 ---
 
@@ -1138,7 +1165,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > 五条相关口径：① `Send` **刻意不遵守入参 ctx**（`alert.Channel` 的一般约定是尊重调用方 ctx；这条路径上 ctx 来自 `POST /api/alerts/force-check`，客户端挂断不该让已触发的告警消失）；② PG 写不进去时无处留痕 ⇒ 只能 Error 日志说明「这条没进 outbox，到不了 risk」（`Channel.Send` 没有 error 返回），不降级成发一个残载荷；③ `ListPendingAlertOutbox` 不 claim 行（没有 `FOR UPDATE SKIP LOCKED`），两个进程同时跑会重发同一批 —— risk 侧主键去重兜得住，代价是 `duplicates` 计数，本单不加界；④ **撞键的那条没有行**：`alert_id` 是主键 + `ON CONFLICT DO NOTHING`，而 `Alert.ID` = `ALR-<rule>-<epoch 秒>-<seq>`（`pkg/alert/manager.go:362`）且 seq 随进程归零 ⇒ 同一秒内重启（崩溃循环恰好就是这样）能造出两条 id 相同、内容不同的告警，第二条一行都不落。id 本身改不得（它是 risk 侧的去重坐标），所以本单把 `SaveAlertOutbox` 改成返回「是不是新行」，撞键转 **Warn** 点名（`TestRiskEventSink_DuplicateAlertIDSaysSoInsteadOfDroppingSilently`）——**残留的洞如实登记**：若那一行已是 `failed`，这条告警仍然到不了 risk，只是现在日志里搜得到；要真正闭合需要给行身份加每进程 nonce，那是另一条单；⑤ **回写 sent 用的必须是 outbox 主键，不是 risk 的 `order_id`**：今天 `alert_id == order_id == Alert.ID`，两者同值让这个区别看不见，而 `post` 是按批次内**下标**报告「哪几条被接受」的 —— 折回主键才对得上行。按 `order_id` 回写的实现在两串分开后标到 0 行，且 `MarkAlertOutboxSent` 不报错（`n=0, err=nil`），于是「已发出」与「每轮重发同一条」在日志里长得一模一样；两条各有一条用例（`MarksSentByOutboxKeyNotRiskOrderID` / `DeliveredButZeroRowsMarkedIsLoud`），后者还把 n=0 本身转成 Error。
 >
-> 仍未落（如实登记）：真实投递到 risk 进程的端到端腿没在本仓跑过（`httptest` 假服务端 + 内存 outbox 替身按 wire 逐键断言）；`-tags integration` 的真库腿（`pkg/storage/alert_outbox_integration_test.go`）**本机未执行**（Docker daemon 不可用：`docker info` 报 `//./pipe/dockerDesktopLinuxEngine` 不存在），只做到 `go vet -tags integration ./pkg/storage/...` **EXIT=0** 的编译验证。
+> 仍未落（如实登记；2026-10-26 订正环境陈述）：真实投递到 risk 进程的端到端腿没在本仓跑过（`httptest` 假服务端 + 内存 outbox 替身按 wire 逐键断言）；`-tags integration` 的真库腿（`pkg/storage/alert_outbox_integration_test.go`）**本机未执行**（Docker Engine 29.8.0 已可达，但本轮**未起专用测试库**；`127.0.0.1:5432` 无 PG 监听），只做到 `go vet -tags integration ./pkg/storage/...` **EXIT=0** 的编译验证。
 >
 > **测试**：`cmd/analysis/wiring/risk_events_test.go` **26 条**（含 1 条表驱动的 2 个子用例，干净树里 `go test -count=1 -v` 实测 26 PASS / 0 FAIL）——`Send` 只落一行**且不碰 HTTP**、`Send` 无视已取消的调用方 ctx、属性含 NaN ⇒ 不可编码即**不落残行**、outbox 写失败响亮 Error、**撞键（同 id 的第二条）响亮 Warn**、relay 按 risk wire 形状逐键投 pending（信封仅 `events` 一键；条目键集逐字对齐 risk `internal/event.Event`，无 symbol 的告警**不编出空键**）、payload 带得上 risk 投影要的字段、到 `events_relay_interval` 自刷、`Close` 把剩下的行投完、读 outbox 失败保行且响亮、5xx 保 pending 并在下一轮**真重发**、触 `events_max_attempts` 转 `failed` 而**不删行**、207 逐条点名被拒的告警号、`duplicates` 转 Warn 但仍算已送达（risk 收了）、已投递却标不上 sent 即响亮（否则下轮重发）、**回写按 outbox 主键而非 risk 的 `order_id`**（两条串写成不同值时仍标得上）、**标到 0 行且无 error 也响亮**、Bearer 头两条（配置了才带）、构造期三条（坏 URL / 缺 outbox / `batch_size` 超 risk 侧 1 MiB 请求体上限即拒）、装配开关五条（关 ⇒ `not_configured`、`Fire` 的告警到得了 risk、**不回落到 analysis 自己的 `risk_service.url`**、启用而 store 为 nil ⇒ fail-fast、坏配置 fail-fast）。存储侧 `pkg/storage/alert_outbox_test.go` **4 条**（含 4 子用例）：DDL 走 `migrationStatements()` 这条唯一路径（取实际执行的语句清单核对，不是 grep 文本——注释里留字面串骗不过它）、DDL 形状与读它的查询一致、Go 状态词表与 CHECK 同一套、列名与 risk 事件 JSON 键一致，外加 `last_error` 的列安全（夹断停在字边界 + 上游坏字节折成 U+FFFD）；真库腿 4 条在 `alert_outbox_integration_test.go`（`-tags integration`，本机未执行，见上；同批把首次/重放/已 sent 后重放三条腿的断言从「不报错」升级成「是不是新行」）。
 >
@@ -1146,7 +1173,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **干净 checkout 复核（`git worktree add --detach` @ 本单 commit，2026-10-25）**：**一批** @ 当时的 commit：`gofmt -l .` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（73 个 ok，零 FAIL；本机 `CGO_ENABLED=0` 无 `-race`，按仓例如实登记）。工作区里同期有别的单的未提交改动（`cmd/analysis/wiring/risk_rules.go`、`pkg/marketdata/http_provider.go` 的服务间 token 转发 + yaml 的 `resolve_*` 两行），**未进本单 commit**：yaml 用 `git hash-object` + `update-index` 只提交本单的两块（HEAD + 本单 = 纯新增，零删除），四条证据取自上面那个只含本单的 detached worktree，不是混着别人 WIP 的工作区。
 >
-> **二批 @ `a53fe95`（同一把 detached worktree 取结论，用完 `git worktree remove --force`）**：`gofmt -l .` **0 个文件**；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（73 个 ok、零 `FAIL`；无 `-race`，理由同上）；`go vet -tags integration ./pkg/storage/...` **EXIT=0**（真库腿只编译、未执行，Docker daemon 不在）；`python tools/check_doc_links.py` **EXIT=0**。工作区里另有一份不属本单的未跟踪文件（`docs/design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md`），**未进 commit**。
+> **二批 @ `a53fe95`（同一把 detached worktree 取结论，用完 `git worktree remove --force`）**：`gofmt -l .` **0 个文件**；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（73 个 ok、零 `FAIL`；无 `-race`，理由同上）；`go vet -tags integration ./pkg/storage/...` **EXIT=0**（真库腿只编译、未执行：Docker 已可达，但本轮未起测试库）；`python tools/check_doc_links.py` **EXIT=0**。工作区里另有一份不属本单的未跟踪文件（`docs/design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md`），**未进 commit**。
 >
 > **二批的收口两条腿（回写主键 + n=0 响亮）另取一次隔离结论**：写这两条时工作区正被另一路会话的 裁-18（`tellurion-kit` 进 `go.mod`、`go.sum` 未更新）改到**整仓不可构建**（`missing go.sum entry for … tellurion-kit/logging`），那不是我这条单的破坏。所以我**没有 stash**（共享树里 stash 会连别人的活一起卷走），而是 `git worktree add --detach` 到 `0cb8e9f` + `git apply` 只含我这两个文件的 patch，在那棵隔离树里取结论：`gofmt -l .` **0 个文件**、`go build ./...` **EXIT=0**、`go vet ./...` **EXIT=0**、`go test ./... -count=1` **EXIT=0**（73 ok、零 FAIL）、`go test ./cmd/analysis/wiring/ -v` 里本单 26 条 **26 PASS / 0 FAIL**；用完 `git worktree remove --force`。裁-18 落地后这棵隔离树的结论不再自动代表合并后的树 ——  kit 那批改动进主干后，本单的腿要随全仓 CI 再跑一次才算最终绿。
 >

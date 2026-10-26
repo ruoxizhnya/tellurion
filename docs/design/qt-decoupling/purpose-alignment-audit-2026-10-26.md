@@ -198,7 +198,7 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 | 文档 | 过期陈述 | 实测 |
 |---|---|---|
 | `tellurion-docs:docs/SYSTEM-DESIGN.md` §3 / §7 | 「agent 仍编译期依赖 core」「六服务只有占位 `doc.go`」「X1~X6 未触发」「S3 ⬜」 | agent 零 import core、无 `replace`；六仓各有 `cmd/*service` 与自有 schema |
-| `tellurion-docs:docs/REPO-MAP.md` | contracts/kit「占位（S1 落代码）」；agent「过渡态：仍 replace」；六服务「占位（X1~X6）」；core「内嵌前端静态资源」 | contracts `v0.6.0`、kit `v0.1.3` 已发版；agent S3 已落；六仓已实装；core 无前端 |
+| `tellurion-docs:docs/REPO-MAP.md` | contracts/kit「占位（S1 落代码）」；agent「过渡态：仍 replace」；六服务「占位（X1~X6）」；core「内嵌前端静态资源」 | contracts `v0.6.0`、kit `v0.1.4`（审计时读到 `v0.1.3`，已订正）已发版；agent S3 已落；六仓已实装；core 无前端 |
 | `tellurion-docs:docs/ROADMAP.md` | 「当前阶段：S0 止血」与同文表格「S0 ✅ / S1 进行中」自相矛盾；last-verified 2026-09-16 | 产品当前阶段是 S1 |
 | `tellurion-docs:docs/README.md` | :40「QT-60，未启动」；:45「ADR 现行（18 条）」；:55 首读顺序仍写 ARCHITECTURE | S-1 ✅；现行 ADR 30 条；ARCHITECTURE 已降级 |
 | `tellurion-docs:docs/guides/local-dev.md:42` | 六服务「只有 go.mod + doc.go（占位），没有实现、不起进程」 | 六仓均已实装 |
@@ -222,7 +222,7 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 | 项 | 证据 |
 |---|---|
 | 契约冻结与执行正确性 | W0（QT-01~04）与 W1/W2（QT-10~16、QT-20~26）全部 ✅；QT-30/QT-31 有 Go↔WASM 逐位对拍 |
-| contracts / kit 两库真实可用 | contracts `v0.6.0`（远端 tag）、kit `v0.1.3`（远端 tag）；core/data/agent 已 pin；`dataprotocol` 导出面 447→465 |
+| contracts / kit 两库真实可用 | contracts `v0.6.0`（远端 tag）、kit `v0.1.4`（远端 tag，2026-10-26 订正；审计时为 `v0.1.3`）；core/data/agent 已 pin；`dataprotocol` 导出面 447→465 |
 | agent 去 `replace`（S3） | agent `go.mod` 无 `replace`、无 core `require`；agent 内 `"tellurion/` import = 0 |
 | 跨仓硬纪律 | 12 仓 `go.work` 均未跟踪；`replace` 仅存在于旧 `quant-trading-agent`（不在 12 仓） |
 | 文档结构齐套 | `check_repo_docs.py`：12/12 齐套、缺件 0；`check_doc_links.py`：活跃层 222 条 / 0 断 |
@@ -264,12 +264,14 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 
 | # | 事项 | 为什么必须主任拍 | 建议的判定点 |
 |---|---|---|---|
-| A | X 线既定事实怎么处理：补 ADR 承认 / 撤回进程与清单 / 维持但冻结 | 这是方向改判，不是实现细节 | 六仓是否继续保留 `cmd/*service` 与 k8s 清单 |
-| B | 双 owner 表清单与逐表四步计划 | 需要确认「哪些表允许暂时双写、哪些必须本周停写」 | 以 `market` / `run` / `strategy` / `risk` / `ai` 五簇为第一批 |
-| C | 部署路径归谁：compose 只跑 core 两进程，还是把六服务纳入 | 影响运维与「12 仓」的实际含义 | 先修 `Dockerfile.service`，再谈纳入 |
-| D | 产品 S1 出口与工程 X 线的排序 | 资源只有一份 | 是否暂停 X 线新动作直到 S1 出口达成 |
-| E | 旧仓 archive 与本地残留 | 不可逆动作 | 是否本周执行 |
-| F | ~~kit `v0.1.4` 发版与三仓升 pin~~ | ✅ **已发生**（2026-10-25/26）：`v0.1.4` tag 已推；data/risk/analytics 已 pin `v0.1.4` | 剩余：core 仍 `v0.1.1`、agent 仍 `v0.1.0`（非阻塞，但矩阵要登记） |
+| A | X 线既定事实怎么处理：补 ADR 承认 / 撤回进程与清单 / 维持但冻结 | ✅ **已由 ADR-036 处置**（2026-10-26）：六仓=服务，保留 `cmd/*service` 与各仓 `deploy/`；k8s 两份按记录 #5 删除 | 见 `cross-repo-decision-record-2026-10-26.md` §二 #5 |
+| B | 双 owner 表清单与逐表四步计划 | ✅ **已裁 2026-10-26**：只做五列只读清单（run / strategy / risk / ai），market 按 ⑰ 继续 | 记录 §二 #2 |
+| C | 部署路径归谁：compose 只跑 core 两进程，还是把六服务纳入 | ✅ **已由 ADR-036 处置**：`docker-compose.services.yml` 纳入六服务，作为本地唯一部署真相 | 记录 §三（已实测） |
+| D | 产品 S1 出口与工程 X 线的排序 | ✅ **已裁 2026-10-26**：冻结 X 线新增，只收口已裁的 K1~K11 | 记录 §二 #1 |
+| E | 旧仓 archive 与本地残留 | ✅ **已裁 2026-10-26**：先打 tag，不删；删除留到 S1 出口后 | 记录 §二 #3 |
+| F | ~~kit `v0.1.4` 发版与三仓升 pin~~ | ✅ **已发生**（2026-10-25/26）：`v0.1.4` tag 已推；data/risk/analytics 已 pin `v0.1.4` | 剩余：core 仍 `v0.1.1`、agent 仍 `v0.1.0` ⇒ 并入记录 §二 #6 |
+
+> **本节已清空**：A~F 全部有归处；本轮新发现（analytics `/healthz` 404、core k8s 两份过期清单、`check_deploy_consistency.py` 假阳性）已并入 `cross-repo-decision-record-2026-10-26.md` §二 #4 / #5 / #10。
 
 ---
 
@@ -304,7 +306,8 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
   4. **施工层**：12 仓 git log / 工作区 / 各仓 `docs/TASKS.md`；
   5. **运行层**：`docker-compose.yml`、`deploy/k8s/`、各仓 `cmd/*service/main.go` 的默认监听、core 的 HTTP 客户端与配置开关。
 - **判据**：① 是否守住「不做」清单；② 是否出现两处真相；③ 是否有可运行证据；④ 文档与实测是否一致；⑤ 是否服务产品目的。
-- **边界（如实）**：本机**没有 Go 工具链**，未执行 `go build/vet/test`、未起服务、未连库；所有代码结论来自静态阅读与 grep。标「已实装」指**有源码与入口**，不等于「已编译通过」或「已部署」。凡台账写「全绿」但本轮未复跑的，本篇不引用为证据。
+- **边界（原始轮，如实）**：本篇静态取证时本机 **Go 不在 PATH**、**Docker daemon 不可达**，未执行 `go build/vet/test`、未起服务、未连库；所有代码结论来自静态阅读与 grep。标「已实装」指**有源码与入口**，不等于「已编译通过」或「已部署」。凡台账写「全绿」但本轮未复跑的，本篇不引用为证据。
+- **2026-10-26 同日复测（取代上一条的环境事实）**：Go **1.25.14** 已恢复（`%LOCALAPPDATA%\Programs\go1.25.14\bin`，已加入用户级 PATH）；Docker **Engine 29.8.0** 可达。已实测：**10 仓 `go build ./...` EXIT=0**；六服务镜像 + core `Dockerfile.service` + agent `Dockerfile` 全部构建成功；聚合栈 **5/6 healthy**（analytics `/healthz` 404，修复见记录 #4）。**未跑**：全量 `go vet` / `go test`、`-tags integration` 真库腿、ui e2e。
 
 ---
 
@@ -332,4 +335,12 @@ verified-by: 第四轮·目的对齐审计（12 仓 git / go.mod / DDL / 部署�
 | （未记）12 仓工作树 | **9 脏 / 3 干净**（contracts、kit、ui 干净）；脏项均已于本轮分仓入库 | `git status --porcelain` |
 | （未记）ADR 计数 | 文件实测：`docs/adr/` 31 份 + `docs/archive/superseded-adr/` 5 份 = **36**（001~036 全在）；不再现行 6 条（009/010/012 归档、014 由 020 §6 取代、021/022 由 023 取代）⇒ 现行 30 | `Get-ChildItem docs/adr`、`ADR.md` 状态列 |
 
-**仍不可验的**：本机无 Go 工具链、Docker daemon 不可达 ⇒ 六仓镜像 build/run、`go build/vet/test`、health 实探均未执行；本轮所有结论只到静态断言。
+**2026-10-26 复测结果（取代上句）**：Go **1.25.14** 已恢复（用户级 PATH）；Docker **Engine 29.8.0** 可达。已实测：
+
+- **10 仓 `go build ./...` EXIT=0**（core 当前分支 + contracts / kit / data / strategy / risk / analytics / orchestration / broker / agent）；
+- **六服务镜像全部构建成功**；core `Dockerfile.service` 与 agent `Dockerfile` 亦构建成功；
+- **聚合栈 5/6 healthy**；`data /health`、`orchestration /healthz`、`broker /healthz` 均 200；
+- **新发现**：`analytics /healthz` = **404**（任务验收写的是 200）；工作树修复后实测 200 且容器 healthy，已提交 `f010606`（记录 #4；整栈 6/6 未复跑）。
+- **仍未跑**：全量 `go vet` / `go test`、`-tags integration` 真库腿、ui e2e。
+
+**追加订正（同表行失效）**：「P2-1：agent 已有 config / deploy → 不成立」已被并发施工方 `cc51e84` 落实——agent 现有 `config/ai-service.yaml`、`deploy/compose.yaml`、`deploy/wait-for-deps.sh`，`Dockerfile` 不再有 `COPY --from=core`，镜像实构建成功。QT-51 分支已 rebase 到 origin/main（tip `e015a83`），当前 **1 ahead / 3 behind 本地 main**，见记录 #7。

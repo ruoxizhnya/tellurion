@@ -30,11 +30,11 @@ wave3 派发文档 §0 与审计 §八写「本机无 Go 工具链，未跑 buil
 
 | 项 | 值 |
 |---|---|
-| Go | `C:\Users\ruoxi\sdk\go1.25.0\bin\go.exe`，`go version go1.25.0 windows/amd64`（不在默认 PATH，需前置） |
-| Docker CLI | `docker compose version` = v5.5.1；**daemon 不可达**（`open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified`） |
+| Go | `C:\Users\ruoxi\AppData\Local\Programs\go1.25.14\bin\go.exe`，`go version go1.25.14 windows/amd64`（2026-10-26 已加入用户级 PATH） |
+| Docker CLI / daemon | `docker compose` 可用；**Engine 29.8.0 可达**（2026-10-26 复测） |
 | Python | 可用（`tools/*.py` 可跑） |
 
-**结论**：「build 已验、run 未验」—— 这是本轮对部署面唯一能给出的诚实口径，后文所有部署结论都遵守它。
+**结论（已随 2026-10-26 复测更新）**：「build 已验、run 已验一半」——六服务镜像 + core `Dockerfile.service` + agent `Dockerfile` 均构建成功；聚合栈实跑 5/6 healthy（`analytics /healthz` 404，见裁决记录 #4）。剩余未验：全量 `go vet/test`、真库集成腿、ui e2e。
 
 ### 0.2 三条门禁基线（本轮真实输出）
 
@@ -96,8 +96,8 @@ ok  	tellurion/tools/coveragegate	0.097s
 | V2 | `docker compose -f docker-compose.yml -f docker-compose.services.yml config -q` | 两份可合并 | **exit 0**（但见 1.3 冲突） |
 | V3 | `docker compose -f docker-compose.yml config -q` | 主文件自洽 | exit 0 |
 | V4 | `python tools/check_deploy_consistency.py` | compose ↔ k8s ↔ 代码三方一致 | **exit 1（2 条）** |
-| V5 | `docker compose ... build` | 镜像真构建 | **未验（daemon 不可达）** |
-| V6 | `docker compose ... up -d` + 健康检查 | 真跑 | **未验（daemon 不可达）** |
+| V5 | `docker compose ... build` | 镜像真构建 | **已验（2026-10-26）**：六服务 + core + ai 镜像构建成功 |
+| V6 | `docker compose ... up -d` + 健康检查 | 真跑 | **已验一半（2026-10-26）**：聚合栈起，5/6 healthy（analytics `/healthz` 404，见裁决记录 #4） |
 
 V4 的两条（原文）：
 
@@ -167,8 +167,8 @@ Test-Path cmd/data, cmd/analysis, cmd/worker, cmd/dualrun
 
 ### 1.6 本单未决
 
-1. Docker daemon 不可达 ⇒ V5/V6 **未验**，不得写「镜像可构建」「可起」。
-2. V4 的 2 条假阳性是否本单修（建议：否，另开单）。
+1. ~~Docker daemon 不可达 ⇒ V5/V6 未验~~ → **已解除（2026-10-26）**：Engine 29.8.0 可达；V5/V6 已实跑——六服务 + core + ai 镜像构建成功，聚合栈 5/6 healthy；`analytics /healthz` 404 见裁决记录 #4。
+2. V4 的 2 条假阳性是否本单修（建议：否，另开单）→ **已裁 2026-10-26**：另开单修 `_GO_KEY_CALL` 别名解析 + 破坏验证（裁决记录 #10）。
 3. 「core 的 `data-service` 在 data 服务仓接管读面后是否退出栈」取决于 `SVC-DATA-G3`，本单不代裁。
 
 ---
@@ -700,12 +700,12 @@ DEPLOY-01 → DUAL-01 → RETIRE-INDEX → DATA → RUN → STRAT → RISK → A
 2. **未改任何服务仓**：七仓只读取证（`git -C ... grep`），无 checkout、无 `git -C ... add/commit`。
 3. **未改 `contracts` / `kit` pin**：core 仍 `contracts v0.6.0` / `kit v0.1.1`（守住禁区）。
 4. **未建对拍工具**：§2.6 的「无」是实测现状；建工具属施工。
-5. **未跑 Docker 镜像**：daemon 不可达，V5/V6 未验（§1.2）。
+5. ~~**未跑 Docker 镜像**：daemon 不可达，V5/V6 未验（§1.2）。~~ → **已解除（2026-10-26 复测）**：Engine 29.8.0 可达；V5 镜像构建成功、V6 聚合栈 5/6 healthy；analytics 那条不健康已裁为单独立单修复（裁决记录 #4）。
 6. **`check_deploy_consistency.py` 仍 exit 1**（2 条 JWT_SECRET 假阳性），本文件未修（建议另开单）。
-7. **两处已知代码/注释漂移，本文件只登记不修**：
+7. **一处已知代码/注释漂移，本文件只登记不修**：
    - `pkg/storage/bulk_insert_ddl_test.go:54-55` 的注释指向 `pkg/ai/gene_pool/{factor,strategy}_pool.go`，而 `pkg/ai` 在 core **已不存在**（`Test-Path pkg/ai` = False）；
-   - `tellurion-agent:Dockerfile:3-6,41,47` 的注释仍写「agent 的 go.mod 用 `replace ... => ../tellurion`」，而该 `replace` **已于 2026-10-25 删除**。
-8. **五单均未立六字段正文**：本文件提供的是**写正文的材料**，不是正文。按「未立单不得开工」，正文开工前仍不可派发。
+   - ~~`tellurion-agent:Dockerfile:3-6,41,47` 的注释仍写「agent 的 go.mod 用 `replace ... => ../tellurion`」~~ → **已订正（2026-10-26，agent `cc51e84`）**：Dockerfile 头注释已改写成「S3 已删 `replace`，只需本仓源码 + 版本化依赖」。
+8. **六字段正文的现状（2026-10-26 更新）**：`SVC-DUAL-01` / `SVC-RETIRE-INDEX` 已补六字段正文（core `docs/TASKS.md` §六）；`SVC-DEPLOY-01` 记 **🔶**（不标 ✅，剩余腿 = analytics `/healthz` 修复后复跑 healthy）；本文件其余材料仍只是材料。按「未立单不得开工」，未立正文的项仍不可派发。
 
 ## 7. 下一步（给协调者）
 

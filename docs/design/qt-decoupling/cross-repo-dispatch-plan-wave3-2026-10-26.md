@@ -19,7 +19,8 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 ## §0 取证口径（先说清哪些是实测、哪些没做）
 
 - **实测（本轮）**：12 仓 `git status --porcelain` / `git rev-list --count origin/main..HEAD` / `git tag` / `git branch` / `git worktree list`；12 仓 `docs/TASKS.md` 全量未完成标题扫描；各单关键 `repo:path:line` 逐条打开核对；`go.mod` 的 contracts/kit pin；`Dockerfile.service`、`docker-compose.yml`、`tools/check_deploy_consistency.py`、`config/analysis-service.yaml`。
-- **未做（如实）**：本机**无 Go 工具链**（`go` 不在 PATH），**未**跑 `build/vet/test`、**未**起服务、**未**连库、**未**跑 Docker（daemon 不可达）。本批所有「验收」都写成**在有 Go 的环境里可机械判定**的判据，**不是**本轮已通过的结论。
+- **未做（原始轮，如实）**：本轮静态取证时本机 **Go 不在 PATH**、**Docker daemon 不可达**，未跑 `build/vet/test`、未起服务、未连库、未跑 Docker。本批所有「验收」都写成**在有 Go 的环境里可机械判定**的判据，**不是**原始轮已通过的结论。
+- **2026-10-26 复测（同日，主任授权）**：Go **1.25.14** 已恢复；Docker **Engine 29.8.0** 可达。已实测 **10 仓 `go build ./...` EXIT=0**、六服务 + core + ai 镜像全部构建成功、聚合栈 **5/6 healthy**（`analytics /healthz` 404，已由记录 #4 修复中）。**未跑**：全量 `go vet` / `go test`、真库集成腿、ui e2e。裁决见 `cross-repo-decision-record-2026-10-26.md`。
 - **状态口径**：`⬜` 待做 / `🔶` 进行中 / `⛔` 有未解除前置。凡「裁决已下但代码未动」一律记 `⬜`，不记 `🔶`。
 
 ### 0.1 十二仓当前读数（2026-10-26）
@@ -38,6 +39,8 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 | tellurion-agent | 0/0 | 无 | QT-32-A 已 ✅；QT-32-B 标「待裁」 |
 | tellurion-ui | 0/0 | AUD-61 🔶（:27）、DATA-14 ⬜（:229） | AUD-61 ① 需三服务 |
 | tellurion-docs | 0/0 | 无 | DOC-10 已结案（第四轮审计 §七） |
+
+> ⚠️ **本表是 2026-10-26 上午快照**；落账后各仓已被并发施工方推进（G0 已落、QT-74 已落、risk 领先 5 笔）。**当前读数以各仓 `git log` 与 `docs/TASKS.md` 为准**，不要用本表判断「谁还没开工」。
 
 ### 0.2 本批**能**开工与**不能**开工的分界
 
@@ -91,7 +94,7 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 | 不派 | 原因 |
 |---|---|
 | QT-45 / XTP P1~P5 | ⑦ 已裁「本轮不投人」；四处零 SDK |
-| AUD-61 ① 批（e2e 阶段一取红清单） | 要三服务起齐（Docker daemon 本机不可达）⇒ 外部条件，见 §5 |
+| AUD-61 ① 批（e2e 阶段一取红清单） | 要三服务起齐（原始轮记的 Docker daemon 不可达**已于 2026-10-26 解除**；仍缺前端栈本身）⇒ 外部条件，见 §5 |
 | DATA-14（空列表 `null`） | 已迁 core，本仓只留指针；真实落点未核实到具体单，**不凭记忆派** |
 | QT-40 / QT-42 / QT-43 / QT-44 的其余未落项 | 各自有未裁的**方向性**问题（见 §5 A）、或前置是别人的单；不硬塞进本批 |
 | 任何 A 集表物理搬迁（D4） | 前置是「core 的 A 集写点全部归一或停写」，不是「停掉两个 executor」（data `docs/db-schema.md:79` 已如实登记） |
@@ -243,6 +246,8 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 ## §5 待你裁决清单（本批新提出，**不代裁**）
 
 > 来源：第四轮目的对齐审计 §六 A~F。按纪律：**未立单不得开工**，本节只给材料与建议，不是任务。
+>
+> **✅ 已全部裁决（2026-10-26，主任口径「全部按建议」）**：A / C 由 ADR-036 处置；B / D / E 按建议执行；F 的剩余项并入 contracts 发版批次。正文见 `cross-repo-decision-record-2026-10-26.md` §一 / §二。下表保留当时的建议原文，不删历史。
 
 | # | 事项 | 为什么必须你拍 | 我的建议 | 代价 |
 |---|---|---|---|---|
@@ -252,11 +257,11 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 | **D** | 产品 S1 出口与工程 X 线的排序 | 资源只有一份；S1 出口「无人干预连续跑完 100 次实验」未达 | **暂停 X 线新增动作**，只允许收口**已裁**的项（即本批 K1~K11）；新单等 S1 出口 | 已知的 5 簇双 owner 会继续存在；但本批已覆盖其中 market 簇 |
 | **E** | 旧仓 `quant-trading` / `quant-trading-agent` archive | 不可逆动作 | **不在本批**：先打 `archive/*` tag，等 S1 出口后再删 | 旧仓残留会让「12 仓」的清点长期多两项噪声 |
 
-**外部条件（不是裁决，是你要给的环境）**
+**外部条件（2026-10-26 已解除）**
 
-- **K10**：一台有 Go 的机器（本机 `go` 不在 PATH），或让 CI 跑这条分支。**没有它 QT-51 不能合入**。
-- **AUD-61 ①**：Docker daemon（本机 `//./pipe/dockerDesktopLinuxEngine` 不可达）+ 三服务端口（:5173 / :8081 / :8085）。**没有它 e2e 阶段一不能取红清单**。
-- **K9 发版**：contracts 打 `v0.7.0` 之后，risk / core 升 pin（与 kit `v0.1.4` 同一条路径，需要 Go 环境跑门禁）。
+- **K10**：~~一台有 Go 的机器~~ → **已解除**：Go 1.25.14 在本机，PATH 已修；`go build ./...` 已跑通。剩余是 `vet` / `test` 与 rebase，见记录 #7。
+- **AUD-61 ①**：~~Docker daemon 不可达~~ → **已解除**：Docker Engine 29.8.0 可达；:5173 / :8081 / :8085 实测空闲。剩 ui e2e 本身未跑。
+- **K9 发版**：仍等 contracts `risk` 包落 main；之后的 `v0.7.0` 与升 pin 见记录 #6。
 
 **已闭环、从待裁清单里划掉的**
 
@@ -272,12 +277,12 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 |---|---|---|---|
 | 1 | kit `docs/TASKS.md:182` 曾写 KT-11「🔶 进行中（**待 CI 门禁与发版**）」，施工序 S2.7 也把「打 `v0.1.4`」列为待办 | **本轮实测时已被并发施工方结案**：`f2c5605 docs(tasks): KT-11 结案 —— v0.1.4 已发版、三仓已升 pin`，当前该行已是 `✅ 完成（2026-10-25，已发 v0.1.4）`；`git tag` 有 `v0.1.4`；三仓 `go.mod` 已 `v0.1.4` | **无需处置**（已闭合）。留此行为证：本批取证时点早于该结案，避免把「已修」再修一遍 |
 | 2 | core `docs/TASKS.md` QT-51 段：「分支自述已裁决并落地，但 **main 的裁决记录没有这条裁决** ⇒ 合入前需主任确认」 | `cross-repo-decision-record-2026-10-25.md:371` **已有** ① 「QT-51 拆 port …以分支为基线收口」 | **已修（本篇写入时同步）**：该段追加 2026-10-26 订正块，标题「待复取 + 裁决」改为「裁决已下，待复取」 |
-| 3 | core QT-51 标题「实现已在未合入分支」+ `:1226` | 分支仍在（`task/qt51-execution-port`），实测 **1 ahead / 12 behind**（早前文档写 9 behind / 11 behind，均为旧快照） | 以 12 behind 为准；K10 的 rebase 工作量按 12 笔估 |
+| 3 | core QT-51 标题「实现已在未合入分支」+ `:1226` | 分支仍在（`task/qt51-execution-port`），实测 **1 ahead / 12 behind**（早前文档写 9 behind / 11 behind，均为旧快照） | 以 12 behind 为准；K10 的 rebase 工作量按 12 笔估。**2026-10-26 复测**：分支已 rebase 到 origin/main（tip `e015a83`），当前 **1 ahead / 3 behind 本地 main**，工作量按 3 笔估 |
 | 4 | 第四轮审计 §一：「除 data 读链外**没有一条**真正进入生产回路」 | core **有** `POST /api/risk/resolve` 调用点（`cmd/analysis/wiring/risk_rules.go:45`），但开关 `risk_service.resolve_enabled: **false**`（`config/analysis-service.yaml:122`）、`events_enabled: false`（`:143`） | 两句话**并不冲突**，但必须写清口径：**「代码已接线、部署默认关」** ≠ 「没有调用方」。建议在审计 §一 补半句，否则下一次会被读成「risk 生产者不存在」 |
-| 5 | orchestration `AGENTS.md` §4：「kit 未引入（**远端最新 `v0.1.3`**）」 | kit 远端已有 `v0.1.4`（tag 已 push） | 版本列订正为 `v0.1.4`；本仓仍未引入，这一半不变 |
+| 5 | orchestration `AGENTS.md` §4：「kit 未引入（**远端最新 `v0.1.3`**）」 | kit 远端已有 `v0.1.4`（tag 已 push） | **已修（2026-10-26）**：`tellurion-orchestration:AGENTS.md:57` 与 `tellurion-broker:AGENTS.md:53` 已改为 `v0.1.4`；两仓仍未引入，这一半不变 |
 | 6 | data `docs/db-schema.md:25` 把 `market.index_daily` 列为本仓表 | 该表 owner 已裁为 core（⑰）；core 侧写点在 `tellurion:pkg/storage/index_daily.go:31`、定义在 core Migration 057 | K2 同时改 `:25` 与 `:151`；**:79 的「core 仍是写者」一句是对的，保留** |
 | 7 | core QT-32 段：「本单 ⑤ 在『审批人从哪来』被裁之前**不可施工**」 | ⑫ 已裁（面 B1：core 网关 + `X-Actor`；strategy 三端点 service-token）；且 kit `v0.1.4` 已使 service token 可用 | **已修（本篇写入时同步）**：该段追加 2026-10-26 订正块——前提解除，⑤ 拆为 K8（strategy 侧）+ K11（core 执行侧）；`⬜` 状态不变 |
-| 8 | 第四轮审计 P2-2：「core 工作区有 **3 份未提交**审计文档改动」 | 实测 **6 个已修改 + 1 个未跟踪**（新增本轮审计文件本身 + `AGENTS.md` / `docs/TASKS.md` / `README.md`） | 记录卫生：这批文档改动应整体提交，避免与别人 WIP 混在一起 |
+| 8 | 第四轮审计 P2-2：「core 工作区有 **3 份未提交**审计文档改动」 | 实测 **6 个已修改 + 1 个未跟踪**（新增本轮审计文件本身 + `AGENTS.md` / `docs/TASKS.md` / `README.md`） | **已整体提交（2026-10-26）**：`4f44dd6`（AGENTS / README / 审计 / wave3）+ `49cfdd5`（B 组材料）+ 本笔（裁决记录 + 五份订正）；工作树干净 |
 | 9 | 第四轮审计 §三 P0-2 表中「编排：core 仍写 `backtest_jobs`；编排写 `run.backtest_jobs`」 | 与 orchestration 台账一致（X5b/X5c 已落，O3 未做），**无冲突** | 无需处置；列出以证明本轮逐条核对过、不是照抄 |
 | 10 | core `docs/TASKS.md` 标题行「QT-32 ⬜」 | agent 仓 `QT-32-A` 已 ✅（范围 ①~⑥），但 **core 主单 ⑤ 的执行侧腿未做**、且 K8 未做 | `⬜` **正确**，不改；§5-D 的排序裁决会决定它何时开工 |
 
@@ -287,5 +292,5 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 
 1. **确认没有别人在做同一件事**：`git log --oneline -5` 在目标仓里若有同一单的施工提交，先读再派（本批写于 2026-10-26，快照见 §0.1）。
 2. **确认工作区干净**：core 今天有 6 改 + 1 新增未提交；派 K4/K5/K10/K11 前先让那批文档落地提交，否则冲突会混在一起。
-3. **确认分支基点**：K10 必须在 `task/qt51-execution-port` 的 tip（`7c89aae`）上拉 worktree，不要从 main 重新写一遍。
+3. **确认分支基点**：K10 必须在 `task/qt51-execution-port` 的 tip 上拉 worktree（2026-10-26 复测 tip = `e015a83`；旧记 `7c89aae` 已过期），不要从 main 重新写一遍。
 4. **每单交付必须附**：真实门禁退出码 + 破坏验证（改坏 → 红 → 逐字节还原 → 绿）+ 改动的 `repo:path:line` 清单。**不接受自述。**
