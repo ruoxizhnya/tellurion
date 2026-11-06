@@ -68,7 +68,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 
 ---
 
-## 六之二、退役执行单与四项跨仓缺口（2026-10-26 立单）
+## 六之二、六条退役执行单 + 六条跨仓缺口（2026-10-26 立单）
 
 > **为什么这些单必须存在（与上一节那句「不再各自立单」的冲突，如实登记）**：
 > 1. ADR-036 §5.2 原文「删除/迁移旧实现的**任务必须显式立单**，不能只写 deprecated」，§6 的退役表又写明
@@ -100,7 +100,8 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 > ② 不改六个服务仓的任何文件（各仓 G3 自证）；
 > ③ 不并行改 `pkg/storage/postgres.go`；
 > ④ 旧路径未零调用前不得把单标 ✅（`SVC-RETIRE-INDEX` ③ 的原句）；
-> ⑤ 删 DDL 与删该 DDL 的**防漂移断言**必须同批，否则「DDL 删了、测试先红」会被当成回归。
+> ⑤ 删 DDL 与删该 DDL 的**防漂移断言**必须同批，否则「DDL 删了、测试先红」会被当成回归；
+> ⑥ **表级对拍未完成前不得停写**——工具今天不存在（材料 §2.6 ②：除 ai 簇外全「待建」），它的单是 **`QT-81`**（本节末）。
 
 ### SVC-CORE-DATA-RETIRE · core 侧行情/同步数据面退役（ADR-036 G3）[P0] ⬜（串行第 4）
 
@@ -122,7 +123,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 
 - **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
 - **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
-- **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135`、`:511` 的 `SetStore`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
+- **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135` 的 `store *storage.PostgresStore` 字段与 `:511` 的 `func (e *Engine) SetStore(store *storage.PostgresStore)`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
 - **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。
 - **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
 - **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
@@ -169,7 +170,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 ### QT-75 · core 二期切 kit `statistics` / `httpserver` 并升 pin `v0.1.4` [P1] ⬜
 
 - **① 目标**：QT-73 的二期落地——core 的统计与 HTTP 服务端两包改指 kit，core 的 kit pin 从 `v0.1.1` 升到当前最新 `v0.1.4`。
-- **② 上下文**：QT-73 一期 ✅（`170f09a`，五包 90 处），执行顺序总览第 106 行自己写着「二期 `statistics`/`httpserver` 先补 kit（KT-10），另单」——**KT-10 已于 2026-10-25 ✅**，二期「另单」此前不存在；实测 `tellurion/go.mod:16` = `tellurion-kit v0.1.1`（落后三版），而 risk / data / analytics 已 pin `v0.1.4`。
+- **② 上下文**：QT-73 一期 ✅（`170f09a`，五包 90 处），「执行顺序总览」的 **QT-73 行**自己写着「二期 `statistics`/`httpserver` 先补 kit（KT-10），另单」（按锚点找，不写行号——行号随台账编辑漂移）——**KT-10 已于 2026-10-25 ✅**，二期「另单」此前不存在；实测 `tellurion/go.mod:16` = `github.com/ruoxizhnya/tellurion-kit v0.1.1`（落后三版），而 risk / data / analytics 已 pin `v0.1.4`。
 - **③ 要求**：① `go get github.com/ruoxizhnya/tellurion-kit@v0.1.4` + `go mod tidy`（只提交 `go.mod`/`go.sum`）；② 删 `pkg/statistics`、`pkg/httpserver`，import 改指 kit 同名包；③ 逐包核对语义差异并如实登记口径变化（kit `check_scope` 把「包移动」记作 **breaking**，core 侧要写清是否影响调用方）；④ `make contracts-pin-check` 绿；⑤ 同批更新 `AGENTS.md` §0 依赖表与 QT-07 进度行（Rule 1：文档与代码同笔）。
 - **④ 约束与非目标**：**不加 `replace`**（白名单今天为空）；不改 kit 仓源码；不动 contracts pin（`v0.6.0` 不变）；一期已切的五包不重切。
 - **⑤ 验收**：`go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码为 0；`git grep -c '"tellurion/pkg/statistics"\|"tellurion/pkg/httpserver"'` = **0**；`go.mod` 读数为 `v0.1.4`；`make contracts-pin-check` 绿；`internal/repoguard` 若钉住横切包唯一实现，须同批改对。
@@ -210,6 +211,15 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 - **④ 约束与非目标**：不引入 K8s（ADR-036 §5.1：本地唯一真相 = compose）；不把 `cmd/ai` 塞进本仓镜像（跨仓 context）；不动六服务仓的 `deploy/`；不在本单裁 8081 归谁（那句属 D-DEPLOY-1 的收口动作 2）。
 - **⑤ 验收**：机械判据 V7（材料 §1.5 原式）——`git grep -oE '\-o /app/[a-z-]+' -- Dockerfile.service` 与 `COPY --from=builder /app/[a-z-]+` 两个集合**一一对应且不多不少**；`docker compose -f docker-compose.yml -f docker-compose.services.yml config` exit 0；worker 容器起后日志出现「注册 + 领取」两条、退出码非 0 当 orchestration 不可达（fail-closed，不是空跑成功）；dualrun 一次执行的差异报告落在预期的路径。
 - **⑥ 边界**：core 的部署资产；服务仓 deploy 归各自 `SVC-*-G0`（已 ✅）。
+
+### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] ⬜
+
+- **① 目标**：给「切读/停写」造出它今天**没有的工具**——按表比对新旧写者的行数与校验和，使 `SVC-*-G3` 与六条 `SVC-CORE-*-RETIRE` 的「对拍报告归档」这句验收真的可执行。
+- **② 上下文**：材料 §2.6 ② 的实测表（原文结论：「DUAL-01 的『对拍方式』列，**除 ai 簇外全是『待建』**。这不是文档偷懒，是实测结果；任何写成『有对拍』的都应当是假账」）：data / orchestration / strategy / risk / analytics **无**（无 `*diff*/*verify*/*compare*/*recon*/*backfill*` cmd），broker **部分**（`tellurion-broker:internal/reconcile/reconcile.go:102` 是**账户快照**对账纯函数，不是表级 writer 对拍），**只有 agent 有 5 件**（`pkg/aistore/schema_core_drift_test.go:117` = `TestSchema_ColumnsMatchCore`、`cmd/ai/experiment_stopwrite_integration_test.go:28`、`pkg/ai/gene_pool/pool_ai_schema_integration_test.go:24` = `TestPools_WriteOnlyAiSchema`、`pkg/ai/gene_pool/sql_scope_test.go:19` = `TestSQL_TableRefsAreSchemaQualified`、`internal/repoguard/storage_import_test.go:128` = `TestStorageImportBoundary`；材料只给了文件名，路径为本轮补齐并逐条核到函数定义行）。而 `SVC-DUAL-01` ④ 明写「**不建对拍工具**」⇒ 这条工具链在两张单之间掉下去了。
+- **③ 要求**：① 按 **agent 那 5 件的形状**做通用化（它已被 `SVC-CORE-AI-RETIRE` 的反向护栏引用为现成基线，先复用不先发明）：输入 = 两组 `(schema, table)` + 两个 DSN/连接，输出 = 逐表 `行数 / 主键集合摘要 / 列校验和 / 差异分类（缺行 / 多行 / 同键异值）`；② 差异必须**可判别**：`0 行`、`表不存在`、`权限不足`、`超时` 四种不能都折成「相等」——core 侧 AUD 线吃过「读 0 行当成一致」的亏；③ 只读：**禁止任何写语句**（`Never Do`：不许让工具顺手改数据），并加一条自证用例（断言 SQL 文本里没有 `INSERT/UPDATE/DELETE/ALTER/DROP`）；④ 落点定为 `tools/`（Python，零依赖，与 `check_*.py` 同族）或 `cmd/recon`（Go）——**二选一在本单 ③ 内定死并写进 `docs/guides/`（`tellurion-docs` 侧另由 DOC-13 索引）**，理由要写明（跨仓可用 vs 能直接复用 `kit/db`）；⑤ 给每条退役线各一份调用样例（表名从材料 §4.x 的清单取），样例可复制执行。
+- **④ 约束与非目标**：不接生产写路径、不改任何 DDL；不把它做成常驻服务（一次性核对命令）；不在本单替代 `SVC-DUAL-01` 的清单（清单是它的输入）；不覆盖动态拼表名（材料 §2.4 登记的同一限制，如实继承）；不建第二套 agent 已有工具（复用优先）。
+- **⑤ 验收**：① 夹具驱动的真跑：构造两个临时 schema（A 写 100 行、B 写 100 行同内容）⇒ 报「相等」；B 删 3 行 ⇒ 报 `缺行 3`；B 改 1 行某列 ⇒ 报 `同键异值 1`；B 整表不存在 ⇒ 报「表不存在」而**不是**「0 行相等」（这条是本工具唯一重要的反证，破坏验证：把它折成 0 行 ⇒ 用例红）；② 只读自证用例绿；③ 材料 §2.6 ② 那张表的六个仓各有一条样例命令能跑出结果（跑不到的如实记「该簇今天无两侧可比的表」，不许造假输出）；④ `docs/guides/` 或 `docs/SPEC.md` 有它的一节 + 工具清单同批更新（Rule 1 触发表）；⑤ `go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码 0（若落 Python 则 `python tools/…` 的退出码 + 上述夹具用例的 unittest 输出）。
+- **⑥ 边界**：只做工具与调用样例；「谁该停写」归 `SVC-DUAL-01`，「停写后删代码」归六条 `SVC-CORE-*-RETIRE`，各仓自己的 writer 唯一性归 `SVC-*-G2`。
 
 > **本节新单的一条跨仓指针**：`QT-80`（事件行带 `actor` = 加列 + 写审计）正文已立在 `tellurion-risk:docs/TASKS.md`——来源是 risk 台账 `:422` 那句「要让事件带调用方身份 = 加列 + 加审计写（DDL 变更，**另立单**），不在本票范围」。本仓只留指针，不镜像正文（R4）。
 
