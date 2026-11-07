@@ -4,6 +4,9 @@
 #   docker compose -f docker-compose.services.yml up --build
 #
 # 定位：只跑「六个服务 + PostgreSQL」，用于验证每仓的 Dockerfile / deploy / health。
+# **不与 `docker-compose.yml` 合并使用**（D-DEPLOY-1 = A，2026-11-07 代裁）：两份文件
+# 各自是单一 owner 的完整栈；合并会让 `data`（服务仓，8081）与 `data-service`
+# （core 进程，8081）同时发布同一端口，且项目名被本文件的 `name:` 覆盖。
 # core（analysis/agent）不在本文件里；需要时用 core 自己的 compose 或本机进程，
 # analytics 的 ANALYTICS_CORE_URL 默认指向宿主 8085。
 #

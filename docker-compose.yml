@@ -261,6 +261,53 @@ services:
       analysis-service:
         condition: service_healthy
 
+  # QT-79（D-DEPLOY-1 = A，2026-11-07 代裁）：core 自有的本地开发栈只放本仓进程，
+  # 服务仓联调仍用 docker-compose.services.yml 且**不与本文件合并**。
+  #
+  # worker 是**无监听**的长驻进程（向 orchestration 注册 + 心跳 + 领活），因此：
+  #   - 不给它造 HTTP /healthz（验收原文：「心跳成功 + 能领到活」才是健康判据）；
+  #   - 编排服务不在 core 栈里 ⇒ 默认 profile 不启动它；显式起而编排不可达时，
+  #     cmd/worker 是 fail-closed 退出（非 0），不是「空跑成功」。
+  worker:
+    profiles: ["orchestration-worker"]
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
+    command: ["/app/worker"]
+    environment:
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_DATABASE: tellurion
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # 编排服务在服务仓聚合栈（127.0.0.1:8088）或宿主机上；容器内用 host 网关。
+      ORCHESTRATION_URL: ${ORCHESTRATION_URL:-http://host.docker.internal:8088}
+      JWT_SECRET: ${JWT_SECRET:-}
+      LOGGING_LEVEL: info
+    restart: "no"
+
+  # dualrun 是**一次性验收门**（K15 双跑差异报告），跑完退出码即结论：
+  #   - 默认 profile 不启动（避免 `compose up` 起完就退出）；
+  #   - 报告写到挂载出来的 ./reports（容器内 /app/reports）。
+  dualrun:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
+    command: ["/app/dualrun", "-out", "/app/reports/dualrun-latest.md"]
+    environment:
+      DATABASE_HOST: host.docker.internal
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_DATABASE: tellurion
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      LOGGING_LEVEL: info
+    volumes:
+      - ./reports:/app/reports
+    restart: "no"
+
 # 注意：web 服务已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
 # 前端现在由 tellurion-ui 仓独立构建/托管（该仓的 Dockerfile 与
 # deploy/nginx-spa.conf），后端仍是本仓的 analysis-service:8085。

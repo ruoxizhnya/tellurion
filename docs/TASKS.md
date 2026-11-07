@@ -275,7 +275,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **⑤ 验收**：① 一次真 run 后，orchestration 侧 `run.run_artifacts` 有两类行且 hash 非空；② analytics 端 `GET` 该 run 的归因不再返回 `IncompleteError`，而是给出分项和 ≈ 总收益（容差按 analytics `docs/TASKS.md:131` 的口径写明）；③ 反证腿：删掉持仓产出 ⇒ analytics 必须回到 `IncompleteError{Missing:"holdings"}`，而不是返回一份看起来正常的报告；④ 全仓三条命令绿。
 - **⑥ 边界**：core 的产出与投递；写端点与 schema 归 orchestration，消费与公式归 analytics。
 
-### QT-79 · `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） [P1] ⛔（前置 = D-DEPLOY-1 拍板）
+### QT-79 · `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） [P1] 🔶（2026-11-07 施工；容器腿未执行）
 
 - **① 目标**：ADR-036 §5.1 那句「core 的 `deploy/` 只留 **analysis / worker / dualrun** + 共享基础设施」成为现实——今天这两个二进制**不在任何镜像、不在任何 compose**。
 - **② 上下文**：实测 `Dockerfile.service:24-25` 只 build `./cmd/data` 与 `./cmd/analysis`，`:36-37` 的 COPY 与之一一对应（材料 §1.5 判定「本项已自洽」），但 `cmd/worker`、`cmd/dualrun` 两个源包都存在却**未进镜像**（材料 §1.5 表内明写「今天只能裸跑」）；`grep worker\|dualrun` 在 `Dockerfile.service` / `docker-compose.yml` / `docker-compose.services.yml` 三份里 **0 命中**；`cmd/dualrun` 是引擎验收门（K15 双跑，已裁留 core），`cmd/worker` 领 orchestration 的 run。未决的**部署面 owner** 选择题 = 材料 §1.4 **D-DEPLOY-1（A/B/C，建议 A）至今未拍**。
@@ -283,6 +283,13 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **④ 约束与非目标**：不引入 K8s（ADR-036 §5.1：本地唯一真相 = compose）；不把 `cmd/ai` 塞进本仓镜像（跨仓 context）；不动六服务仓的 `deploy/`；不在本单裁 8081 归谁（那句属 D-DEPLOY-1 的收口动作 2）。
 - **⑤ 验收**：机械判据 V7（材料 §1.5 原式）——`git grep -oE '\-o /app/[a-z-]+' -- Dockerfile.service` 与 `COPY --from=builder /app/[a-z-]+` 两个集合**一一对应且不多不少**；`docker compose -f docker-compose.yml -f docker-compose.services.yml config` exit 0；worker 容器起后日志出现「注册 + 领取」两条、退出码非 0 当 orchestration 不可达（fail-closed，不是空跑成功）；dualrun 一次执行的差异报告落在预期的路径。
 - **⑥ 边界**：core 的部署资产；服务仓 deploy 归各自 `SVC-*-G0`（已 ✅）。
+- **施工记录（2026-11-07）**：
+  - **代裁 D-DEPLOY-1 = A**（用户长期授权「待裁点按建议代裁」；材料 §1.4 的推荐项）：core 自有「本地开发栈」这一层，`docker-compose.services.yml` 降级为纯服务仓联调、**不与主文件合并**。收口动作 1 已落（该文件头部新增声明 + 8081 双发布原因）；收口动作 2（8081 唯一真相归 data 还是 core）= ④ 明写不在本单，仍留给 `SVC-DATA-G3`。
+  - **代码**：`Dockerfile.service` 同批改 build 段（`:24-28` 四产物）与 COPY 段（`:39-42` 四行）——新增 `worker` / `dualrun`；`docker-compose.yml` 新增 `worker`（`profiles: ["orchestration-worker"]`，无假 `/healthz`，`restart: "no"`，编排不可达即 fail-closed 退出）与 `dualrun`（`profiles: ["tools"]`，一次性，`-out /app/reports/dualrun-latest.md` + `./reports` 挂载）。
+  - **护栏**：新增 `internal/repoguard/deploy_manifest_test.go`，把材料 §1.5 的 V7 判据固化成两条测试：① `-o /app/<name>` 集合 == `COPY --from=builder /app/<name>` 集合，且每个 `./cmd/<dir>` 真实存在；② `docker-compose.yml` 的 `command: ["/app/<name>"]` 必须在产物集合里（`ai-service` 以「跨仓 context 由 agent 仓构建」登记为例外并写来源）。
+  - **验收（真实退出码）**：V7 两个集合均 `[analysis-service data-service dualrun worker]`；`docker compose -f docker-compose.yml config -q` = **0**；`docker compose -f docker-compose.yml -f docker-compose.services.yml config -q` = **0**；`python tools/check_deploy_consistency.py` = **0**（九条全 ✓，ai-service 的 k8s 提示为既有已知项）；`go build ./cmd/worker ./cmd/dualrun` = **0**；`gofmt -l` 新测试文件 = 空；`go test ./internal/repoguard -run TestDeployManifest` = **0**。
+  - **破坏验证（真做真还原）**：删掉 `COPY --from=builder /app/worker /app/worker` 一行 ⇒ 测试 FAIL（`构建了 /app/worker 但没有对应的 COPY`，COPY 集合少 worker，`DESTROY_EXIT=1`）；逐字节还原后 `sha256` 前后同为 `9F737EF2671B27D5B8DA1A2F93FF7E4D6E8E77510E19A0AE346C6153289AA230`，复跑 **PASS（exit 0）**。
+  - **未执行（如实，不写成已完成）**：① `docker build` 与 `docker compose up` **未跑**——`docker version` 取 Server 版本 `exit 1`（引擎未起），只做了 `config -q` 这类纯客户端校验；② worker 容器「注册 + 领取」两条日志、③ dualrun 一次真跑的差异报告落盘，均**未执行**；④ `cmd/worker` 与 `cmd/dualrun` 只验了 `go build`，未验容器内运行。据此本单记 🔶。
 
 ### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] 🔶（代码 + 单测已落 2026-11-07；真库夹具腿未执行）
 
