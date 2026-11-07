@@ -1,7 +1,7 @@
 ---
 status: active
 last-verified: 2026-11-07
-verified-by: QT-81 首次落地（2026-11-07：新增 `cmd/recon` + `internal/recon`，单测与只读自证全绿；**本机无 PG，真库夹具腿与文档里所有样例命令均未执行**，如实登记）
+verified-by: QT-81 首次落地（2026-11-07：`cmd/recon` + `internal/recon`，单测与只读自证全绿）+ 同日真库腿（便携 PG 16.2 `127.0.0.1:55432`）：夹具四态（equal / 缺行 3 / 同键异值 1 / table_missing）真跑、data 与 ai 两簇样例真跑（5/19 equal、6/7 equal），退出码如实记在 §5
 ---
 
 # 表级 writer 对拍（`cmd/recon`）
@@ -59,28 +59,41 @@ go run ./cmd/recon -pair public.stocks=data.stocks -pair public.ohlcv_daily_qfq=
 
 ## 5. 七条退役线的样例命令
 
-> **执行状态（如实）**：本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用 ⇒ **下面每条都没有在本机跑过**。
-> 表名取自 `core-governance-decision-materials-2026-10-26.md` §4.x，未做任何输出伪装。
+> **执行状态（如实）**：2026-11-07 晚已在**真库**（便携 PG 16.2 `127.0.0.1:55432`）执行——
+> ① 夹具四态：`equal`（EXIT=0）→ 删 3 行 `missing=3`、`EXIT=1` → 改 1 行 `mismatch=1`、`EXIT=1` → 整表 DROP `table_missing`、`EXIT=1`；
+> ② data 簇样例（左 `tellurion_test` 的 `public.*`，右 `tellurion_data_test` 的 **`market.*`**）：**5/19 equal**、`EXIT=1`，差异全为列集/主键不同（下 §5.1 已按实测订正 schema 名）；
+> ③ ai 簇样例（左 `tellurion_test`，右 `tellurion_agent_test`）：**6/7 equal**、`EXIT=1`，唯一差异是 `ai.factor_hypothesis` 的 `created_at/updated_at` 列校验和（下 §5.7 已订正表名）。
+> 两侧均为**本机测试库**（表结构真、行数多为 0），不等于生产对拍报告；run / strategy / risk / analytics / broker 五簇仍按材料如实记「今天无两侧可比的表」。表名取自 `core-governance-decision-materials-2026-10-26.md` §4.x，未做任何输出伪装。
 
 ### 5.1 `SVC-CORE-DATA-RETIRE`（22 张 market/ingest 表，左右两侧都存在）
 
 ```bash
+# 左 = core 库（public.*），右 = data 服务库（DATA_MARKET_SCHEMA=market，故不是 data.*）
+RECON_LEFT_DSN='postgres://postgres@127.0.0.1:55432/tellurion_test?sslmode=disable' \
+RECON_RIGHT_DSN='postgres://postgres@127.0.0.1:55432/tellurion_data_test?sslmode=disable' \
 go run ./cmd/recon \
-  -pair public.stocks=data.stocks -pair public.ohlcv_daily_qfq=data.ohlcv_daily_qfq \
-  -pair public.trading_calendar=data.trading_calendar -pair public.dividends=data.dividends \
-  -pair public.index_constituents=data.index_constituents -pair public.splits=data.splits \
-  -pair public.realtime_quote=data.realtime_quote -pair public.ohlcv_minute=data.ohlcv_minute \
-  -pair public.capital_flow=data.capital_flow -pair public.sectors=data.sectors \
-  -pair public.stock_sector_map=data.stock_sector_map -pair public.top_list=data.top_list \
-  -pair public.limit_up_pool=data.limit_up_pool -pair public.announcements=data.announcements \
-  -pair public.news=data.news -pair public.hot_search=data.hot_search \
-  -pair public.global_ohlcv=data.global_ohlcv -pair public.market_activity=data.market_activity \
-  -pair market.index_daily=data.index_daily
+  -pair public.stocks=market.stocks -pair public.ohlcv_daily_qfq=market.ohlcv_daily_qfq \
+  -pair public.trading_calendar=market.trading_calendar -pair public.dividends=market.dividends \
+  -pair public.index_constituents=market.index_constituents -pair public.splits=market.splits \
+  -pair public.realtime_quote=market.realtime_quote -pair public.ohlcv_minute=market.ohlcv_minute \
+  -pair public.capital_flow=market.capital_flow -pair public.sectors=market.sectors \
+  -pair public.stock_sector_map=market.stock_sector_map -pair public.top_list=market.top_list \
+  -pair public.limit_up_pool=market.limit_up_pool -pair public.announcements=market.announcements \
+  -pair public.news=market.news -pair public.hot_search=market.hot_search \
+  -pair public.global_ohlcv=market.global_ohlcv -pair public.market_activity=market.market_activity \
+  -pair market.index_daily=market.index_daily
 ```
 
+**实测（2026-11-07，本机测试库）**：`5/19 equal`、`EXIT=1`。差异全部是结构口径而非行差：
+13 张表右侧多 `visible_at`（`realtime_quote` / `ohlcv_minute` / `capital_flow` / `sectors` / `stock_sector_map` /
+`top_list` / `limit_up_pool` / `announcements` / `news` / `hot_search` / `global_ohlcv` / `ohlcv_daily_qfq` …），
+`public.stocks` 左 10 列 / 右 9 列（差 `delist_date`），`market.index_daily` 两库主键不同（左 `[id]` / 右 `[code trade_date]`），
+`market.ohlcv_daily_qfq` 右多 1 行（`EXTRA=1`）。另 5 张 0/0 `equal`。
+
 ⚠️ 材料 §4.1 的 22 张里，`market.index_daily` / `ingest.raw` / `sync_jobs` / `sync_schedules` 的
-**schema 归属**要按 `SVC-DUAL-01` 的五列清单核一遍再抄：本例只写了确定的一处（`market.index_daily`），
-其余三张若在 `ingest` schema，改成 `-pair ingest.raw=data.ingest_raw` 这种两段式（工具只接受 `schema.table`）。
+**schema 归属**要以数据服务实际迁移结果为准：本机 data 库是 `market.index_daily`（core 库同为 `market.index_daily`），
+`raw` / `sync_jobs` / `sync_schedules` 在 data 侧是 `ingest.*`（`ingest.raw` / `ingest.sync_jobs` / `ingest.sync_schedules`），
+本例未纳入对拍。工具只接受 `schema.table`。
 
 ### 5.2 `SVC-CORE-RUN-RETIRE`（`backtest_jobs` / `walk_forward_reports`）
 
@@ -111,18 +124,24 @@ strategy 服务的 `strategy.strategy_definitions` + 版本链是**不同形状*
 ### 5.7 `SVC-CORE-AI-RETIRE`（7 张表，core `public.*` vs agent `ai.*`）
 
 ```bash
+RECON_LEFT_DSN='postgres://postgres@127.0.0.1:55432/tellurion_test?sslmode=disable' \
+RECON_RIGHT_DSN='postgres://postgres@127.0.0.1:55432/tellurion_agent_test?sslmode=disable' \
 go run ./cmd/recon \
   -pair public.experiments=ai.experiments \
   -pair public.factor_hypothesis=ai.factor_hypothesis \
   -pair public.factor_genes=ai.factor_genes \
   -pair public.strategy_genes=ai.strategy_genes \
-  -pair public.research.profile=ai.profile \
-  -pair public.research.conclusion=ai.conclusion \
-  -pair public.research.question=ai.question
+  -pair research.profile=ai.research_profile \
+  -pair research.conclusion=ai.research_conclusion \
+  -pair research.question=ai.research_question
 ```
 
-⚠️ **右侧 schema 名与表名未在本单核实**（`research.profile` 这类是 schema=research、表=profile；
-agent 侧对应名以 `tellurion-agent:pkg/aistore` 的 DDL 为准）。跑之前先按实际名替换，别照抄。
+**实测（2026-11-07，本机测试库）**：`6/7 equal`、`EXIT=1`。唯一差异：
+`public.factor_hypothesis` ↔ `ai.factor_hypothesis` 行数 **12/12**、`missing=0 extra=0`、**`mismatch=12`**，
+列校验和差异列 = `created_at,updated_at`（时间列口径不同，**不是**行缺失）。
+
+✅ 表名已按实际迁移结果核实：agent 侧是 `ai.research_profile` / `ai.research_conclusion` / `ai.research_question`
+（**不是** `ai.profile` / `ai.conclusion` / `ai.question`），左列是 `research.*`（**不是** `public.research.*`）。
 
 ## 6. 限制（如实继承）
 

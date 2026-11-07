@@ -293,7 +293,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
   - **破坏验证（真做真还原）**：删掉 `COPY --from=builder /app/worker /app/worker` 一行 ⇒ 测试 FAIL（`构建了 /app/worker 但没有对应的 COPY`，COPY 集合少 worker，`DESTROY_EXIT=1`）；逐字节还原后 `sha256` 前后同为 `9F737EF2671B27D5B8DA1A2F93FF7E4D6E8E77510E19A0AE346C6153289AA230`，复跑 **PASS（exit 0）**。
   - **未执行（如实，不写成已完成）**：① `docker build` 与 `docker compose up` **未跑**——`docker version` 取 Server 版本 `exit 1`（引擎未起），只做了 `config -q` 这类纯客户端校验；② worker 容器「注册 + 领取」两条日志、③ dualrun 一次真跑的差异报告落盘，均**未执行**；④ `cmd/worker` 与 `cmd/dualrun` 只验了 `go build`，未验容器内运行。据此本单记 🔶。
 
-### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] 🔶（代码 + 单测已落 2026-11-07；真库夹具腿未执行）
+### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] ✅（2026-11-07，含真库夹具腿）
 
 - **① 目标**：给「切读/停写」造出它今天**没有的工具**——按表比对新旧写者的行数与校验和，使 `SVC-*-G3` 与六条 `SVC-CORE-*-RETIRE` 的「对拍报告归档」这句验收真的可执行。
 - **② 上下文**：材料 §2.6 ② 的实测表（原文结论：「DUAL-01 的『对拍方式』列，**除 ai 簇外全是『待建』**。这不是文档偷懒，是实测结果；任何写成『有对拍』的都应当是假账」）：data / orchestration / strategy / risk / analytics **无**（无 `*diff*/*verify*/*compare*/*recon*/*backfill*` cmd），broker **部分**（`tellurion-broker:internal/reconcile/reconcile.go:102` 是**账户快照**对账纯函数，不是表级 writer 对拍），**只有 agent 有 5 件**（`pkg/aistore/schema_core_drift_test.go:117` = `TestSchema_ColumnsMatchCore`、`cmd/ai/experiment_stopwrite_integration_test.go:28`、`pkg/ai/gene_pool/pool_ai_schema_integration_test.go:24` = `TestPools_WriteOnlyAiSchema`、`pkg/ai/gene_pool/sql_scope_test.go:19` = `TestSQL_TableRefsAreSchemaQualified`、`internal/repoguard/storage_import_test.go:128` = `TestStorageImportBoundary`；材料只给了文件名，路径为本轮补齐并逐条核到函数定义行）。而 `SVC-DUAL-01` ④ 明写「**不建对拍工具**」⇒ 这条工具链在两张单之间掉下去了。
@@ -310,7 +310,16 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
   - **文档**（⑤④）：新建 `docs/guides/recon.md`（R1 frontmatter 齐全），`docs/README.md` 入口导航加一行——`check_doc_links.py` 的「入口层文档 frontmatter」推导会据此自动要求它带 frontmatter（已实测通过）。
   - **验收（真退出码）**：`gofmt -l ./internal/recon ./cmd/recon` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（`ok` = 72 包 / `FAIL` = 0，含新增两包）；`python tools/check_doc_links.py` **EXIT=0**（63 份文档、坏链 0、配置路径 0、入口 frontmatter 齐）；`python tools/check_repo_autonomy.py` **EXIT=0**。
   - **破坏验证（真做真还原）**：删掉 `compareOne` 里 `if !rs.Exists { … StatusTableMissing … }` 分支（即把「表不存在」折成 0 行）→ `go test ./internal/recon -run TestCompare_TableMissingIsNotZeroRowsEqual` **FAIL**（`status = diff`，不再是 `table_missing`）；从备份逐字节还原后 `sha256` 前后一致、`go test ./internal/recon ./cmd/recon` 复绿。
-  - **未执行（如实，本单保持 🔶）**：⑤① 的**夹具驱动真跑**（两个临时 schema：A/B 同 100 行、B 删 3 行、B 改 1 列、B 整表不存在）需要真 PG——本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**；⑤③ 的七簇样例命令**一条都没有在本机跑过**（同样无 PG），`docs/guides/recon.md` §5 开头已如实标注，且 ai 簇右侧 schema/表名**未核实**、data 簇三张表的 schema 归属待 `SVC-DUAL-01` 核。⇒ 代码侧与只读自证已闭环，**真库证据为零，不标 ✅**。
+  - **未执行（当日早先状态，已被下条「真库腿补跑」取代）**：⑤① 的**夹具驱动真跑**（两个临时 schema：A/B 同 100 行、B 删 3 行、B 改 1 列、B 整表不存在）需要真 PG——本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**；⑤③ 的七簇样例命令**一条都没有在本机跑过**（同样无 PG），`docs/guides/recon.md` §5 开头已如实标注，且 ai 簇右侧 schema/表名**未核实**、data 簇三张表的 schema 归属待 `SVC-DUAL-01` 核。⇒ 代码侧与只读自证已闭环，当日**真库证据为零，未标 ✅**。
+  - **真库腿补跑（2026-11-07 晚，便携 PG 16.2 `127.0.0.1:55432`；临时夹具库 `recon_fixture`，用完即弃）**：
+    - **⑤① 夹具驱动真跑（四条全做，退出码如实）**：`recon_a.t` / `recon_b.t` 各 100 行同内容 →
+      - 相等：`recon_a.t recon_b.t equal 100/100 missing=0 extra=0 mismatch=0`，**EXIT=0**；
+      - B 删 3 行（id 7/8/9）：`diff 100/97 missing=3 extra=0 mismatch=0`，**EXIT=1**；
+      - B 改 1 行（id 42 的 `v`）：`diff 100/97 missing=3 extra=0 mismatch=1`，**EXIT=1**；
+      - B 整表 DROP：`table_missing 0/0` + `right: table does not exist: recon_b.t`，**EXIT=1**（**不是** 0 行相等）。
+    - **⑤③ data 簇样例真跑**（左 `tellurion_test` 的 `public.*`，右 `tellurion_data_test` 的 **`market.*`**——data 服务的 `DATA_MARKET_SCHEMA=market`，指南原写 `data.*` 已订正）：19 对 → **5/19 equal，14 diff，EXIT=1**。差异全是**列集不同**：13 张表右侧多 `visible_at` 一列（`realtime_quote`/`ohlcv_minute`/`capital_flow`/`sectors`/`stock_sector_map`/`top_list`/`limit_up_pool`/`announcements`/`news`/`hot_search`/`global_ohlcv`/`ohlcv_daily_qfq` 等），`public.stocks` 左 10 列 / 右 9 列（差 `delist_date`）；`market.index_daily` 两库**主键不同**（左 `[id]` / 右 `[code trade_date]`）；`market.ohlcv_daily_qfq` 右多 1 行（`EXTRA=1`，G4 演练写入的真行）。另 5 张（`trading_calendar`/`dividends`/`index_constituents`/`splits`/`market_activity`）0/0 `equal`。
+    - **⑤③ ai 簇样例真跑**（左 `tellurion_test`，右 `tellurion_agent_test`）：右侧名按 `ai.*` 实际表订正（`research.profile`→`ai.research_profile` 等，指南 §5.7 已改）→ **6/7 equal，EXIT=1**；唯一差异 `public.factor_hypothesis` ↔ `ai.factor_hypothesis`：行数 12/12、`missing=0 extra=0`、**`mismatch=12`**，列校验和差异列 = `created_at,updated_at`（时间列口径不同，非行缺失）。
+    - **仍未执行（如实）**：run / strategy / risk / analytics / broker 五簇仍「今天无两侧可比的表」（理由见指南 §5.2–§5.6，未变）；本机没有两侧真实生产库，故 data/ai 两簇的样例用的是**本机测试库**（表结构真、行数多为 0），不构成生产对拍报告。⑤② 只读自证、⑤④ 文档、⑤⑤ 三条门禁沿用当日记录（本轮仅改文档，代码未动）。
   - **顺带订正**：QT-77 记录里「六仓 `deploy/compose.yaml`」被 `check_doc_links.py` 判成本仓缺失路径（实际是跨仓路径）——改成「六仓各自 `deploy` 目录下 `compose.yaml`」，语义不变、护栏回绿。
 
 > **本节新单的一条跨仓指针**：`QT-80`（事件行带 `actor` = 加列 + 写审计）正文已立在 `tellurion-risk:docs/TASKS.md`——来源是 risk 台账 `:422` 那句「要让事件带调用方身份 = 加列 + 加审计写（DDL 变更，**另立单**），不在本票范围」。本仓只留指针，不镜像正文（R4）。
