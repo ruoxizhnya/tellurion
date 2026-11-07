@@ -48,7 +48,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 > 裁决正文：`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-26.md` §二 #8。下列两单原只有表格行，现补六字段。
 > 详细材料（55 行归属 / 七条退役判据）在 `docs/design/qt-decoupling/core-governance-decision-materials-2026-10-26.md` §2 / §4，本文件不镜像。
 
-### SVC-DUAL-01 · 双 owner 全量清单（⬜ 2026-10-26 立单）
+### SVC-DUAL-01 · 双 owner 全量清单（✅ 2026-11-07）
 
 - **① 目标**：把 run / strategy / risk / ai 四簇的 DDL 双 owner 与 risk「裁决权双真相」写成一张只读清单，逐行可核，作为 G3 停写判据的输入。
 - **② 上下文**：B 组材料 §2 已有 55 行归属（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；market 簇按裁决 ⑰ 已定、K2 在做，本单不重开；审计 §三 P0-2 给出四簇证据。
@@ -56,6 +56,13 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **④ 约束与非目标**：只读清单；不改 DDL、不建对拍工具、不排四步计划、不动 market 簇（K2 范围）；不裁决停写先后。
 - **⑤ 验收**：清单入 `docs/design/qt-decoupling/`；四簇每簇至少 1 行；随机抽 3 行路径可命中；每行五列齐全；与 `core-governance-decision-materials-2026-10-26.md` §2 的 55 行不矛盾。
 - **⑥ 边界**：不覆盖动态拼表名（材料 §2.4 已登记）；不改生产库；不替代各仓 G3 的停写验收。
+- **施工记录（2026-11-07）**：
+  - **产物**：新建 [`design/qt-decoupling/dual-owner-inventory-2026-11-07.md`](design/qt-decoupling/dual-owner-inventory-2026-11-07.md)（R1 frontmatter 齐全），五列定义 + 四簇逐行 + market roster + 已知边界 + 自检表，共 133 行。
+  - **行数算术（⑤）**：market 22（只留 roster，不重开）+ run 2 + strategy 1 + ai 7 + core-only 23 = **55**，与材料 §2.2 底数一致；`backtest_adjustment_anchors` 在材料 §2.3.2 / §2.3.6 出现两次但同表，只计一次（清单 §2 尾注已写明）。
+  - **五列齐全（③）**：run / strategy / ai 三簇逐表五列；risk 簇按 ③ 要求**单列「裁决权」**（4 项：限额/阈值真相、裁决实现、告警投递、审计表），并明确 `risk.audit_logs` ≠ `public.audit_logs`（`tellurion-risk:docs/db-schema.md:23`）⇒ 不计双 owner；core-only 23 行按「owner / 当前写者 / 读方 / 备注」给全，对拍与停写条件整节统一写「不适用（core 自有）」（无对手方即无双 owner，理由在 §6 开头）。
+  - **抽样 3 行命中（⑤）**：`tellurion:pkg/storage/backtest_jobs.go:14` = `INSERT INTO backtest_jobs (…)`、`tellurion-agent:cmd/ai/experiment_stopwrite_integration_test.go:28` = `func TestStopWrite_LegacyExperimentsFrozen(…)`、`tellurion:pkg/storage/research.go:101` = `FROM research.profile WHERE ticker = $1`——三条 Read 实核，**3/3 命中**。
+  - **如实说明**：① market 簇**不重开**（裁决 ⑰：`market.index_daily` owner = core；五列以 K2 产物为准，本清单只留 22 个表名 roster + 材料 §2.3.1 指针）；② **动态拼表名不覆盖**——`realtime_quote` 等 9 张在 core 无字面 SQL，`W=0` 只是「字面 0」不是「不写」（清单 §8）；③ strategy 簇**两侧不同形状**（core 单表 + `is_active` vs strategy 定义 + 版本链）⇒ 行级对拍无意义，停写判据只能是「唯一写者」；④ 清单里的 `W`/`R` 沿材料 §2.3 的 2026-10-26 实测值，**本轮未重数**。
+  - **未执行（如实）**：清单 §4 引用的 agent 5 件对拍基线只核到**文件与函数定义行**，**一条测试都没跑**（其中两条是 `TEST_DATABASE_DSN` 真库腿，本机 `127.0.0.1:5432` 无监听）；本单是只读清单、无代码改动，故无 build/vet/test 与破坏验证可写。
 
 ### SVC-RETIRE-INDEX · 旧实现退役总单（⬜ 2026-10-26 立单）
 
