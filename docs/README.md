@@ -21,6 +21,7 @@ verified-by: 文档拆仓（2026-10-09）+ 2026-10-20 补 qt-decoupling / qt-com
 - [SPEC.md](SPEC.md) — 技术规格（API / 契约）
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构总览（服务拓扑 / 数据归属 / DB schema 唯一真相口径 / 缓存）
 - [TASKS.md](TASKS.md) — 活跃任务台账（随代码演进）
+- [guides/recon.md](guides/recon.md) — 表级 writer 对拍工具 `cmd/recon`（QT-81：G3 停写判据的可执行载体）
 - [live-trading.md](live-trading.md) — 实盘 / paper 定位
 
 其它不在入口的目录：

@@ -248,7 +248,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 >
 > **④ claim 形状实测**：新增 `pkg/auth/service_token_claims_test.go`，对 kit 签出的 `sub=service:analysis` token 解码并断言 `sub` / `role=service` / `username=sub` / `kind=access` / `iss=tellurion`；`go test ./pkg/auth -run TestServiceTokenClaims_AreTheOnesTheDeploymentReliesOn -v` = PASS。这是本仓对「kit 发版改了 claim 形状」的第一道红。
 >
-> **⑤ 门禁（真实退出码）**：`gofmt -l pkg cmd tools` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；core 两份 compose + 六仓 `deploy/compose.yaml` 的 `config -q` 均 0。
+> **⑤ 门禁（真实退出码）**：`gofmt -l pkg cmd tools` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；core 两份 compose + 六仓各自 `deploy` 目录下 `compose.yaml` 的 `config -q` 均 0。
 >
 > **⑥ 未执行（如实登记，本单保持 🔶）**：验收 ② 的两条真跑——`sub=service:core` 打 risk `POST /api/risk/resolve` 与 data `POST /ingest/points` 都得 **200**、以及不带 token 时 risk **401**——需要起 risk / data 与真 PG；本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**。验收 ③ 的「把 `resolve_token` 置空 ⇒ 该腿响亮失败」是上一条的派生腿，同样**未执行**（代码侧今天的行为是：token 为空 ⇒ 不发 `Authorization` ⇒ 由对端 401；core 侧不伪造匿名放行）。
 
@@ -270,7 +270,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **⑤ 验收**：机械判据 V7（材料 §1.5 原式）——`git grep -oE '\-o /app/[a-z-]+' -- Dockerfile.service` 与 `COPY --from=builder /app/[a-z-]+` 两个集合**一一对应且不多不少**；`docker compose -f docker-compose.yml -f docker-compose.services.yml config` exit 0；worker 容器起后日志出现「注册 + 领取」两条、退出码非 0 当 orchestration 不可达（fail-closed，不是空跑成功）；dualrun 一次执行的差异报告落在预期的路径。
 - **⑥ 边界**：core 的部署资产；服务仓 deploy 归各自 `SVC-*-G0`（已 ✅）。
 
-### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] ⬜
+### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] 🔶（代码 + 单测已落 2026-11-07；真库夹具腿未执行）
 
 - **① 目标**：给「切读/停写」造出它今天**没有的工具**——按表比对新旧写者的行数与校验和，使 `SVC-*-G3` 与六条 `SVC-CORE-*-RETIRE` 的「对拍报告归档」这句验收真的可执行。
 - **② 上下文**：材料 §2.6 ② 的实测表（原文结论：「DUAL-01 的『对拍方式』列，**除 ai 簇外全是『待建』**。这不是文档偷懒，是实测结果；任何写成『有对拍』的都应当是假账」）：data / orchestration / strategy / risk / analytics **无**（无 `*diff*/*verify*/*compare*/*recon*/*backfill*` cmd），broker **部分**（`tellurion-broker:internal/reconcile/reconcile.go:102` 是**账户快照**对账纯函数，不是表级 writer 对拍），**只有 agent 有 5 件**（`pkg/aistore/schema_core_drift_test.go:117` = `TestSchema_ColumnsMatchCore`、`cmd/ai/experiment_stopwrite_integration_test.go:28`、`pkg/ai/gene_pool/pool_ai_schema_integration_test.go:24` = `TestPools_WriteOnlyAiSchema`、`pkg/ai/gene_pool/sql_scope_test.go:19` = `TestSQL_TableRefsAreSchemaQualified`、`internal/repoguard/storage_import_test.go:128` = `TestStorageImportBoundary`；材料只给了文件名，路径为本轮补齐并逐条核到函数定义行）。而 `SVC-DUAL-01` ④ 明写「**不建对拍工具**」⇒ 这条工具链在两张单之间掉下去了。
@@ -278,6 +278,17 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **④ 约束与非目标**：不接生产写路径、不改任何 DDL；不把它做成常驻服务（一次性核对命令）；不在本单替代 `SVC-DUAL-01` 的清单（清单是它的输入）；不覆盖动态拼表名（材料 §2.4 登记的同一限制，如实继承）；不建第二套 agent 已有工具（复用优先）。
 - **⑤ 验收**：① 夹具驱动的真跑：构造两个临时 schema（A 写 100 行、B 写 100 行同内容）⇒ 报「相等」；B 删 3 行 ⇒ 报 `缺行 3`；B 改 1 行某列 ⇒ 报 `同键异值 1`；B 整表不存在 ⇒ 报「表不存在」而**不是**「0 行相等」（这条是本工具唯一重要的反证，破坏验证：把它折成 0 行 ⇒ 用例红）；② 只读自证用例绿；③ 材料 §2.6 ② 那张表的六个仓各有一条样例命令能跑出结果（跑不到的如实记「该簇今天无两侧可比的表」，不许造假输出）；④ `docs/guides/` 或 `docs/SPEC.md` 有它的一节 + 工具清单同批更新（Rule 1 触发表）；⑤ `go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码 0（若落 Python 则 `python tools/…` 的退出码 + 上述夹具用例的 unittest 输出）。
 - **⑥ 边界**：只做工具与调用样例；「谁该停写」归 `SVC-DUAL-01`，「停写后删代码」归六条 `SVC-CORE-*-RETIRE`，各仓自己的 writer 唯一性归 `SVC-*-G2`。
+- **施工记录（2026-11-07）**：
+  - **落点定死为 Go `cmd/recon` + `internal/recon`**（③ ④ 要求二选一）：`jackc/pgx/v5` 本仓已 `require`，流式读、`context` 超时、PG 错误码（`42P01`/`42501`）可直接用；`tools/` 的 Python 同族全是**静态文本**检查（`check_*.py` 无 DB 连接），零依赖下拿不到 PG 驱动，走 `psql` 子进程在 Windows 上脆弱。理由写进 [`docs/guides/recon.md`](guides/recon.md) §2。
+  - **形状**（①）：`Pair` 两侧可不同名；逐表输出 `左/右行数`、`主键集合摘要`（`n=…;first=…;last=…`，仅展示，不参与判定）、`列校验和`（每列 `md5(string_agg(md5(coalesce(col::text,'__NULL__')),'' ORDER BY pk))`）、三分类差异 `缺行 / 多行 / 同键异值`；另有 `ColumnDiffs` 与 `Notes`（列集不同 / 主键不同）。行摘要用 `md5(row_to_json(t)::text)` 按主键归集。
+  - **可判别状态**（②）：`equal` / `diff` / `table_missing` / `permission_denied` / `timeout` / `error` 六态。`Snapshot.Exists=false` 与 SQLSTATE `42P01` 都进 `table_missing`；`42501` → `permission_denied`；`context.DeadlineExceeded` → `timeout`；**无主键 → `ErrNoPrimaryKey` fail-loud**（不退回「只比行数」）。退出码：0 全等 / 1 有差异 / 2 用法或连接错误。
+  - **只读**（③）：所有语句由 `rowDigestQuery` / `columnChecksumQuery` 生成并**逐条**过 `assertReadOnlySQL`（含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE/GRANT/REVOKE/COPY/VACUUM/REINDEX/MERGE` 或非 `SELECT` 即拒）；表名/列名一律 `quoteIdent` 双写引号。自证用例：`TestAssertReadOnlySQL_RejectsWrites`（10 条写语句全拒 + `SELECT 1` 放行 + `SHOW` 拒）、`TestReadOnly_GeneratedStatements`（表名 `update_log`、列名 `deleted_at` 不误伤）。
+  - **样例**（⑤③）：`docs/guides/recon.md` §5 逐簇落样例。**data** 与 **ai** 两簇给了可复制的 `-pair` 命令；**run / strategy / risk / analytics / broker 五簇按材料如实写「今天无两侧可比的表」**并逐条给理由（run 侧无生产写者、strategy 两侧不是同形状、risk 表级 0 行、analytics 无直接表、broker 的 `orders` DDL 不执行）。
+  - **文档**（⑤④）：新建 `docs/guides/recon.md`（R1 frontmatter 齐全），`docs/README.md` 入口导航加一行——`check_doc_links.py` 的「入口层文档 frontmatter」推导会据此自动要求它带 frontmatter（已实测通过）。
+  - **验收（真退出码）**：`gofmt -l ./internal/recon ./cmd/recon` 空；`go build ./...` **EXIT=0**；`go vet ./...` **EXIT=0**；`go test ./... -count=1` **EXIT=0**（`ok` = 72 包 / `FAIL` = 0，含新增两包）；`python tools/check_doc_links.py` **EXIT=0**（63 份文档、坏链 0、配置路径 0、入口 frontmatter 齐）；`python tools/check_repo_autonomy.py` **EXIT=0**。
+  - **破坏验证（真做真还原）**：删掉 `compareOne` 里 `if !rs.Exists { … StatusTableMissing … }` 分支（即把「表不存在」折成 0 行）→ `go test ./internal/recon -run TestCompare_TableMissingIsNotZeroRowsEqual` **FAIL**（`status = diff`，不再是 `table_missing`）；从备份逐字节还原后 `sha256` 前后一致、`go test ./internal/recon ./cmd/recon` 复绿。
+  - **未执行（如实，本单保持 🔶）**：⑤① 的**夹具驱动真跑**（两个临时 schema：A/B 同 100 行、B 删 3 行、B 改 1 列、B 整表不存在）需要真 PG——本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**；⑤③ 的七簇样例命令**一条都没有在本机跑过**（同样无 PG），`docs/guides/recon.md` §5 开头已如实标注，且 ai 簇右侧 schema/表名**未核实**、data 簇三张表的 schema 归属待 `SVC-DUAL-01` 核。⇒ 代码侧与只读自证已闭环，**真库证据为零，不标 ✅**。
+  - **顺带订正**：QT-77 记录里「六仓 `deploy/compose.yaml`」被 `check_doc_links.py` 判成本仓缺失路径（实际是跨仓路径）——改成「六仓各自 `deploy` 目录下 `compose.yaml`」，语义不变、护栏回绿。
 
 > **本节新单的一条跨仓指针**：`QT-80`（事件行带 `actor` = 加列 + 写审计）正文已立在 `tellurion-risk:docs/TASKS.md`——来源是 risk 台账 `:422` 那句「要让事件带调用方身份 = 加列 + 加审计写（DDL 变更，**另立单**），不在本票范围」。本仓只留指针，不镜像正文（R4）。
 
