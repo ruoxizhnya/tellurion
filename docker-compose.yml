@@ -193,6 +193,11 @@ services:
       # 回 model-not-found —— 协议兼容不等于模型名兼容。
       # 注意 AI_API_URL 要填完整的 chat-completions 端点，不是 base URL。
       AI_MODEL: ${AI_MODEL:-}
+      # 服务间凭证（QT-77）：analysis 是 risk 的**唯一**发送方，token 只在这里注入，
+      # 仓库里只有空占位。签法：JWT_SECRET=... go run ./tools/issue_service_token.go
+      # -sub service:analysis -ttl 720h；口径见 docs/SPEC.md 的「服务间凭证」节。
+      RISK_SERVICE_RESOLVE_TOKEN: ${RISK_SERVICE_RESOLVE_TOKEN:-}
+      RISK_SERVICE_EVENTS_TOKEN: ${RISK_SERVICE_EVENTS_TOKEN:-}
       LOGGING_LEVEL: info
       # AUD-58：见 data-service 里同一行的注释。缺省 100 与
       # config/analysis-service.yaml 的 rate_limit.per_minute 一致。

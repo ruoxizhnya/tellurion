@@ -94,6 +94,11 @@ services:
       ANALYTICS_ARTIFACT_URL: http://orchestration:8088
       ANALYTICS_ORCHESTRATION_URL: http://orchestration:8088
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      # 服务间凭证（QT-77）：只给**发送方**注入，仓库里只有空占位。
+      # 签法见 tellurion:docs/SPEC.md#服务间凭证：签发、分发与轮换。
+      DATA_SERVICE_TOKEN: ${DATA_SERVICE_TOKEN:-}
+      ANALYTICS_CORE_TOKEN: ${ANALYTICS_CORE_TOKEN:-}
+      ANALYTICS_ARTIFACT_TOKEN: ${ANALYTICS_ARTIFACT_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

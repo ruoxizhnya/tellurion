@@ -227,7 +227,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **⑦ 未执行（如实登记）**：真 PG 的 claim 并发腿（`-tags integration`）——本机无 PG 监听、Docker 引擎不可用，只做到编译通过；「真重启后同秒不撞键」的跨进程端到端腿同样未跑（单进程随机 nonce 已在单测里钉住形状与来源）。
 
-### QT-77 · 服务间凭证的来源、签发与分发成文并落部署 [P1] ⬜
+### QT-77 · 服务间凭证的来源、签发与分发成文并落部署 [P1] 🔶（2026-11-07：代码/文档/清单已落；真跑两条 200 未执行）
 
 - **① 目标**：让「服务之间怎么拿到并轮换凭证」成为一件有配置、有文档、有机械判据的事，而不是每仓各自硬塞一把共享 `JWT_SECRET`。
 - **② 上下文**：QT-50 未落第 5 条的三面拆分（裁-17）里，「凭证来源未定」与「没有部署清单」两句已被 `SVC-DEPLOY-01` **部分解除**——实测 `docker-compose.services.yml:43/59/96` 与 `tellurion-analytics/deploy/compose.yaml:22` 已注入 `JWT_SECRET`，`docker-compose.yml:99/:165/:231` 也有。**仍然为真的缺口**：① core 的出站凭证是**静态配置串**（`cmd/analysis/wiring/risk_rules.go:21` 的 `resolve_token`），没有任何仓在**签发**——kit `IssueServiceToken`（KT-09）的调用者实测**只有 kit 自己的测试**（全仓 grep：`tellurion-kit/auth/httpadapter/httpadapter_test.go:133` 等），② `sub=service:<repo>` 的命名与分发无清单，③ orchestration / broker 两仓今天**没有鉴权**（`SVC-ORCH-G1` ⛔、`SVC-BROKER-G1` ⛔），worker → orchestration 这一跳是裸 HTTP。
@@ -235,6 +235,20 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 - **④ 约束与非目标**：不引入新第三方依赖；不做 mTLS/OIDC（单人自托管，多租户与 RBAC 是负担）；不改 kit `auth` 的校验语义（要改走 kit 单）；不改用户侧 token 的 `int64` subject 校验（KT-11 的裁决边界）。
 - **⑤ 验收**：① 成文可指（`docs/SPEC.md` 一节 + 六仓 deploy 清单各有一条来源注记）；② 一条真跑：用 kit 签一个 `sub=service:core` 的 token 打 risk `POST /api/risk/resolve` 与 data `POST /ingest/points`，两条都 **200**；不带 token 时 risk 那条 **401**（证明档位真的在拦）；③ 破坏验证：把 core 的 `resolve_token` 置空 ⇒ 该腿响亮失败而不是静默走匿名；④ 全仓三条命令绿。
 - **⑥ 边界**：签发与分发的**口径 + 部署清单 + core 出站**；各服务仓的策略表归各自 `SVC-*-G1`。
+
+> **施工记录（2026-11-07，本机实跑）**
+>
+> **① 签发入口（② 要求落地）**：新增 `tools/issue_service_token.go`（`//go:build ignore`，`go run tools/issue_service_token.go -sub service:<repo> [-ttl 720h] [-secret-env JWT_SECRET] [-issuer tellurion]`）。它**只**调 kit `auth.TokenService.IssueServiceToken`，不手拼 JWT；secret 只从 env 读（不入 argv / 日志）；`-sub` 不是 `service:<repo>` 或 `-ttl<=0` 当场拒绝；stdout 只输出 token，诊断走 stderr。实测：签出 269 字符 token，stderr `issued sub=service:analysis role=service ttl=720h0m0s iss=tellurion (secret from JWT_SECRET)`；`-sub analysis` 与空 secret 两条都 `exit status 2` 且不回显 secret。
+>
+> **② 成文（① 要求落地）**：`docs/SPEC.md` 鉴权节下新增「服务间凭证：签发、分发与轮换（QT-77，裁-17）」——签发命令、**最低权限清单**（消费者 / `sub` / 目标端点 / 注入变量，含 orchestration 与 broker 的「未启用」标注）、验签方只持 `JWT_SECRET`、30 天 token / 90 天 secret 与滚动轮换、**吊销语义如实写**（kit 无 revocation list；立即失效只能轮换 secret，会连带用户 token），并指回裁-17 与 `SVC-*-G1`。
+>
+> **③ 部署清单（③ 要求落地）**：core `docker-compose.yml` 的 analysis 增 `RISK_SERVICE_RESOLVE_TOKEN` / `RISK_SERVICE_EVENTS_TOKEN`（空占位）；`docker-compose.services.yml` 的 analytics 增 `DATA_SERVICE_TOKEN` / `ANALYTICS_CORE_TOKEN` / `ANALYTICS_ARTIFACT_TOKEN`（空占位）；六仓 `deploy/compose.yaml` 各加一条来源注记——data / risk / strategy 标注「验签方、不持 token」，analytics 补三个空占位，orchestration / broker 标注「鉴权归各自 G1、之前不签不验」。**没有种任何新密钥**（全部 `${VAR:-}`）。六份 + core 两份 `docker compose … config -q` 实测全 **exit 0**。
+>
+> **④ claim 形状实测**：新增 `pkg/auth/service_token_claims_test.go`，对 kit 签出的 `sub=service:analysis` token 解码并断言 `sub` / `role=service` / `username=sub` / `kind=access` / `iss=tellurion`；`go test ./pkg/auth -run TestServiceTokenClaims_AreTheOnesTheDeploymentReliesOn -v` = PASS。这是本仓对「kit 发版改了 claim 形状」的第一道红。
+>
+> **⑤ 门禁（真实退出码）**：`gofmt -l pkg cmd tools` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；core 两份 compose + 六仓 `deploy/compose.yaml` 的 `config -q` 均 0。
+>
+> **⑥ 未执行（如实登记，本单保持 🔶）**：验收 ② 的两条真跑——`sub=service:core` 打 risk `POST /api/risk/resolve` 与 data `POST /ingest/points` 都得 **200**、以及不带 token 时 risk **401**——需要起 risk / data 与真 PG；本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**。验收 ③ 的「把 `resolve_token` 置空 ⇒ 该腿响亮失败」是上一条的派生腿，同样**未执行**（代码侧今天的行为是：token 为空 ⇒ 不发 `Authorization` ⇒ 由对端 401；core 侧不伪造匿名放行）。
 
 ### QT-78 · 归因输入的 artifact 生产者（portfolio-snapshot / factor-exposures） [P1] ⬜
 

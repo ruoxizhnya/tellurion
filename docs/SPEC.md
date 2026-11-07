@@ -2923,6 +2923,53 @@ agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不
 loopback / loopback-published，非环回一律拒绝启动。错误码与限流语义随每条
 endpoint 写进 `docs/openapi.yaml`（`400/401/403/429/502/503`）。
 
+#### 服务间凭证：签发、分发与轮换（QT-77，裁-17）
+
+服务与服务之间**不共享用户 token**：每个消费者签一个 `sub=service:<repo>`、
+`role=service` 的长期 access token，由部署面按 env 注入（不落库、不进镜像、
+不进 yaml 真值）。校验侧只认 `role=service`；kit 的 middleware / httpadapter
+对这类 token 豁免「数字 subject」校验（`KT-11`，kit `v0.1.4`）。
+
+**签发（唯一入口）**：
+
+```bash
+JWT_SECRET=... go run ./tools/issue_service_token.go -sub service:analysis -ttl 720h
+```
+
+该工具消费 kit `auth.TokenService.IssueServiceToken`，不自造 JWT；secret 只从
+env 读（`-secret-env` 可改名），stdout 只输出 token，`-sub` 不是
+`service:<repo>` 直接拒绝。签出来的 claim 形状由本仓
+`pkg/auth/service_token_claims_test.go` 钉住（`sub` / `role=service` /
+`kind=access` / `iss=tellurion`）。
+
+**最低权限清单**（只签这个消费者真正需要的端点；`service` 角色**不得**出现在
+`Trader` / `Admin` 列表）：
+
+| 消费者 | `sub` | 目标端点 | 注入变量 |
+|---|---|---|---|
+| analysis | `service:analysis` | risk `POST /api/risk/resolve` | `RISK_SERVICE_RESOLVE_TOKEN` |
+| analysis | `service:analysis` | risk `POST /api/risk/events` | `RISK_SERVICE_EVENTS_TOKEN` |
+| analytics | `service:analytics` | core `POST /api/backtest` | `ANALYTICS_CORE_TOKEN` |
+| analytics | `service:analytics` | data `GET /datasets/*` | `DATA_SERVICE_TOKEN` |
+| analytics | `service:analytics` | orchestration artifact 面 | `ANALYTICS_ARTIFACT_TOKEN`（缺省复用 core token） |
+| worker（core） | `service:worker` | orchestration 任务面 | ⛔ 未启用：`SVC-ORCH-G1` 落地后再签 |
+| core | `service:core` | broker 订单面 | `BROKER_SERVICE_TOKEN`（G1 是常量时间比对的共享串，**不是** JWT；换成 JWT 归 `SVC-BROKER-G1`） |
+
+校验侧（被打的一方）只需要共享 `JWT_SECRET`，不需要任何 `*_TOKEN`：
+risk / data / core 的 analysis 都按 `AUTH_JWT_SECRET`（或 `JWT_SECRET`）验签 +
+`route_policy` 角色表。**只有发送方**持有 token。
+
+**有效期与轮换**：服务 token 30 天（`-ttl 720h`），`JWT_SECRET` 90 天；
+轮换 = 用同一 secret 重签 → 更新对应 secret → 滚动重启消费者。签发与轮换
+**由部署方显式执行**，仓库里只有空占位（`${VAR:-}`），没有可用的默认真值。
+
+**吊销语义（如实）**：kit 没有 revocation list，也没有 introspection 端点。
+单个 token 失效的唯一手段是等它过期；要立即失效只能轮换 `JWT_SECRET` ——
+那会同时作废所有用户 access token。这是单人自托管的取舍，不引 OIDC / mTLS。
+
+**未启用的两跳**：orchestration / broker 的鉴权归各自 `SVC-*-G1`；在那之前
+它们的 deploy 清单只留来源注记，不签 token、不加校验（否则部署即 401）。
+
 **未落的跨仓腿（如实）**：agent 侧 HTTP 客户端在 G10（本仓只提供 wire 面）；
 `contracts/dto` 由 `oapi-codegen` 生成的前提是 contracts 新增 `dto` 包
 （v0.3.0 无此包，报 **G0D-C5**），本批没有手写/伪造生成物。
