@@ -10,8 +10,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 	"tellurion/pkg/backtest/workers"
-	"tellurion/pkg/statistics"
 	"tellurion/pkg/storage"
 )
 

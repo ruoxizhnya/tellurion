@@ -87,11 +87,13 @@ func TestQT71_ServiceCredentialsAreSecretRefs(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..", "deploy", "k8s")
+	// 2026-10-26 裁决 #5 删掉了 risk / analytics 两份 k8s 清单（两个服务已
+	// 各自有 deploy/，本地唯一部署真相改为 compose）。本用例只核 core 仍在
+	// 维护的两份；服务仓的凭证注入由各自 deploy 清单与 SVC-DEPLOY-01 保证，
+	// core 的护栏够不到，不在这里假装核过。
 	deployments := map[string]string{
-		"analysis":  filepath.Join(root, "analysis-deployment.yaml"),
-		"data":      filepath.Join(root, "data-deployment.yaml"),
-		"risk":      filepath.Join(root, "risk-deployment.yaml"),
-		"analytics": filepath.Join(root, "analytics-deployment.yaml"),
+		"analysis": filepath.Join(root, "analysis-deployment.yaml"),
+		"data":     filepath.Join(root, "data-deployment.yaml"),
 	}
 
 	envs := map[string]map[string]k8sEnvVar{}
@@ -99,7 +101,7 @@ func TestQT71_ServiceCredentialsAreSecretRefs(t *testing.T) {
 		e, raw := readDeploymentEnvs(t, path)
 		envs[svc] = e
 
-		// 四个服务都必须能验证入站 token。
+		// 两份清单都必须能验证入站 token。
 		assertSecretInjected(t, path, e, "JWT_SECRET")
 
 		// 令牌真值的粗筛：JWT 的 base64url 头恒以 eyJ 开头。
@@ -107,16 +109,8 @@ func TestQT71_ServiceCredentialsAreSecretRefs(t *testing.T) {
 			"%s 里出现了疑似 JWT 真值 —— token 只许经 Secret 注入", path)
 	}
 
-	// 三个出站服务 token 各自的真实消费方。
+	// 出站服务 token 的真实消费方（只剩 analysis：risk / analytics 的清单已删）。
 	assertSecretInjected(t, deployments["analysis"], envs["analysis"], "RISK_SERVICE_RESOLVE_TOKEN")
-	assertSecretInjected(t, deployments["analytics"], envs["analytics"], "ANALYTICS_CORE_TOKEN")
-	assertSecretInjected(t, deployments["analytics"], envs["analytics"], "DATA_SERVICE_TOKEN")
-
-	// 反向：risk 是**只验证**的一方，不许持有出站 token。
-	for _, name := range []string{"RISK_SERVICE_RESOLVE_TOKEN", "ANALYTICS_CORE_TOKEN", "DATA_SERVICE_TOKEN"} {
-		_, has := envs["risk"][name]
-		assert.False(t, has, "risk 不该持有出站 token %s", name)
-	}
 }
 
 // TestQT71_ComposeGivesEveryServiceJWTSecret：compose 的三个应用服务都必须

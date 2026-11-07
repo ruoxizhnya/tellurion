@@ -35,7 +35,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/httpserver"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 )
 
 // TestLoadConfig_SetsDefaults verifies that loadConfig populates

@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // Time-series operators

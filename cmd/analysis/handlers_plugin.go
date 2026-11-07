@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/httpserver"
 	"tellurion/pkg/strategy"
 )
 

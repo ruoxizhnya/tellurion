@@ -159,12 +159,14 @@ tellurion/
 └── tools/            # 运维脚本（不被 CI 执行）
 ```
 
-> **横切库唯一实现（裁-18 / QT-73 一期，2026-10-25）**：`errors` / `decimal` / `clock` /
-> `logging` / `httpclient` 的实现已迁 `tellurion-kit`（`require v0.1.1`），本仓同名目录
-> **已删除**、不留转发壳；`internal/repoguard` 把五个路径登记进 `retiredPackages`
-> （复活即红）。仍在 core 的横切包：`statistics` / `httpserver` / `observability` /
-> `auth` / `authz`（二期等 kit `v0.1.3`，见 QT-73 ⑥）。跨仓依赖只认 tag
-> （ADR-D31），本仓已无 `replace`。
+> **横切库唯一实现（裁-18 / QT-73 一期 + QT-75 二期，2026-11-07）**：`errors` / `decimal` /
+> `clock` / `logging` / `httpclient`（一期）与 `statistics` / `httpserver`（二期）的实现已迁
+> `tellurion-kit`（`require v0.1.4`），本仓同名目录**已删除**、不留转发壳；
+> `internal/repoguard` 把七个路径登记进 `retiredPackages`（复活即红）。
+> `httpserver` 的 gin 回环包装（`LoopbackOnly`）按 kit 的分工留在应用层
+> （`pkg/bootstrap/loopback.go`，判据用 kit 的 `IsLoopbackRemoteAddr`）。
+> 仍在 core 的横切包：`observability` / `auth` / `authz` / `id`（各有 core 侧业务或
+> 装配依赖，kit 无对应物）。跨仓依赖只认 tag（ADR-D31），本仓已无 `replace`。
 
 ---
 

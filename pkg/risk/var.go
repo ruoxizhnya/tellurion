@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ruoxizhnya/tellurion-kit/errors"
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // VaRRequest holds parameters for Value at Risk calculation.

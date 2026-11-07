@@ -20,8 +20,8 @@ package main
 // RegisterRoutes method.
 
 import (
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"net/http"
-	"tellurion/pkg/httpserver"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"

@@ -31,8 +31,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/httpserver"
 )
 
 // factorRegistrationStore 是写入门所需的最小存储能力（*storage.PostgresStore

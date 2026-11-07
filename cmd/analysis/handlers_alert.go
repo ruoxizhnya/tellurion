@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/httpserver"
 )
 
 // alertHistoryResponse is the wire shape returned by

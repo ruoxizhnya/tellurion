@@ -28,8 +28,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/httpserver"
 	"tellurion/pkg/strategy"
 )
 

@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // DriftResult is the local view of a drift-detection finding.

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // CalculateMetrics computes all risk and performance metrics from portfolio values and trades.

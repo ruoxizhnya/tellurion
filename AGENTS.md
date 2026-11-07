@@ -17,7 +17,7 @@
 |---|---|---|
 | **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
 | `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.6.0`，2026-10-24 发版：QT-40 X1a 新增 `dataprotocol/` —— `UnifiedDataPoint` 七字段 + `ToJSON`/`DeduplicateKey` + 15 个 `DataType*` 常量，导出面 447→465；`go.mod` 2026-10-25 实测已切，**禁 `replace`**） |
-| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.4`（2026-10-25，`KT-11`：`role=service` 的 token 不再被 subject 的 `int64` 校验 401）；本仓 **`require v0.1.1`**（不受影响——本仓 `pkg/auth` 早有 `RoleService` 特例，QT-73 一期只切 `errors` / `decimal` / `clock` / `logging` / `httpclient` 五包，`auth` 不在其中）；二期 `statistics` / `httpserver` 已随 `KT-10` / `v0.1.3` 补齐，另单切包 |
+| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.4`（2026-10-25，`KT-11`：`role=service` 的 token 不再被 subject 的 `int64` 校验 401）；本仓 **`require v0.1.4`**（QT-75 二期，2026-11-07：`statistics` / `httpserver` 切包，连同 QT-73 一期共七包 144 处；`httpserver` 的 gin 回环包装按 kit 分工留在 `pkg/bootstrap/loopback.go`，不再回 core 建横切包）。跨仓依赖只认 tag（ADR-D31），本仓无 `replace` |
 | `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
 | `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |
 | `tellurion-data` | 数据面唯一入口（connector / aggregator） | 触发后接管 `market` / `ingest`；本仓改为只读 API |
@@ -226,9 +226,9 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
 │   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**（SPEC-R-01 已收编全部模块表）
 │   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
-│   ├── logging/ errors/ id/ decimal/ statistics/   # 横切（→ tellurion-kit，S1）
-│   ├── httpclient/ httpserver/ observability/      # 横切（→ tellurion-kit，S1）
-│   ├── auth/ authz/ clock/ sandbox/                # 横切（→ tellurion-kit，S1）
+│   ├── （已迁出）logging/ errors/ decimal/ clock/ httpclient/ statistics/ httpserver/   # → tellurion-kit（QT-73 一期 / QT-75 二期）
+│   ├── id/ observability/        # 横切仍留 core（id 业务命名；observability 带 core 指标）
+│   ├── auth/ authz/ sandbox/     # 横切仍留 core（auth 带 DB/bcrypt；authz gin 四档表；sandbox 含 wasm host）
 │   └── testenv/ testutil/        # 测试脚手架（留 core）
 ├── e2e/                          # Go 端到端 / 守卫测试（guard_test.go、integration_test.go；`e2e/guard/` 还放着两把**跨仓 SPEC 互锁**守卫，见下方「已迁出」表最后一行）
 ├── migrations/                   # ⚠️ 历史 SQL 镜像，**不执行**（见该目录 README）

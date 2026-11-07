@@ -15,7 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"tellurion/pkg/httpserver"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 )
 
 // maxBulkOHLCVBodyBytes 是 POST /api/v1/ohlcv/bulk 的请求体上限。一个

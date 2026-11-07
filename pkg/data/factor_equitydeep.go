@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 	"tellurion/pkg/data/equitydeep"
-	"tellurion/pkg/statistics"
 )
 
 // ─ 桥 B1 纵向基本面因子 (ADR-022 计算面, TASKS.md EQD-P1-2) ─────────────────

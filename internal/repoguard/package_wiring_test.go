@@ -108,6 +108,11 @@ var retiredPackages = map[string]string{
 	"tellurion/pkg/clock":      "已切至 github.com/ruoxizhnya/tellurion-kit/clock（QT-73 一期）",
 	"tellurion/pkg/logging":    "已切至 github.com/ruoxizhnya/tellurion-kit/logging（QT-73 一期）",
 	"tellurion/pkg/httpclient": "已切至 github.com/ruoxizhnya/tellurion-kit/httpclient（QT-73 一期）",
+	// 2026-11-07 (QT-75)：二期两包（statistics / httpserver）整目录切 kit。
+	// httpserver 的 gin 回环包装（LoopbackOnly）按 kit 的分工留在应用层
+	// （pkg/bootstrap/loopback.go），core 侧不留横切包。
+	"tellurion/pkg/statistics": "已切至 github.com/ruoxizhnya/tellurion-kit/statistics（QT-75 二期）",
+	"tellurion/pkg/httpserver": "已切至 github.com/ruoxizhnya/tellurion-kit/httpserver（QT-75 二期）；gin 回环包装留在 pkg/bootstrap/loopback.go",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {

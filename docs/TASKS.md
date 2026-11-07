@@ -167,7 +167,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 > **第七条 `SVC-CORE-AI-RETIRE` 不在本节**：条目已在 `tellurion-agent:docs/TASKS.md:183`（六字段齐，判据 = 材料 §4.7：表名 7 张 `experiments, factor_hypothesis, factor_genes, strategy_genes, research.profile, research.conclusion, research.question`；基线 ① **6** ② **3** ③ **7**；归零 0/0/0；反向护栏复用 agent 侧 `pkg/aistore/schema_core_drift_test.go:117` 与 `cmd/ai/experiment_stopwrite_integration_test.go:28`）。
 > ⚠️ **这本身是一条 R4 偏差**（「本仓 `docs/TASKS.md` 只放本仓可完成的单」）：删除对象全在 **core**（`pkg/storage/{experiments,factor_hypothesis}.go`、`pkg/mining` 落库腿、`cmd/data/mining_cmd.go`、`postgres.go:47` 的 `SeedBuiltinFactorHypotheses` 启动 seed），agent 侧无法完成。**待裁**：把它挪进本节的执行单序列（串行第 10），或按材料 §5.1 保持在 agent 仓并把 core 侧删除动作改为一条指向本仓的工单。挪单前不要开工。
 
-### QT-75 · core 二期切 kit `statistics` / `httpserver` 并升 pin `v0.1.4` [P1] ⬜
+### QT-75 · core 二期切 kit `statistics` / `httpserver` 并升 pin `v0.1.4` [P1] ✅（2026-11-07）
 
 - **① 目标**：QT-73 的二期落地——core 的统计与 HTTP 服务端两包改指 kit，core 的 kit pin 从 `v0.1.1` 升到当前最新 `v0.1.4`。
 - **② 上下文**：QT-73 一期 ✅（`170f09a`，五包 90 处），「执行顺序总览」的 **QT-73 行**自己写着「二期 `statistics`/`httpserver` 先补 kit（KT-10），另单」（按锚点找，不写行号——行号随台账编辑漂移）——**KT-10 已于 2026-10-25 ✅**，二期「另单」此前不存在；实测 `tellurion/go.mod:16` = `github.com/ruoxizhnya/tellurion-kit v0.1.1`（落后三版），而 risk / data / analytics 已 pin `v0.1.4`。
@@ -175,6 +175,29 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 - **④ 约束与非目标**：**不加 `replace`**（白名单今天为空）；不改 kit 仓源码；不动 contracts pin（`v0.6.0` 不变）；一期已切的五包不重切。
 - **⑤ 验收**：`go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码为 0；`git grep -c '"tellurion/pkg/statistics"\|"tellurion/pkg/httpserver"'` = **0**；`go.mod` 读数为 `v0.1.4`；`make contracts-pin-check` 绿；`internal/repoguard` 若钉住横切包唯一实现，须同批改对。
 - **⑥ 边界**：core 两包 + pin + 台账；kit 侧的包缺口属 KT-10（已闭），不再回改 kit。
+
+> **施工记录（2026-11-07，本机实跑）**
+>
+> **① pin**：`go get github.com/ruoxizhnya/tellurion-kit@v0.1.4`（实测输出 `upgraded ... v0.1.1 => v0.1.4`）+ `go mod tidy`，只动 `go.mod` / `go.sum`；`go.mod` 现读 `v0.1.4`。
+>
+> **② 切包**：`statistics` 20 处 + `httpserver` 34 处，共 **54 个 Go 文件 / 54 行 import**（与 QT-73 ② 的 20 / 34 预估逐数一致）；批量改 import 路径后 `gofmt -w`（跨组排序），删除 `pkg/statistics`（5 文件）与 `pkg/httpserver`（9 文件，含测试）两个目录，**不留转发壳**。
+>
+> **③ 逐包语义差异（实测 diff，不是推断）**
+> - `statistics`：导出函数集**逐项相同**（25 个，含 `LogReturns` / `AnnualizeVolatility`）；`basic.go` **字节相同**；`correlation.go` / `percentile.go` / `regression.go` 仅注释不同（kit 把「对齐 pkg/ai/metrics」「对齐 pkg/risk/regime.go」等 core 内部指针改写为迁移注记）；`doc.go` 重写（补 KT-10 的范围说明）。⇒ **行为无变化**，调用方无需改动。
+> - `httpserver`：`cors.go` / `errors.go` / `ginmode.go` **字节相同**；`loopback.go` 的判据 `IsLoopbackRemoteAddr` **函数体逐字节相同**、14 条表驱动用例在 kit 侧原样存在。**唯一差异**：kit 按分工**不搬 gin 中间件** `LoopbackOnly`（kit 文件头明写「403 文案与容器装配口径属应用层策略」）⇒ 该包装搬进 `pkg/bootstrap/loopback.go`（未导出 `loopbackOnly()`，403 文案与「只看 `RemoteAddr`、不信 `X-Forwarded-For`」判据逐字保留），`pkg/bootstrap/server.go` 改调 `loopbackOnly()`。行为级用例原本就在 `pkg/bootstrap/loopback_guard_test.go`（三条：逐请求门生效 / `loopback-published` 跳过 / 开鉴权时走 401），覆盖面未减。
+> - **对调用方的影响**：本仓 module path 是单段 `tellurion`（不可被 require），两包导出面未变 ⇒ 仓外零影响；仓内 54 处只改 import 路径、标识符一个未改名。
+>
+> **④ 护栏同批**：`internal/repoguard/package_wiring_test.go` 的 `retiredPackages` 增 `tellurion/pkg/statistics` / `tellurion/pkg/httpserver` 两条（复活即红）。
+>
+> **⑤ 顺手修的一处过期引用（如实登记，非本单范围）**：`internal/repoguard/qt71_service_credentials_test.go` 仍在读 `deploy/k8s/{risk,analytics}-deployment.yaml`，而这两份清单已随 2026-10-26 裁决 #5 删除（commit `ecc4f2d`）⇒ 本单开工时 `go test ./...` 已因它单条红。改为只核仍在维护的 `analysis` / `data` 两份，并在用例注释里写明服务仓清单不归 core 护栏核（**覆盖面收缩已登记**，不是静默跳过）。
+>
+> **⑥ 门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（首跑红两条，即 ⑤ 的过期引用 + 本单新增的 retired 白名单未先删目录，均修后复绿）。`python tools/check_contract_pin.py --self-test` = 0（18 腿）；`python tools/check_contract_pin.py` = 0（10 仓 / 11 pin 全绿，**本仓 pin `v0.1.4` → `8077c36` = kit `main` 祖先**）。
+>
+> **⑦ 破坏验证（逐条红 → 逐字节还原 → 复绿）**
+> 1. 重建 `pkg/statistics/` 并放一个 `package statistics` 文件 ⇒ `TestEveryPackageHasAConsumer` 红（报 `resurrected: [tellurion/pkg/httpserver tellurion/pkg/statistics]`）；删目录后复绿。
+> 2. 把 `pkg/expression/operators.go` 的 import 改回 `"tellurion/pkg/statistics"` ⇒ `go build ./pkg/expression/` 退出 1（`package tellurion/pkg/statistics is not in std`）；还原后 SHA256 与改前逐字节一致（`C4C0C5B7…E2D97D`），复绿。
+>
+> **⑧ 未执行（如实登记）**：kit 侧 `go run ./tools/check_scope`（属 kit 仓 CI，本单只在 core 施工，未跨仓跑）；`-race`（本机 `CGO_ENABLED=0`、无 C 编译器）。
 
 ### QT-76 · 告警 outbox 三条已登记缺口的收口 [P1] ⬜
 
@@ -262,7 +285,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 | **横切** | QT-67 ✅ | 日历 / 上市窗口只读端点（D24 第 7 类动作，2026-10-24 已裁） | P1 | **已完成（2026-10-24）**；`GET /api/v1/trading-calendar` + `POST /api/v1/listing-windows`，只读、JWT/RBAC 复用、存储未装配 503；openapi 双向对拍 + wire 形状反射互锁；agent 侧删 import 与白名单收窄归 QT-17 ③ |
 | **横切** | QT-71 ✅ | 服务间凭证：`service` 角色 + 长期 token（**裁-17 定稿**） | P1 | **已完成（2026-10-25）**：`RoleService` 进 `IsValid`、`CanTrade/CanAdmin` 恒 false；authz 第五档 Service（service/trader/admin any-of）；core 只在 `POST /api/backtest` 登记（==1 条）；risk/analytics 清单 + data/analysis secret + compose JWT_SECRET |
 | **横切** | QT-72 ✅ | X0 三 hash 对外读面落 core（**裁-19 定稿**） | P1 | **已完成（2026-10-25）**：`GET /api/backtest/{id}/provenance` 读 `quant.run_provenance ⋈ backtest_jobs`，`result_status` 只取 jobs；三态沿用 orchestration 三码；openapi + 双向对拍绿 |
-| **横切** | QT-73 ✅ | core 横切包切 kit 一期（**裁-18 定稿**：零语义五包 90 处） | P1 | **已完成（2026-10-25）**；二期 `statistics`/`httpserver` 先补 kit（KT-10），另单 |
+| **横切** | QT-73 ✅ | core 横切包切 kit 一期（**裁-18 定稿**：零语义五包 90 处） | P1 | **已完成（2026-10-25）**；二期 `statistics`/`httpserver` 已完成（**QT-75**，2026-11-07：54 处 + pin `v0.1.4`） |
 | **延续** | DBT-13~18 | 第 3 代存量 6 项 | P1-P3 | 前提已复核；DBT-16 阻塞于外部产出方 |
 
 **并行指引**：**QT-06/08 与 W0 并行**（06 只打 tag，08 只写各仓入口文件）；**但 QT-18 必须先于 W0 合入 main**——QT-01 就是 abi v2 新增 4 个 host 函数（8 → 12），那第一个会打穿 agent 编译的改动点在它身上，护栏不在就漏过去了。W0 的 01/02/04 文件域互不重叠（`pkg/backtest/contracts` vs `pkg/backtest/engine*` vs 只读扫描）；**05 不在 W0 里跑**——它排在 W0 全绿之后的 S1（ADR-D31），搬的是 `pkg/domain` 与 `pkg/backtest/contracts`，**不是** core 顶层那个装 yaml/schema 的 `contracts/`。**07/09 必须等 05 与 W0 全绿**（拆的是已冻结的东西）；**17 可与 W1 并行**（只动 agent 仓与 `ai.*`，不碰 core 的引擎代码），它是 07 的 S3 段前置；**19 紧随 07**（两仓拆出来才有版本可管）；**18 必须最先做**（否则 W0/W1 的 breaking 改动会让 agent 仓静默烂掉）。W1 的 11/12/13/16 都动 `pkg/backtest`，按「10 → 11 → 12 → 13 → 14 → 16 → 15」串行、一单一 commit（**16 必须先于 15**）。W2 的 20/21/22 都动 `contracts` + 信号应用，串行。

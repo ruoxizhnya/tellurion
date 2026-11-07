@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"net/http"
 	"sync"
-	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

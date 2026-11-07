@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"net/http"
 	"strings"
 	"sync"
-	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

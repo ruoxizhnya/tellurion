@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/httpserver"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/strategy"
 )
 

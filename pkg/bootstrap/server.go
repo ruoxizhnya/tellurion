@@ -12,11 +12,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"github.com/spf13/viper"
+
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/httpserver"
 	"tellurion/pkg/storage"
 )
 
@@ -180,8 +181,8 @@ func BuildRouter(authSvc *auth.Service, v *viper.Viper, logger zerolog.Logger) *
 		// 只判绑定网卡；监听 127.0.0.1 时，同机进程 / 端口转发 / 错配代理
 		// 仍能打到管理面，所以运行期还要逐请求判来源（fail-closed）。
 		// 容器 loopback-published 形态（bind 0.0.0.0）不走这道门——见
-		// httpserver.LoopbackOnly 的文件头说明。
-		router.Use(httpserver.LoopbackOnly())
+		// pkg/bootstrap/loopback.go 的文件头说明。
+		router.Use(loopbackOnly())
 	}
 	return router
 }

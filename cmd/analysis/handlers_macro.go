@@ -35,7 +35,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
-	"tellurion/pkg/httpserver"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/storage"
 )
 

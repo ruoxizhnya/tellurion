@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // FactorDecayResult measures factor predictive power over multiple horizons.

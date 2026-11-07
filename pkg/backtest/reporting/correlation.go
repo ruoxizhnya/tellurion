@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 // minEquityPoints is the minimum number of data points each equity

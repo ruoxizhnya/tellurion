@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"io"
 	"net/http"
 	"strings"
-	"tellurion/pkg/httpserver"
 	"time"
 
 	"github.com/gin-gonic/gin"

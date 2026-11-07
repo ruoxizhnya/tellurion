@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/statistics"
+	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
 func makePortfolioValues(values []float64) []domain.PortfolioValue {
