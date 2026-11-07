@@ -116,6 +116,10 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       ORCHESTRATION_DSN: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+      # 凭证来源（QT-77）：本服务是验签方（kit 启动闸 + SVC-ORCH-G2 的 R5 最小面）；
+      # 全量鉴权归 tellurion-orchestration:SVC-ORCH-G1（⛔）。与同栈其余验签方
+      # 共用同一 secret，否则 analytics 签出的 service token 在这里验不过。
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
     depends_on:
       postgres:
         condition: service_healthy
