@@ -40,6 +40,8 @@ package alert
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -354,10 +356,29 @@ func (am *AlertManager) Recorder() (*RecorderChannel, bool) {
 	return nil, false
 }
 
+// alertIDProcessNonce 是本进程的告警身份后缀（QT-76 缺口②）。
+//
+// 为什么需要它：`nextAlertID` 的 `<epoch 秒> + <进程内 seq>` 在**重启后的同一秒**
+// 能造出与上一个进程完全相同的 id —— 两条内容不同的告警在 outbox 里撞主键，
+// 第二条一行都落不下（`ON CONFLICT DO NOTHING`），于是它在 risk 侧直接消失。
+// 进程级随机后缀让「同秒、同规则、同 seq」也分属两条告警。
+//
+// 它**不改变** risk 侧的去重坐标语义：`Alert.ID` 仍是 `order_id` 的唯一来源，
+// `alert_id == order_id` 这条等式没有被打破（见 `cmd/analysis/wiring/risk_events.go`）。
+var alertIDProcessNonce = func() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand 不可用是极端环境（无熵源）。用纳秒低 32 位兜底 ——
+		// 弱于密码学随机，但仍强于「没有后缀」。
+		return fmt.Sprintf("%08x", uint32(time.Now().UnixNano()))
+	}
+	return hex.EncodeToString(b[:])
+}()
+
 func (am *AlertManager) nextAlertID(rule string) string {
 	am.mu.Lock()
 	am.alertSeq++
 	seq := am.alertSeq
 	am.mu.Unlock()
-	return fmt.Sprintf("ALR-%s-%d-%d", rule, time.Now().Unix(), seq)
+	return fmt.Sprintf("ALR-%s-%d-%d-%s", rule, time.Now().Unix(), seq, alertIDProcessNonce)
 }

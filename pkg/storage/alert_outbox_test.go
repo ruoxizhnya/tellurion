@@ -76,6 +76,12 @@ func TestAlertOutbox_DDLIsExecutedByMigratePath(t *testing.T) {
 			t.Errorf("migrationStatements() 里没有这条 DDL —— 新库不会建 quant.alert_outbox：\n%s", want)
 		}
 	}
+	// QT-76：行级领取租约列也必须由 migrate() 落地（Migration 061，追加式）。
+	for _, want := range AlertOutboxLeaseSchemaDDL {
+		if got[want] == 0 {
+			t.Errorf("migrationStatements() 里没有租约列 DDL —— 老库拿不到 lease_until，claim 会直接报列不存在：\n%s", want)
+		}
+	}
 
 	// 反向腿：清单里确有这张表的建表语句（防止常量被改成空切片蒙过去）。
 	if len(AlertOutboxSchemaDDL) < 2 {
@@ -107,6 +113,12 @@ func TestAlertOutbox_DDLMatchesTheQueriesThatReadIt(t *testing.T) {
 		// relay 每轮都是「按先后取 pending 的一批」：没有这个部分索引就全表扫，
 		// 而已 sent 的行永远比待发的多。
 		"WHERE status = 'pending'",
+		// QT-76 缺口①：领取必须同时有「跳过已锁行」和「租约过期才可领」两半。
+		// 只留 FOR UPDATE，HTTP 投递发生在事务外，下一轮仍会重复领；
+		// 只留 lease_until，两个 relay 会在同一毫秒各领一次。
+		"FOR UPDATE SKIP LOCKED",
+		"lease_until <= now()",
+		"ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0)",
 	} {
 		if !strings.Contains(ddl, want) {
 			t.Errorf("DDL 缺 %q —— 与代码的用法不再一致（改列要同步改这里的断言）", want)

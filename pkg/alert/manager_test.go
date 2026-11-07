@@ -547,3 +547,20 @@ func TestAlert_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "v", out.Attributes["k"])
 	assert.Equal(t, float64(42), out.Attributes["n"])
 }
+
+// QT-76 缺口②：告警 id 必须带进程级 nonce。
+//
+// 旧形状 `ALR-<rule>-<epoch>-<seq>` 在「进程重启后的同一秒」能重放出与上个进程
+// 完全相同的 id；outbox 主键撞键后第二条告警一行都落不下（ON CONFLICT DO NOTHING），
+// 等于静默丢告警。nonce 让同秒、同规则、同 seq 的两条告警仍是两个身份。
+func TestAlertID_CarriesTheProcessNonce(t *testing.T) {
+	var am AlertManager
+	first := am.nextAlertID("drawdown")
+	second := am.nextAlertID("drawdown")
+
+	assert.Regexp(t, `^ALR-drawdown-\d+-\d+-[0-9a-f]{8}$`, first,
+		"id 形状必须是 ALR-<rule>-<epoch>-<seq>-<nonce>")
+	assert.Contains(t, first, "-"+alertIDProcessNonce,
+		"id 必须带本进程 nonce —— 否则重启后的同一秒会与上一个进程撞同一行")
+	assert.NotEqual(t, first, second)
+}

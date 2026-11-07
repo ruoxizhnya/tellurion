@@ -45,7 +45,7 @@ type fakeAlertOutbox struct {
 	byID            map[string]*storage.AlertOutboxRecord
 	order           []string
 	saveErr         error
-	listErr         error
+	claimErr        error
 	markErr         error
 	bumpErr         error
 	markReturnsZero bool // 模拟「主键对不上 / 行已被别的进程删掉」：n=0 且无 error
@@ -86,9 +86,6 @@ func mustSaveQT42(t *testing.T, ob *fakeAlertOutbox, rec *storage.AlertOutboxRec
 func (f *fakeAlertOutbox) ListPendingAlertOutbox(_ context.Context, limit int) ([]storage.AlertOutboxRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.listErr != nil {
-		return nil, f.listErr
-	}
 	var out []storage.AlertOutboxRecord
 	for _, id := range f.order {
 		row := f.byID[id]
@@ -98,6 +95,34 @@ func (f *fakeAlertOutbox) ListPendingAlertOutbox(_ context.Context, limit int) (
 		if len(out) >= limit {
 			break
 		}
+		out = append(out, *row)
+	}
+	return out, nil
+}
+
+// ClaimPendingAlertOutbox 按 PG 实现（`FOR UPDATE SKIP LOCKED` + `lease_until`）的
+// 语义领取：pending 且租约已过期才可领，领到即写租约。**它是缺口①的替身** ——
+// 真 SQL 的 SKIP LOCKED 腿在 `pkg/storage/alert_outbox_integration_test.go`（-tags integration）。
+func (f *fakeAlertOutbox) ClaimPendingAlertOutbox(_ context.Context, limit int, lease time.Duration) ([]storage.AlertOutboxRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return nil, f.claimErr
+	}
+	now := time.Now()
+	var out []storage.AlertOutboxRecord
+	for _, id := range f.order {
+		row := f.byID[id]
+		if row.Status != storage.AlertOutboxStatusPending {
+			continue
+		}
+		if row.LeaseUntil.After(now) {
+			continue // 另一个 relay 正持有这一行
+		}
+		if len(out) >= limit {
+			break
+		}
+		row.LeaseUntil = now.Add(lease)
 		out = append(out, *row)
 	}
 	return out, nil
@@ -116,6 +141,7 @@ func (f *fakeAlertOutbox) MarkAlertOutboxSent(_ context.Context, ids []string) (
 	for _, id := range ids {
 		if row, ok := f.byID[id]; ok && row.Status != storage.AlertOutboxStatusSent {
 			row.Status = storage.AlertOutboxStatusSent
+			row.LeaseUntil = time.Time{}
 			row.UpdatedAt = time.Now()
 			n++
 		}
@@ -136,6 +162,7 @@ func (f *fakeAlertOutbox) BumpAlertOutboxAttempts(_ context.Context, ids []strin
 		}
 		row.Attempts++
 		row.LastError = reason
+		row.LeaseUntil = time.Time{} // 与 PG 的 lease_until = to_timestamp(0) 同义：立刻可再领
 		if row.Attempts >= maxAttempts {
 			row.Status = storage.AlertOutboxStatusFailed
 		}
@@ -395,7 +422,7 @@ func TestRiskEventSink_RelayPostsPendingRowsWithRiskWireShape(t *testing.T) {
 
 	// 不手工 relay 的话，上一进程留下的行由节拍带走；这里用显式 relay 拿确定性。
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{BatchSize: 50}, zerolog.Nop())
-	sink.relay()
+	sink.relay(context.Background())
 	body := srv.waitBody(t)
 
 	// 外层：risk 对信封用 DisallowUnknownFields ⇒ 只许有 events 一个键。
@@ -443,7 +470,7 @@ func TestRiskEventSink_PayloadCarriesTheFieldsRiskProjects(t *testing.T) {
 	a := qt42Alert("ALR-max_position_weight-1-1", "max_position_weight", alert.SeverityWarning)
 	a.Attributes = map[string]any{"market_value": 123.0}
 	sink.Send(context.Background(), a)
-	sink.relay() // 攒批靠 relay，不靠 HTTP 侧的等待
+	sink.relay(context.Background()) // 攒批靠 relay，不靠 HTTP 侧的等待
 
 	var envelope struct {
 		Events []struct {
@@ -487,15 +514,15 @@ func TestRiskEventSink_CloseRelaysRemainingRows(t *testing.T) {
 func TestRiskEventSink_ReadFailureKeepsRowsAndIsLoud(t *testing.T) {
 	srv, ts := newQT42Server(t, func(int) (int, string) { return http.StatusOK, `{}` })
 	outbox := newFakeAlertOutbox()
-	outbox.listErr = fmt.Errorf("read-only transaction") // 设在读之前：模拟库读失败
+	outbox.claimErr = fmt.Errorf("read-only transaction") // 设在领取之前：模拟库读失败
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-listfail-1"))
 	buf := &lockedBuffer{}
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(buf))
 
-	sink.relay()
+	sink.relay(context.Background())
 
 	require.Eventually(t, func() bool {
-		return strings.Contains(buf.String(), "could not read the outbox")
+		return strings.Contains(buf.String(), "could not claim from the outbox")
 	}, 2*time.Second, 10*time.Millisecond)
 	calls, _, _, _ := srv.counts()
 	assert.Zero(t, calls)
@@ -519,7 +546,7 @@ func TestRiskEventSink_ServerErrorKeepsPendingAndReSends(t *testing.T) {
 	// 两条并发（生产上单进程单 sink 不会，测试里必须自己排掉这个噪声）。
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-500-1"))
 
-	sink.relay() // 第一次：500
+	sink.relay(context.Background()) // 第一次：500
 	require.Eventually(t, func() bool {
 		text := buf.String()
 		return strings.Contains(text, "batch rejected") && strings.Contains(text, "internal")
@@ -530,7 +557,7 @@ func TestRiskEventSink_ServerErrorKeepsPendingAndReSends(t *testing.T) {
 	assert.Equal(t, 1, row.Attempts)
 	assert.Contains(t, row.LastError, "status 500")
 
-	sink.relay() // 第二次：成功
+	sink.relay(context.Background()) // 第二次：成功
 	_ = srv.waitBody(t)
 	calls, _, _, _ := srv.counts()
 	assert.Equal(t, 2, calls, "失败的批必须被下一轮重发")
@@ -547,10 +574,10 @@ func TestRiskEventSink_MaxAttemptsTurnsRowFailedNotGone(t *testing.T) {
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{MaxAttempts: 2}, zerolog.Nop())
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-dead-1"))
 
-	sink.relay()
+	sink.relay(context.Background())
 	assert.Equal(t, storage.AlertOutboxStatusPending, outbox.mustRow(t, "ALR-dead-1").Status)
 
-	sink.relay() // 第二次触顶
+	sink.relay(context.Background()) // 第二次触顶
 	row := outbox.mustRow(t, "ALR-dead-1")
 	assert.Equal(t, storage.AlertOutboxStatusFailed, row.Status, "触顶转终态 failed")
 	assert.Equal(t, 2, row.Attempts)
@@ -575,7 +602,7 @@ func TestRiskEventSink_PartialFailureNamesEachRejectedAlert(t *testing.T) {
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-rejected"))
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-accepted"))
 
-	sink.relay()
+	sink.relay(context.Background())
 	body := srv.waitBody(t)
 	assert.Contains(t, body, "ALR-rejected")
 
@@ -602,7 +629,7 @@ func TestRiskEventSink_DuplicatesWarnButStillCountAsSent(t *testing.T) {
 	buf := &lockedBuffer{}
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(buf))
 
-	sink.relay()
+	sink.relay(context.Background())
 	_ = srv.waitBody(t)
 	require.Eventually(t, func() bool {
 		text := buf.String()
@@ -621,7 +648,7 @@ func TestRiskEventSink_MarkSentFailureIsLoud(t *testing.T) {
 	outbox.markErr = fmt.Errorf("connection reset") // 构造后、播种后设：避开第一腿 relay
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-markfail-1"))
 
-	sink.relay()
+	sink.relay(context.Background())
 	_ = srv.waitBody(t)
 
 	require.Eventually(t, func() bool {
@@ -645,7 +672,7 @@ func TestRiskEventSink_MarksSentByOutboxKeyNotRiskOrderID(t *testing.T) {
 	})
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(io.Discard))
 
-	sink.relay()
+	sink.relay(context.Background())
 	_ = srv.waitBody(t)
 
 	assert.Equal(t, storage.AlertOutboxStatusSent, outbox.mustRow(t, "OBX-key-1").Status,
@@ -662,7 +689,7 @@ func TestRiskEventSink_DeliveredButZeroRowsMarkedIsLoud(t *testing.T) {
 	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{}, zerolog.New(buf))
 	mustSaveQT42(t, outbox, qt42SeedRow("ALR-zeromark-1"))
 
-	sink.relay()
+	sink.relay(context.Background())
 	_ = srv.waitBody(t)
 
 	require.Eventually(t, func() bool {
@@ -689,7 +716,7 @@ func TestRiskEventSink_AuthorizationHeaderFollowsToken(t *testing.T) {
 			sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{Token: tc.token, BatchSize: 1}, zerolog.Nop())
 
 			sink.Send(context.Background(), qt42Alert("ALR-auth-1", "drawdown", alert.SeverityInfo))
-			sink.relay()
+			sink.relay(context.Background())
 			_ = srv.waitBody(t)
 			_, _, auths, _ := srv.counts()
 			require.Len(t, auths, 1)
@@ -804,4 +831,90 @@ func TestAttachRiskEventsFromConfig_EnabledWithBadConfigFailsFast(t *testing.T) 
 	err = AttachRiskEventsFromConfig(v3, am, newFakeAlertOutbox(), zerolog.Nop())
 	require.Error(t, err)
 	assert.Equal(t, base, am.ChannelCount())
+}
+
+// ─── QT-76 缺口①：行级领取（两个 relay 抢同一批 pending）────────────────
+
+func TestRiskEventSink_ConcurrentRelaysClaimEachRowOnce(t *testing.T) {
+	srv, ts := newQT42Server(t, func(int) (int, string) { return http.StatusOK, `{"accepted":1,"duplicates":0}` })
+	outbox := newFakeAlertOutbox()
+	for i := 0; i < 20; i++ {
+		mustSaveQT42(t, outbox, qt42SeedRow(fmt.Sprintf("ALR-claim-%02d", i)))
+	}
+
+	cfg := RiskEventSinkConfig{Timeout: time.Second, BatchSize: 20}
+	first := newQT42Sink(t, ts.URL, outbox, cfg, zerolog.Nop())
+	second := newQT42Sink(t, ts.URL, outbox, cfg, zerolog.Nop())
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, sink := range []*RiskEventSink{first, second} {
+		wg.Add(1)
+		go func(s *RiskEventSink) {
+			defer wg.Done()
+			<-start
+			s.relay(context.Background())
+		}(sink)
+	}
+	close(start)
+	wg.Wait()
+
+	// 逐个 ID 数「被投了几次」：租约失效时两个 relay 会各领同一批，
+	// 同一 order_id 就会在两次请求体里各出现一次。
+	srv.mu.Lock()
+	bodies := append([]string(nil), srv.bodies...)
+	srv.mu.Unlock()
+	deliveries := map[string]int{}
+	for _, raw := range bodies {
+		var req struct {
+			Events []struct {
+				OrderID string `json:"order_id"`
+			} `json:"events"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(raw), &req))
+		for _, ev := range req.Events {
+			deliveries[ev.OrderID]++
+		}
+	}
+	require.Len(t, deliveries, 20, "20 条 pending 都要发出去")
+	for id, n := range deliveries {
+		assert.Equal(t, 1, n, "%s 被投了 %d 次：行级领取失效", id, n)
+	}
+}
+
+// ─── QT-76 缺口③：关停总预算 ────────────────────────────────────────────
+
+func TestRiskEventSink_ShutdownBudgetCapsTheFinalRelay(t *testing.T) {
+	srv, ts := newQT42Server(t, func(int) (int, string) { return http.StatusOK, `{"accepted":1,"duplicates":0}` })
+	srv.release = make(chan struct{}) // 上游慢：请求一直挂着，直到 ctx 取消或测试放行
+	defer close(srv.release)
+
+	outbox := newFakeAlertOutbox()
+	sink := newQT42Sink(t, ts.URL, outbox, RiskEventSinkConfig{
+		Timeout:        300 * time.Millisecond,
+		ShutdownBudget: 60 * time.Millisecond,
+		BatchSize:      10,
+	}, zerolog.Nop())
+	for i := 0; i < 3; i++ {
+		mustSaveQT42(t, outbox, qt42SeedRow(fmt.Sprintf("ALR-budget-%d", i)))
+	}
+
+	started := time.Now()
+	sink.Close()
+	elapsed := time.Since(started)
+
+	assert.Less(t, elapsed, 200*time.Millisecond,
+		"关停只给一个总预算（60ms）；实际 %v —— 上游慢一次不该把关停拖成 N 个 Timeout", elapsed)
+	select {
+	case <-sink.done:
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("Close 返回后后台 relay 仍在跑：总预算没有真正作用到 relay 上")
+	}
+
+	rows, _ := outbox.counts()
+	assert.Equal(t, 3, rows, "到点即弃 ≠ 删行：三条仍在表里")
+	for i := 0; i < 3; i++ {
+		row := outbox.mustRow(t, fmt.Sprintf("ALR-budget-%d", i))
+		assert.Equal(t, storage.AlertOutboxStatusPending, row.Status, "没发出去的行必须还是 pending，由下一个进程带走")
+	}
 }

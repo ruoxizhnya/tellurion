@@ -12,6 +12,7 @@ package storage
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,4 +175,58 @@ func qt42MustPending(t *testing.T, store *PostgresStore, id string) AlertOutboxR
 	}
 	t.Fatalf("行 %s 不在 pending 里（实测 %d 行）", id, len(pending))
 	return AlertOutboxRecord{}
+}
+
+// QT-76 缺口①：行级领取。两个 claim 并发跑同一批 pending ⇒ 并集是全部、
+// 交集为空；租约未到期时再 claim 拿不到；租约到期后重新可领。
+func TestIntegration_AlertOutbox_ClaimIsRowLevelAndLeaseExpires(t *testing.T) {
+	store, ctx := setUp(t)
+	ids := []string{"qt76-claim-1", "qt76-claim-2", "qt76-claim-3", "qt76-claim-4", "qt76-claim-5"}
+	t.Cleanup(func() { qt42Cleanup(t, store, ids...) })
+	for _, id := range ids {
+		require.True(t, qt42Save(t, store, ctx, qt42Row(id)))
+	}
+
+	var (
+		wg   sync.WaitGroup
+		a, b []AlertOutboxRecord
+		errs [2]error
+	)
+	start := make(chan struct{})
+	for i, dst := range []*[]AlertOutboxRecord{&a, &b} {
+		wg.Add(1)
+		go func(i int, dst *[]AlertOutboxRecord) {
+			defer wg.Done()
+			<-start
+			*dst, errs[i] = store.ClaimPendingAlertOutbox(ctx, 100, time.Minute)
+		}(i, dst)
+	}
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+
+	seen := map[string]int{}
+	for _, rec := range append(append([]AlertOutboxRecord(nil), a...), b...) {
+		seen[rec.AlertID]++
+	}
+	assert.Len(t, seen, len(ids), "两次 claim 的并集必须是全部 pending")
+	for id, n := range seen {
+		assert.Equal(t, 1, n, "%s 被两个 claim 同时领到 —— SKIP LOCKED / 租约没生效", id)
+	}
+
+	// 租约还没到期：谁都领不到（否则「行级」只是把竞态推到下一步）。
+	again, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, again, "租约有效期内不该再被领走")
+
+	// 1ms 租约 + 等它过期 ⇒ 同一批重新可领（进程崩掉后的唯一出路）。
+	short, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Millisecond)
+	require.NoError(t, err)
+	assert.Len(t, short, len(ids), "过期租约必须重新可领")
+	time.Sleep(20 * time.Millisecond)
+	reclaimed, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, reclaimed, len(ids), "租约到期后必须能再次领取")
 }

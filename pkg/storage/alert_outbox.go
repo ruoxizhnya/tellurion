@@ -21,6 +21,12 @@ import (
 //
 // 状态机：pending →（投递成功）sent；pending →（投递失败）pending，attempts+1；
 // attempts 触到上限 → failed（终态，不再重试，等人看）。没有 down 路径。
+//
+// 行级领取（QT-76 缺口①）：relay 取行不是 SELECT，而是 `ClaimPendingAlertOutbox`
+// —— 同一批 pending 只能被一个 relay 领取（`FOR UPDATE SKIP LOCKED`），领取即写
+// `lease_until`；投递失败会**主动放租约**回 pending，进程崩掉则由租约到期自动
+// 可再领取。没有这一层时，两个进程（或两台机器）会同时读到同一批并各发一遍，
+// risk 侧只能靠去重键兜住 —— 那是「已经重复发了」，不是「没有重复发」。
 
 // quant.alert_outbox 的状态词表。DDL 的 CHECK 与此一一对应。
 const (
@@ -46,8 +52,11 @@ type AlertOutboxRecord struct {
 	Status    string    `json:"status"`
 	Attempts  int       `json:"attempts"`
 	LastError string    `json:"last_error"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// LeaseUntil 是这一行被某个 relay 领取到的时刻上界；零值（epoch）表示
+	// 「谁都能领」。它不参与 risk 的 wire 形状，只是本仓的并发护栏。
+	LeaseUntil time.Time `json:"lease_until,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // AlertOutboxSchemaDDL 建表 DDL —— migrate() 的 Migration 060 执行这组语句。
@@ -74,6 +83,17 @@ var AlertOutboxSchemaDDL = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_alert_outbox_pending
 		ON quant.alert_outbox (created_at) WHERE status = 'pending'`,
+}
+
+// AlertOutboxLeaseSchemaDDL 是 Migration 061（QT-76 缺口①）：给已存在的
+// `quant.alert_outbox` 补行级领取租约列。
+//
+// 为什么单独一条而不是改 Migration 060 的 CREATE TABLE：迁移只允许追加
+// （见 `postgres.go` 059 的注释）。`ADD COLUMN IF NOT EXISTS` 让老库与新库
+// 落到同一形状：老库补列（默认 epoch = 立即可领），新库先建表再补这一步。
+var AlertOutboxLeaseSchemaDDL = []string{
+	`ALTER TABLE quant.alert_outbox
+		ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0)`,
 }
 
 // SaveAlertOutbox 落一行 pending（写前留痕），并报告**这一条是不是新行**。
@@ -113,7 +133,11 @@ func (s *PostgresStore) SaveAlertOutbox(ctx context.Context, rec *AlertOutboxRec
 	return tag.RowsAffected() > 0, nil
 }
 
-// ListPendingAlertOutbox 按先后取最多 limit 行待投事件（relay 每轮的输入）。
+// ListPendingAlertOutbox 按先后取最多 limit 行待投事件（**只读观测口径**）。
+//
+// 投递路径不许用它：它不加锁也不写租约，两个 relay 会读到同一批。真正的
+// 领取是 `ClaimPendingAlertOutbox`。保留本方法是给运维 / 集成测试看
+// 「现在表里还有哪些 pending」，语义等价于 `SELECT … WHERE status='pending'`。
 //
 // 不含 sent / failed：已发与已判死的都不该再占带宽。limit<=0 返回空切片。
 func (s *PostgresStore) ListPendingAlertOutbox(ctx context.Context, limit int) ([]AlertOutboxRecord, error) {
@@ -122,7 +146,7 @@ func (s *PostgresStore) ListPendingAlertOutbox(ctx context.Context, limit int) (
 	}
 	const q = `
 		SELECT alert_id, run_id, order_id, event_seq, symbol, reason, payload, event_ts,
-		       status, attempts, last_error, created_at, updated_at
+		       status, attempts, last_error, lease_until, created_at, updated_at
 		FROM quant.alert_outbox
 		WHERE status = 'pending'
 		ORDER BY created_at
@@ -140,7 +164,7 @@ func (s *PostgresStore) ListPendingAlertOutbox(ctx context.Context, limit int) (
 		if err := rows.Scan(
 			&rec.AlertID, &rec.RunID, &rec.OrderID, &rec.EventSeq, &rec.Symbol, &rec.Reason,
 			&rec.Payload, &rec.EventTs, &rec.Status, &rec.Attempts, &rec.LastError,
-			&rec.CreatedAt, &rec.UpdatedAt,
+			&rec.LeaseUntil, &rec.CreatedAt, &rec.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan alert outbox row: %w", err)
 		}
@@ -148,6 +172,71 @@ func (s *PostgresStore) ListPendingAlertOutbox(ctx context.Context, limit int) (
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate alert outbox: %w", err)
+	}
+	return out, nil
+}
+
+// claimLeaseDefault 是 lease<=0 时的兜底租约；调用方（sink）总会显式给。
+const claimLeaseDefault = 30 * time.Second
+
+// ClaimPendingAlertOutbox 领取一批待投事件（QT-76 缺口①）：**行级**、可超时回退。
+//
+// 一条语句里做三件事：挑出「pending 且租约已过期」的最早 limit 行、
+// `FOR UPDATE SKIP LOCKED` 跳过别的 relay 正在领的行、把领取时刻写进
+// `lease_until` 并随行返回。多进程同跑时，同一行只会出现在一个 relay 的
+// 返回里；领了没发出去（进程崩了）的行在租约到期后重新可领。
+//
+// 为什么 `FOR UPDATE SKIP LOCKED` 必须和 `lease_until` 一起用：前者只在
+// 事务内有效，HTTP 投递发生在事务外；没有租约列，两轮 relay 之间仍是竞态。
+func (s *PostgresStore) ClaimPendingAlertOutbox(ctx context.Context, limit int, lease time.Duration) ([]AlertOutboxRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if lease <= 0 {
+		lease = claimLeaseDefault
+	}
+	// 用毫秒整数而不是传 interval 字符串：参数定型只取决于 `$2::bigint`，
+	// 不会被 PG 猜成别的类型（同类坑见 run_provenance 的 `::text`）。
+	const q = `
+		WITH claimed AS (
+			SELECT alert_id
+			FROM quant.alert_outbox
+			WHERE status = 'pending' AND lease_until <= now()
+			ORDER BY created_at
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		), leased AS (
+			UPDATE quant.alert_outbox o
+			SET lease_until = now() + ($2::bigint * interval '1 millisecond'),
+			    updated_at = now()
+			FROM claimed c
+			WHERE o.alert_id = c.alert_id
+			RETURNING o.alert_id, o.run_id, o.order_id, o.event_seq, o.symbol, o.reason,
+			          o.payload, o.event_ts, o.status, o.attempts, o.last_error,
+			          o.lease_until, o.created_at, o.updated_at
+		)
+		SELECT * FROM leased ORDER BY created_at
+	`
+	rows, err := s.pool.Query(ctx, q, limit, lease.Milliseconds())
+	if err != nil {
+		return nil, fmt.Errorf("claim pending alert outbox: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AlertOutboxRecord
+	for rows.Next() {
+		var rec AlertOutboxRecord
+		if err := rows.Scan(
+			&rec.AlertID, &rec.RunID, &rec.OrderID, &rec.EventSeq, &rec.Symbol, &rec.Reason,
+			&rec.Payload, &rec.EventTs, &rec.Status, &rec.Attempts, &rec.LastError,
+			&rec.LeaseUntil, &rec.CreatedAt, &rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan claimed alert outbox row: %w", err)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate claimed alert outbox: %w", err)
 	}
 	return out, nil
 }
@@ -162,7 +251,7 @@ func (s *PostgresStore) MarkAlertOutboxSent(ctx context.Context, alertIDs []stri
 	}
 	const q = `
 		UPDATE quant.alert_outbox
-		SET status = 'sent', updated_at = now()
+		SET status = 'sent', lease_until = to_timestamp(0), updated_at = now()
 		WHERE alert_id = ANY($1) AND status <> 'sent'
 	`
 	tag, err := s.pool.Exec(ctx, q, alertIDs)
@@ -216,6 +305,7 @@ func (s *PostgresStore) BumpAlertOutboxAttempts(ctx context.Context, alertIDs []
 		SET attempts = attempts + 1,
 		    last_error = $2,
 		    status = CASE WHEN attempts + 1 >= $3 THEN 'failed' ELSE 'pending' END,
+		    lease_until = to_timestamp(0),
 		    updated_at = now()
 		WHERE alert_id = ANY($1) AND status = 'pending'
 	`

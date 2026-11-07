@@ -1232,6 +1232,10 @@ func migrationStatements() []string {
 	// （满则丢、重启则丢），所以告警先落一行再投，失败只是「这行还是 pending」。
 	migrations = append(migrations, AlertOutboxSchemaDDL...)
 
+	// Migration 061（QT-76 缺口①）：quant.alert_outbox 的行级领取租约。
+	// 追加而不是改写 060：迁移只允许追加；老库靠 ADD COLUMN IF NOT EXISTS 补齐。
+	migrations = append(migrations, AlertOutboxLeaseSchemaDDL...)
+
 	return migrations
 }
 

@@ -66,6 +66,15 @@ const (
 	defaultRiskEventsRelayInterval = 15 * time.Second
 	defaultRiskEventsMaxAttempts   = 8
 
+	// defaultRiskEventsShutdownBudget 是关停期「最后一轮 relay」的总预算
+	// （QT-76 缺口③）。到点即弃：不再等上游，行仍是 pending，由下一个进程
+	// 的 relay 带走；**不删行**。
+	defaultRiskEventsShutdownBudget = 10 * time.Second
+
+	// riskEventsLeaseFloor 是行级领取租约的下限。租约太短会在「第一批还没
+	// 发完」时被别的 relay 重新领走，等于又回到重复投递。
+	riskEventsLeaseFloor = 30 * time.Second
+
 	// riskEventsMaxBatchCeiling 是给 `events_batch_size` 设的硬上限：risk 侧
 	// 请求体上限 1 MiB（`internal/httpapi.MaxBodyBytes`），一条告警约 0.2–0.5 KB。
 	// 超了当场拒绝，而不是悄悄夹一个数让运维以为配得更大。
@@ -74,13 +83,17 @@ const (
 )
 
 // AlertOutbox 是告警发件箱的端口（生产实现是 `*storage.PostgresStore`，
-// 表 = `quant.alert_outbox`，DDL 在 Migration 060）。
+// 表 = `quant.alert_outbox`，DDL 在 Migration 060 / 061）。
 //
 // 端口开在消费侧（本包），实现侧不 import 本包：换存储不需要动 sink。
 // `SaveAlertOutbox` 的 bool = 「这一条是不是新行」；撞键不报错，但静默就等于丢。
+//
+// 投递只用 `ClaimPendingAlertOutbox`（行级领取 + 租约）；只读的
+// `ListPendingAlertOutbox` 刻意不进这个端口 —— 列在这里就等于邀请别人
+// 用无锁读去发，那正是 QT-76 缺口①。
 type AlertOutbox interface {
 	SaveAlertOutbox(ctx context.Context, rec *storage.AlertOutboxRecord) (bool, error)
-	ListPendingAlertOutbox(ctx context.Context, limit int) ([]storage.AlertOutboxRecord, error)
+	ClaimPendingAlertOutbox(ctx context.Context, limit int, lease time.Duration) ([]storage.AlertOutboxRecord, error)
 	MarkAlertOutboxSent(ctx context.Context, alertIDs []string) (int, error)
 	BumpAlertOutboxAttempts(ctx context.Context, alertIDs []string, reason string, maxAttempts int) error
 }
@@ -131,20 +144,25 @@ type RiskEventSinkConfig struct {
 	RelayInterval time.Duration
 	// MaxAttempts 是一行从 pending 转 failed 的尝试上限。
 	MaxAttempts int
+	// ShutdownBudget 是关停期最后一轮 relay 的总预算（含领取 + 投递 + 回写）；
+	// 零值取 Timeout。到点即弃，行留在 outbox（QT-76 缺口③）。
+	ShutdownBudget time.Duration
 }
 
 // RiskEventSink 是 `alert.Channel` 的 risk 服务实现：每条告警先落成
 // `quant.alert_outbox` 的一行，后台 relay 再按批 `POST /api/risk/events`。
 type RiskEventSink struct {
-	endpoint    string
-	token       string
-	client      *http.Client
-	timeout     time.Duration
-	maxBatch    int
-	relayEvery  time.Duration
-	maxAttempts int
-	outbox      AlertOutbox
-	logger      zerolog.Logger
+	endpoint       string
+	token          string
+	client         *http.Client
+	timeout        time.Duration
+	maxBatch       int
+	relayEvery     time.Duration
+	maxAttempts    int
+	lease          time.Duration
+	shutdownBudget time.Duration
+	outbox         AlertOutbox
+	logger         zerolog.Logger
 
 	done    chan struct{}
 	stop    chan struct{}
@@ -183,18 +201,30 @@ func NewRiskEventSink(baseURL string, cfg RiskEventSinkConfig, outbox AlertOutbo
 	if maxAttempts <= 0 {
 		maxAttempts = defaultRiskEventsMaxAttempts
 	}
+	// 租约覆盖「一轮 relay 的最坏耗时」：POST 一次 + 回写一次。短于它就会出现
+	// 「上一轮还在发、下一轮已经把同一行领走」—— 那正是租约要防的事。
+	lease := 3 * timeout
+	if lease < riskEventsLeaseFloor {
+		lease = riskEventsLeaseFloor
+	}
+	shutdownBudget := cfg.ShutdownBudget
+	if shutdownBudget <= 0 {
+		shutdownBudget = timeout
+	}
 	s := &RiskEventSink{
-		endpoint:    base + riskEventsPath,
-		token:       strings.TrimSpace(cfg.Token),
-		client:      &http.Client{Timeout: timeout},
-		timeout:     timeout,
-		maxBatch:    batchSize,
-		relayEvery:  relayEvery,
-		maxAttempts: maxAttempts,
-		outbox:      outbox,
-		logger:      logger.With().Str("component", "risk_event_sink").Logger(),
-		done:        make(chan struct{}),
-		stop:        make(chan struct{}),
+		endpoint:       base + riskEventsPath,
+		token:          strings.TrimSpace(cfg.Token),
+		client:         &http.Client{Timeout: timeout},
+		timeout:        timeout,
+		maxBatch:       batchSize,
+		relayEvery:     relayEvery,
+		maxAttempts:    maxAttempts,
+		lease:          lease,
+		shutdownBudget: shutdownBudget,
+		outbox:         outbox,
+		logger:         logger.With().Str("component", "risk_event_sink").Logger(),
+		done:           make(chan struct{}),
+		stop:           make(chan struct{}),
 	}
 	go s.run()
 	return s, nil
@@ -258,7 +288,11 @@ func (s *RiskEventSink) Send(_ context.Context, a alert.Alert) {
 	s.logger.Debug().Str("alert_id", a.ID).Str("rule", a.Rule).Msg("risk events: alert recorded in outbox (pending)")
 }
 
-// Close 停后台 relay，并在退出前再做一轮投递（尽力而为，受 Timeout 约束）。
+// Close 停后台 relay，并在退出前再做一轮投递（受 ShutdownBudget 约束）。
+//
+// QT-76 缺口③：关停只给**一个总预算**。到点即弃 —— 行不删、状态不动，仍是
+// pending（租约到期后由下一个进程带走）。不这么做的话，上游慢一次就能把关停
+// 拖成「每批一个 Timeout」，进程被 kill 时反而留下一批半发状态的错觉。
 // 可重复调用。
 func (s *RiskEventSink) Close() {
 	s.closeMu.Lock()
@@ -268,7 +302,16 @@ func (s *RiskEventSink) Close() {
 	}
 	s.closed = true
 	close(s.stop)
-	<-s.done
+
+	timer := time.NewTimer(s.shutdownBudget)
+	defer timer.Stop()
+	select {
+	case <-s.done:
+	case <-timer.C:
+		s.logger.Warn().
+			Dur("budget", s.shutdownBudget).
+			Msg("risk events: shutdown budget exhausted — undelivered rows stay pending in the outbox (next process relays them)")
+	}
 }
 
 func (s *RiskEventSink) run() {
@@ -282,27 +325,32 @@ func (s *RiskEventSink) run() {
 	for {
 		select {
 		case <-s.stop:
-			s.relay() // 停机前最后一轮：能发出去的别让它在表里躺着
+			// 停机前最后一轮：能发出去的别让它在表里躺着。整轮共用一个预算，
+			// 到点就放弃（行留在 outbox，不删）。
+			ctx, cancel := context.WithTimeout(context.Background(), s.shutdownBudget)
+			s.relay(ctx)
+			cancel()
 			return
 		case <-ticker.C:
-			s.relay()
+			s.relay(context.Background())
 		}
 	}
 }
 
-// relay 取一批 pending 投出去。行数受 maxBatch 限制，顺序按 created_at。
-func (s *RiskEventSink) relay() {
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	pending, err := s.outbox.ListPendingAlertOutbox(ctx, s.maxBatch)
+// relay 领取一批 pending 并投出去。领取是行级的（`ClaimPendingAlertOutbox`），
+// 行数受 maxBatch 限制，顺序按 created_at。
+func (s *RiskEventSink) relay(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, s.timeout)
+	pending, err := s.outbox.ClaimPendingAlertOutbox(ctx, s.maxBatch, s.lease)
 	cancel()
 	if err != nil {
-		s.logger.Error().Err(err).Msg("risk events: relay could not read the outbox")
+		s.logger.Error().Err(err).Msg("risk events: relay could not claim from the outbox")
 		return
 	}
 	if len(pending) == 0 {
 		return
 	}
-	s.deliver(pending)
+	s.deliver(parent, pending)
 }
 
 // deliver 发送一批并逐条点名失败项，然后把投递结果写回 outbox。
@@ -310,7 +358,7 @@ func (s *RiskEventSink) relay() {
 // 「发出去了」必须以 risk 的接受为准（200 全收 / 207 的 accepted 部分），
 // 网络错、5xx、被拒的条目一律回写 attempts —— 它们仍是 pending（或触顶后
 // failed），下一轮还会被取到。
-func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
+func (s *RiskEventSink) deliver(parent context.Context, batch []storage.AlertOutboxRecord) {
 	events := make([]riskEvent, 0, len(batch))
 	for i := range batch {
 		rec := batch[i]
@@ -330,15 +378,15 @@ func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
 		ids = append(ids, batch[i].AlertID)
 	}
 
-	reason, acceptedIdx, rejectedIdx, err := s.post(events)
+	reason, acceptedIdx, rejectedIdx, err := s.post(parent, events)
 	accepted := idsAtIndexes(batch, acceptedIdx)
 	rejected := idsAtIndexes(batch, rejectedIdx)
 	if err != nil {
-		s.markAttempts(ids, reason)
+		s.markAttempts(parent, ids, reason)
 		return
 	}
 	if len(accepted) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+		ctx, cancel := context.WithTimeout(parent, s.timeout)
 		n, markErr := s.outbox.MarkAlertOutboxSent(ctx, accepted)
 		cancel()
 		switch {
@@ -357,7 +405,7 @@ func (s *RiskEventSink) deliver(batch []storage.AlertOutboxRecord) {
 		}
 	}
 	if len(rejected) > 0 {
-		s.markAttempts(rejected, "risk service rejected this event")
+		s.markAttempts(parent, rejected, "risk service rejected this event")
 	}
 }
 
@@ -381,14 +429,14 @@ func idsAtIndexes(batch []storage.AlertOutboxRecord, idx []int) []string {
 
 // post 发一次批量。返回 (失败原因, 被接受的批次内下标, 被逐条拒绝的下标, error)。
 // 下标交给调用方去折主键，本函数不认识 outbox 的键。
-func (s *RiskEventSink) post(events []riskEvent) (string, []int, []int, error) {
+func (s *RiskEventSink) post(parent context.Context, events []riskEvent) (string, []int, []int, error) {
 	body, err := json.Marshal(riskEventsRequest{Events: events})
 	if err != nil {
 		s.logger.Error().Err(err).Int("count", len(events)).Msg("risk events: marshal envelope failed")
 		return "marshal envelope failed", nil, nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(parent, s.timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(body))
@@ -468,12 +516,13 @@ func (s *RiskEventSink) post(events []riskEvent) (string, []int, []int, error) {
 	}
 }
 
-// markAttempts 给失败的行记一次尝试；触到上限即在表里转 failed 终态。
-func (s *RiskEventSink) markAttempts(ids []string, reason string) {
+// markAttempts 给失败的行记一次尝试；触到上限即在表里转 failed 终态，
+// 未触顶则由存储侧释放租约（行立刻可被下一轮领取）。
+func (s *RiskEventSink) markAttempts(parent context.Context, ids []string, reason string) {
 	if len(ids) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(parent, s.timeout)
 	defer cancel()
 	if err := s.outbox.BumpAlertOutboxAttempts(ctx, ids, reason, s.maxAttempts); err != nil {
 		s.logger.Error().Err(err).Int("count", len(ids)).
@@ -522,11 +571,12 @@ func AttachRiskEventsFromConfig(v *viper.Viper, am *alert.AlertManager, outbox A
 	}
 
 	cfg := RiskEventSinkConfig{
-		Timeout:       v.GetDuration("risk_service.events_timeout"),
-		Token:         strings.TrimSpace(v.GetString("risk_service.events_token")),
-		BatchSize:     v.GetInt("risk_service.events_batch_size"),
-		RelayInterval: v.GetDuration("risk_service.events_relay_interval"),
-		MaxAttempts:   v.GetInt("risk_service.events_max_attempts"),
+		Timeout:        v.GetDuration("risk_service.events_timeout"),
+		Token:          strings.TrimSpace(v.GetString("risk_service.events_token")),
+		BatchSize:      v.GetInt("risk_service.events_batch_size"),
+		RelayInterval:  v.GetDuration("risk_service.events_relay_interval"),
+		MaxAttempts:    v.GetInt("risk_service.events_max_attempts"),
+		ShutdownBudget: v.GetDuration("risk_service.events_shutdown_budget"),
 	}
 	sink, err := NewRiskEventSink(base, cfg, outbox, logger)
 	if err != nil {
@@ -542,6 +592,8 @@ func AttachRiskEventsFromConfig(v *viper.Viper, am *alert.AlertManager, outbox A
 		Dur("relay_interval", sink.relayEvery).
 		Dur("timeout", sink.timeout).
 		Int("max_attempts", sink.maxAttempts).
+		Dur("lease", sink.lease).
+		Dur("shutdown_budget", sink.shutdownBudget).
 		Bool("token_configured", sink.token != "").
 		Str("producer_scope", RiskAlertProducerScope).
 		Msg("risk alert event sink attached with PG outbox (QT-42 X3c)")
