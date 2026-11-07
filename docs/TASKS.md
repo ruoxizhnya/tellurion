@@ -266,7 +266,9 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 >
 > **⑥ 未执行（如实登记，本单保持 🔶）**：验收 ② 的两条真跑——`sub=service:core` 打 risk `POST /api/risk/resolve` 与 data `POST /ingest/points` 都得 **200**、以及不带 token 时 risk **401**——需要起 risk / data 与真 PG；本机 `127.0.0.1:5432` 无监听、Docker 引擎不可用，**未执行**。验收 ③ 的「把 `resolve_token` 置空 ⇒ 该腿响亮失败」是上一条的派生腿，同样**未执行**（代码侧今天的行为是：token 为空 ⇒ 不发 `Authorization` ⇒ 由对端 401；core 侧不伪造匿名放行）。
 
-### QT-78 · 归因输入的 artifact 生产者（portfolio-snapshot / factor-exposures） [P1] ⬜
+### QT-78 · 归因输入的 artifact 生产者（portfolio-snapshot / factor-exposures） [P1] ⛔（前置 = `CT-04` 解除 + orchestration artifact 写端点）
+
+> **前置复核（2026-11-07，未开工，0 代码）**：③② 明写前置 = `SVC-ORCH-G2` 的 artifact 写端点；④ 明写「不在契约未定形前手写第四份 DTO（若需要跨进程形状，先走 `CT-04`）」。实测两条都未解除：① `tellurion-contracts:docs/TASKS.md:240` CT-04 仍是 ⬜，其开工前置 ① wire DTO 口径（材料 §4.3 建议 B→A 未拍）与 ② 第六轮裁决 **#9** 未解除；② orchestration 台账 `:150` 自证「`run_artifacts` 写入端口 + provenance 读面已落，**生产者仍缺**」，写端点随 CT-04 的形状定形才做。⇒ 本单在 CT-04 与写端点落地前**不得开工**，避免「一边按 #9 暂缓契约、一边手写第四份 DTO」自相矛盾。
 
 - **① 目标**：让 analytics 的 Brinson / 因子归因**拿到真输入**——期末持仓与逐因子暴露由 core 侧产出并经 HTTP 投递，不再是「计算面全绿但永远返回缺输入」。
 - **② 上下文**：消费端已存在（实测 `tellurion-analytics:internal/upstream/upstream.go:318` `GetPortfolioSnapshot` 打 `{base}/{runID}/portfolio-snapshot`、`:330` `GetFactorExposures` 打 `/factor-exposures`；缺数据折成 `IncompleteError{Missing:"holdings"}` / `"factor_exposures"`）；**生产端零**：core 全仓 grep `factor_exposures` = **0 命中**，orchestration 也没有 artifact 写端点（`tellurion-orchestration:docs/TASKS.md:57` 自证「`run_artifacts` 生产者与写端点未落」）。analytics 台账 F2 一句「Brinson / 因子归因缺 holdings / 暴露输入」自 2026-10-22 至今无单。
