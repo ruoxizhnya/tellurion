@@ -93,7 +93,7 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **依据实测**：分支与 main 的差 = **branch-only 1 / main-only 10**（2026-10-26 本批落账后，`git rev-list --left-right --count main...task/qt51-execution-port` 现跑；本地 main `0617f54`、origin/main `5b9dc11`，`git rev-list --count origin/main..main` = 10）。同一天先后记过 3 / 7 / 10 —— **本批自己的三笔文档提交就把它从 7 推到 10**，所以这两个数只许现跑，不许引用。本机 `go build ./...` 已通过（QT-51 工作树，EXIT=0），`vet` / `test` 未跑。
 - **落地动作**：`git rebase main` → 四道门禁 → `git merge --ff-only`；不重写第二种形态。⚠️ **两条实测补充（2026-10-26 再复测）**：① 分支 tip `e015a83` 未变、**真冲突只有 `docs/TASKS.md` 一处**（两侧改动交集 3 个文件全是文档，Go 侧零冲突；取证见 wave3 K10 ③）；② 本机 Go 1.25.14 可用但**不在默认 Git Bash 的 PATH**，跑门禁前先 `export PATH="/c/Users/ruoxi/AppData/Local/Programs/go1.25.14/bin:$PATH"`。
 - **代价**：一次全仓测试；~~rebase 冲突集中在 `cmd/analysis` 与 `pkg/backtest`~~ → **该估计已被实测证伪**：Go 侧零冲突，文档侧只有 `docs/TASKS.md` 一处真冲突（另两处自动合并）。
-- **落点 / 状态**：`tellurion:task/qt51-execution-port`；⬜ 待施工。
+- **落点 / 状态**：`tellurion:task/qt51-execution-port`；✅ 已施工（2026-11-07：rebase 到本地 `main@b3f100e` → 唯一冲突 `docs/TASKS.md`（保留 main 侧）→ ff merge `a2e388a`；四道门禁真退出码全 0（`ok`=70 / `FAIL`=0）；等价性摘要 `60a2713b…`（trades=70 / pv=120 / port_calls=0）与归档报告同值；回滚点 tag `archive/qt51-execution-port` 指 `e015a83`；破坏验证真做真还原，`sha256=CC6DF55F…`）。取证与未落项见 `docs/TASKS.md` QT-51 结案记录。
 
 ### 8 · `SVC-*` 立单状态
 

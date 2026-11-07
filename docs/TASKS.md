@@ -1,7 +1,7 @@
 ---
 status: active
-last-verified: 2026-10-26
-verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务、G0/G1/G2 并行、G3 切读串行、旧实现退役总单）；第四轮·目的对齐审计（2026-10-26，见 `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`；不改既有单状态，只加审计指针）。第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
+last-verified: 2026-11-07
+verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase 到本地 `main@b3f100e` → 唯一冲突 `docs/TASKS.md`（保留 main 侧）→ ff merge `a2e388a`；回滚点 tag `archive/qt51-execution-port`；四道门禁真退出码全 0、`ok`=70 / `FAIL`=0；等价性摘要 `60a2713b…` 与归档报告同值；破坏验证真做真还原）；第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务、G0/G1/G2 并行、G3 切读串行、旧实现退役总单）；第四轮·目的对齐审计（2026-10-26，见 `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`；不改既有单状态，只加审计指针）。第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
 ---
 
 # TASKS — 未完成项（第 4 代）
@@ -1490,7 +1490,7 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 >
 > **⚠️ 上面那句已过期（同日 2026-10-25 结案，B6-1）**：agent 对 core 实现包的 import 现为 **0 处**，`go.mod` 既无 `require tellurion` 也无任何 `=>`，CI 不再 checkout core —— `replace ../tellurion` 已删（判据与取证记在 QT-07 ⑥ 结案两条里）。G10 那句「六类动作的 HTTP 客户端」是 agent 侧的**功能余项**，不再是 S3 的前置。本条原文照留只为记录当时的判断，**不要照抄进新单**。
 
-### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] 🔶（实现已在未合入分支，裁决已下，待复取）
+### QT-51 · 回测/实盘执行语义分离（BE-02）[P1] ✅ 完成（2026-11-07，已合入 main `a2e388a`）
 
 - **① 目标**：改实盘撮合不会悄悄改变回测口径；两者共享的是**契约**，不是实现。
 - **② 上下文**：BE-02；实测 `pkg/backtest` 对 `pkg/live` 的 import 在 **6 个文件**（3 生产：`engine.go` / `options.go` / `execution/live_bridge.go`；3 测试：`fakes_test.go` / `signal_reconcile_e2e_test.go` / `execution/live_bridge_test.go`）——原写「三处」只是生产面；main 上无设计，设计在未合入分支（见下）。
@@ -1498,6 +1498,35 @@ verified-by: 第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务
 - **④ 约束与非目标**：不动 Order/Trade 值对象；不改 T+1 簿记；不引入 MQ。
 - **⑤ 验收**：`pkg/backtest` 对 `pkg/live` 的 import 为 0（或仅剩接口适配层且有护栏）；同一策略回测结果在改动 live 前后逐位一致。
 - **⑥ 边界**：只做执行语义边界；通道网关是 QT-45。
+
+> **✅ 结案记录（2026-11-07）** —— 本次 rebase + ff merge 的实际结果，**取代下面四条 ⚠️/🔁 过程记录**
+> （那四条保留只为可追溯，其中「本单在 main 上记 🔶，不记 ✅」「未复跑门禁」等判断均已失效）。
+>
+> **① 合入**：`task/qt51-execution-port`（tip `e015a83`）`git rebase main`（基线 = 本地 `main@b3f100e`，不是 origin/main）→
+> 唯一真冲突 `docs/TASKS.md`（按 main 侧保留：main 的台账权威，结案记录另笔写入）；`docs/ARCHITECTURE.md` / `docs/SPEC.md` /
+> `docs/design/qt-decoupling/README.md` 自动合并；Go 侧零冲突。随后 `git merge --ff-only` → **`a2e388a`**。
+> 回滚点 = annotated tag **`archive/qt51-execution-port`**（指 `e015a83`）。⚠️ 分支未 push（本仓纪律：只 commit 不 push）。
+>
+> **② 四道门禁（本机 rebase 后复跑，`go1.25.14 windows/amd64`，真退出码）**：
+> `gofmt -l .` → **0 行列出**；`go build ./...` → **EXIT=0**；`go vet ./...` → **EXIT=0**；
+> `go test ./... -count=1` → **EXIT=0**（`ok` = 70 包 / `FAIL` = 0；其中 `tellurion/pkg/backtest` 7.704s、
+> `pkg/backtest/execution` 0.242s、`internal/repoguard` 1.898s、`e2e/backtest_live` 0.309s、`cmd/analysis/wiring` 0.609s 全 ok）。
+>
+> **③ 验收 ⑤ 两条（实测）**：① `pkg/backtest` 全树对 `tellurion/pkg/live` **0 命中**；
+> ② `TestQT51_BacktestResultIndependentOfExecutionPort` → `QT51_DIGEST=60a2713b4ccdb32ff5d30d50a9863d47152cf41d1979901b324c3d3dc54b2bd1
+> trades=70 pv=120 port_calls=0`，与分支归档报告 `docs/test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md` 的摘要**逐位同值**
+> （即「改 live 不改回测结果」在 rebase 后仍成立）。
+>
+> **④ 破坏验证（真做真还原）**：给 `pkg/backtest/execution/live_bridge.go` 的 import 块加 `_ "tellurion/pkg/live"` →
+> `TestBacktestPackage_CannotImportLive` **FAIL**（`Should be empty, but was [pkg/backtest/execution/live_bridge.go -> tellurion/pkg/live]`）；
+> 从备份逐字节还原，`sha256` 前后同为 `CC6DF55F5A286CAF9E1124AF1E6B823FB28650AD0D0BC1945CA20FD3C1D1DF63`，
+> 守卫回 **PASS**（EXIT=0），`git status --porcelain` 为空。
+>
+> **⑤ 未落项（沿用分支记录，如实）**：`LiveBridge` 类型仍在 `pkg/backtest/execution`（本单只切依赖，未把桥迁出引擎包；
+> `backtest-extraction.md:92` 的「实盘驱动持有引擎」是后续 E1 剩余项）；回测侧**不新增** `SimulatedPort`（会形成平行成交路径，
+> 设计 §3 已写明）；`pkg/live` 零改动。⇒ 「5 个零调用 shim 合入后另立小单删」仍是独立待办。
+>
+> **⑥ 顺带失效的上游判断**：本单合入后，`SVC-CORE-*-RETIRE` 类的 repoguard 白名单条目可据此复核（`pkg/live` 方向已由本单护栏钉死）。
 
 > **⚠️ 2026-10-25 实测订正（状态不是 ⬜）**：实现已在**未合入**的 worktree 分支 `task/qt51-execution-port`（裁决时 tip `7c89aae`、基线 `170f09a`；**2026-10-26 复测 tip `e015a83`，仍不在 origin**）——
 > `pkg/backtest` 对 `pkg/live` import = **0**；`pkg/backtest/execution/port.go` 已落 `ExecutionPort`；设计见 `docs/design/qt-decoupling/qt51-execution-port.md`、等价性报告见 `docs/test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md`（两文件都在该分支上，main 没有）。
