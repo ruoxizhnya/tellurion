@@ -64,7 +64,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
   - **如实说明**：① market 簇**不重开**（裁决 ⑰：`market.index_daily` owner = core；五列以 K2 产物为准，本清单只留 22 个表名 roster + 材料 §2.3.1 指针）；② **动态拼表名不覆盖**——`realtime_quote` 等 9 张在 core 无字面 SQL，`W=0` 只是「字面 0」不是「不写」（清单 §8）；③ strategy 簇**两侧不同形状**（core 单表 + `is_active` vs strategy 定义 + 版本链）⇒ 行级对拍无意义，停写判据只能是「唯一写者」；④ 清单里的 `W`/`R` 沿材料 §2.3 的 2026-10-26 实测值，**本轮未重数**。
   - **未执行（如实）**：清单 §4 引用的 agent 5 件对拍基线只核到**文件与函数定义行**，**一条测试都没跑**（其中两条是 `TEST_DATABASE_DSN` 真库腿，本机 `127.0.0.1:5432` 无监听）；本单是只读清单、无代码改动，故无 build/vet/test 与破坏验证可写。
 
-### SVC-RETIRE-INDEX · 旧实现退役总单（⬜ 2026-10-26 立单）
+### SVC-RETIRE-INDEX · 旧实现退役总单（🔶 2026-11-07：索引已落盘、判据已复跑；七条旧路径均未归零 ⇒ 按 ③ 不标 ✅）
 
 - **① 目标**：为 data / run / strategy / risk / analytics / broker / ai 七条退役线给出机械判据，作为各仓 G3 的验收总索引。
 - **② 上下文**：B 组材料 §4 已给每条 grep 模式 + 今日基线 + 归零目标 + 反向护栏；审计 §五之二：3 条已有退役任务、4 条缺删除。
@@ -72,6 +72,13 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 - **④ 约束与非目标**：本单只给判据与索引，**不执行删除**；不改 `pkg/storage/postgres.go`；不碰生产库；不包含索引 `DROP INDEX`（另有材料 §3 的未裁项）。
 - **⑤ 验收**：七条全有 owner + 删除对象 + 判据 + 回滚；随机抽 2 条判据命令，退出码与材料 §4 基线一致；各仓 G3 单能反查本单。
 - **⑥ 边界**：不覆盖动态拼表名；不替代各仓 G3 的代码删除验收；不处理 `task/g3-data` 遗留。
+- **施工记录（2026-11-07）**：
+  - **产物**：新建 [`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md)（R1 frontmatter 齐全）——七行总表（owner / 删除对象 / 停写判据 / 回滚）+ 单号↔各仓 G3 双向指针 + 判据复跑 + 边界。
+  - **判据来源**：逐字取材料 §4.1~§4.7，**未重新发明**；基线按材料 §7.4 要求**当场重跑取当前值**，差额逐条写进该文件 §3。
+  - **复跑（真退出码）**：抽 2 条——data ① 写点 grep = **22 行，EXIT 0**；broker ① `tellurion/pkg/live` = **18 行 / 16 文件，EXIT 0**。其余五条同日复跑：data ②7/③1/④29 行 24 文件、run ①7②7③`*storage.PostgresStore` 30、strategy ①2②5③15、risk ①10②14③`config/analysis-service.yaml:122=false`、an 3、broker ②5、ai ①6②3③7。
+  - **差额（如实，不硬凑）**：data ① 23→22（活写点少 1，未逐行核对）；strategy ③ 19→15（少 4，未逐行核对）；risk ① 11→10（`alert.enabled` 走 `GetBool`，不在原模式内）；broker ① 20 行 18 文件→18 行 16 文件（QT-51 已摘 `pkg/backtest` 的两处 `pkg/live` import，与 QT-51 记录一致）。零差额：data ②③④、run ①②、strategy ①②、risk ②、an、broker ②、ai ①②③。
+  - **未标 ✅ 的理由**：③ 明写「旧路径零调用后才可标 ✅」——今天七条判据**全部非零**（0/7 归零），故本单保持 🔶；它不会因「索引写完了」而结案。
+  - **未执行（如实）**：`DROP INDEX` 相关判据（材料 §3 P3 未裁）不在本单；七条退役的代码删除、各仓 G3 切读、`cmd/recon` 真库对拍均**未执行**（本单只给判据）；本单无代码改动，故无 build/vet/test 与破坏验证可写。
 
 ---
 
