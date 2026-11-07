@@ -1196,7 +1196,7 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 
 ## 四之二、W4 · AI 策略生成闭环
 
-### QT-32 · W4：AI 策略生成闭环（promote 人工闸门 + 全链留痕）[P1] ⬜
+### QT-32 · W4：AI 策略生成闭环（promote 人工闸门 + 全链留痕）[P1] ⛔（2026-11-07 实测：K11 前置不成立，需先立资产解析读面）
 
 - **① 目标**：产品主目标落地——一条 AI 生成的策略，从 prompt 到回测结果**全程留痕**（源码 → hash → 结果），且 AI 产物必须过 `promote` 人工闸门才进生产回测（`implementation-plan-mvp.md` §6-M2 验收原文）。
 - **② 上下文**：`implementation-plan-mvp.md` 档 2（「代码→编译→资产服务→引擎缓存加载执行」是**要交付的目标**）、G6（AI 生成闭环：Go 子集 + 静态校验 + promote）、§6-M2 里程碑；AI 生成/实验编排归 `tellurion-agent` 仓（ADR-023 三层模型，core 不实现第二个编排者）；编译管线属 QT-41b（本单是其消费方）。**本单承接 G6/M2**——refactor-plan-review H4 指出原台账在 W3 后断链，无单承接产品主目标，本单即补缺（若产品侧改判「G6/M2 不在本代范围」，则删除本单并在执行顺序总览显式声明划出，不得沉默）。
@@ -1223,6 +1223,17 @@ verified-by: QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase
 > **🔁 2026-10-26 订正（上面「不可施工」的前提已解除；⑭ 已被 ⑫ 取代）**：⑫ 已裁（面 B1：promote 走 **core 网关 + `X-Actor`**；strategy **只对 promote/internal 三端点**引 kit service-token 校验，端口仅集群内可达），且 kit **`v0.1.4` 已发版并 push**（service token 的非数字 subject 不再 401；risk/data/analytics 三仓已升 pin）。⑭「审批人取 JWT `sub`」因此**没有承载体**（strategy 无用户态登录），实现口径以 ⑫ 为准。
 > ⇒ **⑤ 拆成两半**：**strategy 侧**（引 kit + 三端点鉴权 + 审批人留痕）= 第三批 **K8**；**core 执行侧拒绝腿**（未 promote 的产物被回测路径 fail-closed）= **K11**（前置 K8 + K10 合入）。
 > 本单整体仍记 **⬜**——⑤ 的两半都还没做，不因「前提解除」而改状态。分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md)。
+
+> **⛔ 2026-11-07 实测：K11（⑤ 执行侧腿）前置不成立，已改判阻塞（本笔只落证据，0 代码改动）**
+> - **K8 已 ✅**（strategy `SVC-STRAT-G1`：promote 三端点 service-token + 受信 `X-Actor` + 审批落 `strategy_promotions`），K10（QT-51）也已合入；但 K11 仍无法施工，原因是**core 今天没有可判的资产状态**：
+>   ① `cmd/analysis/handlers_backtest.go:107` 只取 `env.Strategy`，`strategy_ref` 仅由 `req.ValidateRunSpec()` 做形状校验后**被丢弃**（contracts `engine/runspec.go:148` 注释原文「存不存在由资产服务查表」）；
+>   ② 执行键是本地注册表名（`pkg/backtest/engine.go:816` `StrategyName: req.Strategy`），`pkg/backtest/provenance.go:318` 用 `StrategyName` 合成 id，不回读 ref；
+>   ③ core 不持资产状态：`docs/migrations/011_add_strategies_table.sql` 只有 `is_active`，全仓 Go 对 `promoted` / `strategy_artifacts` / `strategy_promotions` 的业务命中为 0；
+>   ④ 无资产客户端：`config/analysis-service.yaml:102` 写明 `strategy_service.url` 已随 OBS-11 删除；WASM 制品靠装配期 `WithWASMArtifacts` 手工注入，无 status；
+>   ⑤ 即便今天新写客户端也读不到判据：strategy `GET .../resolve` 的 `ResolveResult`（`tellurion-strategy:internal/asset/model.go:228`）**不含 status**，审批只落 `strategy_promotions` 且**无读端点**。
+> - **不得用 `strategies.is_active` 冒充 promoted**：那是配置行软删，不是版本级审批态，等同重造第二套审批态（违反 K11 ③）。
+> - **拆法（待立单）**：a) core 侧「策略资产解析 + 只读缓存」前置单（对应 `strategy-source-of-truth-and-cache.md` 的引擎缓存层 / `SVC-STRAT-G3` 客户端）；b) strategy 侧在读面补 `status` 与 promote 审计字段读端点；两者到位后 K11 才是薄闸（`status != promoted` 或缺留痕 → 4xx 点名，空 `strategy_ref` 的内置路径逐字节不变）。
+> - **未执行（如实）**：两条验收用例、破坏验证、四项门禁（本笔无代码改动）、与 K8 审批记录的真实链路冒烟（本机无 PG / 无真进程栈）。
 
 ---
 
