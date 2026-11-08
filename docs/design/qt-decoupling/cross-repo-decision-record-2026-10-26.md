@@ -22,7 +22,7 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 | 3 | 旧仓 archive | **先打 tag，不删**；删除留到 S1 出口后 | 4 个 `quant-trading*` 仓 | ⬜ 待施工 |
 | 4 | analytics `/healthz` 缺失 | **补无鉴权 `GET /healthz` + 单测**，保留 Dockerfile / compose 健康检查 | `tellurion-analytics:cmd/analyticsservice` | ✅ 已提交 `f010606`（2026-10-26） |
 | 5 | core k8s risk / analytics 清单 | **删两份**；保留 `data-deployment.yaml`（端口一致） | `tellurion:deploy/k8s/` | ✅ 已落（2026-10-26 `ecc4f2d`；`deploy/k8s/` 实测 8 份，无 risk / analytics 两份） |
-| 6 | contracts `v0.7.0` 与 pin 矩阵 | risk 包落 main 后打 `v0.7.0`；同批 core / agent kit 升 `v0.1.4`，risk / core 升 contracts | contracts tag + 三仓 `go.mod` | ⬜ 待施工 |
+| 6 | contracts `v0.7.0` 与 pin 矩阵 | risk 包落 main 后打 `v0.7.0`；同批 core / agent kit 升 `v0.1.4`，risk / core 升 contracts | contracts tag + 三仓 `go.mod` | ✅ 已施工（2026-11-08；pin 目标按建议前移到最新 `v0.9.0`，**待主任追认**） |
 | 7 | QT-51 合入 | **rebase 到本地 main**，跑全量门禁，ff merge；分支留 tag 作回滚点 | `tellurion:task/qt51-execution-port` | ⬜ 待施工 |
 | 8 | `SVC-*` 立单 | 补 `SVC-DUAL-01` / `SVC-RETIRE-INDEX` 六字段；`SVC-DEPLOY-01` 记 🔶（不标 ✅） | `tellurion:docs/TASKS.md` | ✅ 两单六字段已落（`DEPLOY-01` 仍 🔶） |
 | 9 | orchestration / broker 零 contracts | **本轮不做**；等各自 G1/G3 接线时一次接入 | 两仓 `go.mod` | ⬜ 延后 |
@@ -84,7 +84,12 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 - **依据实测**：contracts 当前只有 A 组裁决材料（无 `risk` 包代码）；core `go.mod` kit `v0.1.1`；agent kit `v0.1.0`；data / risk / analytics 已 `v0.1.4`；strategy 仍 contracts `v0.5.0` 且无 kit。
 - **落地动作**：先合 `risk` 包 → `git tag v0.7.0` → 逐仓 `go get` + `go mod tidy` → 跑 `make contracts-pin-check` 与各自门禁。
 - **代价**：一次全量 build/test；建议与 QT-51 合入分开，避免混因。
-- **落点 / 状态**：`tellurion-contracts`、`tellurion`、`tellurion-agent`、`tellurion-risk`；⬜ 待施工。
+- **落点 / 状态**：`tellurion-contracts`、`tellurion`、`tellurion-agent`、`tellurion-risk`；✅ **已施工（2026-11-08）**，取证如下。
+  - **发版与推送**：contracts annotated tag `v0.7.0` / `v0.8.0` / `v0.9.0` 与 `main` 已推远端——`git ls-remote origin refs/heads/main` = `eda04ae010be…`；三条 tag 的 peeled 提交分别是 CT-03 / CT-04 / CT-05 的落码提交。
+  - **pin 目标按建议前移**：裁决原文写 `v0.7.0`；实际切到 **`v0.9.0`**（= v0.7.0 的超集：`risk` + `run` + `broker` 三个包都是**新增**，无删改签名），避免为 `run` / `broker` 再发一次 pin。**该前移待主任追认**。
+  - **各仓实测**：core `contracts v0.6.0 → v0.9.0`；agent `contracts v0.6.0 → v0.9.0` + `kit v0.1.0 → v0.1.4`；risk `go.mod` **无 contracts 依赖**（实测只有 kit `v0.1.4`，已是目标版本）⇒ 无 pin 可切，裁决里「risk 升 contracts」这半条**落空**（不是漏做）；core kit 已是 `v0.1.4`，无需动。
+  - **门禁**：`check_contract_pin.py` **GREEN**（11 个 pin 全是目标仓 `origin/main` 祖先，3 仓无 pin / 跳过）；core `gofmt -l .` 空 + `go build ./...` / `go vet ./...` / `go test ./... -count=1` 全 `exit 0`；agent 同四条门禁全 `exit 0`。
+  - **未做**：data / strategy 不在本裁决点名范围，本轮不动（仍 `v0.6.0` / `v0.5.0`）；orchestration / broker 按裁决 #9 继续零 contracts。
 
 ### 7 · QT-51 合入
 
