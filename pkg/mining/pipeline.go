@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/data"
 )
 
 // ErrSandboxNotRun：登记前必须有沙箱凭证。流水线的登记入口据此把关，
@@ -90,7 +89,7 @@ func (r Record) Evidence() (domain.FactorMiningRecord, bool) {
 // Pipeline 是挖掘流水线：候选 → 沙箱 → 治理 → D4 登记。
 type Pipeline struct {
 	sandbox   *Sandbox
-	book      *data.RegistrationBook
+	book      *RegistrationBook
 	proposer  Proposer
 	evaluator Evaluator
 	// snapshot 是预加载数据，流水线全程只读它（防偷看）。
@@ -100,7 +99,7 @@ type Pipeline struct {
 }
 
 // NewPipeline 装配流水线。registrar 是有权登记的人（D4 四样之一，非空）。
-func NewPipeline(proposer Proposer, evaluator Evaluator, snap *Snapshot, book *data.RegistrationBook, registrar string) *Pipeline {
+func NewPipeline(proposer Proposer, evaluator Evaluator, snap *Snapshot, book *RegistrationBook, registrar string) *Pipeline {
 	return &Pipeline{
 		sandbox:   NewSandbox(),
 		book:      book,

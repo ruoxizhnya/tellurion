@@ -152,7 +152,6 @@ func main() {
 		WFEngine:         ds.WFEngine,
 		BatchEngine:      ds.BatchEngine,
 		StrategyDB:       strategyDB,
-		FactorAttributor: ds.FactorAttributor,
 		PluginLoader:     pluginLoader,
 		AuthSvc:          authSvc,
 		RiskManager:      riskManager,
@@ -295,7 +294,9 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	registerBatchRoutes(router, deps.BatchEngine, deps.Logger)
 	registerStrategyRoutes(router, deps.StrategyDB)
 	registerDatasourceRoutes(router, deps.Engine)
-	registerFactorRoutes(router, deps.FactorAttributor, deps.Logger)
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：/api/factors/* 的归因读面依赖
+	// dividends / splits / ohlcv 明细，随数据面一并退役；因子登记写入面
+	// （下方 factorRegistrationStore）保留。
 	// QT-50 ③ 第 6 类粗粒度动作：因子登记写入门。未接库（零值 store）时
 	// 路由照常注册、请求时 503（newMinimalDeps 约束）。注意先判 pool 再装
 	// 接口——nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
@@ -305,13 +306,9 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		factorRegStore = deps.Store
 	}
 	NewFactorRegistrationHandler(factorRegStore, deps.AuthSvc, deps.Logger).RegisterRoutes(router)
-	// QT-67（D24 第 7 类动作）：交易日历 / 上市窗口只读端点。与上面同款约束
-	// ——未接库时路由照常注册、请求时 503，不返回空日历冒充「没有数据」。
-	var refDataStore referenceDataStore
-	if deps.Store != nil && deps.Store.DB() != nil {
-		refDataStore = deps.Store
-	}
-	NewReferenceDataHandler(refDataStore, deps.Logger).RegisterRoutes(router)
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：QT-67 的交易日历 / 上市窗口只读端点
+	// 读 trading_calendar / stocks，两表已随数据面退役；该读面回归数据服务的
+	// 已登记路由（G3 逐条处置），本进程不再注册。
 	// QT-69：表达式静态校验 + 算子/字段目录（agent 的 pkg/expression 依赖
 	// 交接件）。可用性探测只在池真装配时注入；否则目录字段报 unknown ——
 	// 不把「没探测」冒充成「有数据」。与上面同款：nil store 路由照常注册。
@@ -334,13 +331,10 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	// Both backends are in-process (risk.RiskManager and
 	// live.MockTrader) so the HTTP layer is a thin shim — no
 	// service-to-service hop.
-	// QT-70：detect_regime 的粗粒度形状（symbol + 日期区间）需要服务端取数；
-	// 池未装配时保持 nil ⇒ 请求该形状 503，内联 data 形状不受影响。
-	var riskOHLCV riskOHLCVStore
-	if deps.Store != nil && deps.Store.DB() != nil {
-		riskOHLCV = deps.Store
-	}
-	NewRiskHandler(deps.RiskManager, deps.Logger).WithOHLCVStore(riskOHLCV).RegisterRoutes(router)
+	// QT-70：detect_regime 的粗粒度形状（symbol + 日期区间）需要服务端取数。
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：ohlcv 明细已随数据面退役，core 不再
+	// 直查；未注入取数端口 ⇒ 该形状请求 503，内联 data 形状不受影响。
+	NewRiskHandler(deps.RiskManager, deps.Logger).RegisterRoutes(router)
 	// P2-3 (ODR-026): pass the emergency-flatten bearer token
 	// through to the execution handler. Empty token disables the
 	// kill-switch endpoint (returns 503 instead of 404).
@@ -371,11 +365,9 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	}
 	NewComplianceHandler(deps.Logger, defaultProfile, reporterCfg).RegisterRoutes(router)
 
-	// L0-3 (ADR-022 §5): read-only Evidence API. Resolves a citation's
-	// content_hash to its unique archived source response in `ingest.raw`
-	// (404 = not ingested). This is the platform's single evidence
-	// coordinate — work faces read through it instead of storing copies.
-	NewEvidenceHandler(deps.Store, deps.Logger).RegisterRoutes(router)
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：L0-3 的 Evidence API 读
+	// `ingest.raw`（原始源响应归档），该表随数据面退役；证据坐标改由数据
+	// 服务仓的归档面提供，本进程不再注册。
 
 	// P2-2 (TASKS.md §五 leftover ruling): industry-chain static data layer
 	// read API (SW industry tree / supply-chain edges / industry vitality /

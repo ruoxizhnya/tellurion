@@ -106,6 +106,23 @@ func finiteRequired(v float64, code, column string) error {
 	return nil
 }
 
+// finiteOrNil 校验「可空数值列」：nil = 缺失（合法，落 NULL）；非 nil 必须
+// 有限（NaN/Inf 是脏值，拒绝——缺失≠0，脏值≠缺失）。
+//
+// SVC-CORE-DATA-RETIRE（2026-11-08）：原在 market_activity.go（随数据面退役）。
+// index_daily 仍在 core（裁决 ⑰），故把它留在本文件继续服务指数日线写入。
+func finiteOrNil(v *float64, code, column string) error {
+	if v == nil {
+		return nil
+	}
+	if math.IsNaN(*v) || math.IsInf(*v, 0) {
+		return apperrors.Wrap(fmt.Errorf("code=%q %s=%v", code, column, *v),
+			apperrors.ErrCodeInvalidInput, "指数日线数值列必须有限（nil=缺失，脏值拒绝）",
+			"storage.SaveIndexDailyBatch")
+	}
+	return nil
+}
+
 // GetIndexDailyRange 按交易日闭区间 [start, end] 读一个指数的日线，按 trade_date
 // 升序返回（确定性序列）。空结果是合法答案。供隔离库/集成腿核对单位与幂等。
 func (s *PostgresStore) GetIndexDailyRange(ctx context.Context, code string, start, end time.Time) ([]domain.IndexDaily, error) {

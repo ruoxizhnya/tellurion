@@ -42,11 +42,12 @@ var factorKernelMethods = []string{
 
 // factorKernelAllowedFiles 登记内核方法名可以出现的生产文件（定义本体
 // 与 CodeRef 绑定表）。每条写清为什么允许——白名单不许打掩护。
-var factorKernelAllowedFiles = map[string]string{
-	"pkg/data/factor.go":            "横截面三因子内核定义 + ComputeAllFactors（registry 驱动入口）",
-	"pkg/data/factor_equitydeep.go": "纵向五因子内核定义（ADR-022 计算面）",
-	"pkg/data/factor_registry.go":   "CodeRef → 内核方法绑定表（库与 Go 出口的唯一接缝）",
-}
+//
+// SVC-CORE-DATA-RETIRE：内核定义（pkg/data/factor.go、
+// pkg/data/factor_equitydeep.go）与绑定表（pkg/data/factor_registry.go）
+// 随 pkg/data 整包退役，白名单清空。若日后有人在任一生产文件里重新引入
+// Compute*Factor 直调，本护栏立刻红——这正是保留方法名清单的意义。
+var factorKernelAllowedFiles = map[string]string{}
 
 // factorRosterConstants 是冻结名册的 11 个常量名（domain.FactorType）。
 // registry 之外再出现「成规模的常量引用」（>=3 个/文件）= 硬编码清单

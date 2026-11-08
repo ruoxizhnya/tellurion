@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
 
@@ -123,7 +122,7 @@ func TestRunContext_PerRunSnapshotsAreNotShared(t *testing.T) {
 		"600519.SH": {{Symbol: "600519.SH", Date: seedDay(), PE: &pe}},
 	}
 	delist := seedDay().AddDate(1, 0, 0)
-	rcA.listing = map[string]storage.ListingWindow{"600519.SH": {List: seedDay(), Delist: &delist}}
+	rcA.listing = map[string]ListingWindow{"600519.SH": {List: seedDay(), Delist: &delist}}
 	rcA.intraday = map[string][]domain.OHLCV{"600519.SH": barsFor("600519.SH", 3, seedDay())}
 	rcA.mu.Unlock()
 

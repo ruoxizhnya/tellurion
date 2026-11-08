@@ -39,7 +39,6 @@ func TestServerDeps_HasExpectedFields(t *testing.T) {
 		"WFEngine",
 		"BatchEngine",
 		"StrategyDB",
-		"FactorAttributor",
 		"PluginLoader",
 		"AuthSvc",
 		"RiskManager",
@@ -96,7 +95,6 @@ func TestServerDeps_FieldsAreTyped(t *testing.T) {
 		"WFEngine":         "*walkforward.WalkForwardEngine",
 		"BatchEngine":      "*batch.BatchEngine",
 		"StrategyDB":       "*strategy.StrategyDB",
-		"FactorAttributor": "*data.FactorAttributor",
 		"PluginLoader":     "*strategy.PluginLoader",
 		"AuthSvc":          "*auth.Service",
 		"RiskManager":      "*risk.RiskManager",
@@ -189,7 +187,6 @@ func TestRegisterRoutes_RegistersCoreEndpoints(t *testing.T) {
 		"POST /api/execution/orders",        // ExecutionHandler
 		"POST /api/compliance/check",        // ComplianceHandler
 		"GET /api/tools",                    // ToolsHandler (S7-P3-3)
-		"GET /api/evidence/:content_hash",   // EvidenceHandler (L0-3)
 		"POST /api/signals",                 // SignalsHandler (K8)
 		"GET /api/industry/tree",            // IndustryHandler (P2-2)
 	}

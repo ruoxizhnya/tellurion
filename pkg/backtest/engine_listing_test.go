@@ -8,7 +8,6 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/storage"
 )
 
 // P2-4：回测的池子必须按「当天在市」逐日过滤。
@@ -25,9 +24,9 @@ func date(s string) time.Time {
 	return t
 }
 
-func testWindows() map[string]storage.ListingWindow {
+func testWindows() map[string]ListingWindow {
 	delist := date("2021-06-01")
-	return map[string]storage.ListingWindow{
+	return map[string]ListingWindow{
 		"ALIVE":  {List: date("2015-01-01")},
 		"GONE":   {List: date("2010-01-01"), Delist: &delist},
 		"FUTURE": {List: date("2022-01-01")},

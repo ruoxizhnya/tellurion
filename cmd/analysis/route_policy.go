@@ -65,10 +65,6 @@ var analysisRoutePolicy = authz.Policy{
 		// 不走 per-symbol 的 GET /api/ohlcv/{symbol}（D24 禁 per-symbol）。
 		"POST /api/v1/ohlcv/bulk",
 
-		// QT-67 第 7 类粗粒度动作：上市窗口查询（整批 symbol 一次取回，
-		// 纯读、不写库）。同样只因参数是集合才用 POST。
-		"POST /api/v1/listing-windows",
-
 		// QT-69：表达式静态校验（Parse + 闸门）。纯计算、不写库、不触行情，
 		// viewer 也应能做——与风险三条同一档。
 		"POST /api/expression/validate",
@@ -106,10 +102,6 @@ var analysisRoutePolicy = authz.Policy{
 		"POST /api/strategies",
 		"PUT /api/strategies/:id",
 		"DELETE /api/strategies/:id",
-
-		// 因子计算（写 factor_cache / factor_returns / ic_analysis）
-		"POST /api/factor/compute-returns",
-		"POST /api/factor/compute-ic",
 
 		// 执行面（AUD-02 已挂 trader，此处登记同一条规则）
 		"POST /api/execution/orders",

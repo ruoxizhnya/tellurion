@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/data"
 )
 
 // ─── 公共测试夹具 ───────────────────────────────────────────────────────
@@ -80,7 +79,7 @@ func strongMetrics() Metrics {
 
 func TestPipeline_EndToEnd_MineTestUse(t *testing.T) {
 	snap := testSnapshot()
-	book := data.NewRegistrationBook()
+	book := NewRegistrationBook()
 	p := NewPipeline(staticProposer{cands: []Candidate{goodCandidate()}}, stubEvaluator{m: strongMetrics()}, snap, book, "unit-test-registrar")
 	p.now = func() time.Time { return time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC) }
 
@@ -133,7 +132,7 @@ func TestPipeline_EndToEnd_MineTestUse(t *testing.T) {
 		t.Fatalf("effective resolution must return the just-registered version, got ok=%v hash=%s", ok, hash)
 	}
 	// 登记的定义能被 D3 注册表接纳（即「策略可引用」的前置）。
-	reg, err := data.NewRegistry([]domain.FactorDefinition{def})
+	reg, err := NewRegistry([]domain.FactorDefinition{def})
 	if err != nil {
 		t.Fatalf("registered definition must pass registry gates: %v", err)
 	}
@@ -155,7 +154,7 @@ func TestPipeline_EndToEnd_MineTestUse(t *testing.T) {
 
 func TestPipeline_Admit_RejectsWhenSandboxNotRun(t *testing.T) {
 	snap := testSnapshot()
-	p := NewPipeline(staticProposer{}, stubEvaluator{}, snap, data.NewRegistrationBook(), "reg")
+	p := NewPipeline(staticProposer{}, stubEvaluator{}, snap, NewRegistrationBook(), "reg")
 	c := goodCandidate()
 	// 直接把凭证置空调用登记入口——模拟「跳过沙箱直接入库」。
 	if _, err := p.admit(c, nil, time.Now()); !errors.Is(err, ErrSandboxNotRun) {
@@ -169,7 +168,7 @@ func TestPipeline_Admit_RejectsWhenSandboxNotRun(t *testing.T) {
 
 func TestPipeline_Admit_RejectsAttestationMismatch(t *testing.T) {
 	snap := testSnapshot()
-	p := NewPipeline(staticProposer{}, stubEvaluator{}, snap, data.NewRegistrationBook(), "reg")
+	p := NewPipeline(staticProposer{}, stubEvaluator{}, snap, NewRegistrationBook(), "reg")
 	c := goodCandidate()
 	// 凭证哈希与定义版本不符（模拟「凭证没绑定这条定义」）——登记必须拒收。
 	forged := &Attestation{ContentHash: strings.Repeat("0", 64)}
@@ -316,7 +315,7 @@ func TestEvaluateOnSnapshot_BilateralComparability(t *testing.T) {
 func TestPipeline_Run_Reproducible(t *testing.T) {
 	snap := testSnapshot()
 	mk := func() *Pipeline {
-		return NewPipeline(staticProposer{cands: []Candidate{goodCandidate()}}, stubEvaluator{m: strongMetrics()}, snap, data.NewRegistrationBook(), "reg")
+		return NewPipeline(staticProposer{cands: []Candidate{goodCandidate()}}, stubEvaluator{m: strongMetrics()}, snap, NewRegistrationBook(), "reg")
 	}
 	r1, err := mk().Run(context.Background())
 	if err != nil {
@@ -338,7 +337,7 @@ func TestPipeline_RejectsWeakSignalButKeepsEvidence(t *testing.T) {
 	c := goodCandidate()
 	c.Provenance.NumTrials = 5000
 	c.Provenance.FailedTrials = 4999
-	p := NewPipeline(staticProposer{cands: []Candidate{c}}, stubEvaluator{m: Metrics{InSampleIC: 0.03, OutSampleIC: 0.03, NumPeriods: 100}}, snap, data.NewRegistrationBook(), "reg")
+	p := NewPipeline(staticProposer{cands: []Candidate{c}}, stubEvaluator{m: Metrics{InSampleIC: 0.03, OutSampleIC: 0.03, NumPeriods: 100}}, snap, NewRegistrationBook(), "reg")
 	recs, err := p.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run: %v", err)

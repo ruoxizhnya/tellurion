@@ -1,4 +1,10 @@
-package data
+package mining
+
+// SVC-CORE-DATA-RETIRE（2026-11-08）：本文件是原 `pkg/data/factor_governance.go`
+// 的迁移落点。数据面（connector / ETL / 因子计算）整体退役后，挖掘流水线仍
+// 需要一套进程内的登记账本做治理留痕，但它不再属于「数据层」——随唯一使用者
+// pkg/mining 留在本包，公式闸门见同包 registry.go（代码型内核的 Go 出口
+// 随因子计算一并退役，登记只校验结构/公式，不再绑定 FactorComputer）。
 
 import (
 	"fmt"
@@ -9,23 +15,6 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 )
 
-// ─── D4 因子注册表治理：登记 / 回滚 / 版本解析 ─────────────────────────────
-//
-// 本文件是治理细则的**可执行形态**（细则是文，见 docs/SPEC.md「因子注册表
-// 治理细则（D4）」）。它坐在 D3 的 Registry 之上：Registry 是「算」的读路径
-// （单一权威是库里种子），RegistrationBook 是「管」的账本——谁在什么时候把
-// 哪一版定义接进来、哪一版被回滚。
-//
-// 回滚语义（钉死，D4 ③3）：
-//
-//   - **新引用**（按名解析，ResolveEffective）→ 不再命中被回滚的版本，落到
-//     次新的在册版本（若无在册版本则 miss）；
-//   - **历史引用**（按版本哈希锁定，ResolvePinned）→ 无论回滚与否都能命中，
-//     因为历史回测是钉着「当时那一版哈希」跑的——回滚不许破坏复现。
-//
-// 三个入口都 fail-closed：登记过不去四样校验/注册表闸门就拒收；回滚找不到
-// 版本或已回滚就报错；解析 miss 返回 ok=false 而不是凑一个默认定义。
-
 // ErrRegistrationDuplicate：同一 (因子名, 版本哈希) 重复登记——改定义必须
 // 改哈希（版本纪律），原样重放同一版是幂等而非新增。
 var ErrRegistrationDuplicate = fmt.Errorf("factor version already registered")
@@ -33,16 +22,7 @@ var ErrRegistrationDuplicate = fmt.Errorf("factor version already registered")
 // RegistrationBook 是因子登记的进程内账本。
 //
 // 并发安全（REV-03）：它是**可变**账本——Register/Rollback 直接改
-// byNameHash / ordered / audit，故自持 mu 串行化写侧、保护读侧：
-//
-//   - 写路径 Register / Rollback 持写锁（mu.Lock），整个方法是一个写事务；
-//   - 读路径 ResolveEffective / ResolvePinned / Registrations / Audit 持读锁
-//     （mu.RLock），读到的是某一写事务边界上的自洽快照——不会看到「map 已
-//     写一半、audit 还没补」的撕裂中间态。
-//
-// 与 D3 的 Registry 有别：Registry 是构造时定稿的不可变快照，读侧无需加锁；
-// 本账本可变，故必须自持锁。将来接「登记 / 回滚」的 HTTP 或后台入口时，
-// 并发写不再退化成 map 并发写（panic 或静默丢登记与审计留痕）。
+// byNameHash / ordered / audit，故自持 mu 串行化写侧、保护读侧。
 //
 // 注：因含 mu，本类型**不可按值拷贝**（拷贝会复制锁）；一律以 *RegistrationBook
 // 传递——构造入口 NewRegistrationBook / NewRegistrationBookFrom 均返回指针。
@@ -65,8 +45,7 @@ func NewRegistrationBook() *RegistrationBook {
 
 // NewRegistrationBookFrom 用一批已存在的登记（如从库回读）重建账本，
 // 逐条过四样校验 + 去重（fail-closed）。不重跑注册表表达式闸门——与
-// D3 的 LoadFactorDefinitions 同款：加载只校验「结构与指纹自洽」，表达式
-// 闸门在 Registry 构造时执行。
+// LoadFactorDefinitions 同款：加载只校验「结构与指纹自洽」。
 func NewRegistrationBookFrom(regs []domain.FactorRegistration) (*RegistrationBook, error) {
 	b := NewRegistrationBook()
 	for _, reg := range regs {
@@ -91,12 +70,9 @@ func NewRegistrationBookFrom(regs []domain.FactorRegistration) (*RegistrationBoo
 // Register 登记一版定义（治理写入口）。
 //
 // 顺序即纪律：先过四样校验（domain.FactorRegistration.Validate），再过
-// D3 注册表的表达式闸门（公式可解析 / 过 L1 / identifier ↔ 输入字段双向
-// 相等 / 输入字段 ⊆ 规范层字段词表 / code_ref 已绑定）。登记不是「写个
-// 字符串进库」，是「这一版定义真的能算」——与 D3 的判据同源。
-//
-// at 为登记时刻（由调用方注入，便于测试与审计留痕复现）；reason 是登记
-// 缘由（审计「为什么」）。
+// 注册表的表达式闸门（公式可解析 / 过 L1 / identifier ↔ 输入字段双向
+// 相等 / 输入字段 ⊆ 规范层字段词表）。登记不是「写个字符串进库」，是
+// 「这一版定义真的能算」——与注册表判据同源。
 func (b *RegistrationBook) Register(def domain.FactorDefinition, registrar, reason string, at time.Time) (*domain.FactorRegistration, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -169,11 +145,7 @@ func (b *RegistrationBook) Rollback(name domain.FactorType, versionHash, actor, 
 }
 
 // ResolveEffective 解析一个因子的「新引用」应命中哪一版：最新的**在册**
-// （active）版本。被回滚的版本不参与——这正是「回滚 = 新引用不再命中该
-// 版本」。无在册版本 → ok=false。
-//
-// 返回 (定义, 版本哈希, ok)：哈希随结果返回，便于调用方把「这次引用钉在
-// 哪一版」记进 run（历史复现的依据）。
+// （active）版本。被回滚的版本不参与。无在册版本 → ok=false。
 func (b *RegistrationBook) ResolveEffective(name domain.FactorType) (domain.FactorDefinition, string, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

@@ -74,7 +74,7 @@ func main() {
 
 	bars := make(map[string][]domain.OHLCV, len(symbols))
 	for _, sym := range symbols {
-		rows, err := store.GetOHLCV(ctx, sym, parsedStart, parsedEnd)
+		rows, err := loadOHLCV(ctx, store, sym, parsedStart, parsedEnd)
 		must(err, "load bars for "+sym)
 		if len(rows) == 0 {
 			must(fmt.Errorf("no bars for %s in PG — is ohlcv_daily_qfq loaded for the window?", sym), "data")
@@ -176,6 +176,34 @@ func main() {
 			os.Exit(2)
 		}
 	}
+}
+
+// loadOHLCV 在 dualrun 这个实验工具里直读 PG 的 ohlcv_daily_qfq。
+//
+// SVC-CORE-DATA-RETIRE（2026-11-08）：storage.GetOHLCV 随数据面退役。dualrun
+// 是「本机 PG × NT 侧车」的等价性实验，不是服务进程；它仍需要真库里的同一
+// 份 K 线做对照，因此这里保留一条**只读**查询。服务进程的读面（analysis /
+// backtest）已改为经 Provider 走数据服务的 HTTP 面，不经过本函数。
+func loadOHLCV(ctx context.Context, store *storage.PostgresStore, symbol string, startDate, endDate time.Time) ([]domain.OHLCV, error) {
+	rows, err := store.DB().Query(ctx, `
+		SELECT symbol, trade_date, open, high, low, close, volume, turnover, trade_days
+		FROM ohlcv_daily_qfq
+		WHERE symbol = $1 AND trade_date >= $2 AND trade_date <= $3
+		ORDER BY trade_date ASC`, symbol, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query OHLCV: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.OHLCV
+	for rows.Next() {
+		var o domain.OHLCV
+		if err := rows.Scan(&o.Symbol, &o.Date, &o.Open, &o.High, &o.Low, &o.Close, &o.Volume, &o.Turnover, &o.TradeDays); err != nil {
+			return nil, fmt.Errorf("failed to scan OHLCV row: %w", err)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
 }
 
 // productionBreachFire 是 dispatchGateAlerts 的生产 fireBreach 实现：经

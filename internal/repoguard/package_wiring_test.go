@@ -77,7 +77,6 @@ var unwiredPackages = map[string]string{
 	// wasmSignalProvider 已把它接进真实回测（artifact → 逐 bar → 信号 → 成交）。
 	"tellurion/pkg/live/margin":      "融资融券账户管理 / 可融券判定，待实盘链路接线",
 	"tellurion/pkg/strategy/options": "期权策略（Black-Scholes / 二叉树），待策略层接线",
-	"tellurion/pkg/data/source/hkex": "港股数据源，待数据同步接线",
 	"tellurion/pkg/live/broker/xtp":  "中泰证券 XTP 券商适配，待实盘链路接线",
 	"tellurion/pkg/testutil":         "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
 	// AI 拆仓阶段 2：消费者随 pkg/ai 迁往 tellurion-agent 仓，core 侧
@@ -85,10 +84,16 @@ var unwiredPackages = map[string]string{
 	"tellurion/pkg/sandbox/runner":      "copilot build 沙箱 runner；消费者（cmd/ai 的 adapter）已随 AI 拆仓迁入 agent 仓",
 	"tellurion/pkg/sandbox/staticcheck": "LLM 生成代码的 staticcheck 校验；消费者已随 AI 拆仓迁入 agent 仓",
 	"tellurion/pkg/strategy/monitor":    "策略健康监测（滚动指标 + 漂移）；消费者（tools 的 strategy_health 工具）已随 AI 拆仓迁入 agent 仓",
-	// 2026-10-17 (DBT-04)：pkg/mining 从本表移除——生产编排入口已接线
-	// （cmd/data 的 `mining` 子命令：fileProposer → Pipeline.Run → D4 登记，
-	// cmd/data/mining_cmd.go）。真实 LLM/MCTS Proposer 与登记表持久化仍是
-	// 另立工单，但「库层零件有生产导入者」的接线判据已满足。
+	// 2026-11-08（SVC-CORE-DATA-RETIRE）：pkg/mining 回到本表——它唯一的生产
+	// 导入者是 cmd/data 的 `mining` 子命令，该目录已随数据面退役整删；挖掘
+	// 流水线本体与登记账本保留（治理语义仍由 pkg/mining 自己的用例覆盖），
+	// 生产接线待 AI 线的执行入口（`SVC-CORE-AI-RETIRE` 的邻域）落地。
+	"tellurion/pkg/mining": "挖掘流水线；唯一生产入口 cmd/data 已随 SVC-CORE-DATA-RETIRE 退役，等待 AI 线新的执行入口接线",
+	// 2026-11-08（SVC-CORE-DATA-RETIRE）：pkg/sync 的生产导入者是 cmd/data
+	// 的同步 handler（NewSyncHandler 注册 workerPool.Cancel），该目录已整删。
+	// 包本体与用例保留（AUD-49 的 SetRunningCanceller 语义仍成立），但当前
+	// 没有任何 HTTP 入口能触发它 —— 重建数据服务时必须重新接线。
+	"tellurion/pkg/sync": "同步作业队列 / worker pool；唯一生产入口 cmd/data 已随 SVC-CORE-DATA-RETIRE 退役，等待数据服务重建",
 }
 
 // retiredPackages maps an import path that was deliberately deleted to the
@@ -113,6 +118,10 @@ var retiredPackages = map[string]string{
 	// （pkg/bootstrap/loopback.go），core 侧不留横切包。
 	"tellurion/pkg/statistics": "已切至 github.com/ruoxizhnya/tellurion-kit/statistics（QT-75 二期）",
 	"tellurion/pkg/httpserver": "已切至 github.com/ruoxizhnya/tellurion-kit/httpserver（QT-75 二期）；gin 回环包装留在 pkg/bootstrap/loopback.go",
+	// 2026-11-08（SVC-CORE-DATA-RETIRE）：数据面整套退役，数据同步/ETL/
+	// 因子计算的唯一 owner 是数据服务仓；core 只经 HTTP 读。
+	"tellurion/pkg/data":        "数据面（connector / ETL / 因子计算）已退役，owner 迁至数据服务仓；core 不得再持有实现或 DDL/写点（SVC-CORE-DATA-RETIRE）",
+	"tellurion/pkg/data/source": "多源同步 / ETL 管线已退役，随 pkg/data 整目录删除（SVC-CORE-DATA-RETIRE）",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {

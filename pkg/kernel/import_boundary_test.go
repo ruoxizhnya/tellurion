@@ -33,7 +33,6 @@ var businessFamilyPrefixes = []string{
 	"tellurion/pkg/alert",
 	"tellurion/pkg/backtest",
 	"tellurion/pkg/compliance",
-	"tellurion/pkg/data",
 	"tellurion/pkg/execalgo",
 	"tellurion/pkg/execution",
 	"tellurion/pkg/expression",

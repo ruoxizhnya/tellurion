@@ -42,29 +42,13 @@ func (e *Engine) loadCorporateActions(ctx context.Context, start, end time.Time,
 		splitsByDate:    make(map[time.Time][]*domain.Split),
 	}
 
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-
-	if store == nil {
-		return ca
-	}
-
-	if divs, err := store.GetDividendsInRange(ctx, start, end); err == nil {
-		for _, d := range divs {
-			day := d.PayDate.Truncate(24 * time.Hour)
-			ca.dividendsByDate[day] = append(ca.dividendsByDate[day], d)
-		}
-		logger.Info().Int("dividend_events", len(divs)).Msg("Dividend data loaded")
-	}
-
-	if splits, err := store.GetSplitsInRange(ctx, start, end); err == nil {
-		for _, s := range splits {
-			day := s.TradeDate.Truncate(24 * time.Hour)
-			ca.splitsByDate[day] = append(ca.splitsByDate[day], s)
-		}
-		logger.Info().Int("split_events", len(splits)).Msg("Split data loaded")
-	}
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：dividends / splits 表随数据面退役，
+	// core 不再直查。Provider 契约目前没有公司行为方法（见 pkg/marketdata/
+	// provider.go），因此这里保留空集；引用侧（engine 的除权除息处理）照旧
+	// 读这两张 map，只是事件数为 0。补齐入口属数据服务面（G3）的新契约，
+	// 不在本单扩大。
+	logger.Debug().Time("start", start).Time("end", end).
+		Msg("Corporate actions source retired with data plane; provider contract has no dividend/split entry yet")
 
 	return ca
 }

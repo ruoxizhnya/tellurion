@@ -106,6 +106,11 @@ func TestDeployManifest_BuildAndCopyMatch(t *testing.T) {
 // 不在本仓 Dockerfile.service 的产物集合里。新增例外必须写明构建来源。
 var externalBinaries = map[string]string{
 	"ai-service": "../tellurion-agent 的 Dockerfile（跨仓 context，本仓不构建）",
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：cmd/data 已整删，数据面由数据仓
+	// （tellurion-data）发布镜像。compose 里的 data-service 条目要等那个镜像
+	// 落地后改成 `image:` 引用；在那之前本仓 Dockerfile.service 不再产出该
+	// 二进制，这一条是跨仓例外而不是「漏删 COPY」。
+	"data-service": "由 tellurion-data 仓发布镜像（跨仓；本仓 cmd/data 已随数据面退役）",
 }
 
 func TestDeployManifest_ComposeCommandsExistInImage(t *testing.T) {

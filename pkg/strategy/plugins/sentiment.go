@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/data/sentiment"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/strategy/sentiment"
 )
 
 // SentimentConfig holds configuration for the contrarian sentiment strategy.

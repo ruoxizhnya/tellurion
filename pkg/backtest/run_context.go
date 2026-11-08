@@ -29,7 +29,6 @@ import (
 
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest/cache"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
@@ -54,7 +53,7 @@ type runContext struct {
 	// （Snapshot / 注入 provider 的 method value）可能被并发读。
 	mu           sync.RWMutex
 	fundamentals map[string]strategy.FundamentalSeries
-	listing      map[string]storage.ListingWindow
+	listing      map[string]ListingWindow
 	intraday     map[string][]domain.OHLCV
 
 	// provider 是本 run 的信号供给（QT-11 的 run 级实例缓存在它里面）。
@@ -192,44 +191,6 @@ func (rc *runContext) warmFundamentalsIfNeeded(ctx context.Context, strategyName
 	return nil
 }
 
-// loadListingCalendar 预热上市日历（P2-4）。取不到不报错 —— 没有日历只是
-// 「治不了幸存者偏差」，而 rc.listing 保持种子值（可能是调用方注入的那份）。
-func (rc *runContext) loadListingCalendar(ctx context.Context) {
-	rc.e.mu.RLock()
-	store := rc.e.store
-	rc.e.mu.RUnlock()
-	if store == nil {
-		return
-	}
-
-	windows, err := store.GetListingWindows(ctx)
-	if err != nil {
-		rc.e.logger.Warn().Err(err).Msg(
-			"Listing calendar load failed — 无法按日在市过滤，池子仍是当前上市名单（幸存者偏差未修）")
-		return
-	}
-	if len(windows) == 0 {
-		rc.e.logger.Warn().Msg(
-			"stocks 表为空 — 无法按日在市过滤，池子仍是当前上市名单（幸存者偏差未修）")
-		return
-	}
-
-	delisted := 0
-	for _, w := range windows {
-		if w.Delist != nil {
-			delisted++
-		}
-	}
-	rc.mu.Lock()
-	rc.listing = windows
-	rc.mu.Unlock()
-
-	rc.e.logger.Info().
-		Int("stocks", len(windows)).
-		Int("delisted", delisted).
-		Msg("Listing calendar loaded")
-}
-
 // warmIntradayIfNeeded 预热日内分钟快照（D6；范式同 warmFundamentalsIfNeeded）。
 // 三个「不」不变：策略不要就不查、只走 Router、失败不阻断。
 func (rc *runContext) warmIntradayIfNeeded(ctx context.Context, strategyName string, symbols []string, start, end time.Time) error {
@@ -305,9 +266,8 @@ func (rc *runContext) intradaySnapshot() map[string][]domain.OHLCV {
 	return rc.intraday
 }
 
-// listingSnapshot 返回本 run 的上市日历（种子注入的那份，或
-// loadListingCalendar 从库里读回的那份）。
-func (rc *runContext) listingSnapshot() map[string]storage.ListingWindow {
+// listingSnapshot 返回本 run 的上市日历（装配层种子注入的那份）。
+func (rc *runContext) listingSnapshot() map[string]ListingWindow {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.listing

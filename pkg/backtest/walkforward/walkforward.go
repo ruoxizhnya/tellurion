@@ -31,7 +31,17 @@ type WalkForwardEngine struct {
 	// 工厂保留下来是为了另一件事：每窗口一份干净的 state store 与桥接组件。
 	runnerFactory func() (contracts.EngineRunner, error)
 	store         *storage.PostgresStore
-	logger        zerolog.Logger
+	// tradingDays 是本引擎的交易日历来源（SVC-CORE-DATA-RETIRE，2026-11-08）：
+	// trading_calendar 表随数据面退役，core 不再直查；装配层注入 Provider 的
+	// GetTradingDays（HTTP 数据服务面）即可。未注入时 RunWalkForward fail-loud，
+	// 而不是静默生成不出窗口。
+	tradingDays func(ctx context.Context, start, end time.Time) ([]time.Time, error)
+	logger      zerolog.Logger
+}
+
+// SetTradingDaysSource 注入交易日历来源（必须在 RunWalkForward 之前调用）。
+func (wf *WalkForwardEngine) SetTradingDaysSource(fn func(ctx context.Context, start, end time.Time) ([]time.Time, error)) {
+	wf.tradingDays = fn
 }
 
 // NewWalkForwardEngine creates a new WalkForwardEngine.
@@ -129,7 +139,10 @@ func (wf *WalkForwardEngine) RunWalkForward(ctx context.Context, req WalkForward
 		return nil, fmt.Errorf("invalid end_date format: %w", err)
 	}
 
-	tradingDays, err := wf.store.GetTradingDates(ctx, startDate, endDate)
+	if wf.tradingDays == nil {
+		return nil, fmt.Errorf("walk-forward: trading-days source not configured (inject via SetTradingDaysSource)")
+	}
+	tradingDays, err := wf.tradingDays(ctx, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trading days: %w", err)
 	}

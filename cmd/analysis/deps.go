@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/viper"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/data"
 	"tellurion/pkg/live"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/risk"
@@ -53,9 +52,6 @@ type ServerDeps struct {
 
 	// StrategyDB — strategy CRUD + DB-backed list (GET /strategies).
 	StrategyDB *strategy.StrategyDB
-
-	// FactorAttributor — factor attribution analysis (GET /api/factors/*).
-	FactorAttributor *data.FactorAttributor
 
 	// PluginLoader — strategy plugin hot-swap (GET /plugins, POST /plugins/reload).
 	PluginLoader *strategy.PluginLoader

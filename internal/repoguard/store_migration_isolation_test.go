@@ -88,10 +88,8 @@ var (
 // migrations, plus the manual bench script. Adding an entry has to be a
 // deliberate act, which is the whole point of listing them.
 var migratingCtorAllowlist = map[string]string{
-	"cmd/data/setup.go":               "data-service 启动路径：迁移的显式执行点之一",
 	"pkg/bootstrap/engine.go":         "analysis-service 装配路径：迁移的显式执行点之一",
 	"cmd/dualrun/main.go":             "对拍 CLI：人工显式运行，不是测试副产物",
-	"tools/warmcache_bench.go":        "人工 bench 脚本（//go:build ignore），不参与 go build ./...",
 	"pkg/storage/integration_test.go": "integration tag：dockertest 一次性容器，构造 migrate() 就是被测对象",
 }
 
@@ -119,8 +117,8 @@ func TestMigratingStoreConstructorHasNoDefaultBuildTestCallers(t *testing.T) {
 	// 什么也不证明。这两个文件是默认构建下真实连库的测试，必须被看见。
 	assert.Contains(t, scanned, "pkg/storage/postgres_test.go",
 		"遍历没走到 DATA-09 点名的库侧测试文件上 —— 覆盖面声明是假的")
-	assert.Contains(t, scanned, "cmd/data/handlers_ingest_test.go",
-		"遍历没走到 cmd/data 的库侧测试文件上 —— 覆盖面声明是假的")
+	assert.Contains(t, scanned, "pkg/storage/integration_test.go",
+		"遍历没走到库侧集成套件上 —— 覆盖面声明是假的")
 
 	var violations []string
 	for _, c := range calls {

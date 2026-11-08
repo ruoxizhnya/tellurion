@@ -167,7 +167,7 @@ type Engine struct {
 	// —— 那正是幸存者偏差本身。
 	//
 	// **装配期种子**（QT-12）：run 期间读写的是 runContext 里那份副本。
-	listing map[string]storage.ListingWindow
+	listing map[string]ListingWindow
 
 	// liveBridge 桥接 backtest 信号到出站执行通道 (P1-17 ADR-020 / QT-51)。
 	// 持有的是 execution.ExecutionPort（不是 live.LiveTrader）——回测包
@@ -702,18 +702,12 @@ func (e *Engine) resolveStockPool(ctx context.Context, req BacktestRequest, star
 	// 既有 fail-loud 语义接管。
 	indexCode := normalizeIndexCode(req.IndexCode)
 	if len(stockPool) == 0 && indexCode != "" {
-		e.mu.RLock()
-		st := e.store
-		e.mu.RUnlock()
-		if st != nil {
-			constituents, err := st.GetIndexConstituentsByDate(ctx, indexCode, startDate)
-			if err != nil {
-				e.logger.Warn().Err(err).Str("index_code", indexCode).Msg("Failed to load index constituents")
-			} else if len(constituents) > 0 {
-				stockPool = constituents
-				e.logger.Info().Str("index_code", indexCode).Int("constituents", len(constituents)).Msg("Using index constituents as stock pool")
-			}
-		}
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：index_constituents 随数据面退役，
+		// core 不再直查成分股。指数成分展开改由调用方给出 StockPool（数据服务
+		// 面的成分读面归 G3）——这里 fail-loud 而不是静默返回空票池。
+		return nil, apperrors.New(apperrors.ErrCodeInvalidInput,
+			"index_code expansion is retired with the data plane; provide stock_pool explicitly").
+			WithOperation("RunBacktest")
 	}
 	if len(stockPool) == 0 {
 		return nil, apperrors.New(apperrors.ErrCodeInvalidInput, "stock_pool or index_code is required").WithOperation("RunBacktest")
@@ -740,21 +734,15 @@ func (e *Engine) resolveRunUniverse(
 	tradingDays []time.Time,
 	logger zerolog.Logger,
 ) []string {
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-
-	// typed-nil 守卫：*storage.PostgresStore(nil) 塞进接口不是 nil。
-	var reader indexConstituentReader
-	if store != nil {
-		reader = store
-	}
-	return unionRunUniverse(ctx, params.StockPool, params.IndexCode, tradingDays, reader, logger)
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：区间成分历史（P2）的取数面随
+	// index_constituents 退役；这里传 nil reader，unionRunUniverse 会如实
+	// 告警「该日成分未并入」，而不是把「读不到」静默当成「没有成分」。
+	return unionRunUniverse(ctx, params.StockPool, params.IndexCode, tradingDays, nil, logger)
 }
 
 // indexConstituentReader 是 resolveRunUniverse 需要的最小取数面。
-// 抽成接口只为让「区间成分并集」可以脱离真库被单测；生产实现是
-// *storage.PostgresStore。
+// 抽成接口只为让「区间成分并集」可以脱离真库被单测；生产侧在
+// SVC-CORE-DATA-RETIRE（2026-11-08）后传 nil（成分读面归数据服务仓）。
 type indexConstituentReader interface {
 	GetIndexConstituentsByDate(ctx context.Context, indexCode string, date time.Time) ([]string, error)
 }
@@ -1063,8 +1051,9 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	}
 	defer adj.flush(ctx, logger)
 
-	// P2-4：上市日历。拿不到就放弃按日在市过滤，并由偏差维如实记上。
-	rc.loadListingCalendar(ctx)
+	// P2-4：上市日历由装配层注入种子（SetListingWindows）。SVC-CORE-DATA-RETIRE
+	// （2026-11-08）后 core 不再从 stocks 表回读——拿不到种子就放弃按日在市
+	// 过滤，并由偏差维如实记上。
 
 	tradingDays, err := e.getTradingDays(ctx, params.StartDate, params.EndDate)
 	if err != nil {
@@ -1397,19 +1386,8 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 
 // checkCalendarExists verifies the trading calendar has entries for the given range.
 func (e *Engine) checkCalendarExists(ctx context.Context, start, end time.Time) (bool, error) {
-	e.mu.RLock()
-	store := e.store
-	e.mu.RUnlock()
-
-	if store != nil {
-		days, err := store.GetTradingDates(ctx, start, end)
-		if err != nil {
-			e.logger.Warn().Err(err).Msg("Store calendar check failed, falling back to provider")
-		} else {
-			return len(days) > 0, nil
-		}
-	}
-
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：不再回退到 store 直查 trading_calendar
+	// （该表已随数据面退役）。交易日历一律经 Provider（HTTP 数据服务面）。
 	ok, err := e.effectiveProvider().CheckCalendarExists(ctx, start, end)
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("Provider calendar check failed")
@@ -1432,14 +1410,14 @@ func (e *Engine) SetFundamentals(records map[string]strategy.FundamentalSeries) 
 //
 // 给测试和「stocks 表在别处」的场景留的门。传 nil = 没有这份数据，
 // 引擎会放弃过滤并如实上报（见 listing 字段注释）。
-func (e *Engine) SetListingWindows(windows map[string]storage.ListingWindow) {
+func (e *Engine) SetListingWindows(windows map[string]ListingWindow) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.listing = windows
 }
 
 // ListingWindows 返回当前使用的上市日历（并发安全，只读）。
-func (e *Engine) ListingWindows() map[string]storage.ListingWindow {
+func (e *Engine) ListingWindows() map[string]ListingWindow {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.listing

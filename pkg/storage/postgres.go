@@ -170,30 +170,8 @@ func (s *PostgresStore) TableHasRows(ctx context.Context, table string) (bool, e
 // 漂移——而两处都自称正确时，谁都发现不了（K8 破坏腿③同款 hazard）。
 func migrationStatements() []string {
 	migrations := []string{
-		`CREATE TABLE IF NOT EXISTS stocks (
-			symbol VARCHAR(20) PRIMARY KEY,
-			name VARCHAR(200) NOT NULL,
-			exchange VARCHAR(20) NOT NULL,
-			industry VARCHAR(100),
-			market_cap DOUBLE PRECISION,
-			list_date DATE,
-			status VARCHAR(20) DEFAULT 'active',
-			created_at TIMESTAMPTZ DEFAULT NOW(),
-			updated_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS ohlcv_daily_qfq (
-			symbol VARCHAR(20) NOT NULL,
-			trade_date DATE NOT NULL,
-			open DOUBLE PRECISION NOT NULL,
-			high DOUBLE PRECISION NOT NULL,
-			low DOUBLE PRECISION NOT NULL,
-			close DOUBLE PRECISION NOT NULL,
-			volume DOUBLE PRECISION NOT NULL,
-			turnover DOUBLE PRECISION DEFAULT 0,
-			trade_days INT DEFAULT 0,
-			created_at TIMESTAMPTZ DEFAULT NOW(),
-			PRIMARY KEY (symbol, trade_date)
-		)`,
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：stocks / ohlcv_daily_qfq 的建表
+		// 已随数据面退役（owner = 数据服务仓）。本仓只保留非市场域的 DDL。
 		`CREATE TABLE IF NOT EXISTS stock_fundamentals (
 			id SERIAL PRIMARY KEY,
 			ts_code VARCHAR(20) NOT NULL,
@@ -215,34 +193,8 @@ func migrationStatements() []string {
 			created_at TIMESTAMP DEFAULT NOW(),
 			UNIQUE(ts_code, trade_date)
 		)`,
-		`CREATE TABLE IF NOT EXISTS trading_calendar (
-			trade_date DATE PRIMARY KEY,
-			exchange VARCHAR(10) DEFAULT 'SSE',
-			is_trading_day BOOLEAN DEFAULT TRUE
-		)`,
-		// Migration 004: docs/migrations/004_add_dividends_table.sql
-		`CREATE TABLE IF NOT EXISTS dividends (
-			id SERIAL PRIMARY KEY,
-			symbol VARCHAR(20) NOT NULL,
-			ann_date DATE NOT NULL,
-			rec_date DATE,
-			pay_date DATE,
-			div_amt DOUBLE PRECISION,
-			stk_div DOUBLE PRECISION,
-			stk_ratio DOUBLE PRECISION,
-			cash_ratio DOUBLE PRECISION,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		// Migration 005: docs/migrations/005_add_index_constituents_table.sql
-		`CREATE TABLE IF NOT EXISTS index_constituents (
-			id SERIAL PRIMARY KEY,
-			index_code VARCHAR(20) NOT NULL,
-			symbol VARCHAR(20) NOT NULL,
-			in_date DATE,
-			out_date DATE,
-			weight DOUBLE PRECISION,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：trading_calendar / dividends /
+		// index_constituents 的建表已随数据面退役（owner = 数据服务仓）。
 		// Migration 006: docs/migrations/006_add_factor_cache_table.sql
 		`CREATE TABLE IF NOT EXISTS factor_cache (
 			id SERIAL PRIMARY KEY,
@@ -254,17 +206,7 @@ func migrationStatements() []string {
 			percentile DOUBLE PRECISION,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
-		// Migration 007: docs/migrations/007_add_splits_table.sql
-		`CREATE TABLE IF NOT EXISTS splits (
-			id SERIAL PRIMARY KEY,
-			symbol VARCHAR(20) NOT NULL,
-			trade_date DATE NOT NULL,
-			ann_date DATE,
-			stk_div_ratio DOUBLE PRECISION,
-			cash_div_ratio DOUBLE PRECISION,
-			currency VARCHAR(10) DEFAULT 'CNY',
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：splits 的建表已随数据面退役。
 		// Migration 024: docs/migrations/024_add_factor_returns_table.sql
 		`CREATE TABLE IF NOT EXISTS factor_returns (
 			id SERIAL PRIMARY KEY,
@@ -365,19 +307,6 @@ func migrationStatements() []string {
 			status_code INT NOT NULL,
 			timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		// Migration 020: docs/migrations/020_add_ingest_raw.sql (ADR-022 §2 类 A)
-		`CREATE SCHEMA IF NOT EXISTS ingest`,
-		`CREATE TABLE IF NOT EXISTS ingest.raw (
-			content_hash VARCHAR(64) PRIMARY KEY,
-			source VARCHAR(64) NOT NULL,
-			dataset VARCHAR(128) NOT NULL,
-			key TEXT NOT NULL,
-			as_of DATE,
-			payload JSONB NOT NULL,
-			fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_ingest_raw_source_dataset ON ingest.raw(source, dataset)`,
-		`CREATE INDEX IF NOT EXISTS idx_ingest_raw_as_of ON ingest.raw(as_of DESC)`,
 		// Migration 021: docs/migrations/021_add_research_schema.sql (ADR-022 §2 类 E)
 		`CREATE SCHEMA IF NOT EXISTS research`,
 		`CREATE TABLE IF NOT EXISTS research.profile (
@@ -468,12 +397,8 @@ func migrationStatements() []string {
 		// 「为什么当初没采纳它」的东西 —— 它和 metrics 一样是实验的证据。
 		// 加列带默认值即 metadata-only，幂等。
 		`ALTER TABLE experiments ADD COLUMN IF NOT EXISTS verdict JSONB`,
-		// Migration 030: stocks.delist_date (P2-4 / 幸存者偏差)
-		// 没有摘牌日就不可能构造「某日仍在市」的股票池：回测 2020 年时，
-		// 2021 年退市的票必须在池子里（否则收益被系统性高估），但又不能在
-		// 2021 年之后继续参与交易。两条都只能靠这个日期判定。
-		// 带默认值加列为 metadata-only，幂等。
-		`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS delist_date DATE`,
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：Migration 030（stocks.delist_date）
+		// 随 stocks 表退役；幸存者偏差的上市/摘牌日改由数据服务仓提供。
 		// Migration 031: stock_fundamentals.available_date (P1-4 / 语义债)
 		// 「这条财报从哪天起可见」此前没有自己的列，只在 5 个查询里以
 		// COALESCE(ann_date, trade_date) 的形式散着写 —— 另外 5 个查询压根
@@ -514,76 +439,10 @@ func migrationStatements() []string {
 			name       TEXT PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		// Migration 052: 成交量单位统一（手 → 股），对齐规范层 schema
-		//
-		// 背景：tushare daily 的 `vol` 单位是「手」，而规范层 schema 声明的
-		// volume 单位是「股」（docs/SPEC.md「规范层 Schema」节），两者差 ×100。
-		// 这个矛盾此前一直带着：SPEC 说「股」、库里存「手」、前端 fmtVolume
-		// 按「股」格式化、NT 侧 as_quantity 又因「手」是两位小数而 fail-loud
-		// （导出路径整条断）。同步侧已改为落股（pkg/data 的 sharesPerLot），
-		// 存量按本迁移对齐 —— 两侧都到位，全链路才真正只有一个口径。
-		//
-		// 幂等：×100 **不幂等**（重复跑会变 ×10000），所以连「整表换算」这个
-		// 动作本身都不能重复。两道独立保险：
-		//   ① 哨兵（主）：data_migrations 里已有 052 就整个跳过；首次执行后
-		//      无条件写入哨兵，此后 052 至多生效一次。
-		//   ② 内容（辅）：库里还有非整数（= 手的小数）才值得换算 —— 这防住
-		//      「清库后用新代码重灌（已经是股）」的场景（那时全表整数，跳过）。
-		//
-		// 为什么只靠 ② 不够：② 隐含假设「非整数 ⇒ 仍是手」。迁移完成后若又
-		// 落入手数据（旧二进制未换 / 手工导入 / 多节点混部），② 会再次成立 →
-		// **整表**再 ×100 → 已迁移的股数据静默变成 ×10000。哨兵堵住这条路径。
-		//
-		// ② **不能**写成逐行 `WHERE volume <> floor(volume)`：19.24% 的存量行
-		// volume 本来就是整数「手」，逐行条件会漏掉它们，得到一张半股半手的
-		// 混合表 —— 比不迁移更难排查。② 是「整表换算的准入条件」。
-		`DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM data_migrations WHERE name = '052_ohlcv_volume_lots_to_shares')
-			   AND EXISTS (SELECT 1 FROM ohlcv_daily_qfq WHERE volume <> floor(volume)) THEN
-				UPDATE ohlcv_daily_qfq SET volume = round(volume * 100);
-			END IF;
-			INSERT INTO data_migrations (name) VALUES ('052_ohlcv_volume_lots_to_shares')
-				ON CONFLICT (name) DO NOTHING;
-		END $$`,
-		// Migration 054: 成交额单位统一（千元 → CNY），对齐规范层 schema
-		//
-		// 与 052 同型：SPEC 的 OHLCV 字段表早就写着 turnover = **CNY**，实现却把
-		// tushare daily 的 `amount`（**千元**）原样入库。2026-10-15 真库 392.6 万行
-		// 全量实测 turnover / (volume_股 × close)：中位数 0.0010127、p01 0.000967、
-		// p99 0.001955、max 0.003535 —— 比「元」小三个数量级，千元坐实。
-		// 同步侧已改为落 CNY（pkg/data 的 cnyPerAmountUnit），存量按本迁移对齐。
-		//
-		// **必须排在 052 之后**（本数组按序执行）：准入判据里的 volume 得已经是「股」，
-		// 比值才是那个稳定的 1/1000 量级。
-		//
-		// 幂等：×1000 不幂等，两道保险与 052 同款 ——
-		//   ① 哨兵（主）：data_migrations 里已有 054 就整个跳过；首次执行后无条件写
-		//      哨兵。堵住「迁移完成后又落进千元数据 → 整表再 ×1000」这条静默路径。
-		//   ② 内容（辅）：库里还存在「turnover 明显小于 volume×close」的行，才值得
-		//      整表换算 —— 防住「清库后用新代码重灌（已经是 CNY）」的场景。
-		//
-		// 阈值 0.01 是**实测两头留出的空隙**，不是从判据本身推出来的：千元态的实测
-		// max = 0.003535（阈值下方 2.8 倍），元态的实测 min = 0.0003226×1000 = 0.3226
-		// （阈值上方 32 倍）。要让千元态越过 0.01，得 qfq close 比当日 vwap 低 10 倍
-		// 以上；要让元态掉进 0.01，得高 100 倍 —— 都不是复权价能造出来的形状。
-		// 且 ② 只是准入条件，误判的兜底是 ①。
-		//
-		// 备份：换算前的 turnover 整列留在 ohlcv_daily_qfq_bak_054（最小恢复集，
-		// 可 DROP；换算可逆 —— 元 ÷ 1000 = 千元），只在真正换算的那一次创建。
-		`DO $$
-		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM data_migrations WHERE name = '054_ohlcv_turnover_thousand_cny_to_cny')
-			   AND EXISTS (SELECT 1 FROM ohlcv_daily_qfq
-			               WHERE turnover > 0 AND volume > 0 AND close > 0
-			                 AND turnover < volume * close * 0.01) THEN
-				CREATE TABLE IF NOT EXISTS ohlcv_daily_qfq_bak_054 AS
-					SELECT symbol, trade_date, turnover FROM ohlcv_daily_qfq;
-				UPDATE ohlcv_daily_qfq SET turnover = turnover * 1000;
-			END IF;
-			INSERT INTO data_migrations (name) VALUES ('054_ohlcv_turnover_thousand_cny_to_cny')
-				ON CONFLICT (name) DO NOTHING;
-		END $$`,
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：Migration 052 / 054（OHLCV 成交量
+		// 与成交额的整表单位换算）随 ohlcv_daily_qfq 退役——目标表已由数据服务仓
+		// owner，core 不再对市场表做变换型 DML。data_migrations 表保留，供后续
+		// 仍属本仓的一次性迁移复用（当前无使用者）。
 		// Migration 032: factor_hypothesis (P2-3 / 因子的因果来源)
 		//
 		// 因子的数值存在 factor_cache 里，但**它为什么该有效**此前没有地方记。
@@ -671,282 +530,12 @@ func migrationStatements() []string {
 			END IF;
 		END $$`,
 
-		// === Migration 033-043: 多源数据面的 11 张目标表（C5 / ODR-065）===
-		//
-		// 这些表的 DDL 此前只存在于 migrations/015~018，而那个目录**不被任何代码
-		// 执行**（golang-migrate 封装已于 2026-09-18 删除，注释里写明了）。后果：
-		// ETL 的 TableMapper 声明 13 类数据，其中 11 类的目标表在全新库里根本不
-		// 存在，任一多源同步任务一跑就是 `relation does not exist` 硬失败 ——
-		// 多源数据面在干净环境开箱不可用，存量库全靠手工跑过 .sql 才活着。
-		//
-		// 逐字移植自 migrations/*.sql，但**不建 hypertable**：这一批的目标是
-		// 「表存在、能写入」，不该为此引入 TimescaleDB 硬依赖。源 SQL 里的
-		// create_hypertable / add_retention_policy 刻意省略，需要时单独加。
-		//
-		// data_source_registry / data_fallback_chain 不在这一批里 —— 数据源注册表
-		// 是内存态（pkg/data/source/registry.go 明确不写这两张表）。
-
-		// Migration 033: realtime_quote (mootdx 五档快照)
-		`CREATE TABLE IF NOT EXISTS realtime_quote (
-			symbol      VARCHAR(20) NOT NULL,
-			ts          TIMESTAMPTZ NOT NULL,
-			price       DOUBLE PRECISION,
-			open        DOUBLE PRECISION,
-			high        DOUBLE PRECISION,
-			low         DOUBLE PRECISION,
-			last_close  DOUBLE PRECISION,
-			volume      BIGINT,
-			amount      DOUBLE PRECISION,
-			bid1        DOUBLE PRECISION, ask1     DOUBLE PRECISION,
-			bid1_vol    INT, ask1_vol              INT,
-			bid2        DOUBLE PRECISION, ask2     DOUBLE PRECISION,
-			bid2_vol    INT, ask2_vol              INT,
-			bid3        DOUBLE PRECISION, ask3     DOUBLE PRECISION,
-			bid3_vol    INT, ask3_vol              INT,
-			bid4        DOUBLE PRECISION, ask4     DOUBLE PRECISION,
-			bid4_vol    INT, ask4_vol              INT,
-			bid5        DOUBLE PRECISION, ask5     DOUBLE PRECISION,
-			bid5_vol    INT, ask5_vol              INT,
-			source      VARCHAR(32) DEFAULT 'mootdx',
-			ingest_time TIMESTAMPTZ DEFAULT NOW(),
-			PRIMARY KEY (symbol, ts)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_realtime_quote_symbol_ts ON realtime_quote (symbol, ts DESC)`,
-
-		// Migration 034: ohlcv_minute (mootdx 1 分钟 K 线)
-		`CREATE TABLE IF NOT EXISTS ohlcv_minute (
-			symbol      VARCHAR(20) NOT NULL,
-			ts          TIMESTAMPTZ NOT NULL,
-			open        DOUBLE PRECISION NOT NULL,
-			high        DOUBLE PRECISION NOT NULL,
-			low         DOUBLE PRECISION NOT NULL,
-			close       DOUBLE PRECISION NOT NULL,
-			volume      BIGINT,
-			amount      DOUBLE PRECISION,
-			source      VARCHAR(32) DEFAULT 'mootdx',
-			ingest_time TIMESTAMPTZ DEFAULT NOW(),
-			PRIMARY KEY (symbol, ts)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_ohlcv_minute_symbol_ts ON ohlcv_minute (symbol, ts DESC)`,
-
-		// Migration 035: capital_flow (东财 push2 资金流)
-		// UNIQUE (symbol, trade_date, period) 是 TableMapper 的冲突键，
-		// 缺了它 BulkInsert 的 ON CONFLICT 就没有目标约束。
-		`CREATE TABLE IF NOT EXISTS capital_flow (
-			id               BIGSERIAL PRIMARY KEY,
-			symbol           VARCHAR(20) NOT NULL,
-			trade_date       DATE NOT NULL,
-			period           VARCHAR(16) NOT NULL,
-			main_net         DOUBLE PRECISION,
-			main_buy_amount  DOUBLE PRECISION,
-			main_sell_amount DOUBLE PRECISION,
-			super_net        DOUBLE PRECISION,
-			large_net        DOUBLE PRECISION,
-			medium_net       DOUBLE PRECISION,
-			small_net        DOUBLE PRECISION,
-			main_net_ratio   DOUBLE PRECISION,
-			retail_net       DOUBLE PRECISION,
-			retail_net_ratio DOUBLE PRECISION,
-			close_price      DOUBLE PRECISION,
-			change_pct       DOUBLE PRECISION,
-			source           VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time      TIMESTAMPTZ DEFAULT NOW(),
-			UNIQUE (symbol, trade_date, period)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cf_symbol_date ON capital_flow (symbol, trade_date DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_cf_date_main_net ON capital_flow (trade_date DESC, main_net DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_cf_symbol_period ON capital_flow (symbol, period, trade_date DESC)`,
-
-		// Migration 036: sectors (东财板块快照)
-		`CREATE TABLE IF NOT EXISTS sectors (
-			sector_code     VARCHAR(32) PRIMARY KEY,
-			sector_name     VARCHAR(64) NOT NULL,
-			category        VARCHAR(32) NOT NULL DEFAULT 'industry',
-			trade_date      DATE NOT NULL,
-			change_pct      DOUBLE PRECISION,
-			leading_symbol  VARCHAR(20),
-			leading_change  DOUBLE PRECISION,
-			source          VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time     TIMESTAMPTZ DEFAULT NOW(),
-			data_version    INT DEFAULT 1
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sectors_date ON sectors (trade_date DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_sectors_category ON sectors (category, trade_date DESC)`,
-
-		// Migration 037: stock_sector_map (个股 ↔ 板块，多对多)
-		`CREATE TABLE IF NOT EXISTS stock_sector_map (
-			symbol      VARCHAR(20) NOT NULL,
-			sector_code VARCHAR(32) NOT NULL,
-			sector_name VARCHAR(64) NOT NULL,
-			source      VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time TIMESTAMPTZ DEFAULT NOW(),
-			PRIMARY KEY (symbol, sector_code)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_ssm_sector ON stock_sector_map (sector_code)`,
-
-		// Migration 038: top_list (龙虎榜)
-		`CREATE TABLE IF NOT EXISTS top_list (
-			id          BIGSERIAL PRIMARY KEY,
-			trade_date  DATE NOT NULL,
-			symbol      VARCHAR(20) NOT NULL,
-			name        VARCHAR(100) NOT NULL,
-			net_buy     DOUBLE PRECISION,
-			buy_amount  DOUBLE PRECISION,
-			sell_amount DOUBLE PRECISION,
-			turnover    DOUBLE PRECISION,
-			reason      TEXT,
-			explain     TEXT,
-			close_price DOUBLE PRECISION,
-			change_pct  DOUBLE PRECISION,
-			source      VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time TIMESTAMPTZ DEFAULT NOW(),
-			data_version INT DEFAULT 1,
-			UNIQUE (trade_date, symbol)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_top_list_date ON top_list (trade_date DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_top_list_symbol ON top_list (symbol, trade_date DESC)`,
-
-		// Migration 039: limit_up_pool (涨停池)
-		`CREATE TABLE IF NOT EXISTS limit_up_pool (
-			id          BIGSERIAL PRIMARY KEY,
-			trade_date  DATE NOT NULL,
-			symbol      VARCHAR(20) NOT NULL,
-			name        VARCHAR(100) NOT NULL,
-			limit_price DOUBLE PRECISION,
-			first_time  TIMESTAMPTZ,
-			last_time   TIMESTAMPTZ,
-			limit_times INT DEFAULT 1,
-			continuous  INT DEFAULT 1,
-			industry    VARCHAR(64),
-			concept     TEXT,
-			amount      DOUBLE PRECISION,
-			source      VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time TIMESTAMPTZ DEFAULT NOW(),
-			data_version INT DEFAULT 1,
-			UNIQUE (trade_date, symbol)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_limit_up_date ON limit_up_pool (trade_date DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_limit_up_symbol ON limit_up_pool (symbol, trade_date DESC)`,
-
-		// Migration 040: announcements (巨潮公告)
-		`CREATE TABLE IF NOT EXISTS announcements (
-			ann_id       VARCHAR(64) PRIMARY KEY,
-			symbol       VARCHAR(20) NOT NULL,
-			ann_title    TEXT NOT NULL,
-			ann_time     TIMESTAMPTZ NOT NULL,
-			ann_type     VARCHAR(64),
-			pdf_url      TEXT,
-			source       VARCHAR(32) DEFAULT 'juchao',
-			ingest_time  TIMESTAMPTZ DEFAULT NOW(),
-			data_version INT DEFAULT 1
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_ann_symbol_time ON announcements (symbol, ann_time DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_ann_time ON announcements (ann_time DESC)`,
-
-		// Migration 041: news (个股新闻)
-		`CREATE TABLE IF NOT EXISTS news (
-			news_id      VARCHAR(64) PRIMARY KEY,
-			symbol       VARCHAR(20) NOT NULL,
-			title        TEXT NOT NULL,
-			content      TEXT,
-			publish_time TIMESTAMPTZ NOT NULL,
-			url          TEXT,
-			source_name  VARCHAR(64),
-			source       VARCHAR(32) DEFAULT 'eastmoney',
-			ingest_time  TIMESTAMPTZ DEFAULT NOW(),
-			data_version INT DEFAULT 1
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_news_symbol_time ON news (symbol, publish_time DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_news_time ON news (publish_time DESC)`,
-
-		// Migration 042: hot_search (雪球热门搜索)
-		`CREATE TABLE IF NOT EXISTS hot_search (
-			id            BIGSERIAL PRIMARY KEY,
-			rank          INT NOT NULL,
-			keyword       VARCHAR(128) NOT NULL,
-			snapshot_time TIMESTAMPTZ NOT NULL,
-			heat          DOUBLE PRECISION,
-			source        VARCHAR(32) DEFAULT 'xueqiu',
-			ingest_time   TIMESTAMPTZ DEFAULT NOW(),
-			data_version  INT DEFAULT 1,
-			UNIQUE (rank, snapshot_time)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_hot_search_time ON hot_search (snapshot_time DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_hot_search_keyword ON hot_search (keyword, snapshot_time DESC)`,
-
-		// Migration 043: global_ohlcv (美股 / 港股等非 A 股日线)
-		`CREATE TABLE IF NOT EXISTS global_ohlcv (
-			symbol       VARCHAR(20) NOT NULL,
-			trade_date   DATE NOT NULL,
-			open         DOUBLE PRECISION NOT NULL,
-			high         DOUBLE PRECISION NOT NULL,
-			low          DOUBLE PRECISION NOT NULL,
-			close        DOUBLE PRECISION NOT NULL,
-			volume       DOUBLE PRECISION,
-			adj_close    DOUBLE PRECISION,
-			source       VARCHAR(32) DEFAULT 'yahoo_finance',
-			ingest_time  TIMESTAMPTZ DEFAULT NOW(),
-			data_version INT DEFAULT 1,
-			PRIMARY KEY (symbol, trade_date)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_global_ohlcv_source ON global_ohlcv (source, trade_date DESC)`,
-
-		// === Migration 044-047: 同步作业队列与基因池（C5 的漏网之鱼）===
-		//
-		// 上一批只补了 TableMapper 声明的 11 张写入目标表，但**代码直接 SQL 引用**
-		// 的表不止那些。这是真跑起来才暴露的：起服务后打 /sync/stocks，
-		// 直接 `relation "sync_jobs" does not exist` —— 同步链路自己的队列表压根
-		// 没建。静态清单式审查补不完，得拿真实库对一遍。
-		//
-		// 这四张同样来自不被执行的 migrations/012、013、023。
-
-		// Migration 044: sync_jobs (同步作业队列)
-		`CREATE TABLE IF NOT EXISTS sync_jobs (
-			id              VARCHAR(64) PRIMARY KEY,
-			job_type        VARCHAR(50) NOT NULL,
-			status          VARCHAR(20) NOT NULL DEFAULT 'pending',
-			params          JSONB NOT NULL DEFAULT '{}',
-			progress_percent INT NOT NULL DEFAULT 0,
-			total_items     INT NOT NULL DEFAULT 0,
-			processed_items INT NOT NULL DEFAULT 0,
-			failed_items    INT NOT NULL DEFAULT 0,
-			error_message   TEXT,
-			result          JSONB,
-			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			started_at      TIMESTAMPTZ,
-			completed_at    TIMESTAMPTZ,
-			retry_count     INT NOT NULL DEFAULT 0,
-			max_retries     INT NOT NULL DEFAULT 3,
-			scheduled_at    TIMESTAMPTZ,
-			worker_id       VARCHAR(50)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_jobs_status ON sync_jobs(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_jobs_type ON sync_jobs(job_type)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_jobs_created_at ON sync_jobs(created_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_jobs_scheduled_at ON sync_jobs(scheduled_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_jobs_status_created ON sync_jobs(status, created_at)`,
-
-		// Migration 045: sync_schedules (cron 定时同步)
-		`CREATE TABLE IF NOT EXISTS sync_schedules (
-			id              SERIAL PRIMARY KEY,
-			name            VARCHAR(100) NOT NULL UNIQUE,
-			description     TEXT,
-			job_type        VARCHAR(50) NOT NULL,
-			cron_expression VARCHAR(100) NOT NULL,
-			params          JSONB NOT NULL DEFAULT '{}',
-			is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-			last_run_at     TIMESTAMPTZ,
-			last_run_status VARCHAR(20),
-			last_run_job_id VARCHAR(64),
-			next_run_at     TIMESTAMPTZ,
-			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			created_by      VARCHAR(50) DEFAULT 'system'
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_schedules_active ON sync_schedules(is_active)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_schedules_type ON sync_schedules(job_type)`,
-		`CREATE INDEX IF NOT EXISTS idx_sync_schedules_next_run ON sync_schedules(next_run_at)`,
-
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：Migration 033-043 的 11 张多源
+		// 数据面目标表（realtime_quote / ohlcv_minute / capital_flow / sectors /
+		// stock_sector_map / top_list / limit_up_pool / announcements / news /
+		// hot_search / global_ohlcv）以及 Migration 044/045 的 sync_jobs /
+		// sync_schedules，已随数据面整体退役——owner = 数据服务仓，core 不再
+		// 持有这些表的 DDL、写点或同步队列。
 		// Migration 046: factor_genes (AI 因子基因池)
 		`CREATE TABLE IF NOT EXISTS factor_genes (
 			id          VARCHAR(50) PRIMARY KEY,
@@ -1128,35 +717,9 @@ func migrationStatements() []string {
 		`CREATE INDEX IF NOT EXISTS idx_factor_mining_records_name ON factor_mining_records(factor_name, created_at DESC)`,
 	}...)
 
-	// Migration 056: market_activity（D5 新数据源样板——市场活跃度）。
-	// DDL 记录在 docs/migrations/056_add_market_activity_table.sql。
-	// 个股日频活跃度观测（换手率 / 自由流通换手率 / 量比），Tushare
-	// daily_basic 经 tushare_daily_basic adapter 导入；与 stock_fundamentals
-	// （fina_indicator 财报口径）并列不重复——那是财报期截面，这是日频
-	// 市场关注度截面。时间语义 after_close（D2 契约：收盘后才统计得出）。
-	// 缺失≠0：三个数值列可空，NULL = 上游未发布，绝不落 0 冒充有效观测。
-	// 数值有限性在写入面校验（SaveMarketActivityBatch，同宏观先例），
-	// DB 侧 CHECK 只管身份列非空。
-	// 幂等键 (symbol, trade_date, source)：同键重导刷新行（ON CONFLICT
-	// DO UPDATE，见 pkg/storage/market_activity.go）。
-	migrations = append(migrations, []string{
-		`CREATE TABLE IF NOT EXISTS market_activity (
-			id              BIGSERIAL      PRIMARY KEY,
-			symbol          VARCHAR(20)    NOT NULL,
-			trade_date      DATE           NOT NULL,
-			turnover_rate   DOUBLE PRECISION,
-			turnover_rate_f DOUBLE PRECISION,
-			volume_ratio    DOUBLE PRECISION,
-			source          VARCHAR(64)    NOT NULL,
-			as_of           TIMESTAMPTZ    NOT NULL,
-			CONSTRAINT market_activity_identity_present CHECK (
-				btrim(symbol) <> '' AND btrim(source) <> ''
-			),
-			UNIQUE (symbol, trade_date, source)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_market_activity_trade_date ON market_activity(trade_date)`,
-	}...)
-
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：Migration 056（market_activity）随
+	// 数据面退役——个股日频活跃度由数据服务仓 owner，core 不再建表/写入。
+	//
 	// Migration 057：market schema + market.index_daily（DATA-12，2026-10-16）。
 	//
 	// 指数日线是 **B 类规范化数据**（A–E 分区表：B = PG `market.*`）——落点是
@@ -1167,11 +730,10 @@ func migrationStatements() []string {
 	// 单位沿用规范层已定死的口径：volume **股**、turnover **CNY**。源侧 tushare
 	// `index_daily` 的 `vol` 是**手**、`amount` 是**千元**（2026-10-16 实测校准：
 	// 沪深300 成分股当日量额求和 vs index_daily 原值，×100 / ×1000 后比值 0.949/0.951），
-	// 换算在同步边界完成，常量与依据见 pkg/data/tushare.go 的
-	// `sharesPerLot` / `cnyPerAmountUnit`。
+	// 换算在同步边界（数据服务仓）完成。
 	//
 	// 缺失≠0：除 `close` / `volume` 外的数值列可空，NULL = 上游未发布，
-	// 绝不落 0 冒充有效观测（读侧 `LatestIndexBars` 对 turnover 用指针接）。
+	// 绝不落 0 冒充有效观测（读侧对 turnover 用指针接）。
 	//
 	// 幂等键 `(code, trade_date)` = 同键重导刷新行（ON CONFLICT DO UPDATE，
 	// 见 pkg/storage/index_daily.go）。
@@ -1249,34 +811,16 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		}
 	}
 
-	// Create TimescaleDB hypertable for ohlcv_daily_qfq
-	hypertableSQL := `SELECT create_hypertable('ohlcv_daily_qfq', 'trade_date', if_not_exists => TRUE)`
-	if _, err := s.pool.Exec(ctx, hypertableSQL); err != nil {
-		s.logger.Warn().Err(err).Msg("Could not create hypertable (TimescaleDB may not be available)")
-	} else {
-		s.logger.Info().Msg("TimescaleDB hypertable created/verified for ohlcv_daily_qfq")
-	}
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：ohlcv_daily_qfq 的 hypertable
+	// 与市场表索引随数据面退役一并删除（owner = 数据服务仓）。
 
 	// Create indexes
 	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol ON ohlcv_daily_qfq(symbol)`,
-		`CREATE INDEX IF NOT EXISTS idx_ohlcv_trade_date ON ohlcv_daily_qfq(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_code ON stock_fundamentals(ts_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_date ON stock_fundamentals(trade_date)`,
-		`CREATE INDEX IF NOT EXISTS idx_stocks_exchange ON stocks(exchange)`,
-		`CREATE INDEX IF NOT EXISTS idx_trading_calendar_exchange ON trading_calendar(exchange)`,
-		`CREATE INDEX IF NOT EXISTS idx_trading_calendar_is_trading ON trading_calendar(is_trading_day)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_dividends_symbol_ann ON dividends(symbol, ann_date)`,
-		`CREATE INDEX IF NOT EXISTS idx_dividends_pay_date ON dividends(pay_date)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ic_symbol_index ON index_constituents(symbol, index_code)`,
-		`CREATE INDEX IF NOT EXISTS idx_ic_index_code ON index_constituents(index_code)`,
-		`CREATE INDEX IF NOT EXISTS idx_ic_in_date ON index_constituents(in_date)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_fc_pk ON factor_cache(symbol, trade_date, factor_name)`,
 		`CREATE INDEX IF NOT EXISTS idx_fc_trade_date ON factor_cache(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_fc_factor_name ON factor_cache(factor_name)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_splits_symbol_trade ON splits(symbol, trade_date)`,
-		`CREATE INDEX IF NOT EXISTS idx_splits_trade_date ON splits(trade_date)`,
-		`CREATE INDEX IF NOT EXISTS idx_splits_symbol ON splits(symbol)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_fr_pk ON factor_returns(factor_name, trade_date, quintile)`,
 		`CREATE INDEX IF NOT EXISTS idx_fr_trade_date ON factor_returns(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_fr_factor ON factor_returns(factor_name)`,
@@ -1294,9 +838,6 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_audit_endpoint ON audit_logs(endpoint, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role) WHERE disabled = FALSE`,
-		// Migration 020: ingest.raw indexes (类 A 原始源响应归档)
-		`CREATE INDEX IF NOT EXISTS idx_ingest_raw_source_dataset ON ingest.raw(source, dataset)`,
-		`CREATE INDEX IF NOT EXISTS idx_ingest_raw_as_of ON ingest.raw(as_of DESC)`,
 		// Migration 021: research schema indexes (类 E 研究结构化投影)
 		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_ticker ON research.conclusion(ticker)`,
 		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_status ON research.conclusion(status)`,

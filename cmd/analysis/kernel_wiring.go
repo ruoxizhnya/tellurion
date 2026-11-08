@@ -100,9 +100,11 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	// data-engine（第 3 位）：行情能力。构造逻辑与接管前
 	// buildBacktestEngine + buildDataServices 的对应行逐字一致。
 	dataMod := wiring.NewDataEngineModule(func() (marketdata.Provider, *marketdata.DataAdapter, error) {
+		// SVC-CORE-DATA-RETIRE（2026-11-08）：PG 直读 provider 随数据面退役，
+		// core 的行情读面只剩 HTTP（数据服务）。fallback 显式为 nil —— 不再
+		// 有「HTTP 挂了就回落直查共享库」的暗通道。
 		httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL(v), v.GetString("data_service.token"), logger)
-		pgProvider := marketdata.NewPostgresProvider(store, logger)
-		adapter := marketdata.NewDataAdapter(nil, pgProvider, httpProvider, logger)
+		adapter := marketdata.NewDataAdapter(nil, httpProvider, nil, logger)
 		return httpProvider, adapter, nil
 	})
 

@@ -38,8 +38,15 @@ import (
 // coarseActionCount 是 D24 允许的**动作条目数**。D24 是八类（第 7 类
 // 「交易日历 / 上市窗口查询」于 2026-10-24 由用户裁-04 确认，落两条只读
 // 端点；第 8 类「walkforward 提交 / regime 识别」于 2026-10-25 由用户裁-12
-// 确认，落两条端点 ⇒ 八类共 10 条）。加表要连带改本断言并留裁决记录。
-const coarseActionCount = 10
+// 确认，落两条端点 ⇒ 八类共 10 条）。
+//
+// 2026-11-08（SVC-CORE-DATA-RETIRE，代裁·待主任追认）：第 7 类的两条端点
+// （GET /api/v1/trading-calendar、POST /api/v1/listing-windows）随
+// trading_calendar / 上市日历数据面退役，core 不再持有这两张表；同理
+// query_factor_evaluation（GET /api/factor/returns/:factor）随参考数据端点
+// 删除。条目数 10 → 7，八类实际只剩六类在 core 侧。数据服务补齐读面后，
+// 若重开这些粗粒度动作，必须在此恢复条目并留新的裁决记录。
+const coarseActionCount = 7
 
 // openapiCoarseActions 返回 yaml 里标了 x-agent-coarse-action 的
 // "METHOD 路径" → 动作名。
@@ -85,7 +92,7 @@ func TestAgentCoarseActions_DeclareAndDocumentExactlyTheSameSet(t *testing.T) {
 	t.Parallel()
 
 	require.Len(t, agentCoarseActions, coarseActionCount,
-		"D24 允许八类粗粒度动作（第 7/8 类各落两条端点）；加表要连带改本断言并留裁决记录")
+		"D24 粗粒度动作条目数变了（第 7 类两条已随数据面退役，见 coarseActionCount 注释）；加表要连带改本断言并留裁决记录")
 
 	documented := openapiCoarseActions(t)
 	registered := registeredRouteKeys(t)
@@ -173,11 +180,6 @@ func TestAgentCoarseActions_RoutePolicyTiers(t *testing.T) {
 	role, ok = analysisRoutePolicy.Role(bulk.Method + " " + bulk.Route)
 	require.True(t, ok, "POST /api/v1/ohlcv/bulk 必须在 route_policy.go 里表态")
 	assert.Equal(t, authz.RoleAnyAuthenticated(), role, "批量行情查询是纯读，不得被抬成 trader 档")
-
-	windows := findAction(t, "query_listing_windows")
-	role, ok = analysisRoutePolicy.Role(windows.Method + " " + windows.Route)
-	require.True(t, ok, "POST /api/v1/listing-windows 必须在 route_policy.go 里表态")
-	assert.Equal(t, authz.RoleAnyAuthenticated(), role, "上市窗口查询是纯读，不得被抬成 trader 档")
 }
 
 // TestAgentCoarseActions_FailClosed 行为腿：真 router + 真 JWT + 真策略执法。

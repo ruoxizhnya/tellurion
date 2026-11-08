@@ -55,13 +55,6 @@ var agentCoarseActions = []agentCoarseAction{
 		Rationale: "一次请求提交一批参数组合，返回批量作业句柄；参数展开在 core 进程内完成",
 	},
 	{
-		Name:      "query_factor_evaluation",
-		Method:    http.MethodGet,
-		Route:     "/api/factor/returns/:factor",
-		MinRole:   "any-authenticated（GET 未认证拒绝）",
-		Rationale: "按日期区间拉因子收益时间序列；单次调用覆盖整个区间，不对每个交易日发一次请求",
-	},
-	{
 		Name:      "query_market_data",
 		Method:    http.MethodPost,
 		Route:     "/api/v1/ohlcv/bulk",
@@ -82,21 +75,9 @@ var agentCoarseActions = []agentCoarseAction{
 		MinRole:   "admin",
 		Rationale: "一次请求登记一版因子定义（四样校验 + 版本哈希在 core 侧派生），写的是治理账本不是行情",
 	},
-	// ── 第 7 类（2026-10-24 裁-04）：交易日历 / 上市窗口查询，两条只读端点 ──
-	{
-		Name:      "query_trading_calendar",
-		Method:    http.MethodGet,
-		Route:     "/api/v1/trading-calendar",
-		MinRole:   "any-authenticated（GET 未认证拒绝）",
-		Rationale: "一次请求返回整个 [start, end] 区间，不按交易日逐次调用；只读、不写表",
-	},
-	{
-		Name:      "query_listing_windows",
-		Method:    http.MethodPost,
-		Route:     "/api/v1/listing-windows",
-		MinRole:   "readonly-post（任意已认证）",
-		Rationale: "一次请求取回整批 symbol 的上市/摘牌窗口（symbols 为空即全部）；POST 只因参数是集合，不是 per-symbol 端点",
-	},
+	// ── 第 7 类（2026-10-24 裁-04）已在 SVC-CORE-DATA-RETIRE 退役 ──
+	// trading-calendar / listing-windows 两条只读端点随 trading_calendar 与
+	// 上市日历数据面一起删除（core 不再持有这两张表，读面改由数据服务提供）。
 	// ── 第 8 类（2026-10-25 裁-12）：作业提交与裁决查询 ──
 	{
 		Name:      "submit_walkforward",

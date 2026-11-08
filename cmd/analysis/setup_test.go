@@ -87,7 +87,6 @@ func TestDataServices_StructFields(t *testing.T) {
 	assert.Nil(t, ds.JobService)
 	assert.Nil(t, ds.WFEngine)
 	assert.Nil(t, ds.BatchEngine)
-	assert.Nil(t, ds.FactorAttributor)
 }
 
 // TestStartHTTPServer_ReturnsServer verifies that startHTTPServer

@@ -26,7 +26,6 @@ import (
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/nautilus"
 	"tellurion/pkg/bootstrap"
-	"tellurion/pkg/data"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/observability"
@@ -167,7 +166,6 @@ type dataServices struct {
 	JobService       *backtest.JobService
 	WFEngine         *backtest.WalkForwardEngine
 	BatchEngine      *backtest.BatchEngine
-	FactorAttributor *data.FactorAttributor
 
 	// EngineRegistry（K10）—— 内核路由注册表。装配期注册 go 内核
 	// （现有引擎，默认名）；同步 handler / 异步 job / batch 执行期经
@@ -302,6 +300,9 @@ func buildDataServices(
 		eng.SetWASMShardObserver(m)
 		return eng, nil
 	}, store, logger)
+	// SVC-CORE-DATA-RETIRE（2026-11-08）：trading_calendar 退休后，walk-forward
+	// 的交易日历改由 Provider（HTTP 数据服务面）提供，不再直查库。
+	wfEngine.SetTradingDaysSource(dataAdapter.GetTradingDays)
 	logger.Info().Msg("Walk-forward engine initialized")
 
 	// batch 经同一注册表取 go 内核 runner（K10）：batch 任务间无引擎级
@@ -315,16 +316,12 @@ func buildDataServices(
 	batchEngine := backtest.NewBatchEngine(goRunner, wfEngine, backtest.DefaultBatchConfig(), logger)
 	logger.Info().Msg("Batch engine initialized")
 
-	factorAttributor := data.NewFactorAttributor(store)
-	logger.Info().Msg("Factor attribution service initialized")
-
 	return &dataServices{
-		DataAdapter:      dataAdapter,
-		JobService:       jobService,
-		WFEngine:         wfEngine,
-		BatchEngine:      batchEngine,
-		FactorAttributor: factorAttributor,
-		EngineRegistry:   engineRegistry,
+		DataAdapter:    dataAdapter,
+		JobService:     jobService,
+		WFEngine:       wfEngine,
+		BatchEngine:    batchEngine,
+		EngineRegistry: engineRegistry,
 	}
 }
 

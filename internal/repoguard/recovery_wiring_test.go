@@ -97,16 +97,10 @@ var recoveryCallSites = []struct {
 			"it before launching any worker — hanging it there is what makes the " +
 			"recovery impossible to forget.",
 	},
-	{
-		declFile: "pkg/sync/job.go",
-		callSite: "cmd/data/sync_handlers.go:NewSyncHandler",
-		funcName: "SetRunningCanceller",
-		why: "AUD-49: cancelling a running job needs two halves — settle the row, and " +
-			"cancel the context of the goroutine executing it. CancelJob can only do the " +
-			"first; the second needs this wiring, and without it there is no handle to the " +
-			"executor at all, so the endpoint answers 200 while the sync keeps running. " +
-			"NewSyncHandler must register workerPool.Cancel.",
-	},
+	// SVC-CORE-DATA-RETIRE：SetRunningCanceller 的生产接线点
+	// （cmd/data/sync_handlers.go:NewSyncHandler）随 cmd/data 整包退役，
+	// pkg/sync 目前没有 HTTP 入口（已登记进 package_wiring 的 unwiredPackages）。
+	// 数据服务恢复 / 重建时，这条 AUD-49 的接线必须重新指名，不能悄悄消失。
 }
 
 func TestRecoveryFunctionsAreCalledFromTheRightPlace(t *testing.T) {

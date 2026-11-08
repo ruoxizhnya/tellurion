@@ -8,8 +8,8 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/data/sentiment"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/strategy/sentiment"
 )
 
 func TestSentiment_Name(t *testing.T) {

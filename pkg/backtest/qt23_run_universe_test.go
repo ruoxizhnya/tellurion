@@ -119,7 +119,7 @@ func TestRunUniverse_StableAcrossFiveDaysWithSuspension(t *testing.T) {
 	require.NoError(t, err)
 	rec := &qt23ScopeRecorder{}
 	applyOptions(eng, append(provenanceBaseOptions(t), WithSignalProvider(rec)))
-	eng.SetListingWindows(map[string]storage.ListingWindow{
+	eng.SetListingWindows(map[string]ListingWindow{
 		alive: {List: start.AddDate(-1, 0, 0)},
 		enter: {List: start.AddDate(0, 0, 2)},
 		exit:  {List: start.AddDate(-1, 0, 0), Delist: &delist},
