@@ -116,6 +116,14 @@ func (l *Loop) Step(ctx context.Context) (bool, error) {
 	if job == nil {
 		return false, nil
 	}
+	// 领取是「这个进程真的接上了活」的唯一可观察证据：worker 没有 HTTP 监听，
+	// 部署面（QT-79 ⑤）的健康判据是「心跳成功 + 能领到活」，因此这一条必须
+	// 出现在日志里，而不是只做内部状态变化。
+	l.Log.Info().
+		Str("run_id", job.RunID).
+		Int("attempts", job.Attempts).
+		Bool("cancel_requested", job.CancelRequested).
+		Msg("orchestration worker claimed job")
 	l.execute(ctx, job)
 	return true, nil
 }

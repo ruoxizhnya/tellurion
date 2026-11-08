@@ -296,7 +296,14 @@ services:
       context: .
       dockerfile: Dockerfile.service
     entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
-    command: ["/app/dualrun", "-out", "/app/reports/dualrun-latest.md"]
+    # dualrun 的 -pg 默认值是宿主机的 127.0.0.1；容器里那个地址是容器自己，
+    # 所以必须显式给一个容器可达的 DSN（与上面的 DATABASE_HOST 同义）。
+    command:
+      - "/app/dualrun"
+      - "-pg"
+      - "${DUALRUN_PG_DSN:-postgres://postgres:postgres@host.docker.internal:5432/tellurion?sslmode=disable}"
+      - "-out"
+      - "/app/reports/dualrun-latest.md"
     environment:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
