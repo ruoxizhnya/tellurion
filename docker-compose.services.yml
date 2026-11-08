@@ -75,6 +75,10 @@ services:
       - "127.0.0.1:8090:8090"
     environment:
       STRATEGY_DATABASE_URL: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
+      # 启动闸（kit DecideStartup）：容器内绑 0.0.0.0，无 secret 时必须显式声明
+      # AUTH_INSECURE_EXPOSURE=loopback-published 才能起。聚合栈与其余验签方共用
+      # 同一 dev secret（同 tellurion-strategy:deploy/compose.yaml 的口径）。
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
     volumes:
       - tellurion-strategy-artifacts:/data/artifacts
     depends_on:
