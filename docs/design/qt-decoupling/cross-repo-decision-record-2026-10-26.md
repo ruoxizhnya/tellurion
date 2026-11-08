@@ -1,7 +1,7 @@
 ---
 status: active
-last-verified: 2026-10-26
-verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议」，10 条）；同日补 Go 1.25.14 / Docker 29.8.0 实测
+last-verified: 2026-11-08
+verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议」，10 条）；同日补 Go 1.25.14 / Docker 29.8.0 实测。2026-11-08 补裁 #11~#13（K1 接口面对齐 / CT-06 迁回拆分 / 退役单前置订正三条，均按建议代裁、待主任追认）
 ---
 
 # 第六轮裁决记录（2026-10-26）
@@ -149,6 +149,42 @@ verified-by: 第六轮·待裁决清单清理（主任口径「全部按建议�
 | 聚合栈 | `up --wait` → 5/6 healthy；analytics `/healthz` 404（见 #4） | 🔶 修复后单容器已 healthy（`f010606`）；**整栈 6/6 未复跑** |
 | 端口 | 5173 / 8085 / 8086 空闲 | ✅ AUD-61 ① 前置解除 |
 | Python 门禁 | 取 `check_deploy_consistency.py` 这类带 `✓` 输出的检查器退出码，**必须先 `export PYTHONIOENCODING=utf-8`**；GBK 控制台下它打印时抛 `UnicodeEncodeError` ⇒ **EXIT=1 假红**（见 #10） | ⚠️ 退出码要先确认不是编码假红 |
+
+---
+
+## 四、2026-11-08 补裁（第 6 轮续，按建议代裁，**待主任追认**）
+
+> 授权来源：主任「跨仓裁决类按建议代裁并落档」。本节三条都**不新增架构方向**，只把既有材料里的建议
+> （材料 §5.2 K1、`tellurion-contracts:docs/TASKS.md` CT-06 ③②、CT-03 ④/CT-04/CT-05 施工记录）落成可执行的裁决，
+> 并订正被 2026-11-08 实测证伪的前提。状态一律 `✅ 口径生效 / ⬜ 施工待排`，不把裁决当完工。
+
+| # | 事项 | 裁决 | 落点 | 状态 |
+|---|---|---|---|---|
+| 11 | K1：切读接口面（core 5 条旧读面 vs data 4 条路由） | **以 data 仓 4 条路由为唯一数据服务面**；core 的 5 条旧读面**不由 data 补齐**，在 `SVC-DATA-G3` 逐条处置（可映射的改反代，不可映射的随退役删） | data `docs/TASKS.md` SVC-DATA-G1 ④⑥ / SVC-DATA-G3；core `docs/TASKS.md` SVC-CORE-DATA-RETIRE ⑥ | ✅ 口径生效（代裁，**待主任追认**）；施工归 G3 |
+| 12 | CT-06：61 个「仅 1 使用方」根名 | **按原建议迁回**（core 60 / agent 1 `BuiltinHypothesisFor`），拆两笔跨仓单 `CT-06-A`（agent，先做）/ `CT-06-B`（core，按「别名 / 实类型」分类）；本轮**只裁决与拆分，不施工** | contracts `docs/TASKS.md` CT-06 | ✅ 口径生效（代裁，**待主任追认**）；⬜ 施工待排 |
+| 13 | 退役单三条前置订正（实测证伪） | 见 §四.13：`Bundle/ParseBundle` 不迁契约（CT-03 ④ 已裁）、run pin 前置已解除、CT-05 tag 已推 | core `docs/TASKS.md` 三条 RETIRE ④；contracts CT-05 施工记录 | ✅ 已订正（**待主任追认**） |
+
+### 11 · K1 切读接口面对齐
+
+- **事项**：core 的 5 条旧读面 `/ohlcv/{symbol}` / `/api/v1/ohlcv/bulk` / `/screen` / `/market/index` / `/factors/{name}` 与 data 仓 4 条路由不对齐（材料 §5.2 K1、§2.6 ①）。
+- **裁决**：**以 data 仓已登记的路由为唯一数据服务面**（业务面 `/datasets/resolve`、`/datasets/{hash}`、`POST /ingest/points`，加 `/health`、`/readyz` 两条探针）。data **不补齐** core 的 5 条旧面；core 在 `SVC-DATA-G3` 切读时逐条处置：语义可映射的改成对 data 的反代，映射不了的随 `SVC-CORE-DATA-RETIRE` 删除。
+- **依据实测**：① data 的接口面已按 G1 五件（版本 / 错误码闭合 / 鉴权 / 幂等 / 分页限流）定型，并有 `/readyz` 三态与真库腿（`tellurion-data:docs/TASKS.md` SVC-DATA-G1 施工记录）；② `SVC-DATA-G1` 的 ④ 本来就按「不实现 5 条旧面」施工，今天的数据面**没有**这些形状；③ 补齐旧面 = 把 core 的旧形状固化进新服务，与 ADR-036「新仓只承接已登记形状」冲突。
+- **代价**：`SVC-DATA-G3` 里 `/factors/{name}` 与 `/screen` 两条若找不到 data 侧等价面，core 侧只能删或留在 core（届时在 G3 单内逐条定，不许默认补齐）。
+- **落点 / 状态**：data `docs/TASKS.md` SVC-DATA-G1 ④⑥ + SVC-DATA-G3；core `docs/TASKS.md` SVC-CORE-DATA-RETIRE ⑥。**代裁，待主任追认**。
+
+### 12 · CT-06 单使用方根名的迁回拆分
+
+- **事项**：CT-06 已删 22 个 0 使用方根名；余 61 个「仅 1 使用方」（core 60 + agent 1）卡在「迁回须改 core/agent，超出只改本仓边界」。
+- **裁决**：**按 CT-06 ③② 的原建议执行迁回**，不保留在 contracts（C4 准入规则不放宽）。拆两笔：`CT-06-A`（agent 的 `BuiltinHypothesisFor`，单仓单点，先做）；`CT-06-B`（core 60 个，按「兼容别名 / 实类型」分类——别名类只在 core 建同形别名，身份不变；实类型类才物理搬家并同批改签）。每笔 = contracts 删符号 + 使用方本地定义 + `CHANGELOG` 记 breaking + `api-surface.txt -update`。
+- **依据实测**：`tellurion-contracts:docs/API.md` §6.1 的逐名清单（带 `repo:path:line`）；`CheckApiSurface` 实测删除后 `domain/` 根包 107 符号 / 97 根名。
+- **代价**：`CT-06-B` 触及 core 大量调用点（`OHLCV` 795 命中、`Order` 147 命中），必须按别名优先做，否则会把同形类型拆成两份真相。
+- **落点 / 状态**：`tellurion-contracts:docs/TASKS.md` CT-06 ⑥ + 施工记录。**代裁，待主任追认**；本轮不施工。
+
+### 13 · 退役单三条前置订正（2026-11-08 实测）
+
+1. **`SVC-CORE-RISK-RETIRE` ③③**：原文要求「契约侧 `contracts/risk` 的 `Bundle → ParseBundle` 必须有测试（跨仓单 `CT-03`）」，与 CT-03 ④ 已裁的「`Bundle` / `ParseBundle` / `ForScope` **不迁**契约」直接冲突。**订正**：`ParseBundle` 留在 risk 服务，契约侧只固定 `Snapshot` 的形状与 hash 向量（`risk/snapshot_test.go` 已落）；本退役单的剩余前置 = risk 服务侧 `bundle → Snapshot` 的对外面（`SVC-RISK-G3`）+ core 的 F3 接线。
+2. **`SVC-CORE-RUN-RETIRE` 的 CT-04 跨仓指针**：原文写「前置 = contracts tag 推远端后升 pin（本机纪律只 commit 不 push ⇒ 今天**未执行**）」。**订正**：`v0.8.0` / `v0.9.0` 已于 2026-11-08 推远端，core 已 pin `v0.9.0` ⇒ 该前置**已解除**；剩余 = `internal/orchestrationworker` 的 claim / 父作业 DTO 改用 `contracts/run`（本单客户端腿）。
+3. **`CT-05` 施工记录**：原文写「`v0.9.0` tag 未 push，`go get …@v0.9.0` 解析不到 ⇒ broker 切 `go.mod` 会不可构建」。**订正**：tag 已于 2026-11-08 推远端；`SVC-BROKER-G1` 已 ✅ ⇒ broker 删本地形状改引 `contracts/broker` 的**前置已全部解除**，可开工（判据仍是「同一条报文快照改前 / 改后逐字节一致」）。
 
 ---
 

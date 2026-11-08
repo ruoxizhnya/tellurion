@@ -131,14 +131,14 @@ verified-by: QT-77 结案（2026-11-07 晚：真 PG + 真服务补齐风险 reso
   | ③ | `\.BulkInsert\(` | **1**（`pkg/data/source/etl.go:115`） | **0** |
   | ④ | `"tellurion/pkg/data` | **29 行 / 24 文件** | **0** |
   反向护栏：新建的 repoguard 断言 `postgres.go` 对上表 21 名**零** `CREATE TABLE` 且 `pkg/data` 目录不存在；**破坏验证**：加回一行 `CREATE TABLE IF NOT EXISTS stocks (...)` 或加回一行 `import "tellurion/pkg/data"` ⇒ 护栏必须红，逐字节还原后复绿。全仓 `go build/vet/test ./... -count=1` 绿。
-- **⑥ 边界**：只删 core；`tellurion-data` 侧的切读与 `X1d` 停写归 `SVC-DATA-G3`；跨仓待核 K1（切读接口面不对齐）/ K2（index_daily 形状）/ K3（10 张「有表无写者」）归 data 仓，本单不代答。
+- **⑥ 边界**：只删 core；`tellurion-data` 侧的切读与 `X1d` 停写归 `SVC-DATA-G3`；跨仓待核 **K1 已裁**（2026-11-08 补裁 #11：以 data 已登记路由为唯一数据服务面、data 不补齐 core 的 5 条旧读面，逐条处置归 G3）/ K2（index_daily 形状）/ K3（10 张「有表无写者」）仍归 data 仓，本单不代答。
 
 ### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] ⬜（串行第 5）
 
 - **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
 - **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
 - **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135` 的 `store *storage.PostgresStore` 字段与 `:511` 的 `func (e *Engine) SetStore(store *storage.PostgresStore)`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
-- **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。
+- **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。**CT-04 的 pin 前置已解除**（2026-11-08 补裁 #13-2：`v0.8.0` / `v0.9.0` 已推远端、core 已 pin `v0.9.0`），剩余只是 DTO 改用 `contracts/run` 的施工腿。
 - **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
 - **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
 
@@ -155,9 +155,9 @@ verified-by: QT-77 结案（2026-11-07 晚：真 PG + 真服务补齐风险 reso
 
 - **① 目标**：进程内 `RiskPolicy` 的**限额真相源**从 core 自己的配置改成 risk 服务下发的规则快照；检测器与同步裁决**留在本进程**（U7 已裁，ADR-036 §6 第 4 行「只退役规则源，不退役裁决」）。
 - **② 上下文**：判据正文 = 材料 §4.4，**本单不是表退役**（表级 0 行，`public.audit_logs` ≠ `risk.audit_logs`，不动）；删除对象 = `config/analysis-service.yaml` 的 `alert.*` / `risk_manager.*` 作为**限额来源**的那一半；包路径 `pkg/risk`、`cmd/analysis/wiring`（`risk_rules.go`）。
-- **③ 要求**：① 把 14 个 `risk_manager.*` 标量（`pkg/bootstrap/engine.go:38-51`）与 5 个 `alert.*` 阈值（`cmd/analysis/setup.go:112-144`）的来源改为 `bundle → rule.ParseBundle → RiskPolicy`；② 配置只允许保留**默认值兜底**，不许再是限额真相；③ 契约侧 `contracts/risk` 的 `Bundle → ParseBundle` 必须有测试（跨仓单 `CT-03`）；④ `resolve_enabled` 出厂变 `true` 并长期有观测（今天 `config/analysis-service.yaml:122` = `false`）。
-- **④ 约束与非目标**：**⛔ 前置**（材料 §4.4「阻塞」）= `bundle → RiskPolicy` 未接（第三轮裁决 ② 只建了契约包的**材料**，`contracts/risk` 目录今天不存在，实测 `ls tellurion-contracts` 无 `risk`）⇒ **本单排在 `QT-42` F3 之后不可达**；不把检测器搬出进程；不让逐笔裁决走网络（ADR-036 §6 第 2 条）。
-- **⑤ 验收**：① `v\.Get(Float64\|String\|Int)\("alert\.` 基线 **11 行** → 降到「仅默认值兜底」或 **0**；② `v\.Get(Float64\|Int)\("risk_manager\.` 基线 **14 行** → 同上；③ `resolve_enabled` 基线 **1**（值 `false`）→ `true`；④ 限额常量不得再出现在 `config/*.yaml`（真相在 risk 快照），反向护栏 = 契约侧 `Bundle → ParseBundle` 固定向量测试在位。
+- **③ 要求**：① 把 14 个 `risk_manager.*` 标量（`pkg/bootstrap/engine.go:38-51`）与 5 个 `alert.*` 阈值（`cmd/analysis/setup.go:112-144`）的来源改为 `bundle → rule.ParseBundle → RiskPolicy`；② 配置只允许保留**默认值兜底**，不许再是限额真相；③ 契约侧**只固定 `Snapshot` 的形状与 hash 向量**（`risk/snapshot_test.go` 已落）；`Bundle` / `ParseBundle` 按 **CT-03 ④ 不迁契约**，`bundle → Snapshot` 的对外面归 risk 服务（`SVC-RISK-G3`）——2026-11-08 补裁 #13-1 订正原文「契约侧必须有 `Bundle → ParseBundle` 测试」；④ `resolve_enabled` 出厂变 `true` 并长期有观测（今天 `config/analysis-service.yaml:122` = `false`）。
+- **④ 约束与非目标**：**⛔ 前置**（材料 §4.4「阻塞」）= `bundle → RiskPolicy` 未接；`contracts/risk` 包**已于 2026-11-07 随 `v0.7.0` 落地**（原文「目录今天不存在」已被证伪），但 `ParseBundle` 按 CT-03 ④ 留在 risk 服务 ⇒ 剩余前置 = risk 服务侧 `bundle → Snapshot` 对外面 + core 的 F3 接线，**本单仍排在 `QT-42` F3 之后不可达**；不把检测器搬出进程；不让逐笔裁决走网络（ADR-036 §6 第 2 条）。
+- **⑤ 验收**：① `v\.Get(Float64\|String\|Int)\("alert\.` 基线 **11 行** → 降到「仅默认值兜底」或 **0**；② `v\.Get(Float64\|Int)\("risk_manager\.` 基线 **14 行** → 同上；③ `resolve_enabled` 基线 **1**（值 `false`）→ `true`；④ 限额常量不得再出现在 `config/*.yaml`（真相在 risk 快照），反向护栏 = 契约侧 `Snapshot` 固定向量测试在位（`risk/snapshot_test.go`）。
 - **⑥ 边界**：core 侧配置真相退役；risk 仓侧的 `bundle` 可解析性归 `SVC-RISK-G3`。
 
 ### SVC-CORE-AN-RETIRE · core 分析产品化实现退役或冻结（ADR-036 G3）[P1] ⬜（串行第 8）
