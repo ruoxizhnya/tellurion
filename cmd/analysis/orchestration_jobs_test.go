@@ -50,12 +50,18 @@ func (f *fakeLegacyJobStore) ListBacktestJobs(_ context.Context, _ int) ([]map[s
 }
 
 type fakeResultReader struct {
-	rec *storage.BacktestResultRecord
-	err error
+	rec     *storage.BacktestResultRecord
+	err     error
+	list    []*storage.BacktestResultRecord
+	listErr error
 }
 
 func (f *fakeResultReader) GetBacktestResult(_ context.Context, _ string) (*storage.BacktestResultRecord, error) {
 	return f.rec, f.err
+}
+
+func (f *fakeResultReader) ListBacktestResults(_ context.Context, _ int) ([]*storage.BacktestResultRecord, error) {
+	return f.list, f.listErr
 }
 
 func legacyRow(id string, created time.Time) map[string]any {
@@ -233,23 +239,59 @@ func TestOrchestrationJobStoreListMergesAndDedupes(t *testing.T) {
 
 	store := newOrchestrationJobStore(
 		&fakeLegacyJobStore{list: []map[string]any{legacyRow("r1", now.Add(-time.Minute))}},
-		&fakeResultReader{err: storage.ErrBacktestResultNotFound},
+		&fakeResultReader{
+			err: storage.ErrBacktestResultNotFound,
+			list: []*storage.BacktestResultRecord{{
+				RunID: "r3", ResultStatus: "completed",
+				Result:    json.RawMessage(`{"strategy":"size","start_date":"2026-02-01","end_date":"2026-03-01","stock_pool":["600000.SH"]}`),
+				CreatedAt: now.Add(-2 * time.Minute), UpdatedAt: now.Add(-2 * time.Minute),
+			}},
+		},
 		orchestrationworker.NewClient(srv.URL, srv.Client()), zerolog.Nop(),
 	)
 	got, err := store.ListBacktestJobs(context.Background(), 20)
 	if err != nil {
 		t.Fatalf("ListBacktestJobs: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 rows after dedupe, got %d: %v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("want 3 rows after dedupe, got %d: %v", len(got), got)
 	}
-	ids := []string{got[0]["id"].(string), got[1]["id"].(string)}
+	ids := []string{got[0]["id"].(string), got[1]["id"].(string), got[2]["id"].(string)}
 	sort.Strings(ids)
-	if ids[0] != "r1" || ids[1] != "r2" {
+	if ids[0] != "r1" || ids[1] != "r2" || ids[2] != "r3" {
 		t.Fatalf("ids = %v", ids)
 	}
-	if got[0]["id"] != "r2" {
-		t.Fatalf("list must be created_at desc (r2 newest), got %v first", got[0]["id"])
+	if got[0]["id"] != "r2" || got[1]["id"] != "r1" || got[2]["id"] != "r3" {
+		t.Fatalf("list must be created_at desc (r2, r1, r3), got %v", []any{got[0]["id"], got[1]["id"], got[2]["id"]})
+	}
+	// 结果面行必须补齐策略元数据（同步回测没有任务行，元数据只在载荷里）。
+	if got[2]["strategy_id"] != "size" || got[2]["universe"] != "600000.SH" {
+		t.Fatalf("result-face row not projected: %v", got[2])
+	}
+}
+
+// TestOrchestrationJobStoreListWithoutTaskClient 钉住「只配了结果面、没配编排」
+// 的部署形态：任务面缺失时列表仍须包含结果面行（同步回测/存量迁移行）。
+func TestOrchestrationJobStoreListWithoutTaskClient(t *testing.T) {
+	now := time.Now()
+	store := newOrchestrationJobStore(
+		&fakeLegacyJobStore{},
+		&fakeResultReader{list: []*storage.BacktestResultRecord{{
+			RunID: "sync-1", ResultStatus: "completed",
+			Result:    json.RawMessage(`{"strategy":"value","start_date":"2026-01-01","end_date":"2026-02-01"}`),
+			CreatedAt: now, UpdatedAt: now,
+		}}},
+		nil, zerolog.Nop(),
+	)
+	got, err := store.ListBacktestJobs(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("ListBacktestJobs: %v", err)
+	}
+	if len(got) != 1 || got[0]["id"] != "sync-1" || got[0]["status"] != "completed" {
+		t.Fatalf("result-face-only list wrong: %v", got)
+	}
+	if got[0]["strategy_id"] != "value" {
+		t.Fatalf("strategy metadata missing: %v", got[0])
 	}
 }
 

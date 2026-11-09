@@ -54,6 +54,23 @@ func newOrchestrationTaskClient(logger zerolog.Logger) *orchestrationworker.Clie
 // backtestResultReader 是结果面的只读口（*storage.PostgresStore 满足）。
 type backtestResultReader interface {
 	GetBacktestResult(ctx context.Context, runID string) (*storage.BacktestResultRecord, error)
+	ListBacktestResults(ctx context.Context, limit int) ([]*storage.BacktestResultRecord, error)
+}
+
+// analysisResultFace 把 *storage.PostgresStore 适配成 backtest.ResultFaceWriter
+// （SVC-ORCH-G3）：同步回测的结论写 run.backtest_results，不再插
+// backtest_jobs。接口用原始类型表达，故此处做一次薄转换。
+type analysisResultFace struct {
+	store *storage.PostgresStore
+}
+
+func (a analysisResultFace) SaveBacktestResult(ctx context.Context, runID, resultStatus string, result []byte) error {
+	rec := &storage.BacktestResultRecord{RunID: runID, ResultStatus: resultStatus}
+	if len(result) > 0 {
+		rec.Result = json.RawMessage(result)
+	}
+	_, err := a.store.SaveBacktestResult(ctx, rec)
+	return err
 }
 
 // orchestrationJobStore 把「任务面 + 结果面 + 存量行」拼成 JobService 需要的 JobStore。
@@ -120,6 +137,9 @@ func (s *orchestrationJobStore) GetBacktestJob(ctx context.Context, jobID string
 		return jobMapFromResult(rec), nil
 	}
 
+	if s.tasks == nil {
+		return nil, nil
+	}
 	state, err := s.tasks.Job(ctx, jobID)
 	if err != nil {
 		if isOrchestrationNotFound(err) {
@@ -130,40 +150,52 @@ func (s *orchestrationJobStore) GetBacktestJob(ctx context.Context, jobID string
 	return jobMapFromTaskState(state), nil
 }
 
-// ListBacktestJobs 合并存量行与任务面列表（按 id 去重，created_at 降序）。
-//
-// 任务面不可用时只返回存量行：列表页降级可读，不把整页打成 500。
+// ListBacktestJobs 合并存量行、结果面行与任务面列表（按 id 去重、created_at
+// 降序）。任务面 / 结果面任一不可用时只降级该源，不把整页打成 500。
 func (s *orchestrationJobStore) ListBacktestJobs(ctx context.Context, limit int) ([]map[string]any, error) {
 	legacy, err := s.legacy.ListBacktestJobs(ctx, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	page, err := s.tasks.List(ctx, "", "", limit)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("orchestration list unavailable; serving legacy rows only")
-		return legacy, nil
-	}
-
-	seen := make(map[string]bool, len(legacy)+len(page.Jobs))
-	out := make([]map[string]any, 0, len(legacy)+len(page.Jobs))
+	seen := make(map[string]bool, len(legacy)+limit)
+	out := make([]map[string]any, 0, len(legacy)+limit)
 	for _, m := range legacy {
 		if id, ok := m["id"].(string); ok {
 			seen[id] = true
 		}
 		out = append(out, m)
 	}
-	for _, view := range page.Jobs {
-		if seen[view.JobID] {
-			continue
+
+	// 结果面：同步回测与已迁移的存量没有任务行，只能从这里补进列表。
+	results, err := s.results.ListBacktestResults(ctx, limit)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("result face list unavailable; serving legacy rows only")
+	} else {
+		for _, rec := range results {
+			if seen[rec.RunID] {
+				continue
+			}
+			seen[rec.RunID] = true
+			out = append(out, jobMapFromResult(rec))
 		}
-		seen[view.JobID] = true
-		j := jobMapFromTaskView(view)
-		if prev := s.completedResult(ctx, view.JobID); prev != nil {
-			j = prev
-		}
-		out = append(out, j)
 	}
+
+	if s.tasks != nil {
+		page, err := s.tasks.List(ctx, "", "", limit)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("orchestration list unavailable; serving local rows only")
+		} else {
+			for _, view := range page.Jobs {
+				if seen[view.JobID] {
+					continue
+				}
+				seen[view.JobID] = true
+				out = append(out, jobMapFromTaskView(view))
+			}
+		}
+	}
+
 	sort.SliceStable(out, func(i, j int) bool {
 		return mapCreatedAt(out[i]).After(mapCreatedAt(out[j]))
 	})
@@ -171,16 +203,6 @@ func (s *orchestrationJobStore) ListBacktestJobs(ctx context.Context, limit int)
 		out = out[:limit]
 	}
 	return out, nil
-}
-
-// completedResult 给任务面列表里的终态作业补上结果面元数据（策略 / 区间 /
-// 结果体），避免列表里已完成作业只剩一个 id。查不到（404 / 未落）返回 nil。
-func (s *orchestrationJobStore) completedResult(ctx context.Context, runID string) map[string]any {
-	rec, err := s.results.GetBacktestResult(ctx, runID)
-	if err != nil || rec == nil {
-		return nil
-	}
-	return jobMapFromResult(rec)
 }
 
 // ─── 映射 ──────────────────────────────────────────────────────────────

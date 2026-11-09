@@ -149,3 +149,35 @@ func (s *PostgresStore) GetBacktestResult(ctx context.Context, runID string) (*B
 	}
 	return &out, nil
 }
+
+// ListBacktestResults 按 created_at 降序读回结果面作业（最多 limit 条）。
+//
+// 列表页用它补齐「没有任务行」的作业：同步回测与迁移前的存量只存在于结果
+// 面，任务面列表里看不到它们。
+func (s *PostgresStore) ListBacktestResults(ctx context.Context, limit int) ([]*BacktestResultRecord, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	const q = `
+		SELECT run_id, result_status, result, COALESCE(error_message,''), created_at, updated_at
+		FROM run.backtest_results ORDER BY created_at DESC LIMIT $1
+	`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list backtest results: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*BacktestResultRecord, 0, limit)
+	for rows.Next() {
+		var rec BacktestResultRecord
+		if err := rows.Scan(&rec.RunID, &rec.ResultStatus, &rec.Result, &rec.ErrorMessage, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan backtest result: %w", err)
+		}
+		out = append(out, &rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate backtest results: %w", err)
+	}
+	return out, nil
+}

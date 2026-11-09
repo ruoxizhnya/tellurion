@@ -274,15 +274,14 @@ func buildDataServices(
 	// 进 params["kernel"]，worker 执行期只消费已定路由（与同步端点共用
 	// contracts.ResolveRunTarget 单一映射实现）。
 	// SVC-ORCH-G3：异步任务面切到编排服务。未配置 ORCHESTRATION_URL 时
-	// taskClient == nil，JobService 仍持裸 store（本地旧路径）。
+	// taskClient == nil，异步入口仍走本地旧路径；但读面**无条件**走三源
+	// 包装 —— 同步回测与已迁移存量只存在于结果面，裸 store 读不到它们。
 	taskClient := newOrchestrationTaskClient(logger)
-	var jobStore backtest.JobStore = store
-	if taskClient != nil {
-		// 读面 = 存量行 → 结果面 → 任务面（切读过渡期三源并存）。
-		jobStore = newOrchestrationJobStore(store, store, taskClient, logger)
-	}
+	jobStore := backtest.JobStore(newOrchestrationJobStore(store, store, taskClient, logger))
 	jobService := backtest.NewJobService(jobStore, engineRegistry, logger,
-		backtest.WithMarketRouter(marketRouter))
+		backtest.WithMarketRouter(marketRouter),
+		// 同步回测只有结论、没有任务生命周期：写结果面，不插 legacy 队列。
+		backtest.WithResultFace(analysisResultFace{store: store}))
 	logger.Info().Msg("Job service initialized")
 
 	// AUD-50: repair backtest rows left in `running` by a previous process.

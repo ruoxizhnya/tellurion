@@ -208,6 +208,43 @@ func TestBacktestResultNotFound(t *testing.T) {
 	}
 }
 
+// TestListBacktestResultsOrdersAndLimits 钉住列表读面：created_at 降序、
+// limit 生效（limit<=0 取默认值而不是全表）。
+func TestListBacktestResultsOrdersAndLimits(t *testing.T) {
+	store := newBacktestResultsTestStore(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("test-br-list-%d", time.Now().UnixNano())
+
+	ids := []string{prefix + "-old", prefix + "-mid", prefix + "-new"}
+	t.Cleanup(func() {
+		for _, id := range ids {
+			_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = $1`, id)
+		}
+	})
+	// 显式写 created_at，避免同一批插入落到同一微秒导致顺序断言不稳定；
+	// 用未来时间戳保证这三行是表里最新的，limit 截断只可能截到它们。
+	ages := []string{"1 minute", "2 minutes", "3 minutes"}
+	for i, id := range ids {
+		if _, err := store.pool.Exec(ctx, `
+			INSERT INTO run.backtest_results (run_id, result_status, result, created_at, updated_at)
+			VALUES ($1, 'completed', '{"strategy":"momentum"}'::jsonb, now() + $2::interval, now() + $2::interval)`,
+			id, ages[i]); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	got, err := store.ListBacktestResults(ctx, 2)
+	if err != nil {
+		t.Fatalf("ListBacktestResults: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("limit not applied: got %d rows, want 2 (%+v)", len(got), got)
+	}
+	if got[0].RunID != ids[2] || got[1].RunID != ids[1] {
+		t.Fatalf("order = [%s %s], want [%s %s] (created_at desc)", got[0].RunID, got[1].RunID, ids[2], ids[1])
+	}
+}
+
 // TestBacktestResultsBackfillFromLegacyJobs 钉住 Migration 064：
 //   - completed / invalid / failed 三类终态行被搬进结果面（failed 允许无载荷）；
 //   - pending / running 不搬（结论未定，搬了就是把队列状态当结果）；

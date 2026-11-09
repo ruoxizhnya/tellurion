@@ -298,6 +298,10 @@ func NewJobService(store JobStore, registry *contracts.EngineRegistry, logger ze
 // WithMarketRouter 别名 — DBT-06：job 创建期的市场路由（见 job 包）。
 var WithMarketRouter = job.WithMarketRouter
 
+// WithResultFace 别名 — SVC-ORCH-G3：同步回测结论写 core 结果面
+// run.backtest_results（见 job 包 ResultFaceWriter）。
+var WithResultFace = job.WithResultFace
+
 // Compile-time assertion: *Engine satisfies contracts.EngineRunner.
 // If the RunBacktest signature ever drifts from the interface, the
 // build fails here rather than at a distant call site.

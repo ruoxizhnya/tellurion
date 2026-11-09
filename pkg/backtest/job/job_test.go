@@ -414,6 +414,85 @@ func TestJobService_SaveSyncResult_EmptyStockPool(t *testing.T) {
 	assert.Equal(t, "", stored["universe"])
 }
 
+// fakeResultFace 记录写口调用（SVC-ORCH-G3）。
+type fakeResultFace struct {
+	calls   int
+	runID   string
+	status  string
+	payload []byte
+	err     error
+}
+
+func (f *fakeResultFace) SaveBacktestResult(_ context.Context, runID, resultStatus string, result []byte) error {
+	f.calls++
+	f.runID = runID
+	f.status = resultStatus
+	f.payload = result
+	return f.err
+}
+
+// TestJobService_SaveSyncResult_WritesResultFaceOnly 钉住：注入结果面后，
+// 同步回测只写 run.backtest_results，**不再**往 legacy backtest_jobs 插行。
+func TestJobService_SaveSyncResult_WritesResultFaceOnly(t *testing.T) {
+	store := newMockJobStore()
+	registry := contracts.NewEngineRegistry()
+	registry.Register(contracts.DefaultKernel, &fakeRunner{})
+	face := &fakeResultFace{}
+	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+
+	resp := &contracts.BacktestResponse{
+		ID:          "sync-face-1",
+		Strategy:    "momentum",
+		StockPool:   []string{"600000.SH"},
+		StartDate:   "2020-01-01",
+		EndDate:     "2023-12-31",
+		TotalReturn: 0.21,
+	}
+	require.NoError(t, svc.SaveSyncResult(context.Background(), resp))
+
+	assert.Equal(t, 1, face.calls)
+	assert.Equal(t, "sync-face-1", face.runID)
+	assert.Equal(t, contracts.StatusCompleted, face.status)
+	var payload contracts.BacktestResponse
+	require.NoError(t, json.Unmarshal(face.payload, &payload))
+	assert.InDelta(t, 0.21, payload.TotalReturn, 1e-9)
+
+	// legacy 表必须一行都没有：同步回测的结论不属于任务面。
+	stored, err := store.GetBacktestJob(context.Background(), "sync-face-1")
+	require.NoError(t, err)
+	assert.Nil(t, stored, "SaveSyncResult must not insert into the legacy job table")
+	assert.Empty(t, store.order)
+}
+
+// TestJobService_SaveSyncResult_ResultFaceInvalidStatus 钉住 K9 结论轴：
+// 无效结果写 'invalid'，不是 'completed' 也不是 'failed'。
+func TestJobService_SaveSyncResult_ResultFaceInvalidStatus(t *testing.T) {
+	store := newMockJobStore()
+	registry := contracts.NewEngineRegistry()
+	registry.Register(contracts.DefaultKernel, &fakeRunner{})
+	face := &fakeResultFace{}
+	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+
+	resp := &contracts.BacktestResponse{ID: "sync-face-2", Status: contracts.StatusInvalid}
+	require.NoError(t, svc.SaveSyncResult(context.Background(), resp))
+	assert.Equal(t, contracts.StatusInvalid, face.status)
+}
+
+// TestJobService_SaveSyncResult_ResultFaceRequiresID 钉住 fail-closed：
+// 结果面以 run_id 为主键，空 ID 必须拒绝而不是写一条无主行。
+func TestJobService_SaveSyncResult_ResultFaceRequiresID(t *testing.T) {
+	store := newMockJobStore()
+	registry := contracts.NewEngineRegistry()
+	registry.Register(contracts.DefaultKernel, &fakeRunner{})
+	face := &fakeResultFace{}
+	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+
+	err := svc.SaveSyncResult(context.Background(), &contracts.BacktestResponse{Strategy: "momentum"})
+	require.Error(t, err)
+	assert.Equal(t, 0, face.calls)
+	assert.Empty(t, store.order)
+}
+
 // ---- Sprint 6 P0-6: concurrent access regression tests ------------------
 
 // TestMockJobStore_Concurrent_1000xNoDataRace hammers the mock from

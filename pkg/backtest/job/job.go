@@ -32,6 +32,11 @@ type JobService struct {
 	// 自带拒绝），不带 market 的请求行为逐字节不变。
 	marketRouter *contracts.MarketRouter
 
+	// resultFace（SVC-ORCH-G3）：非 nil 时同步回测结论写进 core 的结果面
+	// run.backtest_results，不再往遗留队列表 backtest_jobs 插行。nil =
+	// 旧路径（仅供未接结果面的部署与既有测试）。
+	resultFace ResultFaceWriter
+
 	// cancelFuncs holds cancellation functions for running jobs.
 	// Key: jobID, Value: cancellation function.
 	cancelFuncs sync.Map
@@ -179,6 +184,23 @@ type JobServiceOption func(*JobService)
 func WithMarketRouter(router *contracts.MarketRouter) JobServiceOption {
 	return func(s *JobService) {
 		s.marketRouter = router
+	}
+}
+
+// ResultFaceWriter 是 core 结果面（run.backtest_results）的最小写口
+// （SVC-ORCH-G3）。接口用原始类型表达，job 包不依赖 storage 的数据结构。
+type ResultFaceWriter interface {
+	SaveBacktestResult(ctx context.Context, runID, resultStatus string, result []byte) error
+}
+
+// WithResultFace 把同步回测的结论重定向到结果面。
+//
+// 注入后 SaveSyncResult 不再往遗留队列表 backtest_jobs 插行：同步回测没有
+// 任务生命周期，只有结论，结果面才是它的归属。nil = 旧路径（未接结果面的
+// 部署与既有测试）。
+func WithResultFace(w ResultFaceWriter) JobServiceOption {
+	return func(s *JobService) {
+		s.resultFace = w
 	}
 }
 
@@ -734,6 +756,26 @@ func (s *JobService) CleanupStaleRunning(ctx context.Context) (int, error) {
 
 // SaveSyncResult persists a completed synchronous backtest result to the DB.
 func (s *JobService) SaveSyncResult(ctx context.Context, resp *contracts.BacktestResponse) error {
+	if resp == nil {
+		return fmt.Errorf("nil backtest result")
+	}
+
+	// 结果面（SVC-ORCH-G3）：同步回测只有结论、没有任务生命周期，直接写
+	// run.backtest_results，不再往 backtest_jobs 插行。
+	if s.resultFace != nil {
+		if resp.ID == "" {
+			return fmt.Errorf("backtest result has an empty id")
+		}
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			return fmt.Errorf("failed to marshal result: %w", err)
+		}
+		if err := s.resultFace.SaveBacktestResult(ctx, resp.ID, resultStatusOf(resp.Status), resultJSON); err != nil {
+			return fmt.Errorf("failed to persist result face: %w", err)
+		}
+		return nil
+	}
+
 	resultJSON, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
