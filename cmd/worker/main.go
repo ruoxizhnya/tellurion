@@ -51,6 +51,7 @@ func run() error {
 		poll             = flag.Duration("poll", 2*time.Second, "无活时的轮询间隔")
 		runTimeout       = flag.Duration("run-timeout", 30*time.Minute, "单条回测的超时（超时按 failed 上报）")
 		configPath       = flag.String("config", "", "引擎配置文件（默认 config/analysis-service.yaml）")
+		serviceToken     = flag.String("orchestration-token", strings.TrimSpace(os.Getenv("ORCHESTRATION_SERVICE_TOKEN")), "调用编排服务的 service token（全量 R5；空 = 不带 Authorization）")
 	)
 	flag.Parse()
 
@@ -111,6 +112,7 @@ func run() error {
 		},
 	}
 	client := orchestrationworker.NewClient(url, nil)
+	client.Token = strings.TrimSpace(*serviceToken)
 	benchmarkIndex := strings.TrimSpace(v.GetString("benchmark.index_code"))
 	if benchmarkIndex == "" {
 		benchmarkIndex = "000300.SH"

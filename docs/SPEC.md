@@ -3003,7 +3003,9 @@ env 读（`-secret-env` 可改名），stdout 只输出 token，`-sub` 不是
 | analytics | `service:analytics` | core `POST /api/backtest` | `ANALYTICS_CORE_TOKEN` |
 | analytics | `service:analytics` | data `GET /datasets/*` | `DATA_SERVICE_TOKEN` |
 | analytics | `service:analytics` | core `GET /api/runs/{id}/{portfolio-snapshot,factor-exposures}` | `ANALYTICS_ARTIFACT_TOKEN`（缺省复用 core token） |
-| worker（core） | `service:worker` | orchestration 任务面 | ⛔ 未启用：`SVC-ORCH-G1` 落地后再签 |
+| worker（core） | `service:worker` | orchestration 任务面（`/api/runs/workers/*`、`/api/runs/jobs/*/lease、result、cancel-ack`） | `ORCHESTRATION_SERVICE_TOKEN`（2026-11-09 全量 R5 启用） |
+| analysis / worker（core） | `service:analysis` / `service:worker` | orchestration 作业面（`/api/runs/jobs*`、`/api/runs/parents*`、`GET /api/runs/{id}/provenance`） | `ORCHESTRATION_SERVICE_TOKEN`（同上；`service` 角色即可） |
+| analytics | `service:analytics` | orchestration `POST /api/runs/parents` / `GET /api/runs/parents/{id}` | `ANALYTICS_ORCHESTRATION_TOKEN`（缺省读 `ORCHESTRATION_SERVICE_TOKEN`） |
 | core | `service:core` | broker 订单面 | `BROKER_SERVICE_TOKEN`（G1 是常量时间比对的共享串，**不是** JWT；换成 JWT 归 `SVC-BROKER-G1`） |
 
 校验侧（被打的一方）只需要共享 `JWT_SECRET`，不需要任何 `*_TOKEN`：

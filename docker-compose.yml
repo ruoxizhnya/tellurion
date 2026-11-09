@@ -283,6 +283,9 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       # 编排服务在服务仓聚合栈（127.0.0.1:8088）或宿主机上；容器内用 host 网关。
       ORCHESTRATION_URL: ${ORCHESTRATION_URL:-http://host.docker.internal:8088}
+      # 全量 R5（SVC-ORCH-G1）后编排面的每条路由都要 service 凭证；
+      # 只给发送方注入，仓库里只有空占位（签法见 docs/SPEC.md#服务间凭证）。
+      ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-}
       LOGGING_LEVEL: info
     restart: "no"

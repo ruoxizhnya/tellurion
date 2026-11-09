@@ -75,6 +75,9 @@ func sentinelFor(code string) error {
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	// Token 是调用 orchestration 的 service token（`ORCHESTRATION_SERVICE_TOKEN`）。
+	// 空 = 不带 Authorization；服务端未启用鉴权时仍是合法调用。
+	Token string
 }
 
 // NewClient 构造客户端。httpClient 为 nil 时用带 15s 超时的默认值。
@@ -239,6 +242,9 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 }
 
 func (c *Client) do(req *http.Request, out any) error {
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("orchestrationworker: %s %s: %w", req.Method, req.URL.Path, err)
