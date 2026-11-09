@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,6 +188,93 @@ func (c *Client) Job(ctx context.Context, runID string) (JobState, error) {
 	var out JobState
 	if err := c.get(ctx, "/api/runs/jobs/"+pathEscape(runID), &out); err != nil {
 		return JobState{}, err
+	}
+	return out, nil
+}
+
+// SubmitResult 是任务面提交 / 取消的响应（orchestration `docs/api-schema.md` §9.4）。
+type SubmitResult struct {
+	JobID            string  `json:"job_id"`
+	Status           string  `json:"status"`
+	ResultStatus     *string `json:"result_status"`
+	IdempotentReplay bool    `json:"idempotent_replay"`
+}
+
+// JobView 是任务面 GET / list 的冻结视图（§9.4）。客户端只声明自己消费的
+// 字段；未列出的字段由服务端继续演进，不影响解码。
+type JobView struct {
+	JobID           string     `json:"job_id"`
+	Status          string     `json:"status"`
+	ResultStatus    *string    `json:"result_status"`
+	Error           string     `json:"error,omitempty"`
+	ResultURI       string     `json:"result_uri,omitempty"`
+	RunSpecHash     string     `json:"run_spec_hash"`
+	CancelRequested bool       `json:"cancel_requested"`
+	CreatedAt       *time.Time `json:"created_at"`
+	StartedAt       *time.Time `json:"started_at"`
+	CompletedAt     *time.Time `json:"completed_at"`
+}
+
+// JobPage 是 list 的响应。
+type JobPage struct {
+	Jobs  []JobView `json:"jobs"`
+	Total int       `json:"total"`
+}
+
+// Submit 提交一条 run_spec（任务面归 orchestration，SVC-ORCH-G3）。
+//
+// 新行 → 202 + `status=pending`；同幂等键重放 → 200 + `idempotent_replay=true`。
+// run_spec 原样透传，客户端不解析、不改写——形状由 core 的异步入口负责。
+func (c *Client) Submit(ctx context.Context, idempotencyKey string, priority int, runSpec []byte) (SubmitResult, error) {
+	if len(runSpec) == 0 {
+		return SubmitResult{}, fmt.Errorf("orchestrationworker: empty run_spec")
+	}
+	body := struct {
+		IdempotencyKey string          `json:"idempotency_key"`
+		Priority       int             `json:"priority"`
+		RunSpec        json.RawMessage `json:"run_spec"`
+	}{IdempotencyKey: idempotencyKey, Priority: priority, RunSpec: json.RawMessage(runSpec)}
+	var out SubmitResult
+	if err := c.post(ctx, "/api/runs/jobs", body, &out); err != nil {
+		return SubmitResult{}, err
+	}
+	return out, nil
+}
+
+// List 按状态过滤列出任务（空串 = 不过滤；limit<=0 = 服务端默认）。
+func (c *Client) List(ctx context.Context, status, resultStatus string, limit int) (JobPage, error) {
+	query := url.Values{}
+	if status != "" {
+		query.Set("status", status)
+	}
+	if resultStatus != "" {
+		query.Set("result_status", resultStatus)
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/api/runs/jobs"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out JobPage
+	if err := c.get(ctx, path, &out); err != nil {
+		return JobPage{}, err
+	}
+	return out, nil
+}
+
+// Cancel 请求取消：`pending` → 200 `cancelled`；`running` → 202 `cancelling`；
+// 终态 → 200 原状态（幂等，重复取消不报错）。
+func (c *Client) Cancel(ctx context.Context, runID string) (SubmitResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		c.BaseURL+"/api/runs/jobs/"+pathEscape(runID), nil)
+	if err != nil {
+		return SubmitResult{}, fmt.Errorf("orchestrationworker: build cancel request: %w", err)
+	}
+	var out SubmitResult
+	if err := c.do(req, &out); err != nil {
+		return SubmitResult{}, err
 	}
 	return out, nil
 }

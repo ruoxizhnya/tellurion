@@ -215,3 +215,75 @@ func freeAddr(t *testing.T) string {
 	_ = ln.Close()
 	return addr
 }
+
+// TestWireControlPlaneWithRealOrchestrationProcess 验证 SVC-ORCH-G3 的 core
+// 客户端腿：提交 / 幂等重放 / 列表 / 取消，全部走真 orchestration 进程与真 PG。
+func TestWireControlPlaneWithRealOrchestrationProcess(t *testing.T) {
+	dsn := os.Getenv("ORCHESTRATION_TEST_DSN")
+	if dsn == "" {
+		t.Skip("ORCHESTRATION_TEST_DSN is not set; skipping real orchestration wire test")
+	}
+	repo := os.Getenv("ORCHESTRATION_REPO")
+	if repo == "" {
+		repo = filepath.Join("..", "..", "..", "tellurion-orchestration")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "cmd", "orchestrationservice")); err != nil {
+		t.Skipf("orchestration repo not found at %s: %v", repo, err)
+	}
+
+	base := startOrchestration(t, repo, dsn)
+	client := orchestrationworker.NewClient(base, &http.Client{Timeout: 10 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	spec := []byte(`{"strategy":"momentum","stock_pool":["600000.SH"],"start_date":"2024-01-02","end_date":"2024-12-31","kernel":"go"}`)
+	key := fmt.Sprintf("core-e2e-submit-%d", time.Now().UnixNano())
+	submitted, err := client.Submit(ctx, key, 5, spec)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if submitted.JobID == "" || submitted.Status != "pending" || submitted.IdempotentReplay {
+		t.Fatalf("submit = %+v", submitted)
+	}
+
+	replay, err := client.Submit(ctx, key, 5, spec)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if replay.JobID != submitted.JobID || !replay.IdempotentReplay {
+		t.Fatalf("replay = %+v, want same job %s with idempotent_replay=true", replay, submitted.JobID)
+	}
+
+	page, err := client.List(ctx, "pending", "", 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	found := false
+	for _, job := range page.Jobs {
+		if job.JobID == submitted.JobID {
+			found = true
+			if job.RunSpecHash == "" {
+				t.Fatal("listed job has empty run_spec_hash")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("submitted job %s not in pending list (%d jobs)", submitted.JobID, page.Total)
+	}
+
+	cancelled, err := client.Cancel(ctx, submitted.JobID)
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if cancelled.Status != "cancelled" {
+		t.Fatalf("cancel = %+v", cancelled)
+	}
+
+	job, err := client.Job(ctx, submitted.JobID)
+	if err != nil {
+		t.Fatalf("job: %v", err)
+	}
+	if job.Status != "cancelled" {
+		t.Fatalf("job after cancel = %+v", job)
+	}
+}
