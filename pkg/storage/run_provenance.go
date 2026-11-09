@@ -13,7 +13,8 @@ import (
 // QT-63 · quant.run_provenance 的读写。
 //
 // 这张表只存**输入身份**（三份 hash + 生效参数 + 生效口径），**不存 run 状态**：
-// status 的唯一权威是 backtest_jobs（O1 后是 run.backtest_jobs），两边写状态迟早
+// 生命周期状态归编排的 run.backtest_jobs，结论归 run.backtest_results
+// （SVC-ORCH-G3 收尾腿后 core 的本地队列表已退役）；两边写状态迟早
 // 各说各话。查状态用 join / 视图（QT-44）。
 //
 // 落点裁决与迁移债（O1 时由 run.run_artifacts 双写/对拍/切读/停写后取代）见

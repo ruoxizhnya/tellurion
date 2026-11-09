@@ -29,12 +29,12 @@ import (
 )
 
 type fakeProvenanceReader struct {
-	row    *storage.BacktestJobProvenance
+	row    *storage.BacktestProvenance
 	err    error
 	gotIDs []string
 }
 
-func (f *fakeProvenanceReader) GetBacktestJobProvenance(_ context.Context, runID string) (*storage.BacktestJobProvenance, error) {
+func (f *fakeProvenanceReader) GetBacktestJobProvenance(_ context.Context, runID string) (*storage.BacktestProvenance, error) {
 	f.gotIDs = append(f.gotIDs, runID)
 	return f.row, f.err
 }
@@ -53,10 +53,9 @@ func provenanceGet(t *testing.T, r *gin.Engine, id string) *httptest.ResponseRec
 	return w
 }
 
-func provenanceSampleRow() *storage.BacktestJobProvenance {
+func provenanceSampleRow() *storage.BacktestProvenance {
 	created := time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)
-	return &storage.BacktestJobProvenance{
-		JobStatus:    "completed",
+	return &storage.BacktestProvenance{
 		ResultStatus: "invalid",
 		Provenance: &storage.RunProvenanceRecord{
 			RunID:               "bt-1",
@@ -130,10 +129,12 @@ func TestProvenance_ReturnsThreeHashesAndK9Conclusion(t *testing.T) {
 	assert.JSONEq(t, `""`, string(raw["risk_rules_hash"]))
 }
 
+// TestProvenance_NotReadyIs409 钉住「无结果行 = 未收尾」。
+// SVC-ORCH-G3 收尾腿后 core 没有生命周期轴，409 的唯一判据是结果面没有结论。
 func TestProvenance_NotReadyIs409(t *testing.T) {
 	t.Parallel()
 
-	reader := &fakeProvenanceReader{row: &storage.BacktestJobProvenance{JobStatus: "running"}}
+	reader := &fakeProvenanceReader{row: &storage.BacktestProvenance{}}
 	w := provenanceGet(t, provenanceTestRouter(reader), "bt-running")
 	assertProvenanceCode(t, w, http.StatusConflict, "provenance_not_ready")
 }
@@ -143,21 +144,22 @@ func TestProvenance_TerminalWithoutRowSplits404And500(t *testing.T) {
 
 	cases := []struct {
 		name         string
-		jobStatus    string
 		resultStatus string
 		status       int
 		code         string
 	}{
-		{"failed never produced provenance", "failed", "failed", http.StatusNotFound, "provenance_not_found"},
-		{"cancelled never produced provenance", "cancelled", "", http.StatusNotFound, "provenance_not_found"},
-		{"completed lost its provenance", "completed", "completed", http.StatusInternalServerError, "provenance_missing"},
-		{"invalid lost its provenance", "completed", "invalid", http.StatusInternalServerError, "provenance_missing"},
+		{"failed never produced provenance", "failed", http.StatusNotFound, "provenance_not_found"},
+		// 偏差（待主任追认）：cancelled 不写结果行，故从 404 变为 409 ——
+		// 「取消」不是「跑完且失败」，读成未收尾更接近事实。
+		{"cancelled has no result row", "", http.StatusConflict, "provenance_not_ready"},
+		{"completed lost its provenance", "completed", http.StatusInternalServerError, "provenance_missing"},
+		{"invalid lost its provenance", "invalid", http.StatusInternalServerError, "provenance_missing"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			reader := &fakeProvenanceReader{row: &storage.BacktestJobProvenance{
-				JobStatus: tc.jobStatus, ResultStatus: tc.resultStatus,
+			reader := &fakeProvenanceReader{row: &storage.BacktestProvenance{
+				ResultStatus: tc.resultStatus,
 			}}
 			w := provenanceGet(t, provenanceTestRouter(reader), "bt-x")
 			assertProvenanceCode(t, w, tc.status, tc.code)

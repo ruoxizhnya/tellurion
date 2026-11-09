@@ -297,11 +297,11 @@ func (q *Queue) notify() {
 // progress. The observed symptom is a job frozen at N/M with nothing in the log
 // but health checks.
 //
-// The precedent is pkg/backtest/job's CleanupStaleRunning (P0-8). That one is
-// wired, but only into gracefulShutdown (cmd/analysis setup.go) — while its own
-// doc comment tells the reader to call it "on startup" after a hard crash. No
-// startup caller ever existed, so the recommended path was never taken. This is
-// the same repair, for the sync queue, and it is wired.
+// The precedent was pkg/backtest/job's CleanupStaleRunning (P0-8): it only
+// had a gracefulShutdown caller, while its own doc comment told the reader to
+// call it "on startup" after a hard crash — the recommended path was never
+// taken. That local queue was retired in SVC-ORCH-G3, but the same repair
+// applies to the sync queue, and it is wired.
 //
 // It is invoked from WorkerPool.Start rather than by each caller because it is
 // only safe before any worker is running: it decides purely from the database

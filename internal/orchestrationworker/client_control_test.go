@@ -95,7 +95,7 @@ func TestListEncodesFilters(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"jobs":[{"job_id":"run-1","status":"completed","result_status":"completed","result_uri":"backtest_results:run-1","run_spec_hash":"abc"}],"total":1}`))
 	})
-	page, err := client.List(context.Background(), "completed", "completed", 25)
+	page, err := client.List(context.Background(), "completed", "completed", 25, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestListOmitsEmptyFilters(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"jobs":[],"total":0}`))
 	})
-	if _, err := client.List(context.Background(), "", "", 0); err != nil {
+	if _, err := client.List(context.Background(), "", "", 0, false); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if gotQuery != "" {

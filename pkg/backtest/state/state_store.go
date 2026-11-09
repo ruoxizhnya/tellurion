@@ -20,7 +20,7 @@ package state
 // Persistence (PG) is deliberately NOT implemented in this PR —
 // the P1-18 spec calls for the interface + LRU; a follow-up can
 // add a PersistedStateStore that mirrors writes to the
-// backtest_jobs table.
+// run.backtest_results table (the core result face).
 
 import (
 	"container/list"

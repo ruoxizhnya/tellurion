@@ -78,17 +78,13 @@ func TestAnchorResolver_RejectsSpecThatIsNeitherFullNorAnchor(t *testing.T) {
 	}
 }
 
-func TestParseBaseRun_ExtractsReservedParams(t *testing.T) {
-	row := map[string]any{
-		"strategy_id": "expression_template",
-		"universe":    "600000.SH, 000001.SZ",
-		"start_date":  "2024-01-02",
-		"end_date":    "2024-06-28",
-		"params":      []byte(`{"initial_capital":100000,"kernel":"go","engine_params":{"x":1}}`),
-	}
-	base, err := ParseBaseRun(row)
+func TestParseBaseRunSpec_ReadsCanonicalSpec(t *testing.T) {
+	raw := json.RawMessage(`{"strategy":"expression_template","stock_pool":["600000.SH","000001.SZ"],` +
+		`"start_date":"2024-01-02","end_date":"2024-06-28","initial_capital":100000,` +
+		`"kernel":"go","engine_params":{"x":1}}`)
+	base, err := ParseBaseRunSpec(raw)
 	if err != nil {
-		t.Fatalf("ParseBaseRun: %v", err)
+		t.Fatalf("ParseBaseRunSpec: %v", err)
 	}
 	if base.Strategy != "expression_template" || base.InitialCapital != 100000 || base.Kernel != "go" {
 		t.Fatalf("base = %+v", base)
@@ -100,13 +96,12 @@ func TestParseBaseRun_ExtractsReservedParams(t *testing.T) {
 		t.Fatalf("engine params = %#v", base.EngineParams)
 	}
 
-	bad := map[string]any{
-		"strategy_id": "m", "universe": "all",
-		"start_date": "2024-01-02", "end_date": "2024-06-28",
-		"params": []byte(`{"kernel":123}`),
+	// 锚点不能再当 base（递归）与空 spec 都必须当场拒绝。
+	if _, err := ParseBaseRunSpec(json.RawMessage(`{"run_id":"base"}`)); err == nil {
+		t.Fatal("ParseBaseRunSpec accepted a run_id-only anchor as base")
 	}
-	if _, err := ParseBaseRun(bad); err == nil {
-		t.Fatal("ParseBaseRun accepted a malformed reserved key")
+	if _, err := ParseBaseRunSpec(nil); err == nil {
+		t.Fatal("ParseBaseRunSpec accepted an empty spec")
 	}
 }
 
@@ -191,6 +186,49 @@ func TestExecutor_FailuresNeverLookCompleted(t *testing.T) {
 	}
 }
 
+func TestExecutor_WritesFailedRowOnBusinessFailure(t *testing.T) {
+	face := &fakeResultFace{}
+	runner := &fakeRunner{err: errors.New("boom")}
+	exec := &Executor{
+		RunnerFor: func(string) (contracts.EngineRunner, error) { return runner, nil },
+		Face:      face,
+		Timeout:   2 * time.Second,
+	}
+	out, err := exec.Execute(context.Background(), contracts.BacktestRequest{Strategy: "m", RunID: "run-7"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.ResultStatus != contracts.StatusFailed {
+		t.Fatalf("outcome = %+v", out)
+	}
+	// 失败必须留痕：没有 failed 行，core 的 provenance 会把失败的 run 读成
+	// 「未收尾」（409），永远等不到终态。
+	if len(face.ids) != 1 || face.ids[0] != "run-7" || face.status[0] != "failed" {
+		t.Fatalf("failed row = ids %v status %v", face.ids, face.status)
+	}
+	if len(face.bodies[0]) != 0 {
+		t.Fatalf("failed row must carry no payload, got %q", face.bodies[0])
+	}
+}
+
+func TestExecutor_AbortDoesNotWriteFailedRow(t *testing.T) {
+	face := &fakeResultFace{}
+	runner := &fakeRunner{block: true}
+	exec := &Executor{
+		RunnerFor: func(string) (contracts.EngineRunner, error) { return runner, nil },
+		Face:      face,
+		Timeout:   2 * time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // worker 自身 abort（关停 / 租约丢失）—— 编排侧会重排，不钉终态
+	if _, err := exec.Execute(ctx, contracts.BacktestRequest{Strategy: "m", RunID: "run-8"}); err == nil {
+		t.Fatal("aborted execution must surface an error")
+	}
+	if len(face.ids) != 0 {
+		t.Fatalf("abort must not write a failed row: %v", face.ids)
+	}
+}
+
 func TestExecutor_InvalidIsNotFailed(t *testing.T) {
 	runner := &fakeRunner{resp: &contracts.BacktestResponse{ID: "bt", Status: contracts.StatusInvalid}}
 	out, err := newExecutor(runner, &fakeSink{}).Execute(context.Background(), contracts.BacktestRequest{Strategy: "m"})
@@ -265,23 +303,6 @@ func TestResultStoreSink_RejectsFailedAndBadInput(t *testing.T) {
 	}
 	if len(face.ids) != 0 {
 		t.Fatalf("rejected inputs must not reach the store: %v", face.ids)
-	}
-}
-
-func TestMultiSink_StopsOnFirstFailure(t *testing.T) {
-	ok := &fakeResultFace{}
-	bad := &fakeResultFace{failOn: "run-1"}
-	sink := MultiSink{&ResultStoreSink{Store: ok}, &ResultStoreSink{Store: bad}}
-
-	resp := &contracts.BacktestResponse{ID: "run-1", Status: contracts.StatusCompleted}
-	if err := sink.Save(context.Background(), resp); err == nil {
-		t.Fatal("MultiSink must surface a failing leg")
-	}
-	if len(ok.ids) != 1 {
-		t.Fatalf("first leg should have run before the failure: %v", ok.ids)
-	}
-	if len(bad.ids) != 0 {
-		t.Fatalf("failing leg must not record: %v", bad.ids)
 	}
 }
 

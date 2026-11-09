@@ -96,7 +96,8 @@ func newMarketRoutingRouter(
 	reg.Register(contracts.DefaultKernel, goKernel)
 	reg.Register(nautilus.KernelName, nautilus.NewRunner(sidecarURL, nil))
 
-	jobSvc := backtest.NewJobService(store, reg, zerolog.Nop())
+	jobSvc := backtest.NewJobService(store, zerolog.Nop(),
+		backtest.WithResultFace(memResultFace{store: store}))
 	r := gin.New()
 	registerBacktestRoutes(r, eng, reg, jobSvc, router, nil, nil, zerolog.Nop())
 	return r, store, goKernel

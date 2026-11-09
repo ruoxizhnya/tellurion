@@ -1,18 +1,19 @@
 package main
 
-// SVC-ORCH-G3（core 侧）：异步任务面切到编排服务，结果面留在 core。
+// SVC-ORCH-G3（core 侧）：异步任务面在编排服务，结论面在 core。
 //
 // 分工（docs/design/qt-decoupling/data-service-contract-and-ownership.md:41）：
 //   - 任务面：编排服务 run.backtest_jobs（创建 / 状态 / 取消）
 //   - 结果面：core run.backtest_results（单一写者 = worker）
 //
-// 本文件做两件事：
-//  1. 把 core analysis 的读面拼成一个 JobStore：先存量 backtest_jobs（过渡期），
-//     再结果面，最后任务面 —— 三条读源都在，切读期间新旧作业同时可读；
-//  2. 把异步入口的 CreateJobRequest 翻成编排的 run_spec。
+// 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 整表退役，本文件不再有
+// 「存量行」读源，也不再有写面转发。JobStore 只剩两条读源：
 //
-// 未配置 ORCHESTRATION_URL 时本文件不生效（tasks == nil），异步入口维持本地
-// 旧路径；这是「部署还没接编排」的显式形态，不是静默回退。
+//  1. 结果面（已完成 / 无效 / 失败的结论与载荷）；
+//  2. 任务面（pending / running 的状态，以及 run_spec 里的策略元数据）。
+//
+// 未配置 ORCHESTRATION_URL 时本文件不生效（tasks == nil）：异步创建入口
+// 返回 503（任务面没接就没有第二真相可写），读面仍可用结果面。
 
 import (
 	"context"
@@ -27,19 +28,19 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/internal/orchestrationworker"
-	"tellurion/pkg/backtest"
 	"tellurion/pkg/storage"
 )
 
 // newOrchestrationTaskClient 按环境变量构造编排任务面客户端。
 //
-// 未配置 ORCHESTRATION_URL = 本部署还没接编排，返回 nil（异步入口维持本地
-// 旧路径）。凭证与 cmd/worker 同名同义：ORCHESTRATION_SERVICE_TOKEN 为空则
-// 不带 Authorization（本地回环 + open-access 部署的形态）。
+// 未配置 ORCHESTRATION_URL = 本部署没接编排，返回 nil：异步创建入口 503
+// （core 已没有本地队列可回退）。凭证与 cmd/worker 同名同义：
+// ORCHESTRATION_SERVICE_TOKEN 为空则不带 Authorization（本地回环 +
+// open-access 部署的形态）。
 func newOrchestrationTaskClient(logger zerolog.Logger) *orchestrationworker.Client {
 	url := strings.TrimSpace(os.Getenv("ORCHESTRATION_URL"))
 	if url == "" {
-		logger.Warn().Msg("ORCHESTRATION_URL not set — async backtests stay on the local job path (SVC-ORCH-G3 pending deploy)")
+		logger.Warn().Msg("ORCHESTRATION_URL not set — async backtest creation is disabled (503); core no longer has a local queue (SVC-ORCH-G3)")
 		return nil
 	}
 	client := orchestrationworker.NewClient(url, nil)
@@ -58,8 +59,7 @@ type backtestResultReader interface {
 }
 
 // analysisResultFace 把 *storage.PostgresStore 适配成 backtest.ResultFaceWriter
-// （SVC-ORCH-G3）：同步回测的结论写 run.backtest_results，不再插
-// backtest_jobs。接口用原始类型表达，故此处做一次薄转换。
+// （SVC-ORCH-G3）：同步回测的结论写 run.backtest_results。
 type analysisResultFace struct {
 	store *storage.PostgresStore
 }
@@ -73,62 +73,25 @@ func (a analysisResultFace) SaveBacktestResult(ctx context.Context, runID, resul
 	return err
 }
 
-// orchestrationJobStore 把「任务面 + 结果面 + 存量行」拼成 JobService 需要的 JobStore。
-//
-// 写方法（Create/Update/Delete）原样落到存量表：本类型只在过渡期存在，写面
-// 退役由 SVC-CORE-RUN-RETIRE 的删本地队列腿收口。
+// orchestrationJobStore 把「结果面 + 任务面」拼成 JobService 需要的 JobStore。
 type orchestrationJobStore struct {
-	legacy  backtest.JobStore
 	results backtestResultReader
 	tasks   *orchestrationworker.Client
 	logger  zerolog.Logger
 }
 
-func newOrchestrationJobStore(legacy backtest.JobStore, results backtestResultReader, tasks *orchestrationworker.Client, logger zerolog.Logger) *orchestrationJobStore {
+func newOrchestrationJobStore(results backtestResultReader, tasks *orchestrationworker.Client, logger zerolog.Logger) *orchestrationJobStore {
 	return &orchestrationJobStore{
-		legacy:  legacy,
 		results: results,
 		tasks:   tasks,
 		logger:  logger.With().Str("component", "orchestration_job_store").Logger(),
 	}
 }
 
-// ─── 写面：过渡期仍走存量表 ─────────────────────────────────────────────
-
-func (s *orchestrationJobStore) CreateBacktestJob(ctx context.Context, job map[string]any) error {
-	return s.legacy.CreateBacktestJob(ctx, job)
-}
-
-func (s *orchestrationJobStore) UpdateJobStarted(ctx context.Context, jobID string) error {
-	return s.legacy.UpdateJobStarted(ctx, jobID)
-}
-
-func (s *orchestrationJobStore) UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error {
-	return s.legacy.UpdateJobCompleted(ctx, jobID, resultStatus, result)
-}
-
-func (s *orchestrationJobStore) UpdateJobFailed(ctx context.Context, jobID string, errMsg string) error {
-	return s.legacy.UpdateJobFailed(ctx, jobID, errMsg)
-}
-
-func (s *orchestrationJobStore) DeleteBacktestJob(ctx context.Context, jobID string) error {
-	return s.legacy.DeleteBacktestJob(ctx, jobID)
-}
-
-// ─── 读面：存量 → 结果面 → 任务面 ───────────────────────────────────────
-
-// GetBacktestJob 按「存量行 → 结果面 → 任务面」的顺序解析一条作业。
+// GetBacktestJob 按「结果面 → 任务面」的顺序解析一条作业。
 //
 // 已完成的作业命中结果面（core 的真相）；pending / running 只存在于任务面。
 func (s *orchestrationJobStore) GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error) {
-	legacy, err := s.legacy.GetBacktestJob(ctx, jobID)
-	if err != nil {
-		return nil, err
-	}
-	if legacy != nil {
-		return legacy, nil
-	}
-
 	rec, err := s.results.GetBacktestResult(ctx, jobID)
 	if err != nil && !errors.Is(err, storage.ErrBacktestResultNotFound) {
 		return nil, err
@@ -150,27 +113,16 @@ func (s *orchestrationJobStore) GetBacktestJob(ctx context.Context, jobID string
 	return jobMapFromTaskState(state), nil
 }
 
-// ListBacktestJobs 合并存量行、结果面行与任务面列表（按 id 去重、created_at
-// 降序）。任务面 / 结果面任一不可用时只降级该源，不把整页打成 500。
+// ListBacktestJobs 合并结果面行与任务面列表（按 id 去重、created_at 降序）。
+// 任一源不可用时只降级该源，不把整页打成 500。
 func (s *orchestrationJobStore) ListBacktestJobs(ctx context.Context, limit int) ([]map[string]any, error) {
-	legacy, err := s.legacy.ListBacktestJobs(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
+	out := make([]map[string]any, 0, limit)
+	seen := make(map[string]bool, limit)
 
-	seen := make(map[string]bool, len(legacy)+limit)
-	out := make([]map[string]any, 0, len(legacy)+limit)
-	for _, m := range legacy {
-		if id, ok := m["id"].(string); ok {
-			seen[id] = true
-		}
-		out = append(out, m)
-	}
-
-	// 结果面：同步回测与已迁移的存量没有任务行，只能从这里补进列表。
+	// 结果面：同步回测与已完成的异步回测没有任务行，只能从这里补进列表。
 	results, err := s.results.ListBacktestResults(ctx, limit)
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("result face list unavailable; serving legacy rows only")
+		s.logger.Warn().Err(err).Msg("result face list unavailable; serving task-face rows only")
 	} else {
 		for _, rec := range results {
 			if seen[rec.RunID] {
@@ -182,9 +134,11 @@ func (s *orchestrationJobStore) ListBacktestJobs(ctx context.Context, limit int)
 	}
 
 	if s.tasks != nil {
-		page, err := s.tasks.List(ctx, "", "", limit)
+		// include_spec=1：pending / running 的策略元数据只在任务面的
+		// run_spec 里（结果面要跑完才有载荷）。
+		page, err := s.tasks.List(ctx, "", "", limit, true)
 		if err != nil {
-			s.logger.Warn().Err(err).Msg("orchestration list unavailable; serving local rows only")
+			s.logger.Warn().Err(err).Msg("orchestration list unavailable; serving result-face rows only")
 		} else {
 			for _, view := range page.Jobs {
 				if seen[view.JobID] {
@@ -239,33 +193,50 @@ func jobMapFromResult(rec *storage.BacktestResultRecord) map[string]any {
 	}
 }
 
+// runSpecMeta 是任务面 run_spec 里作业列表需要的策略元数据。
+type runSpecMeta struct {
+	Strategy  string   `json:"strategy"`
+	StockPool []string `json:"stock_pool"`
+	StartDate string   `json:"start_date"`
+	EndDate   string   `json:"end_date"`
+}
+
+// applyRunSpecMeta 从 canonical RunSpec 补策略元数据到作业行。
+// 未带 spec（列表未请求 include_spec）或 spec 不合形时保持空值，不报错。
+func applyRunSpecMeta(m map[string]any, spec json.RawMessage) {
+	if len(spec) == 0 {
+		return
+	}
+	var meta runSpecMeta
+	if err := json.Unmarshal(spec, &meta); err != nil {
+		return
+	}
+	m["strategy_id"] = meta.Strategy
+	m["universe"] = strings.Join(meta.StockPool, ",")
+	m["start_date"] = meta.StartDate
+	m["end_date"] = meta.EndDate
+}
+
 // jobMapFromTaskState 把任务面的最小视图翻成 JobStore 的 map 形状。
 func jobMapFromTaskState(state orchestrationworker.JobState) map[string]any {
 	m := map[string]any{
-		"id":          state.JobID,
-		"strategy_id": "",
-		"universe":    "",
-		"start_date":  "",
-		"end_date":    "",
-		"status":      state.Status,
-		"error_msg":   state.Error,
+		"id":        state.JobID,
+		"status":    state.Status,
+		"error_msg": state.Error,
 	}
 	if state.ResultStatus != nil {
 		m["result_status"] = *state.ResultStatus
 	}
+	applyRunSpecMeta(m, state.RunSpec)
 	return m
 }
 
 // jobMapFromTaskView 把任务面列表视图翻成 JobStore 的 map 形状。
 func jobMapFromTaskView(view orchestrationworker.JobView) map[string]any {
 	m := map[string]any{
-		"id":          view.JobID,
-		"strategy_id": "",
-		"universe":    "",
-		"start_date":  "",
-		"end_date":    "",
-		"status":      view.Status,
-		"error_msg":   view.Error,
+		"id":        view.JobID,
+		"status":    view.Status,
+		"error_msg": view.Error,
 	}
 	if view.ResultStatus != nil {
 		m["result_status"] = *view.ResultStatus
@@ -279,6 +250,7 @@ func jobMapFromTaskView(view orchestrationworker.JobView) map[string]any {
 	if view.CompletedAt != nil {
 		m["completed_at"] = *view.CompletedAt
 	}
+	applyRunSpecMeta(m, view.RunSpec)
 	return m
 }
 
@@ -296,11 +268,11 @@ func isOrchestrationNotFound(err error) bool {
 
 // ─── 异步入口 → run_spec ───────────────────────────────────────────────
 
-// buildAsyncRunSpec 把异步入口的 CreateJobRequest 翻成编排的 run_spec。
+// buildAsyncRunSpec 把异步入口的请求翻成编排的 run_spec。
 //
-// 只翻本地执行路径真正消费的字段（strategy / stock_pool / 区间 / 初始资金 /
-// kernel / engine_params）：多翻字段会让同一条请求在新旧路径跑出不同结果。
-func buildAsyncRunSpec(req backtest.CreateJobRequest, marketRouter *contracts.MarketRouter) ([]byte, error) {
+// 只翻执行路径真正消费的字段（strategy / stock_pool / 区间 / 初始资金 /
+// kernel / engine_params）：多翻字段会让同一条请求在不同版本跑出不同结果。
+func buildAsyncRunSpec(req asyncBacktestRequest, marketRouter *contracts.MarketRouter) ([]byte, error) {
 	kernel := req.Kernel
 	if req.Market != "" {
 		resolved, err := contracts.ResolveRunTarget(marketRouter, req.Market, req.Kernel)
@@ -334,8 +306,8 @@ func buildAsyncRunSpec(req backtest.CreateJobRequest, marketRouter *contracts.Ma
 	return json.Marshal(spec)
 }
 
-// specStockPool 与 pkg/backtest/job 的 parseUniverse 同义（"all" / "universe:"
-// 前缀 / 逗号分隔），保证新旧路径的标的集合一致。
+// specStockPool 与 worker 的 parseUniverse 同义（"all" / "universe:"
+// 前缀 / 逗号分隔），保证创建期与执行期的标的集合一致。
 func specStockPool(universe string) []string {
 	if universe == "" || universe == "all" {
 		return nil

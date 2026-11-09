@@ -254,7 +254,7 @@ func TestWireControlPlaneWithRealOrchestrationProcess(t *testing.T) {
 		t.Fatalf("replay = %+v, want same job %s with idempotent_replay=true", replay, submitted.JobID)
 	}
 
-	page, err := client.List(ctx, "pending", "", 50)
+	page, err := client.List(ctx, "pending", "", 50, false)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

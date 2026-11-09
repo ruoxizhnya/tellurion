@@ -17,7 +17,6 @@ import (
 
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/backtest"
 	"tellurion/pkg/storage"
 )
 
@@ -219,26 +218,20 @@ func WaitForShutdown() os.Signal {
 }
 
 // GracefulShutdown 执行有序关停序列（Sprint 6 P0-8, ODR-013）：
-//  1. JobService.Shutdown — 拒绝新任务、取消在途 ctx（必须在 srv.Shutdown
-//     之前，让跑着的回测看到 ctx 取消并自行写 "failed" 状态）
-//  2. AlertManager.Close — 停 webhook 投递 goroutine
-//  3. srv.Shutdown — 停止接受新请求，等在途 handler 返回
-//  4. JobService.CleanupStaleRunning — 兜底清扫 goroutine 没来得及写的行
-//  5. store.Close — 释放 DB 连接
+//  1. AlertManager.Close — 停 webhook 投递 goroutine
+//  2. srv.Shutdown — 停止接受新请求，等在途 handler 返回
+//  3. store.Close — 释放 DB 连接
 //
-// 总预算 30s 父 ctx；阶段 1-3 共享；阶段 4 拿新 5s ctx，卡死的 DB 不拖住关停。
+// SVC-ORCH-G3 收尾腿（2026-11-09）：JobService 的本地队列退役后，core 不再
+// 有「在途异步回测 goroutine」需要拒绝/取消，也不再需要清扫本地 `running`
+// 行 —— 阶段 1（JobService.Shutdown）与阶段 4（CleanupStaleRunning）随之
+// 删除。在途异步作业的生命周期归编排服务的租约：worker 掉线后租约过期，
+// 编排侧重排，不依赖 core 的进程退出路径。
 //
-// jobService / alertManager 允许 nil（不承载对应职责的服务，如 ai-service），
-// nil 的阶段整段跳过 —— 关停序列的「顺序不变量」只对存在的阶段有意义。
-func GracefulShutdown(srv *http.Server, jobService *backtest.JobService, alertManager *alert.AlertManager, store *storage.PostgresStore, logger zerolog.Logger) {
+// 总预算 30s 父 ctx。alertManager 允许 nil（不承载对应职责的服务）。
+func GracefulShutdown(srv *http.Server, alertManager *alert.AlertManager, store *storage.PostgresStore, logger zerolog.Logger) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
-
-	if jobService != nil {
-		if err := jobService.Shutdown(shutdownCtx); err != nil {
-			logger.Warn().Err(err).Msg("JobService.Shutdown did not drain cleanly; will run CleanupStaleRunning")
-		}
-	}
 
 	if alertManager != nil {
 		// P2 alert (ODR-025): close the AlertManager. This stops the
@@ -257,31 +250,7 @@ func GracefulShutdown(srv *http.Server, jobService *backtest.JobService, alertMa
 		logger.Info().Msg("HTTP server stopped accepting new requests")
 	}
 
-	if jobService == nil {
-		// 无 JobService 的服务没有「running 行」需要清扫，直接关库。
-		if store != nil {
-			store.Close()
-			logger.Info().Msg("Postgres store closed")
-		}
-		logger.Info().Msg("Server exited")
-		return
-	}
-
-	// Phase 3: sweep any rows still stuck in 'running'. We do this
-	// with a fresh, short ctx so a stuck DB doesn't hold the whole
-	// shutdown open past the budget.
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cleanupCancel()
-	transitioned, cleanupErr := jobService.CleanupStaleRunning(cleanupCtx)
-	if cleanupErr != nil {
-		logger.Error().Err(cleanupErr).Msg("CleanupStaleRunning failed; some jobs may still appear as 'running' in DB")
-	} else if transitioned > 0 {
-		logger.Info().Int("transitioned", transitioned).Msg("Stale 'running' jobs transitioned to 'failed'")
-	} else {
-		logger.Info().Msg("No stale 'running' jobs found; DB state is clean")
-	}
-
-	// Phase 4: close remaining resources. The PluginLoader's Watch
+	// Phase 3: close remaining resources. The PluginLoader's Watch
 	// loop is context-driven and exits on its own; we don't need to
 	// explicitly stop it. The store gets an explicit Close so the
 	// underlying *sql.DB is released and FDs don't leak after exit.

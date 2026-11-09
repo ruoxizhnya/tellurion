@@ -11,7 +11,8 @@ package backtest
 //     ResolveFillTiming、Kernel 走 EffectiveKernel、费率走 WithDefaults 之后的
 //     config —— 否则「跑的是 A、记的是 B」。
 //   - 只在日循环前落一次。「输入身份」与这次跑成没跑成无关；失败/无效 run
-//     同样留痕（status 的权威是 backtest_jobs，见 QT-63 ④）。
+//     同样留痕（status 的权威是编排的 run.backtest_jobs 与结果面
+//     run.backtest_results，见 QT-63 ④）。
 //   - 没有 sink（无库 / 纯内存测试）时整段是 no-op —— 既有测试路径零变化；
 //     有 sink 时写不进去 = run 失败，不留「跑完了但没有身份」的结果。
 

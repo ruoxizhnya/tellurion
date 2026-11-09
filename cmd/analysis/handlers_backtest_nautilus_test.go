@@ -84,7 +84,8 @@ func newNautilusRouter(t *testing.T, sidecarURL string) (*gin.Engine, *memJobSto
 	reg.Register(contracts.DefaultKernel, goKernel)
 	reg.Register(nautilus.KernelName, nautilus.NewRunner(sidecarURL, nil))
 
-	jobSvc := backtest.NewJobService(store, reg, zerolog.Nop())
+	jobSvc := backtest.NewJobService(store, zerolog.Nop(),
+		backtest.WithResultFace(memResultFace{store: store}))
 	r := gin.New()
 	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop())
 	return r, store, goKernel
@@ -204,7 +205,10 @@ func TestBacktestPost_NautilusKernelEndToEnd(t *testing.T) {
 	reg := contracts.NewEngineRegistry()
 	reg.Register(contracts.DefaultKernel, &trackingRunner{})
 	reg.Register(nautilus.KernelName, nautilus.NewRunner(sidecarURL, nil))
-	jobSvc := backtest.NewJobService(store, reg, zerolog.Nop())
+	// 同步 POST 只走结果面写口，读面 store 在这里不参与断言；用内存实现
+	// 以免把已退役的本地队列表再拉回来（GetBacktestJob 已不在 storage 上）。
+	jobSvc := backtest.NewJobService(newMemJobStore(), zerolog.Nop(),
+		backtest.WithResultFace(analysisResultFace{store: store}))
 
 	eng := newReadPathEngine(t)
 	r := gin.New()
@@ -242,18 +246,18 @@ func TestBacktestPost_NautilusKernelEndToEnd(t *testing.T) {
 	require.NotEmpty(t, resp.ID, "侧车必须返回 run id")
 	t.Cleanup(func() {
 		if _, err := store.DB().Exec(context.Background(),
-			`DELETE FROM backtest_jobs WHERE id = $1`, resp.ID); err != nil {
-			t.Logf("cleanup: 删除 backtest_jobs(%s) 失败: %v", resp.ID, err)
+			`DELETE FROM run.backtest_results WHERE run_id = $1`, resp.ID); err != nil {
+			t.Logf("cleanup: 删除 run.backtest_results(%s) 失败: %v", resp.ID, err)
 		}
 	})
 
-	// 落库断言：真库里能读到这次运行，且带 NT 的指标。
-	stored, err := store.GetBacktestJob(context.Background(), resp.ID)
+	// 落库断言：真库的结果面能读到这次运行，且带 NT 的指标
+	// （SVC-ORCH-G3 收尾腿后唯一落点是 run.backtest_results）。
+	stored, err := store.GetBacktestResult(context.Background(), resp.ID)
 	require.NoError(t, err)
 	require.NotNil(t, stored, "运行结果必须落库")
-	assert.Equal(t, "completed", stored["status"])
-	resultJSON, _ := stored["result"].([]byte)
-	assert.Contains(t, string(resultJSON), resp.ID)
+	assert.Equal(t, "completed", stored.ResultStatus)
+	assert.Contains(t, string(stored.Result), resp.ID)
 	t.Logf("E2E ok: id=%s total_return=%.6f sharpe=%.4f",
 		resp.ID, resp.TotalReturn, resp.SharpeRatio)
 }

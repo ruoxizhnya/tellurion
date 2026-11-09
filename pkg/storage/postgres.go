@@ -234,21 +234,10 @@ func migrationStatements() []string {
 		// SVC-CORE-STRAT-RETIRE（2026-11-09）：Migration 011 的 strategies 表已退役
 		// （定义真相源 = tellurion-strategy 的 strategy.strategy_definitions；core
 		// 只保留运行时 registry）。见 docs/SPEC.md §Strategy Management。
-		// Migration 009: backtest_jobs table (async job queue)
-		`CREATE TABLE IF NOT EXISTS backtest_jobs (
-			id VARCHAR(64) PRIMARY KEY,
-			strategy_id VARCHAR(50) NOT NULL,
-			params JSONB NOT NULL DEFAULT '{}',
-			universe VARCHAR(100) NOT NULL,
-			start_date DATE NOT NULL,
-			end_date DATE NOT NULL,
-			status VARCHAR(20) NOT NULL DEFAULT 'pending',
-			result JSONB,
-			error_message TEXT,
-			created_at TIMESTAMPTZ DEFAULT NOW(),
-			started_at TIMESTAMPTZ,
-			completed_at TIMESTAMPTZ
-		)`,
+		// Migration 009 的 backtest_jobs 建表已退役（SVC-ORCH-G3 收尾腿，
+		// 2026-11-09）：任务面归 orchestration 的 run.backtest_jobs，core 只有
+		// 结果面 run.backtest_results（Migration 063）。退役表由 Migration 065
+		// 在存量库上 DROP。
 		// REV-18（2026-10-17）：qfq 复权基准快照。一个 symbol 在某个回测区间
 		// 起点首次被取到时，把该区间首根 bar 的 (anchor_date, anchor_close) 冻结
 		// 在这里；之后同区间重跑把当前序列缩放回冻结刻度，保证「同区间重跑
@@ -749,24 +738,9 @@ func migrationStatements() []string {
 	// EnsureSchema 兜底建表，这里收编为 migrate() 的唯一真相。表结构零变更。
 	migrations = append(migrations, StrategyStateSchemaDDL...)
 	// Migration 056（QT-63）：quant.run_provenance —— 一次 run 的输入身份。
-	// 只存输入、不存状态（status 的权威是 backtest_jobs）；落点裁决与 O1 的
-	// 迁移债见 docs/TASKS.md QT-63。
+	// 只存输入、不存状态（status 的权威是 orchestration 的 run.backtest_jobs）。
+	// 落点裁决与 O1 的迁移债见 docs/TASKS.md QT-63。
 	migrations = append(migrations, RunProvenanceSchemaDDL...)
-
-	// Migration 059（B6-3）：backtest_jobs.result_status —— K9 三值的持久化面。
-	// 与 orchestration `run.backtest_jobs` 的 DDL 对齐（completed / invalid /
-	// failed），两轴**不合并**：status 仍是队列生命周期，result_status 才是
-	// 结果结论。历史 009 的建表语句不改写（迁移只允许追加）。
-	migrations = append(migrations, []string{
-		`ALTER TABLE backtest_jobs ADD COLUMN IF NOT EXISTS result_status VARCHAR(20)`,
-		`ALTER TABLE backtest_jobs DROP CONSTRAINT IF EXISTS backtest_jobs_result_status_check`,
-		`ALTER TABLE backtest_jobs ADD CONSTRAINT backtest_jobs_result_status_check
-			CHECK (result_status IS NULL OR result_status IN ('completed','invalid','failed'))`,
-		`CREATE INDEX IF NOT EXISTS idx_bj_result_status ON backtest_jobs(result_status)`,
-		// 存量回填：迁移前完成的作业只可能是有效结果（旧代码把 invalid 写成
-		// failed），补成 completed 让读面无需猜。
-		`UPDATE backtest_jobs SET result_status = 'completed' WHERE status = 'completed' AND result_status IS NULL`,
-	}...)
 
 	// Migration 060（QT-42 X3c）：quant.alert_outbox —— 告警投递的发件箱。
 	// risk 侧的账写的是「事件回传允许延迟、不允许丢」；进程内队列做不到那一句
@@ -787,10 +761,15 @@ func migrationStatements() []string {
 	// 结论轴 result_status（K9 三值）与载荷，run_id 与 job_id 同值。
 	migrations = append(migrations, BacktestResultsSchemaDDL...)
 
-	// Migration 064（SVC-ORCH-G3）：存量 backtest_jobs → run.backtest_results。
-	// 只搬终态行（completed / invalid / failed），输入幂等（ON CONFLICT DO NOTHING，
-	// 结果面已有同 run_id 时保留新写）。迁移只追加，不改写 009/059。
-	migrations = append(migrations, BacktestResultsBackfillSQL...)
+	// Migration 065（SVC-ORCH-G3 收尾腿）：core 的 quant.backtest_jobs 退役。
+	// 任务面唯一真相是 orchestration 的 run.backtest_jobs；core 的结论面是
+	// run.backtest_results（063）。009 建表 / 059 改列 / 064 回填三条随之删除：
+	// 064 的输入表被本迁移 DROP，二者不能共存。
+	//
+	// 数据说明（待主任追认）：本仓从未 push，无外部部署；开发库在 064 落地
+	// 后已执行过回填，因此 065 不会随表丢掉未回填的存量行。若将来存在带旧行
+	// 的离线库，升级前应先在部署侧执行一次 064 的 SELECT 回填。
+	migrations = append(migrations, `DROP TABLE IF EXISTS backtest_jobs`)
 
 	return migrations
 }
@@ -823,8 +802,8 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_ic_factor ON ic_analysis(factor_name)`,
 		// SVC-CORE-STRAT-RETIRE（2026-11-09）：idx_strategies_type / idx_strategies_active
 		// 随 strategies 表一并退役。
-		`CREATE INDEX IF NOT EXISTS idx_bj_status ON backtest_jobs(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_bj_created_at ON backtest_jobs(created_at)`,
+		// SVC-ORCH-G3 收尾腿：idx_bj_status / idx_bj_created_at 随 backtest_jobs
+		// 表一并退役（Migration 065 DROP TABLE 会带走索引）。
 		// P1-2: auth indexes
 		`CREATE INDEX IF NOT EXISTS idx_audit_user_time ON audit_logs(user_id, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_endpoint ON audit_logs(endpoint, timestamp DESC)`,

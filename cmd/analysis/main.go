@@ -126,7 +126,7 @@ func main() {
 	// 请求在请求处理时被拒（400）。畸形配置（空内核名 / 归一后冲突）在装配期
 	// 直接 Fatal —— 带病配置不该对外提供服务。
 	// DBT-06：这份路由表同时喂同步端点（registerBacktestRoutes）与异步
-	// job 创建（JobService.WithMarketRouter）——两条路径共用同一映射实现。
+	// run_spec 创建（buildAsyncRunSpec）——两条路径共用同一映射实现。
 	marketRouter, err := contracts.NewMarketRouter(
 		v.GetStringMapString("kernel_routing.markets"))
 	if err != nil {
@@ -215,7 +215,7 @@ func main() {
 	// 「时序裁决」注释与其单测 TestShutdownPublishesBeforeStoppingMsgBus。
 	shutdownKernel(ak.Kernel, logger)
 
-	gracefulShutdown(srv, ds.JobService, alertManager, store, logger)
+	gracefulShutdown(srv, alertManager, store, logger)
 }
 
 // registerAuxRoutes 是 main() 在 registerRoutes 之外的第二批路由接线：

@@ -51,31 +51,6 @@ var BacktestResultsSchemaDDL = []string{
 		ON run.backtest_results(result_status)`,
 }
 
-// BacktestResultsBackfillSQL 把存量 `backtest_jobs` 的终态行搬进结果面
-// （migrate() 的 Migration 064）。只搬结论已定的行，输入幂等：
-// ON CONFLICT DO NOTHING 让结果面已有的新写不被旧行覆盖。
-//
-// 迁移只追加、不改写 009 / 059；旧表保留到「删本地队列」腿，读面仍先看旧行。
-var BacktestResultsBackfillSQL = []string{
-	// completed / invalid：状态轴 completed，结论轴沿用 K9 值，载荷必须有。
-	`INSERT INTO run.backtest_results (run_id, result_status, result, error_message, created_at, updated_at)
-	 SELECT id, result_status, result, COALESCE(error_message, ''),
-	        COALESCE(created_at, now()), COALESCE(completed_at, created_at, now())
-	 FROM backtest_jobs
-	 WHERE status = 'completed'
-	   AND result_status IN ('completed', 'invalid')
-	   AND result IS NOT NULL
-	 ON CONFLICT (run_id) DO NOTHING`,
-	// failed：无结果载荷，error_message 是唯一证据。
-	`INSERT INTO run.backtest_results (run_id, result_status, result, error_message, created_at, updated_at)
-	 SELECT id, 'failed', NULL, COALESCE(error_message, ''),
-	        COALESCE(created_at, now()), COALESCE(completed_at, created_at, now())
-	 FROM backtest_jobs
-	 WHERE status = 'failed'
-	   AND result_status = 'failed'
-	 ON CONFLICT (run_id) DO NOTHING`,
-}
-
 // validBacktestResultStatus 是 K9 三值：completed / invalid / failed。
 func validBacktestResultStatus(status string) bool {
 	switch status {

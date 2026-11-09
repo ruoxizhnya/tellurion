@@ -40,10 +40,34 @@ type backtestRequestEnvelope struct {
 	Market string `json:"market"`
 }
 
+// asyncBacktestRequest 是异步回测端点的 **API 层** DTO。
+//
+// SVC-ORCH-G3 收尾腿（2026-11-09）：本地异步队列退役后，异步创建一律翻成
+// 编排的 run_spec（任务面在 orchestration），本类型只是 HTTP 入参形状，
+// 不再是 pkg/backtest/job 的请求类型。
+type asyncBacktestRequest struct {
+	StrategyID     string         `json:"strategy_id" binding:"required"`
+	Params         map[string]any `json:"params"`
+	Universe       string         `json:"universe" binding:"required"`
+	StartDate      string         `json:"start_date" binding:"required"`
+	EndDate        string         `json:"end_date" binding:"required"`
+	InitialCapital float64        `json:"initial_capital"`
+	CommissionRate float64        `json:"commission_rate"`
+	SlippageRate   float64        `json:"slippage_rate"`
+
+	// Kernel 是内核路由键；Market 是市场路由键（创建期经
+	// contracts.ResolveRunTarget 解析成内核名后进 run_spec["kernel"]）。
+	Kernel string `json:"kernel,omitempty"`
+	Market string `json:"market,omitempty"`
+
+	// EngineParams 是引擎特有参数块（K10 透传，ValidateRunSpec 闸门）。
+	EngineParams map[string]any `json:"engine_params,omitempty"`
+}
+
 func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, tasks *orchestrationworker.Client, provenanceReader backtestProvenanceReader, logger zerolog.Logger) {
 	api := router.Group("/api/backtest")
 	{
-		// QT-72：X0 三 hash 对外读面（读 quant.run_provenance ⋈ backtest_jobs）。
+		// QT-72：X0 三 hash 对外读面（读 quant.run_provenance ⋈ run.backtest_results）。
 		registerBacktestProvenanceRoute(api, provenanceReader, logger)
 		api.GET("", func(c *gin.Context) {
 			limit := 20
@@ -68,19 +92,27 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				return
 			}
 
-			var jobReq backtest.CreateJobRequest
+			var jobReq asyncBacktestRequest
 			if json.Unmarshal(bodyBytes, &jobReq) == nil && jobReq.StrategyID != "" && jobReq.Universe != "" {
-				// K10：异步端点接入内核路由。K9 时期这里对 kernel/engine_params
-				// 整体 400 拒绝（"until K10"）；现在两条路由字段正式受理：
-				//   - engine_params 过与同步路径**同一道** ValidateRunSpec 闸门
-				//     （未知名 → 400 点名，"rejected, not ignored" 原则不变）；
-				//   - kernel 原样落库（params 保留键），取值裁定交给执行期注册表
-				//     路由 —— 未注册内核 → job failed + error_msg 点名，不回退 go。
+				// K10：异步端点接入内核路由。engine_params 过与同步路径
+				// **同一道** ValidateRunSpec 闸门（未知名 → 400 点名，
+				// "rejected, not ignored" 原则不变）。
 				runSpec := backtest.BacktestRequest{Kernel: jobReq.Kernel, EngineParams: jobReq.EngineParams}
 				if err := runSpec.ValidateRunSpec(); err != nil {
 					httpserver.Fail(c, http.StatusBadRequest, err.Error())
 					return
 				}
+
+				// SVC-ORCH-G3 收尾腿：异步任务只有一条创建路径 —— 编排服务
+				// 的任务面（run.backtest_jobs）。core 的本地队列已退役，没配
+				// ORCHESTRATION_URL 时**没有**可回退的第二真相：直接 503，
+				// 而不是把作业塞进一个不存在的队列。
+				if tasks == nil {
+					httpserver.Fail(c, http.StatusServiceUnavailable,
+						"async backtest creation requires the orchestration service (ORCHESTRATION_URL is not configured)")
+					return
+				}
+
 				logger.Info().
 					Str("strategy", jobReq.StrategyID).
 					Str("start_date", jobReq.StartDate).
@@ -88,44 +120,23 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 					Str("universe", jobReq.Universe).
 					Msg("Creating backtest job")
 
-				// SVC-ORCH-G3：配置了编排服务时，异步任务创建走编排任务面
-				// （run.backtest_jobs），core 只保留结果面。未配置 = 本地旧
-				// 路径（部署还没接编排的显式形态）。
-				if tasks != nil {
-					spec, specErr := buildAsyncRunSpec(jobReq, marketRouter)
-					if specErr != nil {
-						if errors.Is(specErr, contracts.ErrMarketNotRegistered) ||
-							errors.Is(specErr, contracts.ErrKernelNotRegistered) {
-							httpserver.Fail(c, http.StatusBadRequest, specErr.Error())
-							return
-						}
-						httpserver.FailCause(c, http.StatusInternalServerError, "failed to build run spec", specErr)
+				spec, specErr := buildAsyncRunSpec(jobReq, marketRouter)
+				if specErr != nil {
+					if errors.Is(specErr, contracts.ErrMarketNotRegistered) ||
+						errors.Is(specErr, contracts.ErrKernelNotRegistered) {
+						httpserver.Fail(c, http.StatusBadRequest, specErr.Error())
 						return
 					}
-					submitted, submitErr := tasks.Submit(c.Request.Context(), uuid.New().String(), 0, spec)
-					if submitErr != nil {
-						logger.Error().Err(submitErr).Msg("Failed to submit run to orchestration")
-						httpserver.FailCause(c, http.StatusBadGateway, "failed to submit run", submitErr)
-						return
-					}
-					c.JSON(http.StatusAccepted, gin.H{"job_id": submitted.JobID, "status": submitted.Status})
+					httpserver.FailCause(c, http.StatusInternalServerError, "failed to build run spec", specErr)
 					return
 				}
-
-				job, err := jobService.CreateJob(c.Request.Context(), jobReq)
-				if err != nil {
-					logger.Error().Err(err).Msg("Failed to create job")
-					// DBT-06：market/kernel 的路由拒绝是调用方意图错误（4xx，
-					// 错误信息点名已登记集合，本来就该给他看）；其余才是 5xx。
-					if errors.Is(err, contracts.ErrMarketNotRegistered) ||
-						errors.Is(err, contracts.ErrKernelNotRegistered) {
-						httpserver.Fail(c, http.StatusBadRequest, err.Error())
-						return
-					}
-					httpserver.FailCause(c, http.StatusInternalServerError, "failed to create job", err)
+				submitted, submitErr := tasks.Submit(c.Request.Context(), uuid.New().String(), 0, spec)
+				if submitErr != nil {
+					logger.Error().Err(submitErr).Msg("Failed to submit run to orchestration")
+					httpserver.FailCause(c, http.StatusBadGateway, "failed to submit run", submitErr)
 					return
 				}
-				c.JSON(http.StatusAccepted, gin.H{"job_id": job.ID, "status": job.Status})
+				c.JSON(http.StatusAccepted, gin.H{"job_id": submitted.JobID, "status": submitted.Status})
 				return
 			}
 

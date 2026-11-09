@@ -277,26 +277,24 @@ func NewScorer() *Scorer { return batch.NewScorer() }
 func DefaultBatchConfig() BatchConfig { return batch.DefaultBatchConfig() }
 
 // --- job/ subpackage re-exports (S7-P2-1 Commit 8) ---
+//
+// SVC-ORCH-G3 收尾腿（2026-11-09）：本地异步队列已退役，`CreateJobRequest`
+// 与 `WithMarketRouter` 不再是本包的概念（异步创建 DTO 归 cmd/analysis 的
+// API 层；市场路由在创建期解析后进 run_spec）。
 
 type (
-	JobService       = job.JobService
-	JobStore         = job.JobStore
-	JobRecord        = job.JobRecord
-	CreateJobRequest = job.CreateJobRequest
-	Job              = job.Job
+	JobService = job.JobService
+	JobStore   = job.JobStore
+	JobRecord  = job.JobRecord
+	Job        = job.Job
 )
 
-// NewJobService wrapper — K10：JobService 改持 EngineRegistry（执行期按
-// RunSpec.kernel 经 Resolve 取 runner），签名随之由 (store, engine)
-// 变为 (store, registry, logger)：runner 的解析推迟到 job 执行时，
-// logger 也不再从 engine 内部提取（调用方显式传入）。DBT-06：可选项
-// （如 WithMarketRouter）原样透传。
-func NewJobService(store JobStore, registry *contracts.EngineRegistry, logger zerolog.Logger, opts ...job.JobServiceOption) *JobService {
-	return job.NewJobService(store, registry, logger, opts...)
+// NewJobService wrapper — SVC-ORCH-G3 收尾腿后 JobService 只剩读面 +
+// 同步结果写面：签名由 (store, registry, logger) 收为 (store, logger)，
+// 结果面经 WithResultFace 注入。
+func NewJobService(store JobStore, logger zerolog.Logger, opts ...job.JobServiceOption) *JobService {
+	return job.NewJobService(store, logger, opts...)
 }
-
-// WithMarketRouter 别名 — DBT-06：job 创建期的市场路由（见 job 包）。
-var WithMarketRouter = job.WithMarketRouter
 
 // WithResultFace 别名 — SVC-ORCH-G3：同步回测结论写 core 结果面
 // run.backtest_results（见 job 包 ResultFaceWriter）。

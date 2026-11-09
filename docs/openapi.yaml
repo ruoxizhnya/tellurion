@@ -125,7 +125,15 @@ paths:
     get:
       tags: [Backtest]
       summary: List backtest jobs
-      description: Returns the most recent backtest jobs.
+      description: |
+        Returns the most recent backtest jobs.
+
+        Since SVC-ORCH-G3 the list merges two sources (deduped by `id`,
+        newest first): the core result face (`run.backtest_results`, one row
+        per finished run) and the orchestration task face (`run.backtest_jobs`,
+        when `ORCHESTRATION_URL` is configured). Result-face rows carry the
+        strategy metadata projected out of the result payload; task-face rows
+        carry only lifecycle state until the result is written.
       operationId: listBacktests
       parameters:
         - name: limit
@@ -334,19 +342,20 @@ paths:
       tags: [Backtest]
       summary: Get run provenance (X0 identity + conclusion)
       description: |
-        Reads `quant.run_provenance ⋈ backtest_jobs`. The three hashes and the
-        effective values come from the provenance table; **`result_status` comes
-        only from `backtest_jobs`** (K9 conclusion — `invalid` is a conclusion,
-        not a failure).
+        Reads `quant.run_provenance ⋈ run.backtest_results`. The three hashes
+        and the effective values come from the provenance table; **`result_status`
+        comes only from `run.backtest_results`** (K9 conclusion — `invalid` is a
+        conclusion, not a failure). The provenance table stores no status of its
+        own; the task lifecycle lives in orchestration's `run.backtest_jobs`.
 
-        Three states use the same wire codes as tellurion-orchestration:
+        Two states use the same wire codes as tellurion-orchestration:
 
-        - `409 provenance_not_ready` — the run is not terminal yet; provenance
-          is written when it finishes.
-        - `404 provenance_not_found` — terminal `failed` / `cancelled` and no
-          provenance row: the run never produced one.
+        - `409 provenance_not_ready` — the result row is missing (the run is not
+          terminal yet, or it was cancelled before a result was written).
+        - `404 provenance_not_found` — the run failed and never produced
+          provenance.
         - `500 provenance_missing` — terminal `completed` / `invalid` but the
-          row is missing: data integrity is broken.
+          provenance row is missing: data integrity is broken.
 
         `404 job_not_found` means the backtest id itself does not exist.
         Nullable columns are emitted explicitly as `null` (never omitted):
@@ -367,13 +376,13 @@ paths:
         '404':
           description: |
             `job_not_found` (no such backtest) or `provenance_not_found`
-            (terminal failed/cancelled run that never produced provenance).
+            (the run settled as failed and never produced provenance).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: '`provenance_not_ready` — the run is not terminal yet.'
+          description: '`provenance_not_ready` — no conclusion row yet (not terminal, or cancelled before a result was written).'
           content:
             application/json:
               schema:
@@ -4302,7 +4311,16 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, completed, failed]
+          enum: [pending, running, completed, failed, cancelled]
+        result_status:
+          type: string
+          nullable: true
+          description: >-
+            K9 conclusion, owned by `run.backtest_results` (completed / invalid /
+            failed). Null while the run has not produced a result row.
+        created_at:
+          type: string
+          format: date-time
         result:
           type: object
 

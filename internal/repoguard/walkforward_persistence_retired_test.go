@@ -10,8 +10,8 @@ package repoguard
 //     的 `run.walk_forward_reports`）。
 //  2. `pkg/backtest/walkforward` 的非测试 Go 文件**不 import**
 //     `tellurion/pkg/storage` —— 计算引擎不得重新长出一条落库腿。
-//  3. 正向对照：`pkg/storage/postgres.go` 仍须建 `backtest_jobs` 与
-//     `factor_cache`。`backtest_jobs` 半边归 `SVC-ORCH-G3`，本次明确保留；
+//  3. 正向对照：`pkg/storage/postgres.go` 仍须建 `factor_cache`
+//     （`backtest_jobs` 半边归 `SVC-ORCH-G3`，已于收尾腿退役）；
 //     若 postgres.go 被整块删空，这条先红，防止前两条假绿。
 //
 // 为什么是静态断言而不是行为测试：表已被删掉，连不上库时「没有这张表」什么
@@ -61,15 +61,72 @@ func TestWalkForwardReportsPersistenceIsRetired(t *testing.T) {
 		}
 	}
 
-	// ③ 正向对照：本次**保留**的 backtest_jobs（归 SVC-ORCH-G3）与
-	// factor_cache 必须仍在 DDL 里。
+	// ③ 正向对照：本次**保留**的 factor_cache 必须仍在 DDL 里，防止「整块删空」
+	// 让前两条假绿。backtest_jobs 半边已于 SVC-ORCH-G3 收尾腿退役，其护栏见
+	// TestBacktestJobsPersistenceIsRetired。
 	postgres := stripGoLineComments(readFile(t, filepath.Join(storageDir, "postgres.go")))
-	for _, kept := range []string{"backtest_jobs", "factor_cache"} {
+	for _, kept := range []string{"factor_cache"} {
 		keptRe := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+` + kept + `\b`)
 		if !keptRe.MatchString(postgres) {
 			t.Errorf("pkg/storage/postgres.go 里找不到 %s 的 CREATE TABLE —— "+
 				"本次只退役 walk_forward_reports；若确已改判，请同批订正本护栏", kept)
 		}
+	}
+}
+
+// TestBacktestJobsPersistenceIsRetired 是 SVC-ORCH-G3 收尾腿的反向护栏：
+// core 的 quant.backtest_jobs 退役后，全仓非测试 Go 文件里不得再出现
+//   - INSERT INTO / UPDATE / DELETE FROM backtest_jobs（写点）
+//   - FROM backtest_jobs（读点）
+//   - CREATE TABLE ... backtest_jobs（DDL）
+//
+// 同时正向断言 Migration 065 的 `DROP TABLE IF EXISTS backtest_jobs` 仍在 ——
+// 退役必须真正执行（存量库删表），不是只把建表语句删掉了事。
+// 正向对照：factor_cache 仍在，防止「整块删空」让本护栏假绿。
+func TestBacktestJobsPersistenceIsRetired(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot(t)
+	writeRe := regexp.MustCompile(`(?i)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+backtest_jobs\b`)
+	readRe := regexp.MustCompile(`(?i)FROM\s+backtest_jobs\b`)
+	createRe := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?backtest_jobs\b`)
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != root && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src := stripGoLineComments(readFile(t, path))
+		rel, _ := filepath.Rel(root, path)
+		for _, re := range []*regexp.Regexp{writeRe, readRe, createRe} {
+			if loc := re.FindStringIndex(src); loc != nil {
+				line := 1 + strings.Count(src[:loc[0]], "\n")
+				t.Errorf("%s:%d 仍引用 backtest_jobs —— 该表已退役（Migration 065 DROP）；"+
+					"任务面归 orchestration 的 run.backtest_jobs，结论面归 run.backtest_results（SVC-ORCH-G3）", rel, line)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("遍历仓库失败：%v", err)
+	}
+
+	postgres := stripGoLineComments(readFile(t, filepath.Join(root, "pkg", "storage", "postgres.go")))
+	if !regexp.MustCompile(`(?i)DROP\s+TABLE\s+IF\s+EXISTS\s+backtest_jobs\b`).MatchString(postgres) {
+		t.Error("pkg/storage/postgres.go 里找不到 DROP TABLE IF EXISTS backtest_jobs —— " +
+			"退役必须真正执行（Migration 065），否则存量库留着孤儿表")
+	}
+	if !regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+factor_cache\b`).MatchString(postgres) {
+		t.Error("pkg/storage/postgres.go 里找不到 factor_cache 的 CREATE TABLE —— 护栏正向对照失效")
 	}
 }
 

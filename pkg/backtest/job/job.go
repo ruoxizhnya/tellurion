@@ -4,72 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
-// JobService handles async backtest job lifecycle.
+// JobService 是 core 侧作业的**只读面 + 同步结果写面**。
 //
-// K10：runner 不再装配期固定注入，改持 EngineRegistry —— 执行期按
-// RunSpec.kernel 解析（Resolve）。理由：kernel 是**请求级**路由键，
-// 同一个 JobService 要能为不同 job 选不同内核；未注册内核 fail-closed
-// （job → failed + error_msg 点名内核，绝不回退 go，FR-1.3）。
+// SVC-ORCH-G3 收尾腿（2026-11-09）：本地异步队列（CreateJob / StartJob /
+// CancelJob / Shutdown / CleanupStaleRunning）整条退役——异步任务的生命周期
+// 归编排服务的 run.backtest_jobs 所有，core 不再持有第二条任务真相。本类型
+// 只剩两件事：
+//   - 读：GET /api/backtest/{id} 与作业列表（数据源由装配方的 JobStore 决定：
+//     结果面 + 任务面，不再有本地队列表）；
+//   - 写：同步回测的结论写 core 结果面 run.backtest_results（SaveSyncResult）。
 type JobService struct {
-	store    JobStore
-	registry *contracts.EngineRegistry
-	logger   zerolog.Logger
-
-	// marketRouter 是 DBT-06 的市场→内核路由表（可选依赖）：非 nil 时
-	// CreateJob 在**创建期**把 req.Market 解析成内核名落定进 params 保留键
-	// "kernel"，worker 执行期只消费已定路由（与同步端点共用
-	// contracts.ResolveRunTarget，映射逻辑单一实现）。nil = 未配置市场
-	// 路由——带 market 的创建请求 fail-closed（ResolveKernel 对 nil 表
-	// 自带拒绝），不带 market 的请求行为逐字节不变。
-	marketRouter *contracts.MarketRouter
-
-	// resultFace（SVC-ORCH-G3）：非 nil 时同步回测结论写进 core 的结果面
-	// run.backtest_results，不再往遗留队列表 backtest_jobs 插行。nil =
-	// 旧路径（仅供未接结果面的部署与既有测试）。
+	store JobStore
+	// resultFace 是 core 结果面 run.backtest_results 的最小写口。必需依赖：
+	// 为空时 SaveSyncResult fail-closed（不再回退到已退役的 backtest_jobs）。
 	resultFace ResultFaceWriter
-
-	// cancelFuncs holds cancellation functions for running jobs.
-	// Key: jobID, Value: cancellation function.
-	cancelFuncs sync.Map
-
-	// Sprint 6 P0-8 (ODR-013): graceful shutdown coordination.
-	//
-	// shutdown is closed by Shutdown() to signal that the service is
-	// draining. StartJob() checks this channel under no lock — close()
-	// is atomic and reading from a closed channel is the standard
-	// "is the service still alive" pattern in Go.
-	shutdown chan struct{}
-
-	// inflightWg tracks every in-flight StartJob goroutine. Shutdown()
-	// waits on this WaitGroup (with the parent ctx as timeout) so that
-	// "SIGTERM → all jobs settled" is testable and observable rather
-	// than fire-and-forget.
-	inflightWg sync.WaitGroup
+	logger     zerolog.Logger
 }
 
-// JobStore is the subset of storage operations needed by JobService.
+// JobStore 是读面需要的最小存储子集（SVC-ORCH-G3 收尾腿后只剩读）。
 // Uses plain types to avoid import cycles with pkg/storage.
-//
-// B6-3：UpdateJobCompleted 显式携带 K9 result_status（completed / invalid）。
-// 「跑完但无效」与「跑完且有效」都写 status='completed'，区别只在结果结论 ——
-// 两轴不合并，invalid 不得再被读成 failed。
 type JobStore interface {
-	CreateBacktestJob(ctx context.Context, job map[string]any) error
-	UpdateJobStarted(ctx context.Context, jobID string) error
-	UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error
-	UpdateJobFailed(ctx context.Context, jobID string, errMsg string) error
 	GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error)
 	ListBacktestJobs(ctx context.Context, limit int) ([]map[string]any, error)
-	DeleteBacktestJob(ctx context.Context, jobID string) error
 }
 
 // JobRecord holds the raw fields of a backtest job as stored in the DB.
@@ -88,32 +50,6 @@ type JobRecord struct {
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time
-}
-
-// jobRecordToMap converts a JobRecord to map[string]any for JobStore interface.
-func jobRecordToMap(j *JobRecord) map[string]any {
-	m := map[string]any{
-		"id":          j.ID,
-		"strategy_id": j.StrategyID,
-		"params":      j.Params,
-		"universe":    j.Universe,
-		"start_date":  j.StartDate,
-		"end_date":    j.EndDate,
-		"status":      j.Status,
-		"result":      j.Result,
-		"error_msg":   j.ErrorMsg,
-		"created_at":  j.CreatedAt,
-	}
-	if j.ResultStatus != "" {
-		m["result_status"] = j.ResultStatus
-	}
-	if j.StartedAt != nil {
-		m["started_at"] = *j.StartedAt
-	}
-	if j.CompletedAt != nil {
-		m["completed_at"] = *j.CompletedAt
-	}
-	return m
 }
 
 // mapToJobRecord converts a map back to JobRecord.
@@ -152,19 +88,15 @@ func mapToJobRecord(m map[string]any) *JobRecord {
 
 // NewJobService creates a new JobService.
 //
-// K10：registry 为必需依赖（构造期不注册任何内核 —— 装配方负责 Register，
-// 通常至少注册 contracts.DefaultKernel）。nil registry = 装配错误，
-// fail-fast（带着没有注册表的 JobService 对外服务，所有 job 都会在
-// 执行期才以 nil-deref 崩溃，不如启动即炸）。
-func NewJobService(store JobStore, registry *contracts.EngineRegistry, logger zerolog.Logger, opts ...JobServiceOption) *JobService {
-	if registry == nil {
-		panic("job: NewJobService requires a non-nil *contracts.EngineRegistry (K10 kernel routing)")
+// 读面 store 必需；结果面经 WithResultFace 注入（装配方必须注入，否则
+// SaveSyncResult 拒绝写入）。
+func NewJobService(store JobStore, logger zerolog.Logger, opts ...JobServiceOption) *JobService {
+	if store == nil {
+		panic("job: NewJobService requires a non-nil JobStore")
 	}
 	s := &JobService{
-		store:    store,
-		registry: registry,
-		logger:   logger.With().Str("component", "job_service").Logger(),
-		shutdown: make(chan struct{}),
+		store:  store,
+		logger: logger.With().Str("component", "job_service").Logger(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -174,18 +106,8 @@ func NewJobService(store JobStore, registry *contracts.EngineRegistry, logger ze
 	return s
 }
 
-// JobServiceOption 配置 JobService 的可选依赖（向后兼容：既有
-// NewJobService 三参调用点不受影响）。
+// JobServiceOption 配置 JobService 的可选依赖。
 type JobServiceOption func(*JobService)
-
-// WithMarketRouter 注入市场→内核路由表（DBT-06）。注入后 CreateJob 在
-// 创建期解析 req.Market 并把内核名落定进 params["kernel"]；执行期
-// StartJob 的内核路由逻辑零改动——它照旧只认 params["kernel"]。
-func WithMarketRouter(router *contracts.MarketRouter) JobServiceOption {
-	return func(s *JobService) {
-		s.marketRouter = router
-	}
-}
 
 // ResultFaceWriter 是 core 结果面（run.backtest_results）的最小写口
 // （SVC-ORCH-G3）。接口用原始类型表达，job 包不依赖 storage 的数据结构。
@@ -193,49 +115,11 @@ type ResultFaceWriter interface {
 	SaveBacktestResult(ctx context.Context, runID, resultStatus string, result []byte) error
 }
 
-// WithResultFace 把同步回测的结论重定向到结果面。
-//
-// 注入后 SaveSyncResult 不再往遗留队列表 backtest_jobs 插行：同步回测没有
-// 任务生命周期，只有结论，结果面才是它的归属。nil = 旧路径（未接结果面的
-// 部署与既有测试）。
+// WithResultFace 注入 core 结果面写口（同步回测结论的唯一归属）。
 func WithResultFace(w ResultFaceWriter) JobServiceOption {
 	return func(s *JobService) {
 		s.resultFace = w
 	}
-}
-
-// CreateJobRequest is the API request to create a backtest job.
-//
-// K10：新增 Kernel / EngineParams 两个内核路由字段（与同步路径的
-// BacktestRequest 同构，K9 冻结的 RunSpec 语义）。Kernel 空值 = 默认
-// go 内核（EffectiveKernel 语义，不写回字段）；EngineParams 的
-// 未知名由 API 层的 ValidateRunSpec 闸门 400 拒绝（校验在 handler，
-// 与同步路径同一口径）。
-type CreateJobRequest struct {
-	StrategyID     string         `json:"strategy_id" binding:"required"`
-	Params         map[string]any `json:"params"`
-	Universe       string         `json:"universe" binding:"required"`
-	StartDate      string         `json:"start_date" binding:"required"`
-	EndDate        string         `json:"end_date" binding:"required"`
-	InitialCapital float64        `json:"initial_capital"`
-	CommissionRate float64        `json:"commission_rate"`
-	SlippageRate   float64        `json:"slippage_rate"`
-
-	// Kernel 是内核路由键（K10）。落库位置：job 的 params JSONB 保留键
-	// "kernel"（见 CreateJob）—— 不为路由键新增列，存量作业 params 不变。
-	Kernel string `json:"kernel,omitempty"`
-
-	// Market 是市场路由键（DBT-06，2026-10-16 主任裁决「补齐」）。与同步
-	// 端点（backtestRequestEnvelope.Market）同构：在 **创建期** 经
-	// contracts.ResolveRunTarget 解析成内核名写进 params["kernel"]，market
-	// 原样留 params["market"] 做审计。执行期只消费已定路由——StartJob
-	// 不感知 market。market 与 kernel 同时声明且路由结果不一致 → 创建期
-	// 报错拒绝（ResolveRunTarget 语义，不替调用方挑一个）。
-	Market string `json:"market,omitempty"`
-
-	// EngineParams 是引擎特有参数块（K10 透传）。落库位置：params JSONB
-	// 保留键 "engine_params"（见 CreateJob）。
-	EngineParams map[string]any `json:"engine_params,omitempty"`
 }
 
 // Job is the public API response for a job.
@@ -253,334 +137,6 @@ type Job struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	StartedAt    *time.Time      `json:"started_at,omitempty"`
 	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
-}
-
-// CreateJob creates a new backtest job record and starts it in a background goroutine.
-func (s *JobService) CreateJob(ctx context.Context, req CreateJobRequest) (*Job, error) {
-	jobID := uuid.New().String()
-
-	params := req.Params
-	if params == nil {
-		params = make(map[string]any)
-	}
-	if req.InitialCapital > 0 {
-		params["initial_capital"] = req.InitialCapital
-	}
-	if req.CommissionRate > 0 {
-		params["commission_rate"] = req.CommissionRate
-	}
-	if req.SlippageRate > 0 {
-		params["slippage_rate"] = req.SlippageRate
-	}
-	// K10：内核路由键落库。位置是 params JSONB 的两个**保留键**
-	// （服务端权威写入，StartJob 读回）—— 选 params 而不是新列的理由：
-	// 路由键是 job 级元数据而非查询维度，加列要 migration + 改三处
-	// store SQL，收益不抵风险；且只在非空时写入，存量作业的 params
-	// 序列化逐字节不变（回归腿）。
-	//
-	// 已知边界（可接受）：调用方若自行在 params 里塞 "kernel" /
-	// "engine_params" 而顶层字段为空，该值会被当作路由输入 —— 未知
-	// 内核仍 fail-closed（job failed + error_msg 点名），go 内核则
-	// 根本不读 EngineParams，无静默错配通道。
-	if req.Kernel != "" {
-		params["kernel"] = req.Kernel
-	}
-	if len(req.EngineParams) > 0 {
-		params["engine_params"] = req.EngineParams
-	}
-	// DBT-06：市场路由在**创建期**落定——market 在这里解析成内核名后
-	// 与 req.Kernel 同一条落库路径（params["kernel"]），执行期 StartJob
-	// 照旧只消费 params["kernel"]，worker 装配零改动。同步端点用的是
-	// 同一个 contracts.ResolveRunTarget（映射逻辑单一实现，不重写）。
-	// 未登记市场 / market-kernel 冲突 / 路由表未装配 → 本函数返回错误，
-	// **job 不落库**（创建即拒绝，而不是落一条注定失败的作业）。
-	if req.Market != "" {
-		resolved, routeErr := contracts.ResolveRunTarget(s.marketRouter, req.Market, req.Kernel)
-		if routeErr != nil {
-			return nil, fmt.Errorf("market routing failed: %w", routeErr)
-		}
-		params["kernel"] = resolved
-		params["market"] = req.Market
-	}
-
-	paramsJSON, err := json.Marshal(params)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal params: %w", err)
-	}
-
-	record := &JobRecord{
-		ID:         jobID,
-		StrategyID: req.StrategyID,
-		Params:     paramsJSON,
-		Universe:   req.Universe,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Status:     "pending",
-		CreatedAt:  time.Now(),
-	}
-
-	if err := s.store.CreateBacktestJob(ctx, jobRecordToMap(record)); err != nil {
-		return nil, fmt.Errorf("failed to create job record: %w", err)
-	}
-
-	s.StartJob(context.Background(), jobID)
-
-	return &Job{
-		ID:         jobID,
-		StrategyID: req.StrategyID,
-		Params:     paramsJSON,
-		Universe:   req.Universe,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Status:     "pending",
-		CreatedAt:  record.CreatedAt,
-	}, nil
-}
-
-// StartJob runs the backtest in a background goroutine.
-// It updates job status to "running", executes the backtest, then
-// marks it "completed" with the result or "failed" with the error.
-//
-// Context handling strategy:
-//   - Uses context.Background() as base to ensure the job continues running
-//     even after the HTTP request that started it has completed.
-//   - Monitors the parent context for cancellation signals to allow graceful shutdown.
-//   - For explicit cancellation, use CancelJob() method instead.
-//
-// Sprint 6 P0-8 (ODR-013): if the JobService is currently draining
-// (Shutdown has been called), StartJob refuses to start a new goroutine
-// and immediately marks the job as failed with a clear reason. This
-// keeps the DB clean: there are no "running" jobs that the process is
-// no longer actually running.
-func (s *JobService) StartJob(parentCtx context.Context, jobID string) {
-	// Sprint 6 P0-8: refuse to start new jobs during shutdown.
-	select {
-	case <-s.shutdown:
-		s.logger.Warn().
-			Str("job_id", jobID).
-			Msg("Rejecting StartJob: JobService is shutting down; marking as failed")
-		// Use Background ctx for the DB write — the request ctx may
-		// already be cancelled and we still want a persistent record
-		// of the refusal.
-		if err := s.store.UpdateJobFailed(context.Background(), jobID, "service is shutting down"); err != nil {
-			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Failed to mark refused job as failed")
-		}
-		return
-	default:
-	}
-
-	s.logger.Info().Str("job_id", jobID).Msg("Starting backtest job")
-
-	// Use Background context so the goroutine isn't cancelled when HTTP request ends
-	// This ensures long-running backtests complete even if client disconnects.
-	jobCtx, jobCancel := context.WithCancel(context.Background())
-	s.cancelFuncs.Store(jobID, jobCancel)
-
-	// Monitor parent context for cancellation signal
-	// This allows callers to propagate cancellation if needed (e.g., server shutdown)
-	go func() {
-		select {
-		case <-parentCtx.Done():
-			s.logger.Warn().
-				Str("job_id", jobID).
-				Err(parentCtx.Err()).
-				Msg("Parent context cancelled, initiating graceful job shutdown")
-			jobCancel()
-		case <-jobCtx.Done():
-			// Job already completed or cancelled via CancelJob()
-		}
-	}()
-
-	// Sprint 6 P0-8: track this goroutine in the inflight WaitGroup
-	// so Shutdown() can wait for all in-flight jobs to settle.
-	s.inflightWg.Add(1)
-	go func() {
-		defer s.inflightWg.Done()
-		defer jobCancel()
-		startTime := time.Now()
-
-		s.logger.Info().Str("job_id", jobID).Msg("Updating job status to 'running'")
-
-		if err := s.store.UpdateJobStarted(jobCtx, jobID); err != nil {
-			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Failed to mark job as started")
-			if dbErr := s.store.UpdateJobFailed(jobCtx, jobID, fmt.Sprintf("failed to mark started: %v", err)); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark job as failed after start error")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		s.logger.Info().Str("job_id", jobID).Msg("Loading job record from database")
-
-		recordMap, err := s.store.GetBacktestJob(jobCtx, jobID)
-		if err != nil || recordMap == nil {
-			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Job not found in database")
-			if dbErr := s.store.UpdateJobFailed(jobCtx, jobID, fmt.Sprintf("job not found: %v", err)); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark job as failed")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		record := mapToJobRecord(recordMap)
-		stockPool := parseUniverse(record.Universe)
-
-		// K10：内核路由键从 params 保留键读回（CreateJob 写入）。
-		// 与 initial_capital 同一读取点 —— 作业执行所需的 job 级
-		// 配置全部来自 record.Params 这一个 JSONB。
-		var jobParams map[string]any
-		if len(record.Params) > 0 {
-			_ = json.Unmarshal(record.Params, &jobParams)
-		}
-		// fail-closed（审查修复 2026-10-12）：保留键存在但**类型不对**
-		// （params 侧门可达 —— 调用方在 params 里塞 "kernel"/"engine_params"）
-		// 不得静默降级：kernel 非字符串会被当成空值跑默认 go（变相回退，
-		// FR-1.3 违例）；engine_params 非对象会被静默丢弃（「以为参数生效了」
-		// 的 K9 反模式）。两种都判畸形 RunSpec → failed + error_msg 点名。
-		kernel := ""
-		if v, ok := jobParams["kernel"]; ok {
-			ks, isStr := v.(string)
-			if !isStr {
-				s.failMalformedReservedKey(jobCtx, jobID, "kernel", v)
-				return
-			}
-			kernel = ks
-		}
-		var engineParams map[string]any
-		if v, ok := jobParams["engine_params"]; ok {
-			m, isMap := v.(map[string]any)
-			if !isMap {
-				s.failMalformedReservedKey(jobCtx, jobID, "engine_params", v)
-				return
-			}
-			engineParams = m
-		}
-
-		backtestReq := contracts.BacktestRequest{
-			Strategy:     record.StrategyID,
-			StockPool:    stockPool,
-			StartDate:    record.StartDate,
-			EndDate:      record.EndDate,
-			Kernel:       kernel,
-			EngineParams: engineParams,
-			// QT-63：把 run 身份对齐到本 job 的行 id，provenance 才能与
-			// backtest_jobs 真 join（⑤）。引擎自己生成 uuid 的话，两边
-			// 各有一个 id 却谁也对不上谁。
-			RunID: jobID,
-		}
-		if v, ok := jobParams["initial_capital"].(float64); ok && v > 0 {
-			backtestReq.InitialCapital = v
-		}
-
-		// K10：经 EngineRegistry 按 kernel 路由执行器。未注册/不可用 →
-		// job 标记 failed 且 error_msg 点名内核名，**不得回退 go**
-		// （FR-1.3：防「以为在测 NT 其实在测 Go」）。解析失败发生在
-		// 任何 runner 调用之前，库里不会留下 go 内核产物。
-		runner, err := s.registry.Resolve(backtestReq.EffectiveKernel())
-		if err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("job_id", jobID).
-				Str("kernel", backtestReq.EffectiveKernel()).
-				Msg("Kernel routing refused — marking job as failed (no fallback to default kernel)")
-			if dbErr := s.store.UpdateJobFailed(jobCtx, jobID, fmt.Sprintf("kernel routing failed: %v", err)); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark routing-refused job as failed")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		s.logger.Info().
-			Str("job_id", jobID).
-			Str("kernel", backtestReq.EffectiveKernel()).
-			Str("strategy", record.StrategyID).
-			Str("universe", record.Universe).
-			Int("stock_count", len(stockPool)).
-			Str("start_date", record.StartDate).
-			Str("end_date", record.EndDate).
-			Msg("Executing backtest")
-
-		result, err := runner.RunBacktest(jobCtx, backtestReq)
-		elapsed := time.Since(startTime)
-
-		if err != nil {
-			s.logger.Error().
-				Err(err).
-				Str("job_id", jobID).
-				Dur("elapsed", elapsed).
-				Msg("Backtest execution failed")
-
-			// REV-22-(1)：jobCtx 是**可取消**的作业上下文——取消 job 恰恰会
-			// 让 RunBacktest 以 ctx 错误失败，此时再用 jobCtx 写 failed 必然
-			// 一起失败 ⇒ 行卡死 "running"、失败原因丢失。StartJob 的 shutdown
-			// 分支（本文件上方）早已示范正确写法：用 Background 写持久记录。
-			if dbErr := s.store.UpdateJobFailed(context.Background(), jobID, err.Error()); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to update job status to failed")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		// OBS-01 / B6-3：无效运行（空票池 / 0 成交 / 零值日期 / 垃圾指标）是
-		// **结果结论**（K9 invalid），不是生命周期失败：status 仍写 completed、
-		// result_status 写 invalid，结果体（带 Status=invalid 与 InvalidReasons）
-		// 完整保留。旧实现走 UpdateJobFailed 把 invalid 读成 failed 且丢弃结果体，
-		// 让下游（analytics）拿到缺 status 的 404 —— 这里不再有那条路径。
-		if len(result.InvalidReasons) > 0 {
-			s.logger.Error().
-				Str("job_id", jobID).
-				Dur("elapsed", elapsed).
-				Int("total_trades", result.TotalTrades).
-				Int("universe_max_size", derefIntOr(result.UniverseMaxSize, -1)).
-				Strs("invalid_reasons", result.InvalidReasons).
-				Msg("Backtest produced an invalid run — result marked Status=invalid")
-			if result.Status == "" {
-				result.Status = contracts.StatusInvalid
-			}
-			resultJSON, mErr := json.Marshal(result)
-			if mErr != nil {
-				s.logger.Error().Err(mErr).Str("job_id", jobID).Msg("Failed to marshal invalid backtest result")
-				if dbErr := s.store.UpdateJobFailed(context.Background(), jobID, fmt.Sprintf("failed to marshal result: %v", mErr)); dbErr != nil {
-					s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark job as failed")
-				}
-				s.cancelFuncs.Delete(jobID)
-				return
-			}
-			if dbErr := s.store.UpdateJobCompleted(jobCtx, jobID, resultStatusOf(result.Status), resultJSON); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to persist invalid run result")
-			} else {
-				s.logger.Info().Str("job_id", jobID).Msg("Invalid run result persisted (status=completed, result_status=invalid)")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		s.logger.Info().
-			Str("job_id", jobID).
-			Dur("elapsed", elapsed).
-			Float64("total_return", result.TotalReturn).
-			Float64("sharpe_ratio", result.SharpeRatio).
-			Float64("max_drawdown", result.MaxDrawdown).
-			Int("trade_count", len(result.Trades)).
-			Msg("Backtest completed successfully")
-
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Failed to marshal backtest result")
-			if dbErr := s.store.UpdateJobFailed(jobCtx, jobID, fmt.Sprintf("failed to marshal result: %v", err)); dbErr != nil {
-				s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark job as failed")
-			}
-			s.cancelFuncs.Delete(jobID)
-			return
-		}
-
-		if err := s.store.UpdateJobCompleted(jobCtx, jobID, resultStatusOf(result.Status), resultJSON); err != nil {
-			s.logger.Error().Err(err).Str("job_id", jobID).Msg("Failed to persist job result to database")
-		} else {
-			s.logger.Info().Str("job_id", jobID).Msg("Job result persisted successfully")
-		}
-		s.cancelFuncs.Delete(jobID)
-	}()
 }
 
 // GetJob retrieves the current state of a job.
@@ -611,223 +167,29 @@ func (s *JobService) ListJobs(ctx context.Context, limit int) ([]*Job, error) {
 	return jobs, nil
 }
 
-// CancelJob attempts to cancel a pending/running job.
-func (s *JobService) CancelJob(ctx context.Context, jobID string) error {
-	recordMap, err := s.store.GetBacktestJob(ctx, jobID)
-	if err != nil {
-		return fmt.Errorf("failed to get job: %w", err)
-	}
-	if recordMap == nil {
-		return fmt.Errorf("job not found")
-	}
-	record := mapToJobRecord(recordMap)
-	switch record.Status {
-	case "pending":
-		return s.store.DeleteBacktestJob(ctx, jobID)
-	case "running":
-		if cancel, ok := s.cancelFuncs.Load(jobID); ok {
-			cancel.(context.CancelFunc)()
-			s.cancelFuncs.Delete(jobID)
-		}
-		return nil
-	default:
-		return fmt.Errorf("job is already %s", record.Status)
-	}
-}
-
-// Sprint 6 P0-8 (ODR-013): graceful shutdown.
+// SaveSyncResult persists a completed synchronous backtest result.
 //
-// Shutdown drains the JobService in three observable phases:
-//
-//  1. REJECT-NEW — close the shutdown channel so any in-flight
-//     StartJob call short-circuits and refuses to spawn a new
-//     goroutine. New HTTP requests that try to start a job will
-//     be persisted as "failed" with a clear reason in the DB.
-//
-//  2. CANCEL-IN-FLIGHT — call every cancelFuncs entry. The running
-//     backtest goroutines see ctx.Done() and unwind naturally. The
-//     goroutines are responsible for marking their own row as
-//     "completed" or "failed" — Shutdown itself does NOT touch the
-//     DB for in-flight jobs because doing so would race with the
-//     goroutine's own UpdateJobCompleted/Failed call.
-//
-//  3. WAIT — block on the inflight WaitGroup until either every
-//     in-flight job has settled, or the parent ctx fires. If the
-//     timeout wins, the caller MUST call CleanupStaleRunning next
-//     to sweep any rows that are still "running" in the DB.
-//
-// Shutdown is idempotent: a second call after the first is a no-op.
-//
-// Returns nil on a clean drain, ctx.Err() if the wait timed out.
-func (s *JobService) Shutdown(ctx context.Context) error {
-	// Phase 1: REJECT-NEW. close() under no lock — startJob's select
-	// will see the closed channel immediately.
-	select {
-	case <-s.shutdown:
-		s.logger.Info().Msg("Shutdown already in progress; Shutdown is idempotent, returning")
-		return nil
-	default:
-		close(s.shutdown)
-	}
-	s.logger.Info().Msg("JobService draining: rejecting new jobs and cancelling in-flight ones")
-
-	// Phase 2: CANCEL-IN-FLIGHT.
-	cancelledCount := 0
-	s.cancelFuncs.Range(func(key, value any) bool {
-		if cancel, ok := value.(context.CancelFunc); ok && cancel != nil {
-			cancel()
-			cancelledCount++
-		}
-		return true
-	})
-	s.logger.Info().Int("cancelled", cancelledCount).Msg("In-flight job contexts cancelled; waiting for goroutines to settle")
-
-	// Phase 3: WAIT.
-	done := make(chan struct{})
-	go func() {
-		s.inflightWg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		s.logger.Info().Msg("JobService drained cleanly: all in-flight jobs settled")
-		return nil
-	case <-ctx.Done():
-		s.logger.Warn().Err(ctx.Err()).Msg("JobService drain deadline reached; some jobs may still be settling — call CleanupStaleRunning to ensure DB consistency")
-		return ctx.Err()
-	}
-}
-
-// CleanupStaleRunning scans the JobStore for rows whose status is
-// still "running" and forces them to "failed" with a cancellation
-// message. This is the safety net for Shutdown: if the wait
-// deadline expired before all goroutines finished their own
-// UpdateJob* call, those rows would otherwise be stuck as "running"
-// forever, blocking CI gates / dashboards that look for
-// status IN ('completed','failed').
-//
-// CleanupStaleRunning is also useful as a recovery tool after a
-// hard process crash (kill -9, OOM, etc.) — call it on startup
-// to repair stale rows from the previous run.
-//
-// Returns the number of rows that were transitioned from
-// "running" to "failed".
-func (s *JobService) CleanupStaleRunning(ctx context.Context) (int, error) {
-	// ListBacktestJobs returns most-recent-first. The interface is
-	// limit-based; for the cleanup pass we ask for a large window
-	// (1000 rows = ~8 hours of typical 30s/job throughput) so any
-	// genuinely stuck jobs are caught. For sites that have
-	// legitimately thousands of jobs/day, a follow-up ODR may add a
-	// dedicated "ListByStatus" to JobStore; for now the broad
-	// scan is acceptable because the cost is one bounded query
-	// and a small status check per row.
-	const cleanupWindowLimit = 1000
-	records, err := s.store.ListBacktestJobs(ctx, cleanupWindowLimit)
-	if err != nil {
-		return 0, fmt.Errorf("failed to list jobs for stale-running cleanup: %w", err)
-	}
-
-	transitioned := 0
-	for _, r := range records {
-		status, _ := r["status"].(string)
-		if status != "running" {
-			continue
-		}
-		id, _ := r["id"].(string)
-		if id == "" {
-			continue
-		}
-		// UpdateJobFailed is the existing API; it already sets
-		// status='failed' and appends to error_msg. We use a fixed
-		// prefix so downstream log/alert consumers can recognize
-		// SIGTERM-killed rows.
-		msg := "job cancelled by service shutdown (P0-8 stale-running cleanup)"
-		if err := s.store.UpdateJobFailed(ctx, id, msg); err != nil {
-			s.logger.Error().Err(err).Str("job_id", id).Msg("Failed to clean up stale 'running' job")
-			continue
-		}
-		transitioned++
-		s.logger.Info().Str("job_id", id).Msg("Cleaned up stale 'running' job → 'failed'")
-	}
-	s.logger.Info().Int("transitioned", transitioned).Int("scanned", len(records)).Msg("Stale-running cleanup complete")
-	return transitioned, nil
-}
-
-// SaveSyncResult persists a completed synchronous backtest result to the DB.
+// 同步回测没有任务生命周期，只有结论：写 core 结果面 run.backtest_results
+// （SVC-ORCH-G3）。结果面未装配 ⇒ fail-closed 报错，**不**回退到已退役的
+// 本地队列表——静默回退会让「结果写到了哪里」变成部署偶然。
 func (s *JobService) SaveSyncResult(ctx context.Context, resp *contracts.BacktestResponse) error {
 	if resp == nil {
 		return fmt.Errorf("nil backtest result")
 	}
-
-	// 结果面（SVC-ORCH-G3）：同步回测只有结论、没有任务生命周期，直接写
-	// run.backtest_results，不再往 backtest_jobs 插行。
-	if s.resultFace != nil {
-		if resp.ID == "" {
-			return fmt.Errorf("backtest result has an empty id")
-		}
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			return fmt.Errorf("failed to marshal result: %w", err)
-		}
-		if err := s.resultFace.SaveBacktestResult(ctx, resp.ID, resultStatusOf(resp.Status), resultJSON); err != nil {
-			return fmt.Errorf("failed to persist result face: %w", err)
-		}
-		return nil
+	if s.resultFace == nil {
+		return fmt.Errorf("job: result face not configured (WithResultFace); refusing to persist a sync result")
 	}
-
+	if resp.ID == "" {
+		return fmt.Errorf("backtest result has an empty id")
+	}
 	resultJSON, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
 	}
-
-	universe := ""
-	if len(resp.StockPool) > 0 {
-		universe = strings.Join(resp.StockPool, ",")
+	if err := s.resultFace.SaveBacktestResult(ctx, resp.ID, resultStatusOf(resp.Status), resultJSON); err != nil {
+		return fmt.Errorf("failed to persist result face: %w", err)
 	}
-
-	job := map[string]any{
-		"id":          resp.ID,
-		"strategy_id": resp.Strategy,
-		"params":      []byte("{}"),
-		"universe":    universe,
-		"start_date":  resp.StartDate,
-		"end_date":    resp.EndDate,
-		"status":      "pending",
-	}
-
-	if err := s.store.CreateBacktestJob(ctx, job); err != nil {
-		return fmt.Errorf("failed to create job record: %w", err)
-	}
-
-	if err := s.store.UpdateJobStarted(ctx, resp.ID); err != nil {
-		return fmt.Errorf("failed to mark job started: %w", err)
-	}
-
-	if err := s.store.UpdateJobCompleted(ctx, resp.ID, resultStatusOf(resp.Status), resultJSON); err != nil {
-		return fmt.Errorf("failed to persist job result: %w", err)
-	}
-
 	return nil
-}
-
-// parseUniverse converts a universe string to a list of stock symbols.
-func parseUniverse(universe string) []string {
-	if universe == "" || universe == "all" {
-		return nil
-	}
-	if strings.HasPrefix(universe, "universe:") {
-		universe = strings.TrimPrefix(universe, "universe:")
-	}
-	parts := strings.Split(universe, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
 }
 
 // recordToJob converts an internal JobRecord to a public Job.
@@ -849,8 +211,8 @@ func recordToJob(r *JobRecord) *Job {
 	}
 }
 
-// resultStatusOf 把 ResultSpec.Status 映射成 completed 行上的 K9 result_status。
-// 只有 completed / invalid 会走到这里（失败行由 UpdateJobFailed 写 'failed'）。
+// resultStatusOf 把 ResultSpec.Status 映射成结果行上的 K9 result_status。
+// 只有 completed / invalid 会走到这里（失败行由调用方以 failed 直接写）。
 // 未知/空值按 completed 处理：它们是「跑完且有结果体」的调用方契约，不能因为
 // 内核少填一个字段就把有效结果读成失败。
 func resultStatusOf(respStatus string) string {
@@ -858,28 +220,4 @@ func resultStatusOf(respStatus string) string {
 		return contracts.StatusInvalid
 	}
 	return contracts.StatusCompleted
-}
-
-// failMalformedReservedKey 把保留键类型畸形的作业判为 failed
-// （fail-closed：不猜默认内核、不丢参数），并清理取消注册表。
-func (s *JobService) failMalformedReservedKey(ctx context.Context, jobID, key string, val any) {
-	msg := fmt.Sprintf("kernel routing failed: reserved params key %q has unexpected type %T — malformed RunSpec is rejected, not coerced (fail-closed)", key, val)
-	s.logger.Error().
-		Str("job_id", jobID).
-		Str("key", key).
-		Str("value_type", fmt.Sprintf("%T", val)).
-		Msg("Malformed reserved params key — marking job as failed (no coercion, no fallback)")
-	if dbErr := s.store.UpdateJobFailed(ctx, jobID, msg); dbErr != nil {
-		s.logger.Error().Err(dbErr).Str("job_id", jobID).Msg("Failed to mark malformed-key job as failed")
-	}
-	s.cancelFuncs.Delete(jobID)
-}
-
-// derefIntOr 解引用 int 指针（nil 用 fallback 表示）—— OBS-01：票池规模是 *int，
-// nil = 未评估，日志里用 -1 一眼能看出。
-func derefIntOr(p *int, fallback int) int {
-	if p == nil {
-		return fallback
-	}
-	return *p
 }

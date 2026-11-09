@@ -2,10 +2,11 @@ package main
 
 // SVC-ORCH-G3（core 侧）的读面 / 提交面测试。
 //
+// 收尾腿（2026-11-09）后本地队列表已退役，读面只剩两条源：结果面与任务面。
 // 三条腿：
 //  1. run_spec 只翻本地执行路径真正消费的字段（不多翻，避免新旧路径结果漂移）；
-//  2. 读面按「存量 → 结果面 → 任务面」解析，且列表按 id 去重；
-//  3. 异步入口在配置了编排服务时提交到任务面（202 + job_id），不再写本地裸表。
+//  2. 读面按「结果面 → 任务面」解析，且列表按 id 去重；
+//  3. 异步入口在配置了编排服务时提交到任务面（202 + job_id）。
 
 import (
 	"context"
@@ -28,27 +29,6 @@ import (
 
 // ─── 桩 ────────────────────────────────────────────────────────────────
 
-type fakeLegacyJobStore struct {
-	get     map[string]any
-	getErr  error
-	list    []map[string]any
-	listErr error
-}
-
-func (f *fakeLegacyJobStore) CreateBacktestJob(context.Context, map[string]any) error { return nil }
-func (f *fakeLegacyJobStore) UpdateJobStarted(context.Context, string) error          { return nil }
-func (f *fakeLegacyJobStore) UpdateJobCompleted(context.Context, string, string, []byte) error {
-	return nil
-}
-func (f *fakeLegacyJobStore) UpdateJobFailed(context.Context, string, string) error { return nil }
-func (f *fakeLegacyJobStore) DeleteBacktestJob(context.Context, string) error       { return nil }
-func (f *fakeLegacyJobStore) GetBacktestJob(_ context.Context, _ string) (map[string]any, error) {
-	return f.get, f.getErr
-}
-func (f *fakeLegacyJobStore) ListBacktestJobs(_ context.Context, _ int) ([]map[string]any, error) {
-	return f.list, f.listErr
-}
-
 type fakeResultReader struct {
 	rec     *storage.BacktestResultRecord
 	err     error
@@ -64,26 +44,16 @@ func (f *fakeResultReader) ListBacktestResults(_ context.Context, _ int) ([]*sto
 	return f.list, f.listErr
 }
 
-func legacyRow(id string, created time.Time) map[string]any {
-	return map[string]any{
-		"id": id, "strategy_id": "momentum", "params": []byte("{}"),
-		"universe": "600000.SH", "start_date": "2026-01-01", "end_date": "2026-03-01",
-		"status": "completed", "result_status": "completed", "created_at": created,
-	}
-}
-
 // ─── run_spec 映射 ─────────────────────────────────────────────────────
 
 func TestBuildAsyncRunSpecMapsLocalExecutionFields(t *testing.T) {
-	req := backtest.CreateJobRequest{
+	req := asyncBacktestRequest{
 		StrategyID:     "momentum",
 		Universe:       "universe: 600000.SH, 000001.SZ ",
 		StartDate:      "2026-01-01",
 		EndDate:        "2026-03-01",
 		InitialCapital: 1_000_000,
 		Kernel:         "go",
-		CommissionRate: 0.0003,
-		SlippageRate:   0.0002,
 		Params:         map[string]any{"lookback": 20},
 		EngineParams:   map[string]any{"benchmark_index_code": "000300.SH"},
 	}
@@ -128,7 +98,7 @@ func TestBuildAsyncRunSpecMarketRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMarketRouter: %v", err)
 	}
-	req := backtest.CreateJobRequest{
+	req := asyncBacktestRequest{
 		StrategyID: "momentum", Universe: "600000.SH",
 		StartDate: "2026-01-01", EndDate: "2026-03-01", Market: "CN",
 	}
@@ -148,19 +118,7 @@ func TestBuildAsyncRunSpecMarketRouting(t *testing.T) {
 	}
 }
 
-// ─── 读面：三源 ────────────────────────────────────────────────────────
-
-func TestOrchestrationJobStoreGetPrefersLegacyRow(t *testing.T) {
-	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{get: legacyRow("r1", time.Now())},
-		&fakeResultReader{err: storage.ErrBacktestResultNotFound},
-		nil, zerolog.Nop(),
-	)
-	got, err := store.GetBacktestJob(context.Background(), "r1")
-	if err != nil || got == nil || got["id"] != "r1" {
-		t.Fatalf("legacy row must win: %v %v", got, err)
-	}
-}
+// ─── 读面：结果面 → 任务面 ──────────────────────────────────────────────
 
 func TestOrchestrationJobStoreGetFallsBackToResultFace(t *testing.T) {
 	rec := &storage.BacktestResultRecord{
@@ -171,7 +129,6 @@ func TestOrchestrationJobStoreGetFallsBackToResultFace(t *testing.T) {
 		ErrorMessage: "",
 	}
 	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{},
 		&fakeResultReader{rec: rec},
 		nil, zerolog.Nop(),
 	)
@@ -197,7 +154,6 @@ func TestOrchestrationJobStoreGetFallsBackToTaskFace(t *testing.T) {
 	defer srv.Close()
 
 	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{},
 		&fakeResultReader{err: storage.ErrBacktestResultNotFound},
 		orchestrationworker.NewClient(srv.URL, srv.Client()), zerolog.Nop(),
 	)
@@ -218,7 +174,6 @@ func TestOrchestrationJobStoreGetUnknownTaskIsNotFound(t *testing.T) {
 	defer srv.Close()
 
 	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{},
 		&fakeResultReader{err: storage.ErrBacktestResultNotFound},
 		orchestrationworker.NewClient(srv.URL, srv.Client()), zerolog.Nop(),
 	)
@@ -238,7 +193,6 @@ func TestOrchestrationJobStoreListMergesAndDedupes(t *testing.T) {
 	defer srv.Close()
 
 	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{list: []map[string]any{legacyRow("r1", now.Add(-time.Minute))}},
 		&fakeResultReader{
 			err: storage.ErrBacktestResultNotFound,
 			list: []*storage.BacktestResultRecord{{
@@ -275,7 +229,6 @@ func TestOrchestrationJobStoreListMergesAndDedupes(t *testing.T) {
 func TestOrchestrationJobStoreListWithoutTaskClient(t *testing.T) {
 	now := time.Now()
 	store := newOrchestrationJobStore(
-		&fakeLegacyJobStore{},
 		&fakeResultReader{list: []*storage.BacktestResultRecord{{
 			RunID: "sync-1", ResultStatus: "completed",
 			Result:    json.RawMessage(`{"strategy":"value","start_date":"2026-01-01","end_date":"2026-02-01"}`),

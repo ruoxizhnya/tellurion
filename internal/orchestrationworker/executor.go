@@ -1,7 +1,7 @@
 package orchestrationworker
 
 // 执行与结果落库：worker 只做三件事——经 EngineRunner 跑一条请求、把结果写进
-// core 的 `backtest_jobs`、给出一个可回传给编排侧的结果指针。
+// core 的结果面 `run.backtest_results`、给出一个可回传给编排侧的结果指针。
 
 import (
 	"context"
@@ -46,7 +46,10 @@ type Executor struct {
 	Sink      ResultSink
 	Timeout   time.Duration
 	Publisher ArtifactPublisher
-	Log       zerolog.Logger
+	// Face 是结果面的直接写口，只用于**失败留痕**（Sink 只接
+	// completed / invalid 的载荷）。见 recordFailure。
+	Face ResultFaceStore
+	Log  zerolog.Logger
 }
 
 // Execute 执行一条请求。引擎错误、结果落库失败、未知状态一律折成 failed——
@@ -66,16 +69,20 @@ func (e *Executor) Execute(ctx context.Context, req contracts.BacktestRequest) (
 
 	runner, err := e.RunnerFor(req.EffectiveKernel())
 	if err != nil {
-		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: fmt.Sprintf("kernel %q: %v", req.EffectiveKernel(), err)}, nil
+		msg := fmt.Sprintf("kernel %q: %v", req.EffectiveKernel(), err)
+		e.recordFailure(ctx, req.RunID, msg)
+		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
 	}
 	resp, err := runner.RunBacktest(ctx, req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Outcome{}, ctxErr
 		}
+		e.recordFailure(ctx, req.RunID, err.Error())
 		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: err.Error()}, nil
 	}
 	if resp == nil {
+		e.recordFailure(ctx, req.RunID, "engine returned no response")
 		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: "engine returned no response"}, nil
 	}
 	if resp.Status == contracts.StatusFailed {
@@ -83,23 +90,22 @@ func (e *Executor) Execute(ctx context.Context, req contracts.BacktestRequest) (
 		if msg == "" {
 			msg = "engine returned status=failed without an error message"
 		}
+		e.recordFailure(ctx, resp.ID, msg)
 		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
 	}
 	if resp.Status != contracts.StatusCompleted && resp.Status != contracts.StatusInvalid {
-		return Outcome{
-			ResultStatus: string(contracts.StatusFailed),
-			Error:        fmt.Sprintf("engine returned unknown status %q", resp.Status),
-		}, nil
+		msg := fmt.Sprintf("engine returned unknown status %q", resp.Status)
+		e.recordFailure(ctx, resp.ID, msg)
+		return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
 	}
 	if e.Sink != nil {
 		if err := e.Sink.Save(ctx, resp); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return Outcome{}, ctxErr
 			}
-			return Outcome{
-				ResultStatus: string(contracts.StatusFailed),
-				Error:        fmt.Sprintf("persist result %s: %v", resp.ID, err),
-			}, nil
+			msg := fmt.Sprintf("persist result %s: %v", resp.ID, err)
+			e.recordFailure(ctx, resp.ID, msg)
+			return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
 		}
 	}
 	// 产物发布在结果落库之后：结果先可用，分析产物缺失只降级分析面。
@@ -112,6 +118,26 @@ func (e *Executor) Execute(ctx context.Context, req contracts.BacktestRequest) (
 		ResultStatus: resp.Status,
 		ResultURI:    ResultURI(resp.ID),
 	}, nil
+}
+
+// recordFailure 把业务失败写进结果面的 failed 行（无载荷，error_message 由
+// 结果面记录；核心结论轴只区分三值，不存失败原因全文）。
+//
+// 为什么失败也要留痕：core 的 provenance 三态判据是结果面的 result_status
+// ——「无结果行」= 未收尾（409），「failed」= 跑过但没留痕（404）。不写这一行，
+// 失败的 run 在 core 侧会永远看起来还在跑。
+//
+// 不写的两种情况：Face 未装配（装配错误，不制造第二条真相）、runID 为空
+// （无法归因）。worker 自身的 abort（ctx 取消 / 租约丢失）**不调用**本函数：
+// 那种 run 会由编排侧重排，写 failed 会把可重试的中断钉成终态。
+func (e *Executor) recordFailure(ctx context.Context, runID, msg string) {
+	if e.Face == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	if err := e.Face.SaveBacktestResult(ctx, runID, string(contracts.StatusFailed), nil); err != nil {
+		e.Log.Warn().Str("run_id", runID).Err(err).
+			Msg("failed result row not written; this run's provenance will read as not-ready")
+	}
 }
 
 // ResultURI 是回传给编排侧的结果指针。形状是 core 自己的（编排侧只存不解释）；
@@ -131,14 +157,15 @@ type ResultFaceStore interface {
 
 // ResultStoreSink 把 completed / invalid 的载荷写进 core 的结果面。
 //
-// 结果面（run.backtest_results）是唯一真相：worker 停写任务面遗留表
-// backtest_jobs（存量行由 Migration 064 回填到结果面，读面仍可回退到旧行）。
+// 结果面（run.backtest_results）是唯一真相：core 的任务面遗留表
+// backtest_jobs 已退役（Migration 065 DROP TABLE），worker 也不再有第二条
+// 写路径。失败结论走 Executor.recordFailure（无载荷的 failed 行）。
 type ResultStoreSink struct {
 	Store ResultFaceStore
 }
 
-// Save 见 ResultSink。失败结论不落结果面时（failed 无载荷）由调用方走
-// Outcome 失败腿，本 sink 只接受 completed / invalid。
+// Save 见 ResultSink。本 sink 只接受 completed / invalid（failed 无载荷，
+// 由 Executor.recordFailure 直写）。
 func (s *ResultStoreSink) Save(ctx context.Context, resp *contracts.BacktestResponse) error {
 	if s.Store == nil {
 		return fmt.Errorf("orchestrationworker: no result face store configured")
@@ -158,24 +185,6 @@ func (s *ResultStoreSink) Save(ctx context.Context, resp *contracts.BacktestResp
 	}
 	if err := s.Store.SaveBacktestResult(ctx, resp.ID, resp.Status, raw); err != nil {
 		return fmt.Errorf("write result face: %w", err)
-	}
-	return nil
-}
-
-// MultiSink 顺序执行多个 sink，任一失败即返回。
-//
-// 只用于过渡期双写（结果面 + 任务面遗留表），不是通用编排设施。
-type MultiSink []ResultSink
-
-// Save 见 ResultSink。
-func (m MultiSink) Save(ctx context.Context, resp *contracts.BacktestResponse) error {
-	for _, sink := range m {
-		if sink == nil {
-			continue
-		}
-		if err := sink.Save(ctx, resp); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -78,7 +78,7 @@ var analysisRoutePolicy = authz.Policy{
 	// 任何变更档位」。
 	ReadOnlyGET: []string{
 		// QT-72 · X0：三 hash + result_status 的对外读面（只读
-		// quant.run_provenance ⋈ backtest_jobs，不写任何表）。
+		// quant.run_provenance ⋈ run.backtest_results，不写任何表）。
 		"GET /api/backtest/:id/provenance",
 		// QT-78 · R2：分析产物读面（只读 quant.run_analysis_artifacts）。
 		// 消费方是 analytics 的服务间读取，与上面的 X0 读面同档：已认证即可。
@@ -93,7 +93,8 @@ var analysisRoutePolicy = authz.Policy{
 	// 判定不做排序，service 不是「更高角色」）。服务 token 的配置泄露不得
 	// 等值于下单权，所以它**只能**出现在这一档，禁止混进 Trader / Admin。
 	Service: []string{
-		// 起一个回测（CPU/内存开销 + 写 backtest_jobs）。调用方是 worker /
+		// 起一个回测（CPU/内存开销；同步路径写结果面 run.backtest_results，
+		// 异步路径提交到编排的 run.backtest_jobs）。调用方是 worker /
 		// analytics 这类服务；真人 trader 与 admin 照旧可调。
 		"POST /api/backtest",
 	},

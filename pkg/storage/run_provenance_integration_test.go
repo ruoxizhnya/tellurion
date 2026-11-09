@@ -3,10 +3,13 @@
 package storage
 
 // QT-63 ⑤ 的落库腿：真库上建表、写入、读回，并用
-// `quant.run_provenance ⋈ backtest_jobs` 取回「输入身份 + 状态」。
+// `quant.run_provenance ⋈ run.backtest_results` 取回「输入身份 + 结论」。
 //
 // 单测（pkg/backtest）证明的是「引擎算出的身份对」；这里证明「这份身份
-// 真的能落到 PG 上、且 status 仍只有 backtest_jobs 一个权威」。
+// 真的能落到 PG 上、且结论轴只有 run.backtest_results 一个权威」。
+//
+// SVC-ORCH-G3 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 退役
+// （Migration 065 DROP TABLE），状态/结论改由 core 结果面承担。
 
 import (
 	"errors"
@@ -41,17 +44,15 @@ func TestIntegration_RunProvenance_RoundTripAndJoin(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = store.pool.Exec(ctx, `DELETE FROM quant.run_provenance WHERE run_id = $1`, runID)
+		_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = $1`, runID)
 	})
 
-	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
-		"id":          runID,
-		"strategy_id": "momentum",
-		"params":      `{"backtest_id":"` + runID + `"}`,
-		"universe":    "600000.SH",
-		"start_date":  "2024-01-02",
-		"end_date":    "2024-06-28",
-		"status":      "completed",
-	}))
+	_, err := store.SaveBacktestResult(ctx, &BacktestResultRecord{
+		RunID:        runID,
+		ResultStatus: "completed",
+		Result:       []byte(`{"strategy":"momentum","start_date":"2024-01-02","end_date":"2024-06-28"}`),
+	})
+	require.NoError(t, err)
 
 	rec := qt63Record(runID)
 	require.NoError(t, store.SaveRunProvenance(ctx, rec))
@@ -71,18 +72,18 @@ func TestIntegration_RunProvenance_RoundTripAndJoin(t *testing.T) {
 	assert.Equal(t, rec.StrategyRefInput, got.StrategyRefInput)
 	assert.False(t, got.CreatedAt.IsZero(), "created_at 由 DB 默认值填")
 
-	// ⑤ 的验收查询：provenance 不存 status，状态经 join 取。
+	// ⑤ 的验收查询：provenance 不存 status，结论经 join 结果面取。
 	var (
 		status      string
 		runSpecHash string
 		seed        int64
 	)
 	err = store.pool.QueryRow(ctx, `
-		SELECT b.status, r.run_spec_hash, r.seed
+		SELECT res.result_status, r.run_spec_hash, r.seed
 		FROM quant.run_provenance r
-		JOIN backtest_jobs b ON b.id = r.run_id
+		JOIN run.backtest_results res ON res.run_id = r.run_id
 		WHERE r.run_id = $1`, runID).Scan(&status, &runSpecHash, &seed)
-	require.NoError(t, err, "run_provenance ⋈ backtest_jobs 必须能查到")
+	require.NoError(t, err, "run_provenance ⋈ run.backtest_results 必须能查到")
 	assert.Equal(t, "completed", status)
 	assert.Equal(t, rec.RunSpecHash, runSpecHash)
 	assert.Equal(t, int64(42), seed)
@@ -102,18 +103,17 @@ func TestIntegration_RunProvenance_RiskRulesHashRoundTrip(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = store.pool.Exec(ctx, `DELETE FROM quant.run_provenance WHERE run_id = ANY($1)`,
 			[]string{runID, emptyRunID})
+		_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = ANY($1)`,
+			[]string{runID, emptyRunID})
 	})
 
 	for _, id := range []string{runID, emptyRunID} {
-		require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
-			"id":          id,
-			"strategy_id": "momentum",
-			"params":      `{"backtest_id":"` + id + `"}`,
-			"universe":    "600000.SH",
-			"start_date":  "2024-01-02",
-			"end_date":    "2024-06-28",
-			"status":      "completed",
-		}))
+		_, err := store.SaveBacktestResult(ctx, &BacktestResultRecord{
+			RunID:        id,
+			ResultStatus: "completed",
+			Result:       []byte(`{"strategy":"momentum"}`),
+		})
+		require.NoError(t, err)
 	}
 
 	filled := qt63Record(runID)
@@ -138,14 +138,14 @@ func TestIntegration_RunProvenance_RiskRulesHashRoundTrip(t *testing.T) {
 	err = store.pool.QueryRow(ctx, `
 		SELECT r.risk_rules_hash
 		FROM quant.run_provenance r
-		JOIN backtest_jobs b ON b.id = r.run_id
+		JOIN run.backtest_results res ON res.run_id = r.run_id
 		WHERE r.run_id = $1`, runID).Scan(&joined)
 	require.NoError(t, err)
 	assert.Equal(t, riskHashHex, joined)
 }
 
 // TestIntegration_BacktestJobProvenance_Join 是 QT-72 的真 PG 腿：
-// 一行 return 的 result_status 必须来自 backtest_jobs（K9 的 invalid），
+// 一行 return 的 result_status 必须来自 run.backtest_results（K9 的 invalid），
 // 而不是 provenance 的任意 hash 列。
 func TestIntegration_BacktestJobProvenance_Join(t *testing.T) {
 	store, ctx := setUp(t)
@@ -153,29 +153,24 @@ func TestIntegration_BacktestJobProvenance_Join(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = store.pool.Exec(ctx, `DELETE FROM quant.run_provenance WHERE run_id = $1`, runID)
-		_, _ = store.pool.Exec(ctx, `DELETE FROM backtest_jobs WHERE id = $1`, runID)
+		_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = $1`, runID)
 	})
 
-	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
-		"id":          runID,
-		"strategy_id": "momentum",
-		"params":      `{"backtest_id":"` + runID + `"}`,
-		"universe":    "600000.SH",
-		"start_date":  "2024-01-02",
-		"end_date":    "2024-06-28",
-		"status":      "pending",
-	}))
-	// 跑完但结论无效：status 仍是 completed，result_status 是 invalid。
-	require.NoError(t, store.UpdateJobCompleted(ctx, runID, "invalid", []byte(`{"status":"invalid"}`)))
+	// 跑完但结论无效：结果面 result_status 是 invalid。
+	_, err := store.SaveBacktestResult(ctx, &BacktestResultRecord{
+		RunID:        runID,
+		ResultStatus: "invalid",
+		Result:       []byte(`{"status":"invalid"}`),
+	})
+	require.NoError(t, err)
 	require.NoError(t, store.SaveRunProvenance(ctx, qt63Record(runID)))
 
 	row, err := store.GetBacktestJobProvenance(ctx, runID)
 	require.NoError(t, err)
 	require.NotNil(t, row)
 	require.NotNil(t, row.Provenance, "有留痕时必须读回三 hash")
-	assert.Equal(t, "completed", row.JobStatus)
 	assert.Equal(t, "invalid", row.ResultStatus,
-		"result_status 必须来自 backtest_jobs；invalid 不得被读成 failed 或 hash")
+		"result_status 必须来自结果面；invalid 不得被读成 failed 或 hash")
 	assert.Equal(t, qt63Record(runID).RunSpecHash, row.Provenance.RunSpecHash)
 	assert.Equal(t, qt63Record(runID).DatasetSnapshotHash, row.Provenance.DatasetSnapshotHash)
 	assert.Equal(t, qt63Record(runID).ParamsHash, row.Provenance.ParamsHash)
@@ -183,35 +178,30 @@ func TestIntegration_BacktestJobProvenance_Join(t *testing.T) {
 	assert.NotEqual(t, row.Provenance.DatasetSnapshotHash, row.ResultStatus)
 }
 
-// TestIntegration_BacktestJobProvenance_AbsentRow：job 在但留痕不在 ⇒
-// Provenance == nil（三态由 handler 按 job 两轴决定）；job 也不在 ⇒ (nil,nil)。
+// TestIntegration_BacktestJobProvenance_AbsentRow：结果行在但留痕不在 ⇒
+// (nil, nil)（驱动表是留痕表）；两者都不在 ⇒ (nil, nil)。
 func TestIntegration_BacktestJobProvenance_AbsentRow(t *testing.T) {
 	store, ctx := setUp(t)
 	const runID = "qt72-no-provenance"
 
 	t.Cleanup(func() {
-		_, _ = store.pool.Exec(ctx, `DELETE FROM backtest_jobs WHERE id = $1`, runID)
+		_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = $1`, runID)
 	})
 
-	require.NoError(t, store.CreateBacktestJob(ctx, map[string]any{
-		"id":          runID,
-		"strategy_id": "momentum",
-		"params":      `{}`,
-		"universe":    "600000.SH",
-		"start_date":  "2024-01-02",
-		"end_date":    "2024-06-28",
-		"status":      "completed",
-	}))
+	_, err := store.SaveBacktestResult(ctx, &BacktestResultRecord{
+		RunID:        runID,
+		ResultStatus: "completed",
+		Result:       []byte(`{"strategy":"momentum"}`),
+	})
+	require.NoError(t, err)
 
 	row, err := store.GetBacktestJobProvenance(ctx, runID)
 	require.NoError(t, err)
-	require.NotNil(t, row)
-	assert.Nil(t, row.Provenance, "没有留痕行时不得伪造三 hash")
-	assert.Equal(t, "completed", row.JobStatus)
+	assert.Nil(t, row, "没有留痕行时整个读取结果为空（不伪造三 hash）")
 
 	missing, err := store.GetBacktestJobProvenance(ctx, "qt72-no-such-job")
 	require.NoError(t, err)
-	assert.Nil(t, missing, "job 不存在时返回 (nil, nil)")
+	assert.Nil(t, missing, "run 不存在时返回 (nil, nil)")
 }
 
 func TestIntegration_RunProvenance_ConflictFailsLoud(t *testing.T) {

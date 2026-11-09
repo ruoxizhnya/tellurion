@@ -80,15 +80,6 @@ var recoveryCallSites = []struct {
 	why      string
 }{
 	{
-		declFile: "pkg/backtest/job/job.go",
-		callSite: "cmd/analysis/setup.go:buildDataServices",
-		funcName: "CleanupStaleRunning",
-		why: "AUD-50: the shutdown half is wired in gracefulShutdown, but the startup " +
-			"half — the one the doc comment promises — was missing, so a backtest " +
-			"interrupted by kill -9 / OOM stays `running` until someone notices. " +
-			"buildDataServices must call it before the HTTP server starts.",
-	},
-	{
 		declFile: "pkg/sync/queue.go",
 		callSite: "pkg/sync/worker.go:Start",
 		funcName: "CleanupStaleRunning",
@@ -97,6 +88,10 @@ var recoveryCallSites = []struct {
 			"it before launching any worker — hanging it there is what makes the " +
 			"recovery impossible to forget.",
 	},
+	// SVC-ORCH-G3 收尾腿（2026-11-09）：backtest 的 CleanupStaleRunning 随
+	// pkg/backtest/job 的本地队列整条退役 —— core 不再持有异步作业生命周期
+	// （在途作业归编排服务的租约），本表不再守它。若将来 core 重建本地队列，
+	// AUD-50 的接线必须重新指名。
 	// SVC-CORE-DATA-RETIRE：SetRunningCanceller 的生产接线点
 	// （cmd/data/sync_handlers.go:NewSyncHandler）随 cmd/data 整包退役，
 	// pkg/sync 目前没有 HTTP 入口（已登记进 package_wiring 的 unwiredPackages）。

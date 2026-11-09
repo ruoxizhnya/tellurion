@@ -2,17 +2,19 @@ package main
 
 // QT-72 · X0 三 hash 对外读面（裁-19 定稿）。
 //
-// `GET /api/backtest/{id}/provenance` 读 `quant.run_provenance ⋈ backtest_jobs`：
-// hash / 指针 / 生效值来自留痕表，**status / result_status 只从 backtest_jobs 取**
+// `GET /api/backtest/{id}/provenance` 读 `quant.run_provenance ⋈ run.backtest_results`：
+// hash / 指针 / 生效值来自留痕表，**结论轴 result_status 只从结果面取**
 // （QT-63 ④ 单一同源 —— 留痕表没有 status 列）。
 //
-// 三态沿用 orchestration `provenanceView` 的三个 wire code（裁-⑬）：
-//   - 非终态                → 409 `provenance_not_ready`
-//   - 终态 failed/cancelled → 404 `provenance_not_found`
-//   - 终态 completed/invalid→ 500 `provenance_missing`（数据完整性破坏）
+// SVC-ORCH-G3 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 退役，结论轴
+// 改读结果面 run.backtest_results.result_status（worker / 同步端点写入的 K9
+// 三值），驱动表随之从 backtest_jobs 换成 run_provenance。三态语义不变：
+//   - 无结果行（尚未收尾）  → 409 `provenance_not_ready`
+//   - 结果 failed           → 404 `provenance_not_found`
+//   - 结果 completed/invalid→ 500 `provenance_missing`（数据完整性破坏）
 // `invalid` 是**结论**不是失败，缺留痕同样是 500，不能读成 404。
-// 本端点**不引入** `producer_pending`：那是 orchestration 侧 worker 投影的
-// 提示位，core 读自己的表，不依赖那个进程。
+// 已知偏差（待主任追认）：cancelled 的 run 不写结果行，因此从「404」变为
+// 「409 not_ready」——取消不是「跑完且失败」，读成「未收尾」更接近事实。
 //
 // 可空列显式出 `null`，不省略键（读侧要能区分「没有」与「未提供」）：
 //   - `artifact_uri`：core 的留痕表没有这一列（指针归 worker 投影），恒 null；
@@ -36,7 +38,7 @@ import (
 // backtestProvenanceReader 是 X0 读面的最小端口。
 // 生产实现是 *storage.PostgresStore；测试注入替身。
 type backtestProvenanceReader interface {
-	GetBacktestJobProvenance(ctx context.Context, runID string) (*storage.BacktestJobProvenance, error)
+	GetBacktestJobProvenance(ctx context.Context, runID string) (*storage.BacktestProvenance, error)
 }
 
 // backtestProvenanceView 是 `ProvenanceResponse` 的 core 侧 DTO。
@@ -91,7 +93,7 @@ func registerBacktestProvenanceRoute(api *gin.RouterGroup, reader backtestProven
 }
 
 // provenanceViewOf 把「留痕 ⋈ job」折成对外 DTO。
-func provenanceViewOf(row *storage.BacktestJobProvenance) backtestProvenanceView {
+func provenanceViewOf(row *storage.BacktestProvenance) backtestProvenanceView {
 	p := row.Provenance
 	seed := p.Seed
 	createdAt := p.CreatedAt
@@ -115,23 +117,22 @@ func provenanceViewOf(row *storage.BacktestJobProvenance) backtestProvenanceView
 	}
 }
 
-// writeProvenanceAbsent 按 job 的两轴决定「没有留痕」是哪种语义。
+// writeProvenanceAbsent 按结论轴决定「没有留痕」是哪种语义。
 //
-// 判据落在 result_status（K9 结论）而不是只落在 status：status=completed 时
-// result_status 可能是 invalid —— 两者都要求有留痕。invalid 是正常结论，
-// 不是失败，所以它缺留痕同样是完整性破坏（500），不能读成 failed 的 404。
-func writeProvenanceAbsent(c *gin.Context, row *storage.BacktestJobProvenance, runID string, logger zerolog.Logger) {
-	if !isTerminalBacktestStatus(row.JobStatus) {
+// 判据落在 result_status（K9 结论，来自结果面）：
+//   - 空（无结果行）→ run 还没收尾 → 409；
+//   - completed / invalid → 有结论就必须有留痕 → 500；
+//   - failed / 其他 → 404（run 跑过但没留下留痕）。
+func writeProvenanceAbsent(c *gin.Context, row *storage.BacktestProvenance, runID string, logger zerolog.Logger) {
+	if row.ResultStatus == "" {
 		writeProvenanceWireError(c, http.StatusConflict,
 			"provenance_not_ready", "run is not terminal; provenance is written when it finishes")
 		return
 	}
 	if row.ResultStatus == backtest.StatusCompleted ||
-		row.ResultStatus == backtest.StatusInvalid ||
-		row.JobStatus == "completed" {
+		row.ResultStatus == backtest.StatusInvalid {
 		logger.Error().
 			Str("backtest_id", runID).
-			Str("status", row.JobStatus).
 			Str("result_status", row.ResultStatus).
 			Msg("terminal run has no provenance row")
 		writeProvenanceWireError(c, http.StatusInternalServerError,
@@ -140,18 +141,6 @@ func writeProvenanceAbsent(c *gin.Context, row *storage.BacktestJobProvenance, r
 	}
 	writeProvenanceWireError(c, http.StatusNotFound,
 		"provenance_not_found", "run never produced provenance")
-}
-
-// isTerminalBacktestStatus 与 orchestration 的 `Terminal()` 同口径。
-// core 的 job 生命周期目前只写 pending / running / completed / failed；
-// cancelled 留在这里是为了与两侧的终态集合逐字一致。
-func isTerminalBacktestStatus(status string) bool {
-	switch status {
-	case "completed", "failed", "cancelled":
-		return true
-	default:
-		return false
-	}
 }
 
 // writeProvenanceWireError 直接写三态 wire code。

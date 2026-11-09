@@ -1,12 +1,15 @@
 package job
 
+// SVC-ORCH-G3 收尾腿（2026-11-09）：本地异步队列退役后，本包只剩「读面 +
+// 同步结果写面」两条腿，测试也只钉这两条：
+//   - 读：GetJob / ListJobs 对 JobStore 的解析与默认 limit；
+//   - 写：SaveSyncResult 只写 core 结果面，未装配结果面时 fail-closed。
+
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"sync"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
@@ -15,725 +18,161 @@ import (
 )
 
 type mockJobStore struct {
-	mu    sync.Mutex
 	jobs  map[string]map[string]any
 	order []string
-	// failCtxErrs（REV-22-(1)）：记录每次 UpdateJobFailed 收到的 ctx.Err()。
-	// nil map = 不记录（既有测试不受影响）。
-	failCtxErrs map[string]error
 }
 
 func newMockJobStore() *mockJobStore {
 	return &mockJobStore{jobs: make(map[string]map[string]any)}
 }
 
-// fakeRunner — 测试用 contracts.EngineRunner stub。
-// 替代真实 *Engine, 断开 job/ → 父包循环依赖。
-// 默认返回非 nil 的空 BacktestResponse, 防止 StartJob 中
-// result.TotalReturn 等 logger 字段触发 NPE。
-type fakeRunner struct {
-	mu    sync.Mutex
-	calls []contracts.BacktestRequest
-}
-
-func (f *fakeRunner) RunBacktest(ctx context.Context, req contracts.BacktestRequest) (*contracts.BacktestResponse, error) {
-	f.mu.Lock()
-	f.calls = append(f.calls, req)
-	f.mu.Unlock()
-	return &contracts.BacktestResponse{}, nil
-}
-
-// cloneJobMap returns a deep copy of a job map. The JobStore mock
-// previously returned the underlying map by reference; that meant
-// any goroutine holding the returned reference (e.g. via
-// GetBacktestJob) could observe in-flight mutations from
-// UpdateJobStarted / UpdateJobCompleted / UpdateJobFailed, which
-// the race detector correctly flagged.
-//
-// Sprint 6 P0-6 fix: every read in the mock now hands back a fresh
-// deep copy so concurrent Update* / Get* calls do not share mutable
-// state. (Production code uses the same defensive copy in
-// JobService.GetJob — see mapToJobRecord in job.go which already
-// copies scalars into a JobRecord struct.)
-func cloneJobMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]any, len(src))
-	for k, v := range src {
-		switch x := v.(type) {
-		case map[string]any:
-			dst[k] = cloneJobMap(x)
-		case []byte:
-			// []byte is a reference type in Go; copy to avoid sharing.
-			cp := make([]byte, len(x))
-			copy(cp, x)
-			dst[k] = cp
-		case time.Time:
-			dst[k] = x // time.Time is a value type; safe to share
-		case *time.Time:
-			if x == nil {
-				dst[k] = (*time.Time)(nil)
-			} else {
-				v := *x
-				dst[k] = &v
-			}
-		default:
-			dst[k] = v // scalars (string, int, float64) are values
-		}
-	}
-	return dst
-}
-
-func (m *mockJobStore) CreateBacktestJob(ctx context.Context, job map[string]any) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	id := job["id"].(string)
-	m.jobs[id] = job
-	m.order = append(m.order, id)
-	return nil
-}
-
-func (m *mockJobStore) UpdateJobStarted(ctx context.Context, jobID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if j, ok := m.jobs[jobID]; ok {
-		j["status"] = "running"
-		now := time.Now()
-		j["started_at"] = now
-	}
-	return nil
-}
-
-func (m *mockJobStore) UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if j, ok := m.jobs[jobID]; ok {
-		j["status"] = "completed"
-		j["result_status"] = resultStatus
-		j["result"] = result
-		now := time.Now()
-		j["completed_at"] = now
-	}
-	return nil
-}
-
-func (m *mockJobStore) UpdateJobFailed(ctx context.Context, jobID string, errMsg string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// REV-22-(1)：记录收到的 ctx 错误——取消场景下必须收到 Background
-	// （ctx.Err() == nil），否则失败记录会跟作业一起死。
-	if m.failCtxErrs != nil {
-		m.failCtxErrs[jobID] = ctx.Err()
-	}
-	if j, ok := m.jobs[jobID]; ok {
-		j["status"] = "failed"
-		j["result_status"] = "failed"
-		j["error_msg"] = errMsg
-	}
-	return nil
-}
-
-func (m *mockJobStore) GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *mockJobStore) GetBacktestJob(_ context.Context, jobID string) (map[string]any, error) {
 	j, ok := m.jobs[jobID]
 	if !ok {
 		return nil, nil
 	}
-	// Return a deep copy so callers cannot observe concurrent
-	// in-flight mutations from Update* without re-acquiring the
-	// lock (P0-6).
-	return cloneJobMap(j), nil
+	return j, nil
 }
 
-func (m *mockJobStore) ListBacktestJobs(ctx context.Context, limit int) ([]map[string]any, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []map[string]any
-	for i := len(m.order) - 1; i >= 0 && len(result) < limit; i-- {
+func (m *mockJobStore) ListBacktestJobs(_ context.Context, limit int) ([]map[string]any, error) {
+	var out []map[string]any
+	for i := len(m.order) - 1; i >= 0 && len(out) < limit; i-- {
 		if j, ok := m.jobs[m.order[i]]; ok {
-			result = append(result, cloneJobMap(j))
+			out = append(out, j)
 		}
 	}
-	return result, nil
+	return out, nil
 }
 
-func (m *mockJobStore) DeleteBacktestJob(ctx context.Context, jobID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.jobs, jobID)
-	for i, id := range m.order {
-		if id == jobID {
-			m.order = append(m.order[:i], m.order[i+1:]...)
-			break
-		}
+// jobRow 是读面 map 形状的一行（与 storage 适配层同形）。
+func jobRow(id string) map[string]any {
+	return map[string]any{
+		"id":            id,
+		"strategy_id":   "momentum",
+		"params":        []byte("{}"),
+		"universe":      "600000.SH",
+		"start_date":    "2026-01-01",
+		"end_date":      "2026-03-01",
+		"status":        "completed",
+		"result_status": "completed",
+		"result":        []byte(`{"total_return":0.1}`),
 	}
-	return nil
 }
 
-func newTestJobService(t *testing.T) (*JobService, *mockJobStore) {
-	t.Helper()
-	store := newMockJobStore()
-	registry := contracts.NewEngineRegistry()
-	registry.Register(contracts.DefaultKernel, &fakeRunner{})
-	svc := NewJobService(store, registry, zerolog.Nop())
-	return svc, store
-}
-
-func TestJobService_NewJobService(t *testing.T) {
-	svc, _ := newTestJobService(t)
-	assert.NotNil(t, svc)
-	assert.NotNil(t, svc.store)
-	assert.NotNil(t, svc.registry)
-}
-
-func TestJobService_CreateJob(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	job, err := svc.CreateJob(context.Background(), CreateJobRequest{
-		StrategyID: "momentum",
-		Params:     map[string]any{"lookback": 20},
-		Universe:   "600000.SH,600001.SH",
-		StartDate:  "2020-01-01",
-		EndDate:    "2023-12-31",
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, job.ID)
-	assert.Equal(t, "momentum", job.StrategyID)
-	assert.Equal(t, "pending", job.Status)
-
-	time.Sleep(100 * time.Millisecond)
-
-	stored, err := store.GetBacktestJob(context.Background(), job.ID)
-	require.NoError(t, err)
-	assert.NotNil(t, stored)
-	assert.Equal(t, "momentum", stored["strategy_id"])
-}
-
-func TestJobService_GetJob(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	now := time.Now()
-	store.CreateBacktestJob(context.Background(), map[string]any{
-		"id":          "job-1",
-		"strategy_id": "momentum",
-		"universe":    "600000.SH",
-		"start_date":  "2020-01-01",
-		"end_date":    "2023-12-31",
-		"status":      "completed",
-		"created_at":  now,
-		"result":      []byte(`{"total_return": 0.15}`),
-	})
-
-	job, err := svc.GetJob(context.Background(), "job-1")
-	require.NoError(t, err)
-	require.NotNil(t, job)
-	assert.Equal(t, "job-1", job.ID)
-	assert.Equal(t, "completed", job.Status)
-}
-
-func TestJobService_GetJob_NotFound(t *testing.T) {
-	svc, _ := newTestJobService(t)
-
-	job, err := svc.GetJob(context.Background(), "nonexistent")
-	require.NoError(t, err)
-	assert.Nil(t, job)
-}
-
-func TestJobService_ListJobs(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	now := time.Now()
-	for i := 0; i < 3; i++ {
-		store.CreateBacktestJob(context.Background(), map[string]any{
-			"id":          "job-" + string(rune('A'+i)),
-			"strategy_id": "momentum",
-			"universe":    "600000.SH",
-			"start_date":  "2020-01-01",
-			"end_date":    "2023-12-31",
-			"status":      "completed",
-			"created_at":  now,
-		})
-	}
-
-	jobs, err := svc.ListJobs(context.Background(), 10)
-	require.NoError(t, err)
-	assert.Len(t, jobs, 3)
-}
-
-func TestJobService_ListJobs_DefaultLimit(t *testing.T) {
-	svc, _ := newTestJobService(t)
-
-	jobs, err := svc.ListJobs(context.Background(), 0)
-	require.NoError(t, err)
-	assert.Empty(t, jobs)
-}
-
-func TestJobService_StartJob_CancelViaParentContext(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	job, err := svc.CreateJob(context.Background(), CreateJobRequest{
-		StrategyID: "momentum",
-		Params:     map[string]any{"lookback": 20},
-		Universe:   "600000.SH",
-		StartDate:  "2020-01-01",
-		EndDate:    "2023-12-31",
-	})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	svc.StartJob(ctx, job.ID)
-
-	time.Sleep(50 * time.Millisecond)
-
-	cancel()
-
-	time.Sleep(100 * time.Millisecond)
-
-	stored, _ := store.GetBacktestJob(context.Background(), job.ID)
-	assert.NotNil(t, stored)
-}
-
-func TestJobService_StartJob_StoreStartFails(t *testing.T) {
-	svc, _ := newTestJobService(t)
-
-	svc.StartJob(context.Background(), "nonexistent-job-id")
-
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestJobService_CancelJob_Running(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	now := time.Now()
-	store.CreateBacktestJob(context.Background(), map[string]any{
-		"id":          "running-job",
-		"strategy_id": "momentum",
-		"universe":    "600000.SH",
-		"start_date":  "2020-01-01",
-		"end_date":    "2023-12-31",
-		"status":      "running",
-		"created_at":  now,
-		"started_at":  now,
-	})
-
-	err := svc.CancelJob(context.Background(), "running-job")
-	require.NoError(t, err)
-}
-
-func TestJobService_CancelJob_Pending(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	store.CreateBacktestJob(context.Background(), map[string]any{
-		"id":          "pending-job",
-		"strategy_id": "momentum",
-		"universe":    "600000.SH",
-		"start_date":  "2020-01-01",
-		"end_date":    "2023-12-31",
-		"status":      "pending",
-		"created_at":  time.Now(),
-	})
-
-	err := svc.CancelJob(context.Background(), "pending-job")
-	require.NoError(t, err)
-
-	stored, _ := store.GetBacktestJob(context.Background(), "pending-job")
-	assert.Nil(t, stored)
-}
-
-func TestJobService_CancelJob_Completed(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	store.CreateBacktestJob(context.Background(), map[string]any{
-		"id":          "done-job",
-		"strategy_id": "momentum",
-		"universe":    "600000.SH",
-		"start_date":  "2020-01-01",
-		"end_date":    "2023-12-31",
-		"status":      "completed",
-		"created_at":  time.Now(),
-	})
-
-	err := svc.CancelJob(context.Background(), "done-job")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already completed")
-}
-
-func TestJobService_CancelJob_NotFound(t *testing.T) {
-	svc, _ := newTestJobService(t)
-
-	err := svc.CancelJob(context.Background(), "nonexistent")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestJobService_SaveSyncResult(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	resp := &contracts.BacktestResponse{
-		ID:          "sync-1",
-		Strategy:    "momentum",
-		StockPool:   []string{"600000.SH", "600001.SH"},
-		StartDate:   "2020-01-01",
-		EndDate:     "2023-12-31",
-		TotalReturn: 0.15,
-	}
-
-	err := svc.SaveSyncResult(context.Background(), resp)
-	require.NoError(t, err)
-
-	stored, err := store.GetBacktestJob(context.Background(), "sync-1")
-	require.NoError(t, err)
-	assert.NotNil(t, stored)
-	assert.Equal(t, "completed", stored["status"])
-
-	var result contracts.BacktestResponse
-	resultBytes, ok := stored["result"].([]byte)
-	require.True(t, ok)
-	require.NoError(t, json.Unmarshal(resultBytes, &result))
-	assert.InDelta(t, 0.15, result.TotalReturn, 0.001)
-}
-
-func TestJobService_SaveSyncResult_EmptyStockPool(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	resp := &contracts.BacktestResponse{
-		ID:        "sync-2",
-		Strategy:  "value",
-		StockPool: []string{},
-		StartDate: "2020-01-01",
-		EndDate:   "2023-12-31",
-	}
-
-	err := svc.SaveSyncResult(context.Background(), resp)
-	require.NoError(t, err)
-
-	stored, _ := store.GetBacktestJob(context.Background(), "sync-2")
-	assert.NotNil(t, stored)
-	assert.Equal(t, "", stored["universe"])
-}
-
-// fakeResultFace 记录写口调用（SVC-ORCH-G3）。
 type fakeResultFace struct {
-	calls   int
-	runID   string
+	id      string
 	status  string
 	payload []byte
 	err     error
 }
 
 func (f *fakeResultFace) SaveBacktestResult(_ context.Context, runID, resultStatus string, result []byte) error {
-	f.calls++
-	f.runID = runID
-	f.status = resultStatus
-	f.payload = result
+	f.id, f.status, f.payload = runID, resultStatus, result
 	return f.err
 }
 
-// TestJobService_SaveSyncResult_WritesResultFaceOnly 钉住：注入结果面后，
-// 同步回测只写 run.backtest_results，**不再**往 legacy backtest_jobs 插行。
-func TestJobService_SaveSyncResult_WritesResultFaceOnly(t *testing.T) {
+func newTestJobService(t *testing.T, opts ...JobServiceOption) (*JobService, *mockJobStore) {
+	t.Helper()
 	store := newMockJobStore()
-	registry := contracts.NewEngineRegistry()
-	registry.Register(contracts.DefaultKernel, &fakeRunner{})
+	return NewJobService(store, zerolog.Nop(), opts...), store
+}
+
+func TestJobService_RequiresStore(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewJobService(nil) must panic (read face without a store is a wiring error)")
+		}
+	}()
+	NewJobService(nil, zerolog.Nop())
+}
+
+func TestJobService_GetJob(t *testing.T) {
+	svc, store := newTestJobService(t)
+	store.jobs["j1"] = jobRow("j1")
+	store.order = []string{"j1"}
+
+	got, err := svc.GetJob(context.Background(), "j1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "j1", got.ID)
+	assert.Equal(t, "momentum", got.StrategyID)
+	assert.Equal(t, "completed", got.Status)
+	assert.JSONEq(t, `{"total_return":0.1}`, string(got.Result))
+}
+
+func TestJobService_GetJob_NotFound(t *testing.T) {
+	svc, _ := newTestJobService(t)
+	got, err := svc.GetJob(context.Background(), "missing")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestJobService_ListJobs(t *testing.T) {
+	svc, store := newTestJobService(t)
+	store.jobs["j1"] = jobRow("j1")
+	store.jobs["j2"] = jobRow("j2")
+	store.order = []string{"j1", "j2"}
+
+	jobs, err := svc.ListJobs(context.Background(), 0)
+	require.NoError(t, err)
+	require.Len(t, jobs, 2)
+	// 默认 limit=20 且按倒序（最近优先）。
+	assert.Equal(t, "j2", jobs[0].ID)
+	assert.Equal(t, "j1", jobs[1].ID)
+}
+
+func TestJobService_ListJobs_DefaultLimit(t *testing.T) {
+	svc, store := newTestJobService(t)
+	store.jobs["only"] = jobRow("only")
+	store.order = []string{"only"}
+
+	jobs, err := svc.ListJobs(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Len(t, jobs, 1)
+}
+
+func TestJobService_SaveSyncResult_WritesResultFace(t *testing.T) {
 	face := &fakeResultFace{}
-	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+	svc, _ := newTestJobService(t, WithResultFace(face))
 
 	resp := &contracts.BacktestResponse{
-		ID:          "sync-face-1",
-		Strategy:    "momentum",
-		StockPool:   []string{"600000.SH"},
-		StartDate:   "2020-01-01",
-		EndDate:     "2023-12-31",
-		TotalReturn: 0.21,
+		ID: "sync-1", Strategy: "momentum", Status: contracts.StatusCompleted,
 	}
 	require.NoError(t, svc.SaveSyncResult(context.Background(), resp))
-
-	assert.Equal(t, 1, face.calls)
-	assert.Equal(t, "sync-face-1", face.runID)
-	assert.Equal(t, contracts.StatusCompleted, face.status)
-	var payload contracts.BacktestResponse
-	require.NoError(t, json.Unmarshal(face.payload, &payload))
-	assert.InDelta(t, 0.21, payload.TotalReturn, 1e-9)
-
-	// legacy 表必须一行都没有：同步回测的结论不属于任务面。
-	stored, err := store.GetBacktestJob(context.Background(), "sync-face-1")
-	require.NoError(t, err)
-	assert.Nil(t, stored, "SaveSyncResult must not insert into the legacy job table")
-	assert.Empty(t, store.order)
+	assert.Equal(t, "sync-1", face.id)
+	assert.Equal(t, "completed", face.status)
+	var stored contracts.BacktestResponse
+	require.NoError(t, json.Unmarshal(face.payload, &stored))
+	assert.Equal(t, "sync-1", stored.ID)
 }
 
-// TestJobService_SaveSyncResult_ResultFaceInvalidStatus 钉住 K9 结论轴：
-// 无效结果写 'invalid'，不是 'completed' 也不是 'failed'。
-func TestJobService_SaveSyncResult_ResultFaceInvalidStatus(t *testing.T) {
-	store := newMockJobStore()
-	registry := contracts.NewEngineRegistry()
-	registry.Register(contracts.DefaultKernel, &fakeRunner{})
+func TestJobService_SaveSyncResult_InvalidKeepsResultStatus(t *testing.T) {
 	face := &fakeResultFace{}
-	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+	svc, _ := newTestJobService(t, WithResultFace(face))
 
-	resp := &contracts.BacktestResponse{ID: "sync-face-2", Status: contracts.StatusInvalid}
+	resp := &contracts.BacktestResponse{ID: "sync-2", Status: contracts.StatusInvalid}
 	require.NoError(t, svc.SaveSyncResult(context.Background(), resp))
-	assert.Equal(t, contracts.StatusInvalid, face.status)
+	assert.Equal(t, "invalid", face.status)
 }
 
-// TestJobService_SaveSyncResult_ResultFaceRequiresID 钉住 fail-closed：
-// 结果面以 run_id 为主键，空 ID 必须拒绝而不是写一条无主行。
-func TestJobService_SaveSyncResult_ResultFaceRequiresID(t *testing.T) {
-	store := newMockJobStore()
-	registry := contracts.NewEngineRegistry()
-	registry.Register(contracts.DefaultKernel, &fakeRunner{})
-	face := &fakeResultFace{}
-	svc := NewJobService(store, registry, zerolog.Nop(), WithResultFace(face))
+func TestJobService_SaveSyncResult_RequiresResultFace(t *testing.T) {
+	svc, _ := newTestJobService(t)
+	err := svc.SaveSyncResult(context.Background(), &contracts.BacktestResponse{ID: "sync-3"})
+	require.Error(t, err, "结果面未装配必须 fail-closed，不得回退到已退役的本地队列")
+	assert.Contains(t, err.Error(), "result face not configured")
+}
 
-	err := svc.SaveSyncResult(context.Background(), &contracts.BacktestResponse{Strategy: "momentum"})
+func TestJobService_SaveSyncResult_RejectsEmptyID(t *testing.T) {
+	svc, _ := newTestJobService(t, WithResultFace(&fakeResultFace{}))
+	err := svc.SaveSyncResult(context.Background(), &contracts.BacktestResponse{})
 	require.Error(t, err)
-	assert.Equal(t, 0, face.calls)
-	assert.Empty(t, store.order)
+	assert.Contains(t, err.Error(), "empty id")
 }
 
-// ---- Sprint 6 P0-6: concurrent access regression tests ------------------
-
-// TestMockJobStore_Concurrent_1000xNoDataRace hammers the mock from
-// many goroutines to confirm the deep-copy fix (Sprint 6 P0-6)
-// eliminates the Get/Update race that previously tripped
-// `go test -race`. With the previous "return by reference" mock,
-// this test panics via the race detector. With the deep-copy mock,
-// it must complete cleanly in well under a second.
-func TestMockJobStore_Concurrent_1000xNoDataRace(t *testing.T) {
-	store := newMockJobStore()
-	ctx := context.Background()
-
-	const N = 1000
-
-	var wg sync.WaitGroup
-	wg.Add(N * 2)
-
-	// Pre-seed
-	for i := 0; i < N; i++ {
-		jobID := fmt.Sprintf("job-%d", i)
-		_ = store.CreateBacktestJob(ctx, map[string]any{
-			"id":          jobID,
-			"strategy_id": "momentum",
-			"universe":    "600000.SH",
-			"start_date":  "2020-01-01",
-			"end_date":    "2023-12-31",
-			"status":      "pending",
-			"created_at":  time.Now(),
-		})
-	}
-
-	// Hammer Update + Get concurrently.
-	for i := 0; i < N; i++ {
-		jobID := fmt.Sprintf("job-%d", i)
-		go func(id string) {
-			defer wg.Done()
-			_ = store.UpdateJobStarted(ctx, id)
-		}(jobID)
-		go func(id string) {
-			defer wg.Done()
-			_, _ = store.GetBacktestJob(ctx, id)
-		}(jobID)
-	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-		// 2000 concurrent Update/Get ops completed without a race
-	case <-time.After(5 * time.Second):
-		t.Fatal("2000 concurrent mockJobStore calls deadlocked within 5s")
-	}
-}
-
-// TestJobService_ConcurrentCreates confirms the JobService layer is
-// safe under burst CreateJob (which in turn races DB updates from
-// the detached goroutine). No assertion on count — only that the
-// created jobs are durably visible to GetJob.
-func TestJobService_ConcurrentCreates(t *testing.T) {
-	svc, store := newTestJobService(t)
-
-	const N = 50 // smaller to keep the test fast
-	var wg sync.WaitGroup
-	wg.Add(N)
-	ids := make([]string, N)
-	for i := 0; i < N; i++ {
-		i := i
-		go func() {
-			defer wg.Done()
-			job, err := svc.CreateJob(context.Background(), CreateJobRequest{
-				StrategyID:     "momentum",
-				Universe:       "600000.SH",
-				StartDate:      "2020-01-01",
-				EndDate:        "2023-12-31",
-				InitialCapital: 1000000,
-			})
-			if err == nil && job != nil {
-				ids[i] = job.ID
-			}
-		}()
-	}
-	wg.Wait()
-
-	// Every jobID we got back must be discoverable via the store.
-	for _, id := range ids {
-		if id == "" {
-			continue
-		}
-		got, err := store.GetBacktestJob(context.Background(), id)
-		assert.NoError(t, err)
-		assert.NotNil(t, got, "every successfully created job must be visible in the store")
-	}
-}
-
-// TestCloneJobMap_DeepCopy confirms the deep-copy helper used by
-// the P0-6 fix actually produces an independent map (and not a
-// shared reference that would re-introduce the race). The
-// product-side test that this enables is `mapToJobRecord` running
-// concurrently with `UpdateJobStarted` without a data race.
-func TestCloneJobMap_DeepCopy(t *testing.T) {
-	src := map[string]any{
-		"id":     "x",
-		"result": []byte{1, 2, 3},
-		"nested": map[string]any{"k": "v"},
-		"when":   time.Now(),
-	}
-	dst := cloneJobMap(src)
-
-	// Mutate dst and confirm src is unchanged.
-	dst["id"] = "y"
-	dst["result"].([]byte)[0] = 99
-	dst["nested"].(map[string]any)["k"] = "z"
-
-	assert.Equal(t, "x", src["id"], "scalar copy must be independent")
-	assert.Equal(t, byte(1), src["result"].([]byte)[0], "[]byte must be deep-copied")
-	assert.Equal(t, "v", src["nested"].(map[string]any)["k"], "nested map must be deep-copied")
-}
-
-func TestCloneJobMap_Nil(t *testing.T) {
-	assert.Nil(t, cloneJobMap(nil),
-		"cloneJobMap(nil) must return nil, not an empty map (preserves GetBacktestJob miss contract)")
-}
-
-func TestParseUniverse(t *testing.T) {
-	tests := []struct {
-		input string
-		want  []string
-	}{
-		{"", nil},
-		{"all", nil},
-		{"600000.SH", []string{"600000.SH"}},
-		{"600000.SH,600001.SH", []string{"600000.SH", "600001.SH"}},
-		{"600000.SH, 600001.SH , 600002.SH", []string{"600000.SH", "600001.SH", "600002.SH"}},
-		{"universe:600000.SH", []string{"600000.SH"}},
-		{",,,", []string{}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			got := parseUniverse(tc.input)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestJobRecordToMap(t *testing.T) {
-	now := time.Now()
-	started := now.Add(1 * time.Hour)
-	completed := now.Add(2 * time.Hour)
-
-	record := &JobRecord{
-		ID:          "test-1",
-		StrategyID:  "momentum",
-		Params:      []byte(`{"lookback":20}`),
-		Universe:    "600000.SH",
-		StartDate:   "2020-01-01",
-		EndDate:     "2023-12-31",
-		Status:      "completed",
-		Result:      []byte(`{"total_return":0.15}`),
-		ErrorMsg:    "",
-		CreatedAt:   now,
-		StartedAt:   &started,
-		CompletedAt: &completed,
-	}
-
-	m := jobRecordToMap(record)
-	assert.Equal(t, "test-1", m["id"])
-	assert.Equal(t, "momentum", m["strategy_id"])
-	assert.Equal(t, started, m["started_at"])
-	assert.Equal(t, completed, m["completed_at"])
-}
-
-func TestJobRecordToMap_NilTimestamps(t *testing.T) {
-	record := &JobRecord{
-		ID:         "test-2",
-		StrategyID: "value",
-		Universe:   "600001.SH",
-		StartDate:  "2020-01-01",
-		EndDate:    "2023-12-31",
-		Status:     "pending",
-		CreatedAt:  time.Now(),
-	}
-
-	m := jobRecordToMap(record)
-	assert.Equal(t, "test-2", m["id"])
-	_, hasStarted := m["started_at"]
-	assert.False(t, hasStarted)
-	_, hasCompleted := m["completed_at"]
-	assert.False(t, hasCompleted)
-}
-
-func TestMapToJobRecord(t *testing.T) {
-	now := time.Now()
-	started := now.Add(1 * time.Hour)
-
-	m := map[string]any{
-		"id":          "test-3",
-		"strategy_id": "momentum",
-		"universe":    "600000.SH",
-		"start_date":  "2020-01-01",
-		"end_date":    "2023-12-31",
-		"status":      "running",
-		"params":      []byte(`{"lookback":20}`),
-		"result":      []byte(`{}`),
-		"error_msg":   "",
-		"created_at":  now,
-		"started_at":  started,
-	}
-
-	record := mapToJobRecord(m)
-	assert.Equal(t, "test-3", record.ID)
-	assert.Equal(t, "momentum", record.StrategyID)
-	assert.Equal(t, "running", record.Status)
-	require.NotNil(t, record.StartedAt)
-	assert.Equal(t, started, *record.StartedAt)
-}
-
-func TestRecordToJob(t *testing.T) {
-	now := time.Now()
-	started := now.Add(1 * time.Hour)
-
-	record := &JobRecord{
-		ID:          "test-4",
-		StrategyID:  "momentum",
-		Params:      []byte(`{"lookback":20}`),
-		Universe:    "600000.SH",
-		StartDate:   "2020-01-01",
-		EndDate:     "2023-12-31",
-		Status:      "completed",
-		Result:      []byte(`{"total_return":0.15}`),
-		ErrorMsg:    "test error",
-		CreatedAt:   now,
-		StartedAt:   &started,
-		CompletedAt: nil,
-	}
-
-	job := recordToJob(record)
-	assert.Equal(t, "test-4", job.ID)
-	assert.Equal(t, "momentum", job.StrategyID)
-	assert.Equal(t, "completed", job.Status)
-	assert.Equal(t, "test error", job.Error)
-	require.NotNil(t, job.StartedAt)
-	assert.Nil(t, job.CompletedAt)
+func TestJobService_SaveSyncResult_PropagatesStoreError(t *testing.T) {
+	face := &fakeResultFace{err: errors.New("db down")}
+	svc, _ := newTestJobService(t, WithResultFace(face))
+	err := svc.SaveSyncResult(context.Background(), &contracts.BacktestResponse{ID: "sync-4"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "db down")
 }

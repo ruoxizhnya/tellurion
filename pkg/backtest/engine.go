@@ -610,7 +610,7 @@ func (e *Engine) RunBacktest(ctx context.Context, req BacktestRequest) (*Backtes
 		}
 	}
 
-	// QT-63：进程内调用方（job 服务）可以用 RunID 把身份对齐到 backtest_jobs.id；
+	// QT-63：进程内调用方（job 服务）可以用 RunID 把身份对齐到编排的 run id；
 	// 没给就自己生成。对外 HTTP 请求无法设置它（DTO 上是 json:"-"）。
 	backtestID := req.RunID
 	if backtestID == "" {
@@ -1101,7 +1101,8 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 
 	// QT-63（③-②）：日历与复权锚点都就位后、日循环之前，一次性算出生效输入的
 	// 身份并落库。留痕的是**输入**，所以失败/无效 run 同样落（status 的权威
-	// 是 backtest_jobs，provenance 表不存状态）。没有 sink 时是 no-op。
+	// 是编排的 run.backtest_jobs 与结果面 run.backtest_results，provenance
+	// 表不存状态）。没有 sink 时是 no-op。
 	if err := e.recordRunProvenance(ctx, state, tradingDays, runUniverse, adj, logger); err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
 			"failed to record run provenance", "RunBacktest")

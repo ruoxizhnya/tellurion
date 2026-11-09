@@ -10,7 +10,6 @@ package main
 // bootstrap 包里并被其测试覆盖。
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"time"
@@ -85,8 +84,8 @@ func startHTTPServer(router *gin.Engine, v *viper.Viper, logger zerolog.Logger) 
 
 func waitForShutdown() os.Signal { return bootstrap.WaitForShutdown() }
 
-func gracefulShutdown(srv *http.Server, jobService *backtest.JobService, alertManager *alert.AlertManager, store *storage.PostgresStore, logger zerolog.Logger) {
-	bootstrap.GracefulShutdown(srv, jobService, alertManager, store, logger)
+func gracefulShutdown(srv *http.Server, alertManager *alert.AlertManager, store *storage.PostgresStore, logger zerolog.Logger) {
+	bootstrap.GracefulShutdown(srv, alertManager, store, logger)
 }
 
 func newRateLimiter(rate int, window time.Duration) *bootstrap.RateLimiter {
@@ -268,48 +267,17 @@ func buildDataServices(
 		logger.Info().Msg("NT sidecar kernel not registered (production default: go-only; set NT_SIDECAR_ENABLED=1 to opt in)")
 	}
 
-	// JobService 改持注册表：kernel 是请求级路由键，执行期才经 Resolve
-	// 解析（K10）。logger 显式传入，不再从 engine 内部提取。
-	// DBT-06：同一路由表注入 JobService——market 在**创建期**解析落定
-	// 进 params["kernel"]，worker 执行期只消费已定路由（与同步端点共用
-	// contracts.ResolveRunTarget 单一映射实现）。
-	// SVC-ORCH-G3：异步任务面切到编排服务。未配置 ORCHESTRATION_URL 时
-	// taskClient == nil，异步入口仍走本地旧路径；但读面**无条件**走三源
-	// 包装 —— 同步回测与已迁移存量只存在于结果面，裸 store 读不到它们。
+	// SVC-ORCH-G3 收尾腿：异步任务面归编排服务，core 本地队列已整条退役。
+	// JobService 只剩「读面（结果面 + 任务面）+ 同步结论写面」。读面
+	// **无条件**走两源包装 —— 同步回测与异步结论只存在于结果面，裸 store
+	// 读不到它们。taskClient == nil（未配 ORCHESTRATION_URL）时异步创建
+	// 入口 503，读面只服务结果面。
 	taskClient := newOrchestrationTaskClient(logger)
-	jobStore := backtest.JobStore(newOrchestrationJobStore(store, store, taskClient, logger))
-	jobService := backtest.NewJobService(jobStore, engineRegistry, logger,
-		backtest.WithMarketRouter(marketRouter),
-		// 同步回测只有结论、没有任务生命周期：写结果面，不插 legacy 队列。
+	jobStore := backtest.JobStore(newOrchestrationJobStore(store, taskClient, logger))
+	jobService := backtest.NewJobService(jobStore, logger,
+		// 同步回测只有结论、没有任务生命周期：写结果面。
 		backtest.WithResultFace(analysisResultFace{store: store}))
 	logger.Info().Msg("Job service initialized")
-
-	// AUD-50: repair backtest rows left in `running` by a previous process.
-	//
-	// The same repair already runs on the way down (gracefulShutdown), but that
-	// only covers an orderly SIGTERM. CleanupStaleRunning's own doc comment has
-	// always said it is "also useful as a recovery tool after a hard process
-	// crash (kill -9, OOM, etc.) — call it on startup to repair stale rows from
-	// the previous run" — and no startup caller ever existed, so the
-	// recommended path was never taken. This is that call.
-	//
-	// Safe here because nothing is running yet: the HTTP server has not started
-	// and no job has been accepted, so a `running` row can only be a leftover.
-	// Unlike the sync queue this cannot be made structural by hanging it off the
-	// worker pool — backtest jobs run on their own goroutines, there is no
-	// central dequeue to hook — so the "startup only" precondition is written
-	// down instead of enforced. Calling it while jobs are in flight would fail
-	// rows that are still working.
-	//
-	// internal/repoguard pins this call site to
-	// cmd/analysis/setup.go:buildDataServices — moving it breaks the guard.
-	if n, err := jobService.CleanupStaleRunning(context.Background()); err != nil {
-		logger.Error().Err(err).
-			Msg("Stale-running cleanup failed; an interrupted backtest may stay 'running'")
-	} else if n > 0 {
-		logger.Warn().Int("recovered", n).
-			Msg("Recovered backtest jobs left 'running' by a previous process")
-	}
 
 	wfEngine := backtest.NewWalkForwardEngine(func() (*backtest.Engine, error) {
 		if newEngine == nil {

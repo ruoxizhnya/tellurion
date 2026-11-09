@@ -100,20 +100,21 @@ func run() error {
 		*workerID = defaultWorkerID()
 	}
 
-	resolver := &orchestrationworker.AnchorResolver{
-		LoadBase: func(ctx context.Context, runID string) (*orchestrationworker.BaseRun, error) {
-			row, err := store.GetBacktestJob(ctx, runID)
-			if err != nil {
-				return nil, err
-			}
-			if row == nil {
-				return nil, fmt.Errorf("base run %s not found in backtest_jobs", runID)
-			}
-			return orchestrationworker.ParseBaseRun(row)
-		},
-	}
+	// SVC-ORCH-G3 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 退役后，
+	// 历史 run 的 run_spec 只存在于编排任务面（Task face 是 RunSpec 的保管人）。
+	// anchor base 与基准覆盖都改经 `GET /api/runs/jobs/{id}` 的 run_spec 取。
 	client := orchestrationworker.NewClient(url, nil)
 	client.Token = strings.TrimSpace(*serviceToken)
+
+	resolver := &orchestrationworker.AnchorResolver{
+		LoadBase: func(ctx context.Context, runID string) (*orchestrationworker.BaseRun, error) {
+			state, err := client.Job(ctx, runID)
+			if err != nil {
+				return nil, fmt.Errorf("base run %s: %w", runID, err)
+			}
+			return orchestrationworker.ParseBaseRunSpec(state.RunSpec)
+		},
+	}
 	benchmarkIndex := strings.TrimSpace(v.GetString("benchmark.index_code"))
 	if benchmarkIndex == "" {
 		benchmarkIndex = "000300.SH"
@@ -131,18 +132,11 @@ func run() error {
 		Deliverer:     client,
 		Benchmark:     benchmarkIndex,
 		BenchmarkFor: func(ctx context.Context, runID string) string {
-			row, err := store.GetBacktestJob(ctx, runID)
-			if err != nil || row == nil {
+			state, err := client.Job(ctx, runID)
+			if err != nil {
 				return ""
 			}
-			base, err := orchestrationworker.ParseBaseRun(row)
-			if err != nil || base.EngineParams == nil {
-				return ""
-			}
-			if s, ok := base.EngineParams["benchmark_index_code"].(string); ok {
-				return strings.TrimSpace(s)
-			}
-			return ""
+			return orchestrationworker.EngineParamString(state.RunSpec, "benchmark_index_code")
 		},
 		Log: logger,
 	}
@@ -152,9 +146,11 @@ func run() error {
 			return registry.Resolve(kernel)
 		},
 		// 结果面（归属 core，`SVC-ORCH-G3`）：run.backtest_results 是结果
-		// 真相，单一写者是 worker；任务面遗留表 backtest_jobs 已停写
-		// （存量行由 Migration 064 回填）。
-		Sink:      &orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
+		// 真相，单一写者是 worker；core 的任务面遗留表 backtest_jobs 已退役
+		// （Migration 065 DROP TABLE）。
+		Sink: &orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
+		// 失败留痕：failed 行没有载荷，走结果面的直接写口（见 recordFailure）。
+		Face:      resultFaceStore{store: store},
 		Timeout:   *runTimeout,
 		Publisher: publisher,
 		Log:       logger,

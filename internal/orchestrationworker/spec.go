@@ -5,8 +5,11 @@ package orchestrationworker
 // 两种形状（docs/api-schema.md §1 与 analytics 的 interim 锚点）：
 //   - 完整 RunSpec：strategy + start_date + end_date 都在，直接执行；
 //   - 锚点 RunSpec：只带 `run_id`（analytics sensitivity 的 base_run_spec），
-//     由 LoadBase 从 core 的 `backtest_jobs` 恢复基础请求，再用 `strategy_params`
-//     等字段覆盖。
+//     由 LoadBase 从**编排任务面保存的 run_spec**（GET job）恢复基础请求，
+//     再用 `strategy_params` 等字段覆盖。
+//
+// SVC-ORCH-G3 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 退役后，base
+// 的权威来源是任务面的 request_json —— 任务面本来就是 RunSpec 的保管人。
 //
 // 无论哪种，RunID 一律改写成本次编排 run 的 id：结果、provenance 与
 // `GET /api/backtest/{id}` 才能与编排侧的 run 对齐。
@@ -129,11 +132,32 @@ func (r *AnchorResolver) Resolve(ctx context.Context, runID string, spec json.Ra
 	return req, nil
 }
 
-// BaseRun 是 core `backtest_jobs` 行里可恢复的执行输入。
+// EngineParamString 从 canonical RunSpec 的 engine_params 取一个字符串参数。
 //
-// 它不是「完整 RunSpec」：旧异步路径从未落过 fill_timing / seed / signals
-// （已知缺口 F2 / R3），所以锚点恢复只能拿到这些字段的零值，由引擎按默认
-// 口径解释。这条边界写在这里，避免读方以为锚点与完整 spec 等价。
+// SVC-ORCH-G3 收尾腿：基准覆盖（benchmark_index_code）以前从 backtest_jobs
+// 的 params 里读，那条表退役后改从任务面的 run_spec 读；锚点 spec 的
+// engine_params 就是覆盖块，所以这里直接读 envelope，不要求完整 RunSpec。
+func EngineParamString(raw json.RawMessage, key string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var env specEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil || env.EngineParams == nil {
+		return ""
+	}
+	if s, ok := env.EngineParams[key].(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+// BaseRun 是从任务面 run_spec 可恢复的执行输入。
+//
+// 它不是「完整 RunSpec」：core 旧异步路径只保证 strategy / stock_pool /
+// 区间 / initial_capital / kernel / engine_params 六项（fill_timing / seed /
+// signals 曾是不落库的已知缺口 F2 / R3），所以锚点恢复只能拿到这些字段的
+// 零值，由引擎按默认口径解释。这条边界写在这里，避免读方以为锚点与完整
+// spec 等价。
 type BaseRun struct {
 	Strategy       string
 	StockPool      []string
@@ -157,115 +181,30 @@ func (b BaseRun) Request() contracts.BacktestRequest {
 	}
 }
 
-// ParseBaseRun 把 storage.GetBacktestJob 的行折成 BaseRun。
+// ParseBaseRunSpec 把任务面保存的 canonical RunSpec 折成 BaseRun。
 //
-// 保留键（initial_capital / kernel / engine_params）类型不对时当场拒绝：
-// 与 core 旧异步路径的 fail-closed 同口径（「以为参数生效了」比报错更危险）。
-func ParseBaseRun(row map[string]any) (*BaseRun, error) {
-	str := func(key string) (string, error) {
-		v, ok := row[key]
-		if !ok || v == nil {
-			return "", fmt.Errorf("backtest_jobs.%s is missing", key)
-		}
-		s, ok := v.(string)
-		if !ok {
-			return "", fmt.Errorf("backtest_jobs.%s has unexpected type %T", key, v)
-		}
-		return s, nil
+// SVC-ORCH-G3 收尾腿（2026-11-09）：core 的 quant.backtest_jobs 退役后，锚点
+// base 的唯一权威来源是编排任务面保存的 request_json（GET job 的 run_spec）。
+// 只接受**完整** RunSpec（strategy + 区间）：只带 run_id 的 spec 不能当 base，
+// 否则锚点会递归，且无法判定链尾。
+func ParseBaseRunSpec(raw json.RawMessage) (*BaseRun, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("base run has no run_spec on the task face")
 	}
-
-	strategy, err := str("strategy_id")
-	if err != nil {
-		return nil, err
+	var env specEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("base run spec is not valid JSON: %w", err)
 	}
-	start, err := str("start_date")
-	if err != nil {
-		return nil, err
+	if env.Strategy == "" || env.StartDate == "" || env.EndDate == "" {
+		return nil, fmt.Errorf("base run spec is not a full RunSpec (strategy + start_date + end_date required)")
 	}
-	end, err := str("end_date")
-	if err != nil {
-		return nil, err
-	}
-	universe, err := str("universe")
-	if err != nil {
-		return nil, err
-	}
-
-	base := &BaseRun{Strategy: strategy, StartDate: start, EndDate: end, StockPool: parseUniverse(universe)}
-
-	params, err := paramsOf(row["params"])
-	if err != nil {
-		return nil, err
-	}
-	if v, ok := params["initial_capital"]; ok {
-		f, ok := v.(float64)
-		if !ok {
-			return nil, fmt.Errorf("params.initial_capital has unexpected type %T", v)
-		}
-		base.InitialCapital = f
-	}
-	if v, ok := params["kernel"]; ok {
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("params.kernel has unexpected type %T", v)
-		}
-		base.Kernel = s
-	}
-	if v, ok := params["engine_params"]; ok {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("params.engine_params has unexpected type %T", v)
-		}
-		base.EngineParams = m
-	}
-	if base.Strategy == "" || base.StartDate == "" || base.EndDate == "" {
-		return nil, fmt.Errorf("backtest job has an incomplete base spec (strategy/start_date/end_date)")
-	}
-	return base, nil
-}
-
-func paramsOf(v any) (map[string]any, error) {
-	if v == nil {
-		return map[string]any{}, nil
-	}
-	switch raw := v.(type) {
-	case []byte:
-		return decodeParams(raw)
-	case string:
-		return decodeParams([]byte(raw))
-	case json.RawMessage:
-		return decodeParams([]byte(raw))
-	default:
-		return nil, fmt.Errorf("backtest_jobs.params has unexpected type %T", v)
-	}
-}
-
-func decodeParams(raw []byte) (map[string]any, error) {
-	if len(strings.TrimSpace(string(raw))) == 0 {
-		return map[string]any{}, nil
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("backtest_jobs.params is not a JSON object: %w", err)
-	}
-	if out == nil {
-		return map[string]any{}, nil
-	}
-	return out, nil
-}
-
-// parseUniverse 与 core 旧异步路径同口径：空串 / "all" = 全市场（nil）。
-func parseUniverse(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "all" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if s := strings.TrimSpace(part); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
+	return &BaseRun{
+		Strategy:       env.Strategy,
+		StockPool:      env.StockPool,
+		StartDate:      env.StartDate,
+		EndDate:        env.EndDate,
+		InitialCapital: env.InitialCapital,
+		Kernel:         env.Kernel,
+		EngineParams:   env.EngineParams,
+	}, nil
 }

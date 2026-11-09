@@ -6,7 +6,7 @@
 //   - orchestration 也不 import core——claim 等已上 wire 的形状归
 //     `tellurion-contracts/run`（CT-04 收编），两边引同一份；
 //     其余 wire 形状以 `tellurion-orchestration:docs/api-schema.md` §1「算力」为唯一真相；
-//   - 结果内容留在 core（`backtest_jobs`），编排侧只拿 `result_uri` 指针与结论。
+//   - 结果内容留在 core（`run.backtest_results`），编排侧只拿 `result_uri` 指针与结论。
 package orchestrationworker
 
 import (
@@ -104,6 +104,11 @@ type JobState struct {
 	ResultStatus    *string `json:"result_status"`
 	Error           string  `json:"error"`
 	CancelRequested bool    `json:"cancel_requested"`
+
+	// RunSpec 是该 run 的 canonical RunSpec（SVC-ORCH-G3 收尾腿）。
+	// core 退役 backtest_jobs 后，worker 解析 anchor base 与基准指数只能从
+	// 任务面取历史 run 的 spec —— GET /api/runs/jobs/{id} 恒返回。
+	RunSpec json.RawMessage `json:"run_spec,omitempty"`
 }
 
 type claimBody struct {
@@ -213,6 +218,10 @@ type JobView struct {
 	CreatedAt       *time.Time `json:"created_at"`
 	StartedAt       *time.Time `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at"`
+
+	// RunSpec 只在请求带 include_spec=1 时出现（列表默认省略，避免
+	// 1 MiB × limit 的响应放大）。作业列表页用它补策略元数据。
+	RunSpec json.RawMessage `json:"run_spec,omitempty"`
 }
 
 // JobPage 是 list 的响应。
@@ -242,7 +251,8 @@ func (c *Client) Submit(ctx context.Context, idempotencyKey string, priority int
 }
 
 // List 按状态过滤列出任务（空串 = 不过滤；limit<=0 = 服务端默认）。
-func (c *Client) List(ctx context.Context, status, resultStatus string, limit int) (JobPage, error) {
+// includeSpec=true 时逐行带回 canonical RunSpec（服务端 `include_spec=1`）。
+func (c *Client) List(ctx context.Context, status, resultStatus string, limit int, includeSpec bool) (JobPage, error) {
 	query := url.Values{}
 	if status != "" {
 		query.Set("status", status)
@@ -252,6 +262,9 @@ func (c *Client) List(ctx context.Context, status, resultStatus string, limit in
 	}
 	if limit > 0 {
 		query.Set("limit", strconv.Itoa(limit))
+	}
+	if includeSpec {
+		query.Set("include_spec", "1")
 	}
 	path := "/api/runs/jobs"
 	if encoded := query.Encode(); encoded != "" {

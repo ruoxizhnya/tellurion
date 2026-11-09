@@ -16,7 +16,6 @@ package main
 // "completed"），这里立刻红。
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -116,27 +115,32 @@ func TestBacktestReport_CompletedStaysCompleted(t *testing.T) {
 	assert.Empty(t, got.InvalidReasons, "有效运行不得带 invalid_reasons")
 }
 
-// seedStoredJob 落一条已收尾的作业（走 JobStore 的写路径，模拟同步/异步
+// seedStoredJob 落一条已收尾的作业（直接写内存 JobStore，模拟同步/异步
 // 两条路径落库后的形态），返回 router。
+//
+// SVC-ORCH-G3 收尾腿后本地队列表已退役，写路径不再存在：作业行由任务面
+// （orchestration）与结果面（run.backtest_results）合并而来，这里按合并后的
+// 形状直接落一条终态行。
 func seedStoredJob(t *testing.T, id, resultStatus, body string) (*gin.Engine, *memJobStore) {
 	t.Helper()
 	eng := newReadPathEngine(t)
 	store := newMemJobStore()
 	reg := contracts.NewEngineRegistry()
 	reg.Register(contracts.DefaultKernel, eng)
-	svc := backtest.NewJobService(store, reg, zerolog.Nop())
+	svc := backtest.NewJobService(store, zerolog.Nop())
 
-	require.NoError(t, store.CreateBacktestJob(context.Background(), map[string]any{
-		"id":          id,
-		"strategy_id": "momentum",
-		"params":      []byte(`{}`),
-		"universe":    "CSI300",
-		"start_date":  "2024-01-02",
-		"end_date":    "2024-02-02",
-		"status":      "pending",
-	}))
-	require.NoError(t, store.UpdateJobStarted(context.Background(), id))
-	require.NoError(t, store.UpdateJobCompleted(context.Background(), id, resultStatus, []byte(body)))
+	store.put(id, map[string]any{
+		"id":            id,
+		"strategy_id":   "momentum",
+		"params":        []byte(`{}`),
+		"universe":      "CSI300",
+		"start_date":    "2024-01-02",
+		"end_date":      "2024-02-02",
+		"status":        "completed",
+		"result_status": resultStatus,
+		"result":        []byte(body),
+		"created_at":    time.Date(2024, 2, 2, 0, 0, 0, 0, time.UTC),
+	})
 
 	r := gin.New()
 	registerBacktestRoutes(r, eng, reg, svc, nil, nil, nil, zerolog.Nop())
