@@ -106,8 +106,9 @@ data_service:
 # analysis service. The `risk_service.url` and the
 # `STRATEGY_SERVICE_URL` env on docker-compose still work for backward
 # compat (in case someone deploys a separate risk service), but the
-# canonical runtime is in-process — `risk_manager` and `trading`
-# sections below are the single source of truth.
+# canonical runtime is in-process — `trading` below is the single source
+# of truth for execution. **风控限额不在这里**：真相源是 tellurion-risk
+# 的规则快照（见下面 resolve_* 与本文件 §限额说明）。
 risk_service:
   url: "http://localhost:8085"  # legacy fallback only
   # QT-66（裁-10 / 裁-11）：run 提交时向 tellurion-risk 取规则快照 hash。
@@ -115,11 +116,16 @@ risk_service:
   # risk_rules_hash 记空串 + not_configured（唯一允许空串的情形）。
   # 启用后取不到（no_approved_rules / snapshot_not_found / 5xx / 超时）⇒
   # run 直接 failed（risk_rules_unavailable），不会用默认限额继续跑。
+  #
+  # SVC-CORE-RISK-RETIRE（2026-11-09）：出厂值 **false → true**。同一开关
+  # 还决定进程内 RiskManager 的 14 个限额从哪来 —— true = 启动期取快照
+  # （真相源，取不到即拒绝启动）；false = `risk.BuiltinPolicy()` 代码常量
+  # 兜底，启动日志明示 source=builtin_default。长期观测看这条日志。
   # resolve_url 必填（**不**回落到上面的 url：那一项指向 analysis 自己的
   # 进程内风控 :8085，没有 /api/risk/resolve）。tellurion-risk 默认 :8086。
   # resolve_token：服务间凭证。risk 配了 AUTH_JWT_SECRET 后必填，否则 401。
   # resolve_timeout 缺省 10s。
-  resolve_enabled: false
+  resolve_enabled: true
   resolve_url: "http://localhost:8086"
   resolve_token: ""
   resolve_timeout: "10s"
@@ -152,29 +158,14 @@ risk_service:
   events_shutdown_budget: "10s"
   events_token: ""
 
-# In-process risk manager config (absorbed from risk-service.yaml).
-# Used by the backtest engine via WithRiskManager(rm) so all risk
-# computations (position sizing / regime detection / stop loss) run
-# without an HTTP hop.
-risk_manager:
-  target_volatility: 0.15
-  max_position_weight: 0.10
-  min_position_weight: 0.01
-  stoploss:
-    atr_period: 14
-    base_multiplier: 2.5
-    bull_multiplier: 2.0
-    bear_multiplier: 3.5
-    sideways_multiplier: 2.5
-  take_profit:
-    atr_multiplier: 3.0
-  volatility:
-    lookback_days: 20
-    annualization_factor: 16.0
-  regime:
-    fast_ma_period: 10
-    slow_ma_period: 20
-    vol_lookback: 60
+# 进程内风控的限额**不再**来自本文件（SVC-CORE-RISK-RETIRE，2026-11-09）。
+#
+# 14 个限额标量（仓位规模 5 项 / 止损 5 项 / 止盈 1 项 / 市场状态 3 项）的
+# 真相源是 tellurion-risk 的规则快照：启动期 `POST /api/risk/resolve`
+# → `risk.PolicyFromSnapshot`（contracts/risk 重新 derive hash 校验）
+# → 进程内 RiskManager。原先的 `risk_manager:` 块已删，这是有意的 ——
+# 同一份限额不再有两个真相；未接入（resolve_enabled=false）时用
+# `risk.BuiltinPolicy()` 的代码常量兜底，启动日志会明示 source=builtin_default。
 
 # ── AlertManager + PeriodicAlertLoop (P2 alert, ODR-025) ──────────
 #
@@ -186,18 +177,19 @@ risk_manager:
 #   4. RiskEventSink (when risk_service.events_enabled — POST /api/risk/events,
 #      the producer behind risk's monitor/alerts; see the risk_service block)
 #
-# A 0 or empty value disables the corresponding rule. The
-# defaults below mirror ODR-023's recommended production values.
+# 告警阈值**不在这里**（SVC-CORE-RISK-RETIRE，2026-11-09 代裁，待主任追认）：
+# 5 个探测器阈值是 `pkg/alert` 的**探测器**参数（U7：检测器留进程内），与
+# risk 快照的限额不是同一个量（探测阈值高于快照限额，比较的是不同东西），
+# 且 sector / drawdown / daily-loss / failure-rate 在快照里没有对应规则类型
+# ⇒ 不从 bundle 派生，固定为 `cmd/analysis/setup.go` 的代码常量。
+# 本文件只留告警的**运行参数**（开关 / 周期 / 通道）。
+#
+# A 0 or empty value disables the corresponding rule.
 alert:
   enabled: true
   interval_sec: 300           # 5min between evaluations
   history_limit: 100          # ring buffer for /api/alerts/history
   recorder_capacity: 100      # recorder channel capacity
-  max_position_weight: 0.20   # single position > 20% of portfolio
-  max_sector_weight: 0.40     # single sector > 40% of portfolio
-  max_drawdown: 0.15          # peak-to-trough drawdown > 15%
-  daily_loss_limit: -50000    # daily P&L < -50k
-  failure_rate_limit: 0.10    # order failure rate > 10% in 1h
   webhook_url: ""             # empty = webhook disabled
   webhook_timeout_sec: 5
 

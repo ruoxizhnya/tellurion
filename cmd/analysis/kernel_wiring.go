@@ -108,9 +108,15 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		return httpProvider, adapter, nil
 	})
 
-	// risk-engine（第 5 位）。
+	// risk-engine（第 5 位）。SVC-CORE-RISK-RETIRE（2026-11-09）：14 个限额
+	// 从 risk 服务快照加载（resolve_enabled=false 才回代码内置默认值）；
+	// 取不到即 Boot 失败，不拿兜底值假装接入。
 	riskMod := wiring.NewRiskEngineModule(func() (*risk.RiskManager, error) {
-		return bootstrap.BuildRiskManager(v, logger), nil
+		policy, err := wiring.LoadRiskPolicy(v, logger)
+		if err != nil {
+			return nil, err
+		}
+		return bootstrap.BuildRiskManager(policy.Config, logger), nil
 	})
 
 	// exec-engine（第 6 位）。

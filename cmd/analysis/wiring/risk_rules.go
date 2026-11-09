@@ -38,6 +38,7 @@ import (
 	"github.com/spf13/viper"
 
 	"tellurion/pkg/backtest"
+	"tellurion/pkg/risk"
 )
 
 const (
@@ -88,7 +89,8 @@ type riskResolveRequest struct {
 }
 
 type riskResolveResponse struct {
-	RiskRulesHash string `json:"risk_rules_hash"`
+	RiskRulesHash string          `json:"risk_rules_hash"`
+	Snapshot      json.RawMessage `json:"snapshot"`
 }
 
 type riskResolveError struct {
@@ -169,6 +171,105 @@ func isRiskRulesHash(s string) bool {
 		}
 	}
 	return true
+}
+
+// ResolvePolicySnapshot 取「latest」快照的**完整 canonical JSON** 与 hash。
+//
+// SVC-CORE-RISK-RETIRE（2026-11-09）：限额真相源从 risk_manager.* 迁到快照。
+// 与 `ResolveRiskRulesHash` 打同一个端点；差别只在本方法要求响应里带 snapshot
+// 且 hash 通过 64-hex 形状检查。解析与内容寻址校验交给
+// `pkg/risk.PolicyFromSnapshot`（contracts/risk 的 Verify 重新 derive）。
+func (p *HTTPRiskRulesProvider) ResolvePolicySnapshot(ctx context.Context) (string, []byte, error) {
+	payload, err := json.Marshal(riskResolveRequest{Ruleset: "latest"})
+	if err != nil {
+		return "", nil, fmt.Errorf("risk resolve: marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, strings.NewReader(string(payload)))
+	if err != nil {
+		return "", nil, fmt.Errorf("risk resolve: build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if p.token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.token)
+	}
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return "", nil, fmt.Errorf("risk resolve: POST %s: %w", p.endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, riskResolveMaxBody))
+	if err != nil {
+		return "", nil, fmt.Errorf("risk resolve: read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("risk resolve: POST %s: status %d: %s", p.endpoint, resp.StatusCode, errorDetail(body))
+	}
+
+	var out riskResolveResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", nil, fmt.Errorf("risk resolve: decode response: %w", err)
+	}
+	if !isRiskRulesHash(out.RiskRulesHash) {
+		return "", nil, fmt.Errorf("risk resolve: response risk_rules_hash %q is not 64 lowercase hex", out.RiskRulesHash)
+	}
+	if len(out.Snapshot) == 0 || string(out.Snapshot) == "null" {
+		return "", nil, fmt.Errorf("risk resolve: response for %s has no snapshot", out.RiskRulesHash)
+	}
+	return out.RiskRulesHash, out.Snapshot, nil
+}
+
+// LoadRiskPolicy 是 analysis 进程的限额装配入口（SVC-CORE-RISK-RETIRE）。
+//
+// `risk_service.resolve_enabled=false` = 本部署未接入 risk 服务：返回
+// `risk.BuiltinPolicy()`（代码常量），并打 `risk_policy_source=builtin_default`
+// 警告；true 但取不到快照 ⇒ 返回 error，由调用方 fail-fast（不拿默认限额顶上）。
+func LoadRiskPolicy(v *viper.Viper, logger zerolog.Logger) (risk.Policy, error) {
+	if v == nil || !v.GetBool("risk_service.resolve_enabled") {
+		logger.Warn().
+			Str("risk_policy_source", "builtin_default").
+			Msg("risk limits are NOT loaded from tellurion-risk (resolve_enabled=false) — using built-in defaults; " +
+				"this deployment cannot claim snapshot-derived limits")
+		return risk.BuiltinPolicy(), nil
+	}
+
+	base := strings.TrimSpace(v.GetString("risk_service.resolve_url"))
+	if base == "" {
+		return risk.Policy{}, fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
+			"（tellurion-risk 的默认地址是 http://localhost:8086；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
+	}
+	timeout := v.GetDuration("risk_service.resolve_timeout")
+	if timeout <= 0 {
+		timeout = defaultRiskRulesResolveTimeout
+	}
+
+	provider, err := NewHTTPRiskRulesProviderWithToken(base, v.GetString("risk_service.resolve_token"), timeout)
+	if err != nil {
+		return risk.Policy{}, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	hash, snapshot, err := provider.ResolvePolicySnapshot(ctx)
+	if err != nil {
+		return risk.Policy{}, fmt.Errorf("risk policy: cannot load limits from %s: %w", base+riskResolvePath, err)
+	}
+	policy, err := risk.PolicyFromSnapshot(snapshot)
+	if err != nil {
+		return risk.Policy{}, err
+	}
+	if policy.RiskRulesHash != hash {
+		return risk.Policy{}, fmt.Errorf("risk policy: resolve hash %s != snapshot hash %s", hash, policy.RiskRulesHash)
+	}
+
+	logger.Info().
+		Str("risk_policy_source", policy.Source).
+		Str("risk_rules_hash", hash).
+		Str("scope", string(policy.Scope)).
+		Str("endpoint", base+riskResolvePath).
+		Msg("risk limits loaded from tellurion-risk snapshot (SVC-CORE-RISK-RETIRE)")
+	return policy, nil
 }
 
 // AttachRiskRulesFromConfig 是 QT-66 的唯一装配函数（主引擎与窗口引擎共用）。

@@ -5,8 +5,9 @@
 // `tellurion-orchestration:docs/api-schema.md` §1「算力」的 HTTP 面交互。
 //
 // 配置沿用 analysis-service 的引擎配置（CONFIG_PATH / -config）：同一个部署里
-// worker 与 analysis 必须看到同一份 backtest / risk_manager / data_service 配置，
-// 否则同一条 run 在两个进程里算出的数会不同。
+// worker 与 analysis 必须看到同一份 backtest / data_service 配置，否则同一条 run
+// 在两个进程里算出的数会不同。风控限额不在这份 YAML 里 —— 两边都经
+// `wiring.LoadRiskPolicy` 从 tellurion-risk 的规则快照取（SVC-CORE-RISK-RETIRE）。
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/cmd/analysis/wiring"
 	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
@@ -71,7 +73,15 @@ func run() error {
 	// worker 今天不搬（见 docs/TASKS.md 的施工记录「未落」）。
 	engine, _ := bootstrap.BuildBacktestEngine(v, logger)
 	engine.SetStore(store)
-	engine.SetRiskManager(bootstrap.BuildRiskManager(v, logger))
+	// SVC-CORE-RISK-RETIRE（2026-11-09）：限额真相源在 risk 服务快照。
+	// worker 与 analysis 必须用同一份限额（否则同一条 run 在两个进程里算出
+	// 不同的数），所以走**同一个** LoadRiskPolicy；取不到即拒绝启动 ——
+	// 不再有「worker 拿 config 默认值顶上」的第二真相。
+	policy, err := wiring.LoadRiskPolicy(v, logger)
+	if err != nil {
+		return err
+	}
+	engine.SetRiskManager(bootstrap.BuildRiskManager(policy.Config, logger))
 
 	registry := contracts.NewEngineRegistry()
 	registry.Register(contracts.DefaultKernel, engine)

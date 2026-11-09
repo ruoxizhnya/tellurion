@@ -30,27 +30,16 @@ func BuildBacktestEngine(v *viper.Viper, logger zerolog.Logger) (*backtest.Engin
 	return engine, httpProvider
 }
 
-// BuildRiskManager 从 risk_manager.* 配置构造进程内风控管理器（P1-15，
-// ODR-021 合并形态），同时作为 tools 门面 get_market_regime 的
-// RegimeDetectorClient（ai-service 也需要它 —— 两处共享同一构造）。
-func BuildRiskManager(v *viper.Viper, logger zerolog.Logger) *risk.RiskManager {
-	riskCfg := risk.RiskManagerConfig{
-		TargetVolatility:    v.GetFloat64("risk_manager.target_volatility"),
-		MaxPositionWeight:   v.GetFloat64("risk_manager.max_position_weight"),
-		MinPositionWeight:   v.GetFloat64("risk_manager.min_position_weight"),
-		ATRPeriod:           v.GetInt("risk_manager.stoploss.atr_period"),
-		BaseMultiplier:      v.GetFloat64("risk_manager.stoploss.base_multiplier"),
-		BullMultiplier:      v.GetFloat64("risk_manager.stoploss.bull_multiplier"),
-		BearMultiplier:      v.GetFloat64("risk_manager.stoploss.bear_multiplier"),
-		SidewaysMultiplier:  v.GetFloat64("risk_manager.stoploss.sideways_multiplier"),
-		TakeProfitMult:      v.GetFloat64("risk_manager.take_profit.atr_multiplier"),
-		VolLookbackDays:     v.GetInt("risk_manager.volatility.lookback_days"),
-		AnnualizationFactor: v.GetFloat64("risk_manager.volatility.annualization_factor"),
-		FastMAPeriod:        v.GetInt("risk_manager.regime.fast_ma_period"),
-		SlowMAPeriod:        v.GetInt("risk_manager.regime.slow_ma_period"),
-		RegimeVolLookback:   v.GetInt("risk_manager.regime.vol_lookback"),
-	}
-	rm, err := risk.NewRiskManager(riskCfg, logger)
+// BuildRiskManager 从显式配置构造进程内风控管理器（P1-15，ODR-021 合并形态），
+// 同时作为 tools 门面 get_market_regime 的 RegimeDetectorClient。
+//
+// 配置来源**只有一处**（SVC-CORE-RISK-RETIRE，2026-11-09）：调用方传
+// `risk.Policy.Config` —— analysis / worker 都经 `wiring.LoadRiskPolicy` 从
+// tellurion-risk 的规则快照取限额；未接入（`resolve_enabled=false`）时那是
+// `risk.BuiltinPolicy()` 的代码常量。本函数不再读 `risk_manager.*`
+// （`config/*.yaml` 里的同名块已删，见 docs/TASKS.md 本单 ⑤④）。
+func BuildRiskManager(cfg risk.RiskManagerConfig, logger zerolog.Logger) *risk.RiskManager {
+	rm, err := risk.NewRiskManager(cfg, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize in-process risk manager (P1-15)")
 	}

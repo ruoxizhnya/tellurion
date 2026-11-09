@@ -3623,8 +3623,8 @@ AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存�
 | `database` | `url`（整串 DSN 覆盖点）/ `host` / `port` / `user` / `password` / `database` / `sslmode` | `pkg/storage.BuildDSN` |
 | `redis` | `url` | `pkg/storage.NewCache` |
 | `data_service` / `strategy_service` / `risk_service` | `url` | 服务间 HTTP 调用（`risk_service` 仅 analysis，legacy 回落） |
-| `risk_manager` | `target_volatility` / `max_position_weight` / `min_position_weight` / `stoploss.*` / `take_profit.*` / `volatility.*` / `regime.*` | 回测引擎（进程内，无 HTTP 跳） |
-| `alert` | `enabled` / `interval_sec` / `history_limit` / `recorder_capacity` / `max_position_weight` / `max_sector_weight` / `max_drawdown` / `daily_loss_limit` / `failure_rate_limit` / `webhook_url` / `webhook_timeout_sec` | `pkg/alert` |
+| `risk_service.resolve_*` | `enabled` / `url` / `token` / `timeout` | `cmd/analysis/wiring.LoadRiskPolicy`（SVC-CORE-RISK-RETIRE）：14 个风控限额的**真相源**是 tellurion-risk 的规则快照，启动期 `POST /api/risk/resolve` → `risk.PolicyFromSnapshot`；`enabled=false` = 未接入，用 `risk.BuiltinPolicy()` 代码常量兜底（日志 `risk_policy_source=builtin_default`）。**`config/*.yaml` 不再有 `risk_manager:` 段** |
+| `alert` | `enabled` / `interval_sec` / `history_limit` / `recorder_capacity` / `webhook_url` / `webhook_timeout_sec` | `pkg/alert`。**5 个探测器阈值不在配置里**：它们是 `cmd/analysis/setup.go` 的代码常量（U7：检测器留进程内；与快照限额不是同一个量，见 SVC-CORE-RISK-RETIRE 的代裁记录） |
 | `backtest` | `initial_capital` / `commission_rate` / `slippage_rate` / `risk_free_rate` | 回测引擎 |
 | `copilot` | `working_dir` | AI 沙箱（空 = 拒绝构建生成的策略，fail closed） |
 | `trading` | `stamp_tax_rate` / `stamp_tax_rate_before` / `min_commission` / `transfer_fee_rate` / `price_limit.{normal,st,st_before,new}` / `new_stock_days` / `emergency_token` | 回测引擎（`UnmarshalKey("trading")`）+ `cmd/analysis` 实盘费率 |

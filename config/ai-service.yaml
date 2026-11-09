@@ -1,7 +1,7 @@
 # ai-service 配置（AI 拆仓阶段 1，ADR-027 §5 第 8 步的前置切片）。
 #
 # 只承载 AI 实验员侧（cmd/ai）：Copilot / pipeline / explore / tools。
-# 引擎装配（risk_manager / backtest / trading / database）与
+# 引擎装配（backtest / trading / database）与
 # analysis-service.yaml **逐值一致** —— 同一个实验在两个进程跑出
 # 不同结果是不可接受的；改一处必须同步另一处（两处都读同名键）。
 #
@@ -48,25 +48,9 @@ ai_service:
   factor_api_url: "http://analysis-service:8085"
 
 # 与 analysis-service.yaml 逐值一致（回测行为对等的来源）。
-risk_manager:
-  target_volatility: 0.15
-  max_position_weight: 0.10
-  min_position_weight: 0.01
-  stoploss:
-    atr_period: 14
-    base_multiplier: 2.5
-    bull_multiplier: 2.0
-    bear_multiplier: 3.5
-    sideways_multiplier: 2.5
-  take_profit:
-    atr_multiplier: 3.0
-  volatility:
-    lookback_days: 20
-    annualization_factor: 16.0
-  regime:
-    fast_ma_period: 10
-    slow_ma_period: 20
-    vol_lookback: 60
+# SVC-CORE-RISK-RETIRE（2026-11-09）：风控限额**不在这份 YAML 里** —— 真相源是
+# tellurion-risk 的规则快照（进程按 `risk_service.resolve_enabled` 取，
+# 取不到即拒绝启动）。原先这里的 `risk_manager:` 14 个标量已删，避免第二真相。
 
 backtest:
   initial_capital: 1000000.0

@@ -100,6 +100,22 @@ func initLogger() zerolog.Logger { return bootstrap.InitLogger() }
 
 // ─── analysis 独有 builder（不随 AI 拆仓迁移）─────────────────────────
 
+// 告警阈值是**探测器**阈值（U7：detector 留进程内），不是风控限额：
+// `alert.max_position_weight=0.20` 与 `risk_manager.max_position_weight=0.10`
+// 不是同一个量（一个「超过 20% 就报警」，一个「最多持 10%」），且 sector /
+// drawdown / daily-loss / failure-rate 在 risk 快照里没有对应规则类型。
+//
+// SVC-CORE-RISK-RETIRE（2026-11-09）代裁（待主任追认）：这 5 个值不再读 config，
+// 固定为代码常量；config/*.yaml 里删掉同名键。来源 rationale 与实测见
+// docs/TASKS.md 本单 ⑥。
+const (
+	alertMaxPositionWeight = 0.20
+	alertMaxSectorWeight   = 0.40
+	alertMaxDrawdown       = 0.15
+	alertDailyLossLimit    = -50000.0
+	alertFailureRateLimit  = 0.10
+)
+
 // buildAlertSystem constructs the AlertManager + PeriodicAlertLoop
 // (P2 alert, ODR-025) from viper config under alert.*.
 //
@@ -108,11 +124,11 @@ func initLogger() zerolog.Logger { return bootstrap.InitLogger() }
 // 不让「risk 侧 alerts 恒空集」成为一次坏配置的静默后果。
 func buildAlertSystem(v *viper.Viper, store *storage.PostgresStore, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
 	alertCfg := alert.AlertManagerConfig{
-		MaxPositionWeight: v.GetFloat64("alert.max_position_weight"),
-		MaxSectorWeight:   v.GetFloat64("alert.max_sector_weight"),
-		MaxDrawdown:       v.GetFloat64("alert.max_drawdown"),
-		DailyLossLimit:    v.GetFloat64("alert.daily_loss_limit"),
-		FailureRateLimit:  v.GetFloat64("alert.failure_rate_limit"),
+		MaxPositionWeight: alertMaxPositionWeight,
+		MaxSectorWeight:   alertMaxSectorWeight,
+		MaxDrawdown:       alertMaxDrawdown,
+		DailyLossLimit:    alertDailyLossLimit,
+		FailureRateLimit:  alertFailureRateLimit,
 		WebhookURL:        v.GetString("alert.webhook_url"),
 		WebhookTimeout:    time.Duration(v.GetInt("alert.webhook_timeout_sec")) * time.Second,
 	}
