@@ -777,6 +777,11 @@ func migrationStatements() []string {
 	// 追加而不是改写 060：迁移只允许追加；老库靠 ADD COLUMN IF NOT EXISTS 补齐。
 	migrations = append(migrations, AlertOutboxLeaseSchemaDDL...)
 
+	// Migration 062（QT-78）：quant.run_analysis_artifacts —— 回测终态的分析产物载荷。
+	// 与 orchestration 的 run.run_artifacts（三 hash 身份、主键 run_id）分表：
+	// 本表按 (run_id, kind) 存 portfolio-snapshot / factor-exposures 两类载荷本体。
+	migrations = append(migrations, AnalysisArtifactsSchemaDDL...)
+
 	return migrations
 }
 

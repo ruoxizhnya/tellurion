@@ -99,6 +99,13 @@ data_service:
   # token 只从 env 注入（DATA_SERVICE_TOKEN），本文件不放真值。
   token: ""
 
+# QT-78：run 级分析产物（portfolio-snapshot / factor-exposures）的默认基准。
+# worker 在 run 终态时为 Brinson 归因算基准分行业权重/收益；单条 run 可用
+# `engine_params.benchmark_index_code` 覆盖（open map，不动冻结的响应契约）。
+# 缺数据时产物不落库（fail-closed），不拿空权重冒充基准。
+benchmark:
+  index_code: "000300.SH"
+
 # strategy_service.url 已随 OBS-11（2026-10-09）删除：策略服务 standby
 # （ADR-012），信号只从引擎本地注册表产出，不存在 per-day HTTP fallback。
 

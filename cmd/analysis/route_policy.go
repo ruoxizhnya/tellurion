@@ -80,6 +80,10 @@ var analysisRoutePolicy = authz.Policy{
 		// QT-72 · X0：三 hash + result_status 的对外读面（只读
 		// quant.run_provenance ⋈ backtest_jobs，不写任何表）。
 		"GET /api/backtest/:id/provenance",
+		// QT-78 · R2：分析产物读面（只读 quant.run_analysis_artifacts）。
+		// 消费方是 analytics 的服务间读取，与上面的 X0 读面同档：已认证即可。
+		"GET /api/runs/:id/portfolio-snapshot",
+		"GET /api/runs/:id/factor-exposures",
 	},
 
 	// ── Service：服务间调用（裁-17，第五档）──

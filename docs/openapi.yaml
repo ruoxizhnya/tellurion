@@ -385,6 +385,97 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/runs/{id}/portfolio-snapshot:
+    get:
+      tags: [Backtest]
+      summary: Get the run's portfolio snapshot (R2 artifact)
+      description: |
+        QT-78 · R2 artifact read face, owned by core. Returns the payload the
+        worker wrote to `quant.run_analysis_artifacts` at run termination,
+        byte-for-byte. The shape mirrors tellurion-analytics
+        `docs/api-schema.md §6.2` (`PortfolioSnapshot`).
+
+        `404` means the artifact has not been produced for this run (the
+        consumer maps it to `run_result_incomplete`, fail-closed). `503` means
+        the read face is not wired in this deployment.
+
+        Benchmark sector weights are market-cap weighted at the window end and
+        sector returns are first-to-last close within the window; there is no
+        point-in-time share count, so weights are not strictly PIT.
+      operationId: getRunPortfolioSnapshot
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Portfolio snapshot payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioSnapshot'
+        '404':
+          description: The artifact has not been produced for this run (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to read the artifact store (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The artifact reader is not wired in this deployment (`unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/runs/{id}/factor-exposures:
+    get:
+      tags: [Backtest]
+      summary: Get the run's factor exposures (R2 artifact)
+      description: |
+        QT-78 · R2 artifact read face, owned by core. Returns the payload the
+        worker wrote to `quant.run_analysis_artifacts` at run termination,
+        byte-for-byte. The shape mirrors tellurion-analytics
+        `docs/api-schema.md §6.2` (`FactorExposures`).
+
+        `exposure` is the holdings' market-value-weighted z-score at the window
+        end; `factor_return` is the window-end `top_minus_bot` for that factor.
+
+        `404` means the artifact has not been produced for this run (the
+        consumer maps it to `run_result_incomplete`, fail-closed). `503` means
+        the read face is not wired in this deployment.
+      operationId: getRunFactorExposures
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Factor exposures payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorExposures'
+        '404':
+          description: The artifact has not been produced for this run (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to read the artifact store (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: The artifact reader is not wired in this deployment (`unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/backtest/compare:
     get:
       tags: [Backtest]
@@ -3260,6 +3351,14 @@ components:
       schema:
         type: string
 
+    RunId:
+      name: id
+      in: path
+      required: true
+      description: Run ID (core `backtest_jobs` id / orchestration run id).
+      schema:
+        type: string
+
   # ============================================================
   # Responses
   # ============================================================
@@ -3389,6 +3488,84 @@ components:
           format: date-time
           nullable: true
           description: When the provenance row was written.
+
+    PortfolioSnapshot:
+      type: object
+      description: |
+        R2 artifact payload (QT-78). Mirrors tellurion-analytics
+        `internal/analysis/model.go` `PortfolioSnapshot` field-for-field; the
+        consumer's Brinson attribution reads it.
+      required:
+        - holdings
+        - benchmark_sector_weights
+        - benchmark_sector_returns
+        - benchmark_return
+        - dataset_hash
+      properties:
+        holdings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holding'
+        benchmark_sector_weights:
+          type: object
+          additionalProperties:
+            type: number
+          description: Market-cap weighted sector weights of the benchmark constituents at window end.
+        benchmark_sector_returns:
+          type: object
+          additionalProperties:
+            type: number
+          description: First-to-last close return per sector within the window.
+        benchmark_return:
+          type: number
+          description: Market-cap weighted benchmark return over the window.
+        dataset_hash:
+          type: string
+          description: Dataset identity hash of the run this artifact belongs to.
+
+    Holding:
+      type: object
+      required: [symbol, sector, weight, period_return]
+      properties:
+        symbol:
+          type: string
+        sector:
+          type: string
+          description: Industry as recorded on the stock catalog (`domain.Stock.Industry`).
+        weight:
+          type: number
+          description: Portfolio weight at window end (sums to 1 across holdings).
+        period_return:
+          type: number
+          description: First-to-last close return within the window.
+
+    FactorExposures:
+      type: object
+      description: |
+        R2 artifact payload (QT-78). Mirrors tellurion-analytics
+        `internal/analysis/model.go` `FactorExposures`.
+      required: [factors, dataset_hash]
+      properties:
+        factors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactorExposure'
+        dataset_hash:
+          type: string
+
+    FactorExposure:
+      type: object
+      required: [name, exposure, factor_return]
+      properties:
+        name:
+          type: string
+          description: Factor name, from the contracts roster (`domain.BuiltinFactorDefinitions`).
+        exposure:
+          type: number
+          description: Market-value-weighted z-score of the holdings at window end.
+        factor_return:
+          type: number
+          description: Window-end `top_minus_bot` return of the factor.
 
     Error:
       type: object

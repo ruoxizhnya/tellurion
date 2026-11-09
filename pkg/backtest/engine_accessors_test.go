@@ -242,12 +242,32 @@ func TestEngine_GetBacktestTrades_Found(t *testing.T) {
 	assert.Len(t, trades, 1)
 }
 
+// QT-78：期末持仓访问器与 GetBacktestTrades 同一条路径（state.Tracker）。
+func TestEngine_GetBacktestPositions_NotFound(t *testing.T) {
+	eng := newTestEngine(t)
+	_, err := eng.GetBacktestPositions("nonexistent")
+	assert.Error(t, err)
+}
+
+func TestEngine_GetBacktestPositions_Found(t *testing.T) {
+	eng := newTestEngine(t)
+	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())
+	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
+	tracker.ExecuteTrade("600000.SH", domain.DirectionLong, 100, 10.0, day, nil)
+
+	eng.stateStore.Put("test-positions", &BacktestState{ID: "test-positions", Status: "completed", Tracker: tracker})
+
+	positions, err := eng.GetBacktestPositions("test-positions")
+	require.NoError(t, err)
+	require.Len(t, positions, 1)
+	assert.Equal(t, "600000.SH", positions[0].Symbol)
+}
+
 func TestEngine_GetBacktestEquity_NotFound(t *testing.T) {
 	eng := newTestEngine(t)
 	_, err := eng.GetBacktestEquity("nonexistent")
 	assert.Error(t, err)
 }
-
 func TestEngine_GetBacktestEquity_Found(t *testing.T) {
 	eng := newTestEngine(t)
 	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())

@@ -2795,6 +2795,56 @@ GET  /backtest/:id/trades         - Get backtest trades (checks DB if not in mem
 GET  /backtest/:id/equity         - Get equity curve data (checks DB if not in memory)
 ```
 
+#### 分析产物读面（QT-78）：portfolio-snapshot / factor-exposures
+
+归因消费端（`tellurion-analytics`）按 `{ANALYTICS_ARTIFACT_URL}/runs/{id}/<kind>`
+取期末持仓与逐因子暴露。载荷由 core 的 `cmd/worker` 在 run 终态写入
+`quant.run_analysis_artifacts`（Migration 062），读面也由 core 自持：
+
+```
+GET /api/runs/:id/portfolio-snapshot   - 期末持仓 + 基准分行业权重/收益
+GET /api/runs/:id/factor-exposures     - 逐因子暴露 + 区间因子收益
+```
+
+**为什么在 core**：orchestration 的 `run.run_artifacts` 只存三 hash 身份，且其非目标
+明写「不做对象存储」，没有 R2 读面；core 的 `POST /api/runs/jobs/{id}/artifacts`
+也只回传身份。载荷因此不跨进程复制，orchestration 的冻结 schema 不动。
+
+**wire 形状**（与 analytics `docs/api-schema.md` §6.2 逐字一致；定义本体在
+`internal/analysisartifact/contract.go`）：
+
+- `PortfolioSnapshot { holdings[], benchmark_sector_weights{}, benchmark_sector_returns{}, benchmark_return, dataset_hash }`
+- `Holding { symbol, sector, weight, period_return }`
+- `FactorExposures { factors[], dataset_hash }`
+- `FactorExposure { name, exposure, factor_return }`
+
+**口径**：
+
+- `weight` = 期末 `MarketValue` 占比；`period_return` = 窗口首末收盘之比；
+- `benchmark_sector_weights` = 基准成分按期末 `MarketCap` 加权的行业权重；
+- `benchmark_sector_returns` / `benchmark_return` = 窗口首末收盘、同样按市值加权；
+- `exposure` = 持仓 `weight` 加权的期末因子 z-score；`factor_return` = 窗口末
+  `top_minus_bot`；
+- 因子清单取自 `tellurion-contracts:domain.BuiltinFactorDefinitions`（种子定义是
+  唯一权威，本仓 `internal/repoguard` 钉住不许再抄一份清单）。名册在册 ≠ 本次有数：
+  取不到 z-score 或 `top_minus_bot` 的因子不进产物。
+
+**基准**：默认取 `config/analysis-service.yaml` 的 `benchmark.index_code`
+（`000300.SH`），单条 run 可用 `engine_params.benchmark_index_code` 覆盖（open map，
+不改冻结的 `BacktestResponse` 27 字段）。
+
+**fail-closed**：缺持仓 / 缺行业 / 缺区间收益 / 缺基准成分时**不产出**该类产物
+（`MissingError`，只记 Warn，不改变 run 结论）；读面此时 `404`，消费侧折成
+`run_result_incomplete`。不许编一份空持仓让归因「算得出」。读面 `503` = 本部署未接库。
+
+**已知局限**：市值取股票目录的最新 `MarketCap`，没有历史股本，故基准权重不是严格
+PIT；区间收益用窗口首末收盘价（行情源已是前复权序列），未单独做复权校正。
+
+**身份回传**：worker 仍调 orchestration 的 `POST /api/runs/jobs/{id}/artifacts`，
+`artifact_uri` 写 `analysis:<run_id>`，`artifact_hash` 沿用 `run_provenance` 的策略
+产物 hash；分析 bundle 的 sha256 只进日志，不污染 orchestration 的 provenance 读面。
+
+
 #### Data Proxies (→ data-service :8081)
 
 All of these are registered by `registerProxyRoutes`
@@ -2952,7 +3002,7 @@ env 读（`-secret-env` 可改名），stdout 只输出 token，`-sub` 不是
 | analysis | `service:analysis` | risk `POST /api/risk/events` | `RISK_SERVICE_EVENTS_TOKEN` |
 | analytics | `service:analytics` | core `POST /api/backtest` | `ANALYTICS_CORE_TOKEN` |
 | analytics | `service:analytics` | data `GET /datasets/*` | `DATA_SERVICE_TOKEN` |
-| analytics | `service:analytics` | orchestration artifact 面 | `ANALYTICS_ARTIFACT_TOKEN`（缺省复用 core token） |
+| analytics | `service:analytics` | core `GET /api/runs/{id}/{portfolio-snapshot,factor-exposures}` | `ANALYTICS_ARTIFACT_TOKEN`（缺省复用 core token） |
 | worker（core） | `service:worker` | orchestration 任务面 | ⛔ 未启用：`SVC-ORCH-G1` 落地后再签 |
 | core | `service:core` | broker 订单面 | `BROKER_SERVICE_TOKEN`（G1 是常量时间比对的共享串，**不是** JWT；换成 JWT 归 `SVC-BROKER-G1`） |
 

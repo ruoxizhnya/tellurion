@@ -98,13 +98,16 @@ services:
       ANALYTICS_DATABASE_DSN: postgres://postgres:postgres@postgres:5432/tellurion?sslmode=disable
       ANALYTICS_CORE_URL: ${ANALYTICS_CORE_URL:-http://host.docker.internal:8085}
       ANALYTICS_DATA_URL: http://data:8081
-      ANALYTICS_ARTIFACT_URL: http://orchestration:8088
+      # QT-78：R2 分析产物读面由 core 自持（quant.run_analysis_artifacts）。
+      # analytics 读 `{base}/runs/{id}/{kind}`，所以 base 必须带 /api。
+      ANALYTICS_ARTIFACT_URL: ${ANALYTICS_ARTIFACT_URL:-http://host.docker.internal:8085/api}
       ANALYTICS_ORCHESTRATION_URL: http://orchestration:8088
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       # 服务间凭证（QT-77）：只给**发送方**注入，仓库里只有空占位。
       # 签法见 tellurion:docs/SPEC.md#服务间凭证：签发、分发与轮换。
       DATA_SERVICE_TOKEN: ${DATA_SERVICE_TOKEN:-}
       ANALYTICS_CORE_TOKEN: ${ANALYTICS_CORE_TOKEN:-}
+      # 空值 = analytics 复用 ANALYTICS_CORE_TOKEN（同一条 core 鉴权面）。
       ANALYTICS_ARTIFACT_TOKEN: ${ANALYTICS_ARTIFACT_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"

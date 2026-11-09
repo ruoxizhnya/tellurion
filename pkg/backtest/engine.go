@@ -2113,6 +2113,26 @@ func (e *Engine) GetBacktestTrades(backtestID string) ([]domain.Trade, error) {
 	return state.Tracker.GetTrades(), nil
 }
 
+// GetBacktestPositions 读取一次 run 结束时的期末持仓（QT-78）。
+//
+// 与 GetBacktestTrades 同一条访问路径：per-run 的 BacktestState 在 Result 之后
+// 仍保留 Tracker（state.go），Tracker 自带互斥锁，返回的是持仓副本。运行中 /
+// 从未存在的 run 一样返回 NotFound——没有终态就没有「期末」。
+func (e *Engine) GetBacktestPositions(backtestID string) ([]domain.Position, error) {
+	state, ok := e.stateStore.Get(backtestID)
+	if !ok || state == nil {
+		return nil, apperrors.NotFound("backtest", backtestID)
+	}
+
+	bySymbol := state.Tracker.GetAllPositions()
+	out := make([]domain.Position, 0, len(bySymbol))
+	for _, pos := range bySymbol {
+		out = append(out, pos)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Symbol < out[j].Symbol })
+	return out, nil
+}
+
 // GetBacktestEquity retrieves equity curve for a backtest.
 func (e *Engine) GetBacktestEquity(backtestID string) ([]domain.PortfolioValue, error) {
 	state, ok := e.stateStore.Get(backtestID)

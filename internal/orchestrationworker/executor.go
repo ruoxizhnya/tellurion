@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
 
@@ -31,11 +32,21 @@ type Outcome struct {
 	Error        string // failed 时的原因
 }
 
+// ArtifactPublisher 是 run 终态后的产物发布钩子（QT-78）。
+//
+// 产物缺失只影响分析面（消费侧 fail-closed），不改变 run 的完成结论；实现方
+// 自身负责 fail-closed 与日志。
+type ArtifactPublisher interface {
+	Publish(ctx context.Context, resp *contracts.BacktestResponse) error
+}
+
 // Executor 用 core 的引擎执行 RunSpec。
 type Executor struct {
 	RunnerFor RunnerResolver
 	Sink      ResultSink
 	Timeout   time.Duration
+	Publisher ArtifactPublisher
+	Log       zerolog.Logger
 }
 
 // Execute 执行一条请求。引擎错误、结果落库失败、未知状态一律折成 failed——
@@ -89,6 +100,12 @@ func (e *Executor) Execute(ctx context.Context, req contracts.BacktestRequest) (
 				ResultStatus: string(contracts.StatusFailed),
 				Error:        fmt.Sprintf("persist result %s: %v", resp.ID, err),
 			}, nil
+		}
+	}
+	// 产物发布在结果落库之后：结果先可用，分析产物缺失只降级分析面。
+	if e.Publisher != nil {
+		if err := e.Publisher.Publish(ctx, resp); err != nil {
+			e.Log.Warn().Str("run_id", resp.ID).Err(err).Msg("analysis artifact publish failed")
 		}
 	}
 	return Outcome{

@@ -23,6 +23,7 @@ import (
 
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/cmd/analysis/wiring"
+	"tellurion/internal/analysisartifact"
 	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
@@ -71,7 +72,7 @@ func run() error {
 	// 与 analysis 的 strategy-runtime 模块同一套注入：引擎、store、风控。
 	// DataAdapter / 市场路由 / risk rules 取数口属 analysis 的装配细节，
 	// worker 今天不搬（见 docs/TASKS.md 的施工记录「未落」）。
-	engine, _ := bootstrap.BuildBacktestEngine(v, logger)
+	engine, market := bootstrap.BuildBacktestEngine(v, logger)
 	engine.SetStore(store)
 	// SVC-CORE-RISK-RETIRE（2026-11-09）：限额真相源在 risk 服务快照。
 	// worker 与 analysis 必须用同一份限额（否则同一条 run 在两个进程里算出
@@ -109,15 +110,50 @@ func run() error {
 			return orchestrationworker.ParseBaseRun(row)
 		},
 	}
+	client := orchestrationworker.NewClient(url, nil)
+	benchmarkIndex := strings.TrimSpace(v.GetString("benchmark.index_code"))
+	if benchmarkIndex == "" {
+		benchmarkIndex = "000300.SH"
+	}
+	// QT-78：run 终态产出 portfolio-snapshot / factor-exposures。
+	// 基准可由 run 的 engine_params.benchmark_index_code 覆盖（open map，
+	// 不动冻结的 BacktestResponse 27 字段）。
+	publisher := &analysisartifact.Publisher{
+		Engine:        engine,
+		Market:        market,
+		Catalog:       &analysisartifact.ProviderStockCatalog{Provider: market},
+		FactorReturns: store,
+		Provenance:    store,
+		Artifacts:     store,
+		Deliverer:     client,
+		Benchmark:     benchmarkIndex,
+		BenchmarkFor: func(ctx context.Context, runID string) string {
+			row, err := store.GetBacktestJob(ctx, runID)
+			if err != nil || row == nil {
+				return ""
+			}
+			base, err := orchestrationworker.ParseBaseRun(row)
+			if err != nil || base.EngineParams == nil {
+				return ""
+			}
+			if s, ok := base.EngineParams["benchmark_index_code"].(string); ok {
+				return strings.TrimSpace(s)
+			}
+			return ""
+		},
+		Log: logger,
+	}
+
 	executor := &orchestrationworker.Executor{
 		RunnerFor: func(kernel string) (contracts.EngineRunner, error) {
 			return registry.Resolve(kernel)
 		},
-		Sink:    &orchestrationworker.JobStoreSink{Store: store},
-		Timeout: *runTimeout,
+		Sink:      &orchestrationworker.JobStoreSink{Store: store},
+		Timeout:   *runTimeout,
+		Publisher: publisher,
+		Log:       logger,
 	}
 
-	client := orchestrationworker.NewClient(url, nil)
 	loop := orchestrationworker.NewLoop(client, resolver, executor, *workerID, kernels, orchestrationworker.Options{
 		HeartbeatEvery: *heartbeat,
 		PollEvery:      *poll,

@@ -195,6 +195,24 @@ func (c *Client) Job(ctx context.Context, runID string) (JobState, error) {
 	return out, nil
 }
 
+// SaveArtifact 回传一次 run 的三 hash 身份（X0 写端点）。
+//
+// 裁决 ⑱：core worker 不直写 orchestration 的 run.*，身份只经这条 HTTP 写。
+// body 是 `queue.ArtifactRecord` 的线形状（由调用方组装）；端点不收载荷，
+// 载荷留在 core 自己的分析产物表。
+func (c *Client) SaveArtifact(ctx context.Context, runID string, body []byte) error {
+	if len(body) == 0 {
+		return fmt.Errorf("orchestrationworker: empty artifact body")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.BaseURL+"/api/runs/jobs/"+pathEscape(runID)+"/artifacts", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("orchestrationworker: build artifact request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, nil)
+}
+
 // Drain 请求摘除自己（滚动升级 / 优雅退出）。draining 不再领新活。
 func (c *Client) Drain(ctx context.Context, workerID string) error {
 	var out WorkerInfo

@@ -213,9 +213,12 @@ func TestRoutePolicy_ReadRoutesAreRegisteredSeparately(t *testing.T) {
 			"读端点 %s 只能登记在 ReadOnlyGET，不得混进变更档位", k)
 	}
 
-	assert.Equal(t, []string{"GET /api/backtest/:id/provenance"},
-		analysisRoutePolicy.ReadOnlyGET,
-		"QT-72：X0 读面必须且只能登记这一条")
+	assert.Equal(t, []string{
+		"GET /api/backtest/:id/provenance",
+		"GET /api/runs/:id/portfolio-snapshot",
+		"GET /api/runs/:id/factor-exposures",
+	}, analysisRoutePolicy.ReadOnlyGET,
+		"QT-72 X0 读面 + QT-78 R2 分析产物读面：两条 R2 端点必须登记在只读 GET 档")
 }
 
 // TestRoutePolicy_ViewerIsForbidden：行为腿——viewer 打 trader/admin 端点必须 403。
