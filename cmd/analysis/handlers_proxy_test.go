@@ -49,56 +49,6 @@ func jsonUpstream(status int, body string) http.HandlerFunc {
 	}
 }
 
-// TestMarketIndexProxy_ForwardsSelectors 是 DATA-11 的一条独立腿：
-// `/api/market/index` 原来把目标 URL 拼成常量，**query string 在这一层就被丢了** ——
-// 数据服务侧把 symbol/date 接住之后，SPA 仍然什么都收不到，界面照样是装饰件。
-// SPEC §2 原来写的「转发是原样透传，问题在数据服务侧」据此证伪并改正。
-func TestMarketIndexProxy_ForwardsSelectors(t *testing.T) {
-	router, received := newProxyTestRouter(t, jsonUpstream(http.StatusOK, `{"indices":[]}`))
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/market/index?symbol=000001.SH&date=2026-09-22", nil)
-	router.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
-	require.Len(t, *received, 1)
-	assert.Equal(t, "/market/index", (*received)[0].URL.Path)
-	assert.Equal(t, "000001.SH", (*received)[0].URL.Query().Get("symbol"),
-		"symbol 必须到得了数据服务，否则 DATA-11 的参数化只做到网关这一层")
-	assert.Equal(t, "2026-09-22", (*received)[0].URL.Query().Get("date"),
-		"date 同理；as-of 读数丢在网关就等于丢在链路上")
-}
-
-// TestMarketIndexProxy_OmitsEmptyQuery 对照腿：没给参数就不要拼出 `?` 的空 query，
-// 让 L0 继续对「不传 = 三个都给的默认读数面」负责。
-func TestMarketIndexProxy_OmitsEmptyQuery(t *testing.T) {
-	router, received := newProxyTestRouter(t, jsonUpstream(http.StatusOK, `{"indices":[]}`))
-
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/market/index", nil))
-
-	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
-	require.Len(t, *received, 1)
-	assert.Empty(t, (*received)[0].URL.RawQuery,
-		"没给选择器时不该凭空造 query（空 symbol= 会被 L0 当成有效值还是空值是它的判断）")
-}
-
-// TestMarketIndexProxy_PassesSelectorErrorThrough 钉「坏参数的话得活着走到浏览器」：
-// 数据服务对服务集外的 symbol 回 400 + 指名理由，网关必须原样转状态码和文案 ——
-// 折叠成 200 + 空数组就是「界面说今天没行情」那条老路，折叠成 502 又会被 ui 说成
-// 「这次请求没成功」。
-func TestMarketIndexProxy_PassesSelectorErrorThrough(t *testing.T) {
-	body := `{"error":{"code":"bad_request","message":"unsupported symbol \"600000.SH\": this endpoint serves index bars only (000300.SH, 000001.SH, 399006.SZ)"}}`
-	router, _ := newProxyTestRouter(t, jsonUpstream(http.StatusBadRequest, body))
-
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/market/index?symbol=600000.SH", nil))
-
-	assert.Equal(t, http.StatusBadRequest, w.Code, "body: %s", w.Body.String())
-	assert.Contains(t, w.Body.String(), "unsupported symbol",
-		"400 的理由必须原样透出，网关不 launder 成通用句；实际 body：%s", w.Body.String())
-}
-
 // TestFactorCitationProxy_ForwardsSelectorsToPrefixlessL0Route pins the path
 // shape: the SPA asks for /api/factors/<name>, L0 serves /factors/<name>.
 func TestFactorCitationProxy_ForwardsSelectorsToPrefixlessL0Route(t *testing.T) {

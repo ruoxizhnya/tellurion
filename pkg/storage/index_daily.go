@@ -123,6 +123,71 @@ func finiteOrNil(v *float64, code, column string) error {
 	return nil
 }
 
+// LatestIndexBar 是 `/api/market/index` 的读形状：某个指数在 as-of 之前
+// 最近一根 bar，外加**那一根的前一期收盘**（用来算涨跌幅）。
+//
+// 为什么把 prev_close 一起读回来而不是让 handler 再查一次：两次查询之间
+// 可能刚好插入新 bar，close 与 baseline 就会来自不同期——同一张卡片上的
+// 涨跌幅用错基准，界面上完全看不出来（DATA-11 记录过这个坑）。
+// 指针语义照旧：Turnover/PrevClose 为 nil = 上游没发布，不是 0。
+type LatestIndexBar struct {
+	Code      string
+	TradeDate time.Time
+	Close     float64
+	Volume    float64
+	Turnover  *float64
+	PrevClose *float64
+}
+
+// LatestIndexBars 读每个 code 在 asOf（nil = 不限）当天或之前最近一根 bar，
+// 并带回它的前一期收盘。窗口函数一趟取回两期，顺序确定（按 code 升序）。
+//
+// ⚠️ 这是「最近一根 bar」，**不是 PIT 快照**：可见锚点只有 trade_date，
+// 没有公告日/摄取时刻过滤；与 D2 线那套 available_date/as_of 口径无关。
+// 库里没有行的 code 不产条目（不编零值）；先于全部行也不产。
+func (s *PostgresStore) LatestIndexBars(ctx context.Context, codes []string, asOf *time.Time) ([]LatestIndexBar, error) {
+	if len(codes) == 0 {
+		return nil, nil
+	}
+	const query = `WITH ranked AS (
+		SELECT code, trade_date, close, volume, turnover,
+		       ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date DESC) AS rn
+		FROM market.index_daily
+		WHERE code = ANY($1) AND ($2::date IS NULL OR trade_date <= $2)
+	)
+	SELECT a.code, a.trade_date, a.close, a.volume, a.turnover, b.close
+	FROM ranked a
+	LEFT JOIN ranked b ON b.code = a.code AND b.rn = 2
+	WHERE a.rn = 1
+	ORDER BY a.code`
+	var asOfArg any
+	if asOf != nil {
+		// 同 SaveIndexDailyBatch：DATE 列传 "YYYY-MM-DD" 字符串，避免时区偏移。
+		asOfArg = dateOnly(*asOf)
+	}
+	rows, err := s.pool.Query(ctx, query, codes, asOfArg)
+	if err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"指数日线最近一期查询失败", "storage.LatestIndexBars")
+	}
+	defer rows.Close()
+
+	var out []LatestIndexBar
+	for rows.Next() {
+		var b LatestIndexBar
+		if err := rows.Scan(&b.Code, &b.TradeDate, &b.Close, &b.Volume, &b.Turnover, &b.PrevClose); err != nil {
+			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+				"指数日线最近一期结果行扫描失败", "storage.LatestIndexBars")
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"指数日线最近一期结果集迭代失败", "storage.LatestIndexBars")
+	}
+	return out, nil
+}
+
 // GetIndexDailyRange 按交易日闭区间 [start, end] 读一个指数的日线，按 trade_date
 // 升序返回（确定性序列）。空结果是合法答案。供隔离库/集成腿核对单位与幂等。
 func (s *PostgresStore) GetIndexDailyRange(ctx context.Context, code string, start, end time.Time) ([]domain.IndexDaily, error) {

@@ -284,6 +284,14 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	registerOpenAPIRoutes(router)
 
 	registerProxyRoutes(router, httpClient, deps.Viper, deps.Logger)
+	// 市场指数读数：`market.index_daily` 的 owner 是 core（裁决 ⑰），退役时随
+	// cmd/data 删掉的读链在这里本地供数，不再反代 data-service（那条路由不存在，
+	// 反代只会 404 → 502）。未接库时路由照常注册、请求 503。
+	var indexReader indexDailyReader
+	if deps.Store != nil && deps.Store.DB() != nil {
+		indexReader = deps.Store
+	}
+	registerMarketIndexRoutes(router, indexReader, deps.Logger)
 	// QT-72：X0 读面端口。与下面 factorRegistrationStore / referenceDataStore
 	// 同一约束 —— nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
 	// 到 handler 里才 panic；未接库时路由照常注册、请求时 503。

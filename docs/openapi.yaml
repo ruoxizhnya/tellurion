@@ -2431,22 +2431,20 @@ paths:
   /api/market/index:
     get:
       tags: [Data Proxy]
-      summary: Get market index (proxied)
+      summary: Get market index (served locally by core since 2026-11-10)
       description: >
-        数据服务从 **market.index_daily**（指数日线表，DATA-12，2026-10-16）取指数
-        代码的一期读数与上一期收盘（一趟窗口函数）。两个选择器都生效（DATA-11 (a1)），
-        网关这一层原样转发 symbol/date：
+        网关从 **market.index_daily**（指数日线表；裁决 ⑰ 判给 core）取指数代码的
+        一期读数与上一期收盘（一趟窗口函数），**本地供数、不再反代 data-service**。
+        旧反代在数据面退役后指向 data 的 `/market/index`，而 data 的兼容面不含这条
+        ⇒ 404 → 502，ui 市场概览恒走「读数失败」空态（2026-11-10 实测）。
+        两个选择器都生效：
         `symbol` 只认服务集 000300.SH / 000001.SH / 399006.SZ 之内的那一个（不传 = 三个都给），
         服务集外（含个股代码）一律 400 而**不透传** —— market.index_daily 只收指数代码，
         透传等于把一只股票当指数卖。`date` 走 as-of：`trade_date <= date` 里最近的一根。
         ⚠️ 这不是 PIT 快照（可见锚点就是 trade_date，无公告日/摄取时刻过滤）。
         prev_close 跟着所选那一期走，不是全表次新那期。
-        DATA-12 已补上数据面：新表 market.index_daily + tushare index_daily 新源 +
-        POST /sync/index-daily/:index_code 灌数入口（**数据服务面**，非网关；
-        网关的 /api/sync/*path 代理不重写路径，指到 /api/sync/index-daily 会 404），
-        本端点读路径改从新表取数；
         **未灌数的库仍如实回 `{"indices":[]}`** —— 空数组是「今天没有行情」，不是缺陷。
-        读失败回 500（见本路径的 '500'），不是把失败折成空数组。
+        读失败回 500（见本路径的 '500'），不是把失败折成空数组；未接库回 503。
       operationId: getMarketIndex
       parameters:
         - name: symbol

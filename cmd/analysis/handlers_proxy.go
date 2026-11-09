@@ -155,26 +155,6 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		proxyRequest(c, http.MethodGet, dataServiceURL+"/stocks/count", nil)
 	})
 
-	// DATA-11: /market/index 的两个选择器参数原来在这里就被丢了 —— 目标 URL 是
-	// 拼出来的常量，不带 query string，所以 SPA 发的 ?symbol=&date= 永远到不了
-	// 数据服务（登记工单 ② 只说了 handler 不读参数，实际拦在外层：网关改完
-	// 数据服务才会收到）。转发口径与下面的 /api/factors/:name 一致：只搬这两个
-	// 已知选择器，其余参数留在这里，让 L0 继续对「这条端点认什么」负责。
-	router.GET("/api/market/index", func(c *gin.Context) {
-		query := url.Values{}
-		if symbol := c.Query("symbol"); symbol != "" {
-			query.Set("symbol", symbol)
-		}
-		if date := c.Query("date"); date != "" {
-			query.Set("date", date)
-		}
-		dataURL := dataServiceURL + "/market/index"
-		if encoded := query.Encode(); encoded != "" {
-			dataURL += "?" + encoded
-		}
-		proxyRequest(c, http.MethodGet, dataURL, nil)
-	})
-
 	// TASKS.md P5-3: the citation-coordinate read. GET /api/factors/:name is
 	// the factor_cache read whose rows carry the ADR-022 §5 five-tuple
 	// {source, dataset, key, as_of, content_hash} (cmd/data/handlers_factor.go).

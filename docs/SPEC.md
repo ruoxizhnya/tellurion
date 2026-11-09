@@ -2864,14 +2864,16 @@ POST /api/v1/ohlcv/bulk           - 批量行情查询（QT-50 第 4 类粗粒�
 POST /api/screen                  - Screen stocks by criteria
 GET  /api/stocks/count            - Stock count + status split + latest quote date
                                     (passthrough; 形状见 §1「`GET /stocks/count` 的响应形状」)
-GET  /api/market/index            - Get market index data (passthrough;
-                                    形状与单位见 §1「`GET /market/index` 的响应形状」)
+GET  /api/market/index            - Get market index data (core 本地供数，2026-11-10 起)
+                                    形状与单位见 §1「`GET /market/index` 的响应形状」
      ?symbol=000001.SH&date=2026-01-01
-     两个选择器由网关转发给数据服务（DATA-11）。⚠️ 原来这一层就不透传：目标 URL
-     是拼出来的常量、不带 query string，所以「参数不生效」有一半拦在网关，
-     只改数据服务侧的 handler 并不够 —— 本行旧文案写的「转发是原样透传」据此订正。
-     转发只搬 symbol/date 两个已知键（口径同下面 /api/factors/:name），
-     坏参数的 400 原状态码原文透出，网关不 launder。
+     读 `market.index_daily`（裁决 ⑰ 把该表判给 core）：2026-11-10 起由网关**本地**
+     供数，不再反代 data-service。旧反代在数据面退役后指向 data 的 `/market/index`，
+     而 data 的兼容面没有这条 ⇒ 404 → 502，界面恒走「读数失败」空态。
+     symbol 不传 = 服务集三个；服务集外（含个股代码）一律 400、不透传；
+     date 只认 YYYY-MM-DD，语义是「该日或之前最近一根 bar」，**不是 PIT 快照**。
+     响应仍是 `{"indices":[...]}`：pct 百分数刻度，turnover/prev_close 缺失给 null
+     （不补零），库里没有行的 code 不产条目；未接库时路由仍注册、请求 503。
 GET  /api/factors/:factor_name    - Read a factor_cache row (citation 五元组，见 §AI 实验员实验室)
      ?symbol=&date=
 ANY  /api/sync/*path              - Streaming reverse proxy to data-service
