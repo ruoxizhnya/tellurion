@@ -73,6 +73,20 @@ type BacktestState struct {
 	// not required for these accesses. Future code that exposes
 	// TargetPositions to readers should add locking here.
 	TargetPositions map[string]*domain.TargetPosition
+
+	// TerminalPositions 是**强制平仓之前**的期末持仓快照（QT-78）。
+	//
+	// 回测收尾会强平所有持仓以结算收益，强平后 Tracker 里一条都不剩；
+	// 而分析产物（Brinson / 因子归因）要的是「最后一个交易日收盘时仍
+	// 持有的仓位」。快照在强平前抄一份，权重口径是快照里的末日收盘市值。
+	//
+	// Protected by mu.
+	TerminalPositions []domain.Position
+
+	// terminalPositionsSet 区分「快照确实为空（策略末日空仓）」与
+	// 「还没有快照（运行中 / 没走强平收尾的旧路径）」。前者仍然是一个
+	// 真实观测，不能被当成「没有」，否则读面会退回 Tracker 的空表。
+	terminalPositionsSet bool
 }
 
 // SetStatus atomically updates the status. No-op if the state is frozen.
@@ -108,6 +122,34 @@ func (s *BacktestState) SetError(err error) bool {
 	}
 	s.Error = err
 	return true
+}
+
+// SetTerminalPositions 记录强平前的期末持仓快照（QT-78）。
+// 入参被复制一份保存，调用方后续修改自己的切片不会影响快照。No-op if frozen.
+func (s *BacktestState) SetTerminalPositions(positions []domain.Position) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.frozen {
+		return false
+	}
+	snapshot := make([]domain.Position, len(positions))
+	copy(snapshot, positions)
+	s.TerminalPositions = snapshot
+	s.terminalPositionsSet = true
+	return true
+}
+
+// GetTerminalPositions 返回期末持仓快照的副本。
+// ok=false 表示该 run 没有记录过快照（运行中，或没走强平收尾的旧路径）。
+func (s *BacktestState) GetTerminalPositions() ([]domain.Position, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.terminalPositionsSet {
+		return nil, false
+	}
+	out := make([]domain.Position, len(s.TerminalPositions))
+	copy(out, s.TerminalPositions)
+	return out, true
 }
 
 // SetCompletedAt atomically sets the completion timestamp. No-op if frozen.

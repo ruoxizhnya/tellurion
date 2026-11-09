@@ -1324,6 +1324,12 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	// forceCloseAllPositions 之前：撤销只是记账告警，不产生新成交。
 	finalizeExecAlgo(algoDispatch, logger)
 
+	// QT-78：强平会把 Tracker 清空，而分析产物（Brinson / 因子归因）要的是
+	// 「最后一个交易日收盘时仍持有的仓位」。在强平**之前**留一份快照——
+	// 快照里的 MarketValue 已由最后一天的 RecordDailyValue 按收盘价盯市，
+	// 正是权重口径要用的数。
+	e.snapshotTerminalPositions(state)
+
 	e.forceCloseAllPositions(state, pricesCache, lastTradingDay, logger)
 
 	// REV-22-(2)：日循环本身包含最后一天（已在循环内 RecordDailyValue 过），
@@ -2120,13 +2126,19 @@ func (e *Engine) GetBacktestTrades(backtestID string) ([]cdom.Trade, error) {
 
 // GetBacktestPositions 读取一次 run 结束时的期末持仓（QT-78）。
 //
-// 与 GetBacktestTrades 同一条访问路径：per-run 的 BacktestState 在 Result 之后
-// 仍保留 Tracker（state.go），Tracker 自带互斥锁，返回的是持仓副本。运行中 /
-// 从未存在的 run 一样返回 NotFound——没有终态就没有「期末」。
+// 「期末」指最后一个交易日收盘时的持仓，**不是**强平后的 Tracker：引擎
+// 收尾会强平全部仓位（forceCloseAllPositions），之后 Tracker 必然为空。
+// 因此优先返回强平前的快照（state.SetTerminalPositions）；只有没走过该
+// 收尾路径的状态（旧状态 / 运行中 / 失败）才回退到 Tracker 当前持仓。
+// 运行中 / 从未存在的 run 一样返回 NotFound——没有终态就没有「期末」。
 func (e *Engine) GetBacktestPositions(backtestID string) ([]domain.Position, error) {
 	state, ok := e.stateStore.Get(backtestID)
 	if !ok || state == nil {
 		return nil, apperrors.NotFound("backtest", backtestID)
+	}
+
+	if snapshot, ok := state.GetTerminalPositions(); ok {
+		return snapshot, nil
 	}
 
 	bySymbol := state.Tracker.GetAllPositions()
@@ -2136,6 +2148,23 @@ func (e *Engine) GetBacktestPositions(backtestID string) ([]domain.Position, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Symbol < out[j].Symbol })
 	return out, nil
+}
+
+// snapshotTerminalPositions 在强平前记录期末持仓快照（QT-78）。
+//
+// 只保留真实持仓（|quantity| > 1e-8）——已清仓的残行不是「期末持仓」，
+// 留着会让归因拿到一条权重为 0 的假持仓。排序只为让读面输出稳定。
+func (e *Engine) snapshotTerminalPositions(state *BacktestState) {
+	bySymbol := state.Tracker.GetAllPositions()
+	out := make([]domain.Position, 0, len(bySymbol))
+	for _, pos := range bySymbol {
+		if abs(pos.Quantity) <= 1e-8 {
+			continue
+		}
+		out = append(out, pos)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Symbol < out[j].Symbol })
+	state.SetTerminalPositions(out)
 }
 
 // GetBacktestEquity retrieves equity curve for a backtest.

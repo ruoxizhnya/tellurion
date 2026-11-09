@@ -47,6 +47,45 @@ func TestBacktestState_GetSetRoundTrip(t *testing.T) {
 	assert.Equal(t, now, s.GetCompletedAt())
 }
 
+// TestBacktestState_TerminalPositions verifies the QT-78 snapshot semantics:
+// a set snapshot is readable (as a copy), an empty snapshot is a real
+// observation (ok=true, len=0), and Freeze rejects later writes.
+func TestBacktestState_TerminalPositions(t *testing.T) {
+	s := &BacktestState{ID: "bt-terminal"}
+
+	_, ok := s.GetTerminalPositions()
+	assert.False(t, ok, "未设置过快照时 ok 必须为 false，读面才知道要回退")
+
+	positions := []domain.Position{{Symbol: "600000.SH", Quantity: 100, MarketValue: 1000}}
+	require.True(t, s.SetTerminalPositions(positions))
+
+	got, ok := s.GetTerminalPositions()
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.Equal(t, "600000.SH", got[0].Symbol)
+
+	// 快照是副本：改调用方的切片不能改到状态里的那份。
+	positions[0].Symbol = "000001.SZ"
+	got[0].Symbol = "000001.SZ"
+	got2, ok := s.GetTerminalPositions()
+	require.True(t, ok)
+	assert.Equal(t, "600000.SH", got2[0].Symbol)
+
+	// 空快照仍然是一次真实观测。
+	empty := &BacktestState{ID: "bt-terminal-empty"}
+	require.True(t, empty.SetTerminalPositions(nil))
+	gotEmpty, ok := empty.GetTerminalPositions()
+	assert.True(t, ok, "空快照不能被当成「没有快照」")
+	assert.Empty(t, gotEmpty)
+
+	// Freeze 后拒绝写入。
+	s.Freeze()
+	assert.False(t, s.SetTerminalPositions([]domain.Position{{Symbol: "600519.SH"}}))
+	afterFreeze, ok := s.GetTerminalPositions()
+	require.True(t, ok)
+	assert.Equal(t, "600000.SH", afterFreeze[0].Symbol)
+}
+
 // TestBacktestState_FreezeRejectsWrites verifies that once Freeze is
 // called, all Set* methods are no-ops (return prev, false) and the
 // frozen state is visible via IsFrozen/IsCompleted.

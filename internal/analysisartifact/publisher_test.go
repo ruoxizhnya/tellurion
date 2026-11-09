@@ -31,18 +31,33 @@ func (f fakeProvenance) GetRunProvenance(ctx context.Context, runID string) (*st
 
 type fakeEngine struct {
 	positions []domain.Position
-	zscores   fakeZScores
 }
 
 func (f fakeEngine) GetBacktestPositions(runID string) ([]domain.Position, error) {
 	return f.positions, nil
 }
 
-func (f fakeEngine) GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
-	if f.zscores == nil {
-		return 0, false
+// fakeFactorCache 以「因子 + 窗口末日的 z-score」满足发布期读面。
+type fakeFactorCache struct {
+	zscores fakeZScores
+	date    time.Time
+}
+
+func (f fakeFactorCache) GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error) {
+	out := make([]*domain.FactorCacheEntry, 0, len(f.zscores))
+	for symbol, perFactor := range f.zscores {
+		z, ok := perFactor[factor]
+		if !ok {
+			continue
+		}
+		out = append(out, &domain.FactorCacheEntry{
+			Symbol:     symbol,
+			TradeDate:  f.date,
+			FactorName: factor,
+			ZScore:     z,
+		})
 	}
-	return f.zscores.GetFactorZScore(factor, date, symbol)
+	return out, nil
 }
 
 type fakeCatalog struct {
@@ -97,19 +112,22 @@ func publisherFixture() (*Publisher, *fakeEngine, *fakeArtifactStore, *fakeDeliv
 	in, market := portfolioFixture()
 	eng := &fakeEngine{
 		positions: in.Positions,
-		zscores: fakeZScores{
-			"A": {cdom.FactorMomentum: 1.0},
-			"B": {cdom.FactorMomentum: -1.0},
-		},
 	}
 	store := &fakeArtifactStore{}
 	deliverer := &fakeDeliverer{}
 	catalog := fakeCatalog{stocks: []domain.Stock{in.Stocks["A"], in.Stocks["B"], in.Stocks["C"]}}
 
 	p := &Publisher{
-		Engine:        eng,
-		Market:        market,
-		Catalog:       catalog,
+		Engine:  eng,
+		Market:  market,
+		Catalog: catalog,
+		FactorCache: fakeFactorCache{
+			date: in.EndDate,
+			zscores: fakeZScores{
+				"A": {cdom.FactorMomentum: 1.0},
+				"B": {cdom.FactorMomentum: -1.0},
+			},
+		},
 		FactorReturns: fakeFactorReturns{cdom.FactorMomentum: {{TradeDate: in.EndDate, TopMinusBot: 0.05}}},
 		Provenance:    fakeProvenance{rec: provenanceFixture()},
 		Artifacts:     store,
@@ -160,6 +178,19 @@ func TestPublish_ProducesBothArtifactsAndDeliversIdentity(t *testing.T) {
 	assert.Equal(t, "spec-hash", body["run_spec_hash"])
 	assert.Equal(t, "params-hash", body["params_hash"])
 	assert.InDelta(t, 7, body["seed"], 0)
+}
+
+func TestPublish_NoFactorZScoresFailClosed(t *testing.T) {
+	t.Parallel()
+
+	p, _, store, deliverer := publisherFixture()
+	p.FactorCache = nil
+
+	require.NoError(t, p.Publish(context.Background(), responseFixture()))
+
+	require.Len(t, store.saved, 1, "拿不到 z-score 只能产出 portfolio-snapshot")
+	assert.Equal(t, KindPortfolioSnapshot, store.saved[0].Kind)
+	require.Equal(t, 1, deliverer.calls, "身份仍照常回传")
 }
 
 func TestPublish_NoPayloadStillDeliversIdentity(t *testing.T) {

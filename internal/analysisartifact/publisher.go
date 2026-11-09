@@ -28,7 +28,15 @@ import "tellurion/pkg/domain"
 // EnginePort 是发布器需要的引擎读面。
 type EnginePort interface {
 	GetBacktestPositions(runID string) ([]domain.Position, error)
-	GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool)
+}
+
+// FactorCacheReader 按因子 + 窗口读 z-score 行（*storage.PostgresStore 满足）。
+//
+// QT-78：发布期不能复用 `Engine.GetFactorZScore` —— QT-12 之后 run 内的因子
+// 缓存是 runContext 私有的，run 结束即释放，worker 里引擎级的那份只是装配期
+// 种子（为空）。这里按 run 窗口从库里重读同一张 factor_cache，语义等价。
+type FactorCacheReader interface {
+	GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error)
 }
 
 // ProvenanceReader 读一次 run 的输入身份（quant.run_provenance）。
@@ -52,10 +60,13 @@ type Publisher struct {
 	Market        MarketProvider
 	Catalog       StockCatalog
 	FactorReturns FactorReturnReader
-	Provenance    ProvenanceReader
-	Artifacts     ArtifactStore
-	Deliverer     Deliverer
-	Benchmark     string
+	// FactorCache 可选：发布期按 run 窗口重读因子 z-score（见 FactorCacheReader）。
+	// nil = 本部署没有因子缓存表，factor-exposures 按缺输入 fail-closed。
+	FactorCache FactorCacheReader
+	Provenance  ProvenanceReader
+	Artifacts   ArtifactStore
+	Deliverer   Deliverer
+	Benchmark   string
 	// BenchmarkFor 可选：按 run 覆盖基准指数（空串 = 用 Benchmark 默认值）。
 	BenchmarkFor func(ctx context.Context, runID string) string
 	Factors      []cdom.FactorType
@@ -150,7 +161,7 @@ func (p *Publisher) produceArtifacts(ctx context.Context, resp *contracts.Backte
 
 	builder := &Builder{
 		Market:        p.Market,
-		ZScores:       p.Engine,
+		ZScores:       p.zscoresFor(ctx, start, end),
 		FactorReturns: p.FactorReturns,
 		Factors:       p.Factors,
 	}
@@ -182,6 +193,64 @@ func (p *Publisher) produceArtifacts(ctx context.Context, resp *contracts.Backte
 		}
 	}
 	return saved
+}
+
+// zscoresFor 组装发布期的因子 z-score 读面（QT-78）。
+//
+// 窗口 = run 的 start..end，来源与 run 内 Warm 相同（factor_cache 表）。
+// FactorCache 未接线时返回空表：Builder 对每个因子都拿不到暴露 ⇒ 整类
+// factor-exposures 按缺输入 fail-closed，不会编一条空归因。
+func (p *Publisher) zscoresFor(ctx context.Context, start, end time.Time) *memoryZScores {
+	out := &memoryZScores{cache: make(map[cdom.FactorType]map[time.Time]map[string]float64)}
+	if p.FactorCache == nil {
+		return out
+	}
+	factors := p.Factors
+	if len(factors) == 0 {
+		factors = DefaultFactors()
+	}
+	for _, factor := range factors {
+		entries, err := p.FactorCache.GetFactorCacheRange(ctx, factor, start, end)
+		if err != nil {
+			p.Log.Warn().Str("factor", string(factor)).Err(err).Msg("analysis artifacts: factor z-scores unavailable")
+			continue
+		}
+		for _, e := range entries {
+			if e == nil {
+				continue
+			}
+			byDate := out.cache[e.FactorName]
+			if byDate == nil {
+				byDate = make(map[time.Time]map[string]float64)
+				out.cache[e.FactorName] = byDate
+			}
+			bySymbol := byDate[e.TradeDate]
+			if bySymbol == nil {
+				bySymbol = make(map[string]float64)
+				byDate[e.TradeDate] = bySymbol
+			}
+			bySymbol[e.Symbol] = e.ZScore
+		}
+	}
+	return out
+}
+
+// memoryZScores 是窗口内的只读 z-score 表，实现 Builder 的 ZScores 读面。
+type memoryZScores struct {
+	cache map[cdom.FactorType]map[time.Time]map[string]float64
+}
+
+func (m *memoryZScores) GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
+	byDate, ok := m.cache[factor]
+	if !ok {
+		return 0, false
+	}
+	bySymbol, ok := byDate[date]
+	if !ok {
+		return 0, false
+	}
+	z, ok := bySymbol[symbol]
+	return z, ok
 }
 
 // savePayload 构建一类产物、规范化序列化、落库。

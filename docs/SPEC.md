@@ -2820,11 +2820,16 @@ GET /api/runs/:id/factor-exposures     - 逐因子暴露 + 区间因子收益
 
 **口径**：
 
-- `weight` = 期末 `MarketValue` 占比；`period_return` = 窗口首末收盘之比；
+- `weight` = 期末 `MarketValue` 占比；`period_return` = 窗口首末收盘之比。
+  「期末」取**收尾强平之前**的持仓快照（`BacktestState.TerminalPositions`）：
+  引擎结算收益时会 `forceCloseAllPositions`，强平后 Tracker 为空，不能把空表
+  当作期末持仓（那会让每个已结束的 run 都缺 `holdings`）；
 - `benchmark_sector_weights` = 基准成分按期末 `MarketCap` 加权的行业权重；
 - `benchmark_sector_returns` / `benchmark_return` = 窗口首末收盘、同样按市值加权；
 - `exposure` = 持仓 `weight` 加权的期末因子 z-score；`factor_return` = 窗口末
-  `top_minus_bot`；
+  `top_minus_bot`。z-score 由 `Publisher.FactorCache` 按 run 窗口从 `factor_cache`
+  重读（与 run 内预热同源）：QT-12 之后 run 内的因子缓存是 runContext 私有的、
+  run 结束即释放，worker 里的引擎级缓存只是装配期种子（为空），不能复用；
 - 因子清单取自 `tellurion-contracts:domain.BuiltinFactorDefinitions`（种子定义是
   唯一权威，本仓 `internal/repoguard` 钉住不许再抄一份清单）。名册在册 ≠ 本次有数：
   取不到 z-score 或 `top_minus_bot` 的因子不进产物。

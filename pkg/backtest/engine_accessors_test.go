@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
+	"tellurion/pkg/strategy"
 )
 
 import "tellurion/pkg/domain"
@@ -263,6 +264,74 @@ func TestEngine_GetBacktestPositions_Found(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, positions, 1)
 	assert.Equal(t, "600000.SH", positions[0].Symbol)
+}
+
+// QT-78：强平会把 Tracker 清空，读面必须返回强平前的快照。
+func TestEngine_GetBacktestPositions_PrefersTerminalSnapshot(t *testing.T) {
+	eng := newTestEngine(t)
+	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())
+
+	st := &BacktestState{ID: "test-terminal", Status: "completed", Tracker: tracker}
+	require.True(t, st.SetTerminalPositions([]domain.Position{
+		{Symbol: "600519.SH", Quantity: 100, MarketValue: 150000},
+	}))
+	// 模拟收尾强平：Tracker 里已无持仓，快照仍在。
+	eng.stateStore.Put("test-terminal", st)
+
+	positions, err := eng.GetBacktestPositions("test-terminal")
+	require.NoError(t, err)
+	require.Len(t, positions, 1)
+	assert.Equal(t, "600519.SH", positions[0].Symbol)
+	assert.InDelta(t, 150000.0, positions[0].MarketValue, 1e-9)
+}
+
+// QT-78：空快照是一次真实观测（策略末日空仓），不能退回 Tracker 的残行。
+func TestEngine_GetBacktestPositions_EmptySnapshotIsAuthoritative(t *testing.T) {
+	eng := newTestEngine(t)
+	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())
+	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
+	tracker.ExecuteTrade("600000.SH", cdom.DirectionLong, 100, 10.0, day, nil)
+
+	st := &BacktestState{ID: "test-terminal-empty", Status: "completed", Tracker: tracker}
+	require.True(t, st.SetTerminalPositions(nil))
+	eng.stateStore.Put("test-terminal-empty", st)
+
+	positions, err := eng.GetBacktestPositions("test-terminal-empty")
+	require.NoError(t, err)
+	assert.Empty(t, positions)
+}
+
+// QT-78：整轮 run —— 收尾强平后 Tracker 必为空，读面仍给出末日收盘持仓。
+func TestEngine_GetBacktestPositions_SurvivesForceClose(t *testing.T) {
+	eng := qt02Engine(t)
+	const name = "qt78-terminal-positions"
+	require.NoError(t, strategy.GlobalRegisterFactory(func() strategy.Strategy {
+		return &qt02Probe{name: name, wantIdx: qt02LastIdx}
+	}))
+
+	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
+		Strategy:       name,
+		StockPool:      []string{qt02Symbol},
+		StartDate:      qt02Day(0).Format("2006-01-02"),
+		EndDate:        qt02Day(qt02LastIdx).Format("2006-01-02"),
+		InitialCapital: 1_000_000,
+		FillTiming:     string(FillTimingSameClose),
+	})
+	require.NoError(t, err)
+	require.Len(t, qt02OpeningTrades(resp), 1,
+		"本用例的前提是末日仍有持仓（status=%s invalid=%v trades=%+v）", resp.Status, resp.InvalidReasons, resp.Trades)
+
+	// 前提：强平真的发生了 —— 否则本用例证明不了快照路径。
+	state, ok := eng.stateStore.Get(resp.ID)
+	require.True(t, ok)
+	assert.Empty(t, state.Tracker.GetAllPositions(), "收尾强平后 Tracker 应为空")
+
+	positions, err := eng.GetBacktestPositions(resp.ID)
+	require.NoError(t, err)
+	require.Len(t, positions, 1)
+	assert.Equal(t, qt02Symbol, positions[0].Symbol)
+	assert.Greater(t, positions[0].Quantity, 0.0)
+	assert.Greater(t, positions[0].MarketValue, 0.0, "快照需带末日收盘市值（权重口径）")
 }
 
 func TestEngine_GetBacktestEquity_NotFound(t *testing.T) {
