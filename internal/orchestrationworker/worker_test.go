@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"github.com/ruoxizhnya/tellurion-contracts/run"
 )
 
 // ---------- spec ----------
@@ -257,7 +258,7 @@ type fakeOrchestration struct {
 	mu         sync.Mutex
 	workerID   string
 	kernels    []string
-	jobs       []*ClaimedJob
+	jobs       []*run.ClaimView
 	cancelIDs  map[string]bool
 	heartbeats int
 	drains     int
@@ -363,7 +364,7 @@ func newLoopForTest(t *testing.T, fake *fakeOrchestration, runner contracts.Engi
 }
 
 func TestLoop_Step_CompletesAndReports(t *testing.T) {
-	fake := &fakeOrchestration{jobs: []*ClaimedJob{{
+	fake := &fakeOrchestration{jobs: []*run.ClaimView{{
 		RunID:   "child-1",
 		RunSpec: json.RawMessage(`{"run_id":"base","strategy_params":{"lookback":10}}`),
 	}}}
@@ -388,7 +389,7 @@ func TestLoop_Step_CompletesAndReports(t *testing.T) {
 }
 
 func TestLoop_Step_EngineFailureReportsFailed(t *testing.T) {
-	fake := &fakeOrchestration{jobs: []*ClaimedJob{{
+	fake := &fakeOrchestration{jobs: []*run.ClaimView{{
 		RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`),
 	}}}
 	loop := newLoopForTest(t, fake, &fakeRunner{err: errors.New("boom")}, &fakeSink{}, 50*time.Millisecond)
@@ -403,7 +404,7 @@ func TestLoop_Step_EngineFailureReportsFailed(t *testing.T) {
 
 func TestLoop_Step_CancelRequestedAcksWithoutExecuting(t *testing.T) {
 	fake := &fakeOrchestration{
-		jobs:      []*ClaimedJob{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
+		jobs:      []*run.ClaimView{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
 		cancelIDs: map[string]bool{"child-1": true},
 	}
 	runner := &fakeRunner{resp: &contracts.BacktestResponse{ID: "child-1", Status: contracts.StatusCompleted}}
@@ -425,7 +426,7 @@ func TestLoop_Step_CancelRequestedAcksWithoutExecuting(t *testing.T) {
 
 func TestLoop_Step_LeaseLostDropsOutcome(t *testing.T) {
 	fake := &fakeOrchestration{
-		jobs:       []*ClaimedJob{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
+		jobs:       []*run.ClaimView{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
 		leaseFault: errors.New("lost"),
 	}
 	runner := &fakeRunner{block: true}
@@ -445,7 +446,7 @@ func TestLoop_Step_LeaseLostDropsOutcome(t *testing.T) {
 
 func TestLoop_Step_CancelDuringRunAcks(t *testing.T) {
 	fake := &fakeOrchestration{
-		jobs:      []*ClaimedJob{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
+		jobs:      []*run.ClaimView{{RunID: "child-1", RunSpec: json.RawMessage(`{"run_id":"base"}`)}},
 		cancelIDs: map[string]bool{"child-1": true},
 	}
 	// claim 时还没取消（模拟「跑起来之后运维才点取消」）：先把它藏起来，

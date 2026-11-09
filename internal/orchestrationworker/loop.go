@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/ruoxizhnya/tellurion-contracts/run"
 )
 
 // Options 是循环的时间参数。零值取默认。
@@ -128,7 +129,7 @@ func (l *Loop) Step(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (l *Loop) execute(ctx context.Context, job *ClaimedJob) {
+func (l *Loop) execute(ctx context.Context, job *run.ClaimView) {
 	if job.CancelRequested {
 		l.ackCancel(ctx, job.RunID)
 		return

@@ -3,8 +3,9 @@
 //
 // 边界（director 口径，H5）：
 //   - 本仓（core）不 import orchestration 的实现包，只消费它的 HTTP 面；
-//   - orchestration 也不 import core——两边各自持 DTO，wire 形状以
-//     `tellurion-orchestration:docs/api-schema.md` §1「算力」为唯一真相；
+//   - orchestration 也不 import core——claim 等已上 wire 的形状归
+//     `tellurion-contracts/run`（CT-04 收编），两边引同一份；
+//     其余 wire 形状以 `tellurion-orchestration:docs/api-schema.md` §1「算力」为唯一真相；
 //   - 结果内容留在 core（`backtest_jobs`），编排侧只拿 `result_uri` 指针与结论。
 package orchestrationworker
 
@@ -18,6 +19,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ruoxizhnya/tellurion-contracts/run"
 )
 
 // MaxResponseBytes 是 worker 侧单个响应的读取上限（run_spec 可能较大，
@@ -89,17 +92,6 @@ type WorkerInfo struct {
 	Kernels  []string `json:"kernels"`
 }
 
-// ClaimedJob 是领取到的 run。RunSpec 是完整 RunSpec 的原样字节。
-type ClaimedJob struct {
-	RunID           string          `json:"run_id"`
-	RunSpec         json.RawMessage `json:"run_spec"`
-	Attempts        int             `json:"attempts"`
-	MaxAttempts     int             `json:"max_attempts"`
-	LeaseUntil      *time.Time      `json:"lease_until"`
-	CancelRequested bool            `json:"cancel_requested"`
-	ParentJobID     string          `json:"parent_job_id,omitempty"`
-}
-
 // JobState 是运行期查询（续租时顺带检查 cancel_requested）的最小视图。
 type JobState struct {
 	JobID           string  `json:"job_id"`
@@ -110,7 +102,7 @@ type JobState struct {
 }
 
 type claimBody struct {
-	Job *ClaimedJob `json:"job"`
+	Job *run.ClaimView `json:"job"`
 }
 
 // Register 注册 worker（幂等；kernels 空 = 不声明能力 = 不过滤）。
@@ -136,7 +128,7 @@ func (c *Client) Heartbeat(ctx context.Context, workerID string) (WorkerInfo, er
 }
 
 // Claim 领取一条可运行的 job；无活返回 (nil, nil)。
-func (c *Client) Claim(ctx context.Context, workerID string) (*ClaimedJob, error) {
+func (c *Client) Claim(ctx context.Context, workerID string) (*run.ClaimView, error) {
 	var out claimBody
 	if err := c.post(ctx, "/api/runs/workers/"+pathEscape(workerID)+"/claim", nil, &out); err != nil {
 		return nil, err

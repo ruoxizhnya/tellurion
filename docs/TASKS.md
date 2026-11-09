@@ -154,7 +154,7 @@ verified-by: `SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并
 - **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
 - **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
 - **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135` 的 `store *storage.PostgresStore` 字段与 `:511` 的 `func (e *Engine) SetStore(store *storage.PostgresStore)`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
-- **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。**CT-04 的 pin 前置已解除**（2026-11-08 补裁 #13-2：`v0.8.0` / `v0.9.0` 已推远端、core 已 pin `v0.9.0`），剩余只是 DTO 改用 `contracts/run` 的施工腿。
+- **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。**CT-04 的 pin 前置已解除**（2026-11-08 补裁 #13-2：`v0.8.0` / `v0.9.0` 已推远端、core 已 pin `v0.9.0`）；**DTO 腿已于 2026-11-09 落地**（`internal/orchestrationworker` 的 `ClaimedJob` 删除、改引 `contracts/run.ClaimView`）。
 - **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
 - **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
 - **施工记录（WF 半边，2026-11-09）**：
@@ -163,6 +163,7 @@ verified-by: `SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并
   - **计数（生产侧，排除 _test）**：① 写点 **7 → 6**（只剩 `backtest_jobs`）；② 读点 **7 → 4**（只剩 `backtest_jobs`）；③ `pkg/backtest/**` 的 `*storage.PostgresStore` **未清零**（`engine.go` 的 `SetStore` 与 factor cache / adjustment anchors 属后续单），故本单**不标 ✅**。
   - **新护栏**：`internal/repoguard/walkforward_persistence_retired_test.go`（`pkg/storage` 零表名引用、`pkg/backtest/walkforward` 禁 import storage、正向对照 `backtest_jobs` / `factor_cache` 仍在 DDL）。破坏验证实做：加回 SQL、加回 import 各红一次，逐字节还原后复绿。
   - **仍阻塞**：`backtest_jobs` 半边归 `SVC-ORCH-G3`（`cmd/worker/main.go:106` 的 `JobStoreSink{Store: store}`、`cmd/analysis/setup.go` 的本地 `NewJobService(store, ...)`）。
+  - **客户端 DTO 收编（2026-11-09，CT-04 施工腿）**：删 `internal/orchestrationworker/client.go` 的本地 `ClaimedJob`，改引 `contracts/run.ClaimView`；`loop.go` 的 `execute` 签名与 `worker_test.go` 同步。orchestration 侧同批删 `claimView` / `provenanceView` / 父作业请求 DTO（见该仓 `SVC-ORCH-G1` 施工记录）。门禁：core `go build ./...` = 0、`go vet ./internal/orchestrationworker/...` = 0、`go test ./internal/orchestrationworker/... -count=1` = 0。
   - **产品影响**：WF 报告仍可计算并返回，但**不再提供历史报告查询**（两个 GET 已删）；`backtest_jobs` 的异步作业面不受影响。
 
 ### SVC-CORE-STRAT-RETIRE · core `strategies` 表与资产注册腿退役（ADR-036 G3）[P0] ✅（2026-11-09，串行第 6）
