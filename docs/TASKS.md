@@ -221,7 +221,7 @@ verified-by: `SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并
   - **迁移触发条件（写死，供后续立单）**：analytics 出现 `analysis.benchmarks` 的**生产写者**（K7）且其端点覆盖 core 上述两条消费面 ⇒ 另立单做迁移，本护栏随迁移同批删除。
   - **门禁（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
 
-### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ⬜（串行第 9）
+### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ⛔（2026-11-09 复核：字面前置已满足，但真实前置 `SVC-BROKER-G3` 仍 ⛔「无消费面」）
 
 - **① 目标**：交易**通道**实现（Mock 撮合、订单存储、对账、保证金、XTP 骨架）离开 core，由 `tellurion-broker` 经 HTTP/契约提供；core 只留订单/成交/持仓**运行域真相**（`quant`）。
 - **② 上下文**：判据正文 = 材料 §4.6；删除对象 = `pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/`（今天 `pkg/live` = 24 个生产文件）。
@@ -229,6 +229,12 @@ verified-by: `SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并
 - **④ 约束与非目标**：**⛔ 前置**（材料 §4.6「阻塞」）= `SVC-BROKER-G1`（订单 HTTP 面）+ `broker.order_acks` 的 ack 往返先要通；`tellurion-broker` 今天只有 `internal/reconcile` 的**快照**对账，不是 writer 对拍。**表名维度为空**：`orders` 的 DDL 只存在于**不被执行**的 `migrations/003_create_orders_table.sql`、`migrations/00000003_3_supporting_tables/up.sql:68`、`contracts/kernel_modules.schema.sql:138` ⇒ `migrate()` 不建 `orders`（实测 `git grep 'CREATE TABLE IF NOT EXISTS orders' -- pkg/storage/postgres.go` = 0）⇒ **本单不动 `postgres.go`**（是本组唯一例外，串行序里仍按 §5.1 走）。
 - **⑤ 验收**：① `"tellurion/pkg/live"` 基线 **18 个文件 / 20 行** → **0**；② `tellurion/pkg/live/` 子包引用基线 **5**（`reconciliation` / `margin` / `broker/xtp` 等）→ **0**；`NewPostgresOrderStore` 生产调用今天 **0**，须保持 0。反向护栏 = 往任意 core 文件加一行 `import "tellurion/pkg/live"` ⇒ repoguard 红；还原复绿。
 - **⑥ 边界**：core 删除；broker 仓侧的订单面与 G3 切读归 `SVC-BROKER-G1` / `SVC-BROKER-G3`。
+- **前置复核（2026-11-09，未开工，0 代码）**：
+  - **字面前置已满足**：`SVC-BROKER-G1` ✅（2026-11-07，`/api/broker/orders` 等已落）；`broker.order_acks` 的 ack 往返 ✅（`SVC-BROKER-G2`，2026-11-07 真 PG 集成腿 9 条全 PASS）。
+  - **但真实前置未满足**：本单 ⑤ 要求 `"tellurion/pkg/live"` 引用归零 ⇒ `pkg/live` 整包删除 ⇒ `live.LiveTrader` / `MockTrader` 随之消失。core 今天**没有任何 broker HTTP 客户端**（`git grep -c 'api/broker' -- '*.go'` = **0 命中**，exit 1），而生产侧有 **16 个文件**依赖 `live`（`cmd/analysis/{main,deps,setup,alert_loop,handlers_execution,handlers_compliance,handlers_reconciliation,handlers_stock_state,setup_reconciliation,kernel_wiring}.go`、`wiring/{live_trader_port,modules_analysis}.go`、`pkg/bootstrap/engine.go`、`pkg/alert/reconcile.go`）。删包后这些 handler / 告警 / 对账 / 内核 exec-engine 模块**没有任何执行实现可装配** —— 那不是「删通道实现」，是把执行功能整块删掉，与本单 ① 的「core 只留运行域真相」相悖。
+  - **依赖闭环仍断在跨仓**：`tellurion-broker:docs/TASKS.md` 的 `SVC-BROKER-G3`（core 切读、跑通 HTTP 消费面）状态仍是 **⛔（2026-10-26 复核：无消费面）**，且 2026-11-07 复核只解除「G1 已落」一条、保留 ⛔。core 侧消费面必须先由那条单建立（第二实现 → 对拍 → 切读 → 停写），本单才谈得上「停写后删实现」。
+  - **实测基线（供解除后使用）**：`"tellurion/pkg/live"` = **33 个文件 / 43 行**（其中生产侧 **16**、`_test.go` 17），与 ⑤ 写的「18 文件 / 20 行」已漂移 —— 解除开工时以当时实测为准并同批订正 ⑤；`NewPostgresOrderStore` 生产调用 = 0（须保持 0）。
+  - **解除判据**：`SVC-BROKER-G3` 的 core 切读落地（core 有一份经 HTTP 调用 broker 的 `LiveTrader` 实现，且 `ExecutionPort` 路径同批对齐），并能提供「同批回放的订单/成交/持仓与旧实现一致」的对拍报告。在此之前**不得开工**，也不做「删一半」的中间态（半删会让 core 无法装配执行面）。
 
 > **第七条 `SVC-CORE-AI-RETIRE` 不在本节**：条目已在 `tellurion-agent:docs/TASKS.md:183`（六字段齐，判据 = 材料 §4.7：表名 7 张 `experiments, factor_hypothesis, factor_genes, strategy_genes, research.profile, research.conclusion, research.question`；基线 ① **6** ② **3** ③ **7**；归零 0/0/0；反向护栏复用 agent 侧 `pkg/aistore/schema_core_drift_test.go:117` 与 `cmd/ai/experiment_stopwrite_integration_test.go:28`）。
 > ⚠️ **这本身是一条 R4 偏差**（「本仓 `docs/TASKS.md` 只放本仓可完成的单」）：删除对象全在 **core**（`pkg/storage/{experiments,factor_hypothesis}.go`、`pkg/mining` 落库腿、`cmd/data/mining_cmd.go`、`postgres.go:47` 的 `SeedBuiltinFactorHypotheses` 启动 seed），agent 侧无法完成。**待裁**：把它挪进本节的执行单序列（串行第 10），或按材料 §5.1 保持在 agent 仓并把 core 侧删除动作改为一条指向本仓的工单。挪单前不要开工。
