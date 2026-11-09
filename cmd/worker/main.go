@@ -151,14 +151,10 @@ func run() error {
 		RunnerFor: func(kernel string) (contracts.EngineRunner, error) {
 			return registry.Resolve(kernel)
 		},
-		Sink: orchestrationworker.MultiSink{
-			// 结果面（归属 core，`SVC-ORCH-G3`）：run.backtest_results 是新的
-			// 结果真相，单一写者是 worker。
-			&orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
-			// 任务面遗留表 backtest_jobs：过渡期双写。切读（/api/backtest 全
-			// 读面改读结果面）与存量迁移完成后删掉这一腿。
-			&orchestrationworker.JobStoreSink{Store: store},
-		},
+		// 结果面（归属 core，`SVC-ORCH-G3`）：run.backtest_results 是结果
+		// 真相，单一写者是 worker；任务面遗留表 backtest_jobs 已停写
+		// （存量行由 Migration 064 回填）。
+		Sink:      &orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
 		Timeout:   *runTimeout,
 		Publisher: publisher,
 		Log:       logger,
@@ -223,7 +219,6 @@ func defaultWorkerID() string {
 
 // 编译期断言：worker 的存储面与执行器契约都由真实实现满足。
 var (
-	_ orchestrationworker.JobStore        = (*storage.PostgresStore)(nil)
 	_ contracts.EngineRunner              = (*backtest.Engine)(nil)
 	_ orchestrationworker.ResultFaceStore = resultFaceStore{}
 )

@@ -202,48 +202,6 @@ func TestExecutor_InvalidIsNotFailed(t *testing.T) {
 	}
 }
 
-type fakeJobStore struct {
-	rows      map[string]map[string]any
-	created   int
-	completed []string
-}
-
-func (s *fakeJobStore) GetBacktestJob(_ context.Context, id string) (map[string]any, error) {
-	return s.rows[id], nil
-}
-func (s *fakeJobStore) CreateBacktestJob(_ context.Context, job map[string]any) error {
-	s.created++
-	s.rows[job["id"].(string)] = job
-	return nil
-}
-func (s *fakeJobStore) UpdateJobStarted(context.Context, string) error { return nil }
-func (s *fakeJobStore) UpdateJobCompleted(_ context.Context, id, status string, _ []byte) error {
-	s.completed = append(s.completed, id+":"+status)
-	return nil
-}
-
-func TestJobStoreSink_CreatesThenUpdates(t *testing.T) {
-	store := &fakeJobStore{rows: map[string]map[string]any{}}
-	sink := &JobStoreSink{Store: store}
-	resp := &contracts.BacktestResponse{ID: "bt-1", Status: contracts.StatusInvalid, Strategy: "m"}
-
-	if err := sink.Save(context.Background(), resp); err != nil {
-		t.Fatalf("first Save: %v", err)
-	}
-	if store.created != 1 || len(store.completed) != 1 || store.completed[0] != "bt-1:invalid" {
-		t.Fatalf("created=%d completed=%v", store.created, store.completed)
-	}
-
-	// 重跑（租约被回收）走 update，不撞主键。
-	resp.Status = contracts.StatusCompleted
-	if err := sink.Save(context.Background(), resp); err != nil {
-		t.Fatalf("second Save: %v", err)
-	}
-	if store.created != 1 || len(store.completed) != 2 || store.completed[1] != "bt-1:completed" {
-		t.Fatalf("created=%d completed=%v", store.created, store.completed)
-	}
-}
-
 // ---------- 结果面 sink（SVC-ORCH-G3） ----------
 
 type fakeResultFace struct {

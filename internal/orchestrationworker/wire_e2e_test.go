@@ -54,7 +54,7 @@ func TestWireWithRealOrchestrationProcess(t *testing.T) {
 	executor := &orchestrationworker.Executor{
 		RunnerFor: func(string) (contracts.EngineRunner, error) { return echoRunner{}, nil },
 		// Sink 为 nil：本用例只验协议与父汇总；结果落库由单元测试与
-		// 生产装配（JobStoreSink）负责。
+		// 生产装配（ResultStoreSink → run.backtest_results）负责。
 	}
 	loop := orchestrationworker.NewLoop(client, &orchestrationworker.AnchorResolver{}, executor,
 		"core-worker-e2e", []string{"go"},

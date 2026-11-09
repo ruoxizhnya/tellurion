@@ -787,6 +787,11 @@ func migrationStatements() []string {
 	// 结论轴 result_status（K9 三值）与载荷，run_id 与 job_id 同值。
 	migrations = append(migrations, BacktestResultsSchemaDDL...)
 
+	// Migration 064（SVC-ORCH-G3）：存量 backtest_jobs → run.backtest_results。
+	// 只搬终态行（completed / invalid / failed），输入幂等（ON CONFLICT DO NOTHING，
+	// 结果面已有同 run_id 时保留新写）。迁移只追加，不改写 009/059。
+	migrations = append(migrations, BacktestResultsBackfillSQL...)
+
 	return migrations
 }
 

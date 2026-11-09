@@ -131,9 +131,8 @@ type ResultFaceStore interface {
 
 // ResultStoreSink 把 completed / invalid 的载荷写进 core 的结果面。
 //
-// 与 JobStoreSink 的区别：后者写任务面遗留表 `backtest_jobs`（切读 + 存量
-// 迁移后删除），本 sink 写归属 core 的 `run.backtest_results`。过渡期由
-// MultiSink 双写，两个读面（新旧）同时可用；读面切换完成后只留本 sink。
+// 结果面（run.backtest_results）是唯一真相：worker 停写任务面遗留表
+// backtest_jobs（存量行由 Migration 064 回填到结果面，读面仍可回退到旧行）。
 type ResultStoreSink struct {
 	Store ResultFaceStore
 }
@@ -177,69 +176,6 @@ func (m MultiSink) Save(ctx context.Context, resp *contracts.BacktestResponse) e
 		if err := sink.Save(ctx, resp); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// JobStore 是落结果需要的最小存储面（由 *storage.PostgresStore 满足）。
-type JobStore interface {
-	GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error)
-	CreateBacktestJob(ctx context.Context, job map[string]any) error
-	UpdateJobStarted(ctx context.Context, jobID string) error
-	UpdateJobCompleted(ctx context.Context, jobID, resultStatus string, result []byte) error
-}
-
-// JobStoreSink 把结果写成 core 的一条 `backtest_jobs` 行（id = run_id）。
-//
-// 重复执行（租约被回收后重跑）走 update 分支，不撞主键：结果内容会被本次
-// 重跑覆盖——以最后一次成功执行为准，与 orchestration 的 attempts 语义一致。
-type JobStoreSink struct {
-	Store JobStore
-}
-
-// Save 见 ResultSink。先建行（不存在时）再写 completed，与旧同步路径的
-// `SaveSyncResult` 同一形状。
-func (s *JobStoreSink) Save(ctx context.Context, resp *contracts.BacktestResponse) error {
-	if s.Store == nil {
-		return fmt.Errorf("orchestrationworker: no job store configured")
-	}
-	if resp == nil {
-		return fmt.Errorf("orchestrationworker: nil response")
-	}
-	if strings.TrimSpace(resp.ID) == "" {
-		return fmt.Errorf("orchestrationworker: response has an empty id")
-	}
-	raw, err := json.Marshal(resp)
-	if err != nil {
-		return fmt.Errorf("marshal result: %w", err)
-	}
-	existing, err := s.Store.GetBacktestJob(ctx, resp.ID)
-	if err != nil {
-		return fmt.Errorf("look up result row: %w", err)
-	}
-	if existing == nil {
-		job := map[string]any{
-			"id":          resp.ID,
-			"strategy_id": resp.Strategy,
-			"params":      []byte("{}"),
-			"universe":    strings.Join(resp.StockPool, ","),
-			"start_date":  resp.StartDate,
-			"end_date":    resp.EndDate,
-			"status":      "pending",
-		}
-		if err := s.Store.CreateBacktestJob(ctx, job); err != nil {
-			return fmt.Errorf("create result row: %w", err)
-		}
-		if err := s.Store.UpdateJobStarted(ctx, resp.ID); err != nil {
-			return fmt.Errorf("mark result row started: %w", err)
-		}
-	}
-	resultStatus := resp.Status
-	if resultStatus != contracts.StatusCompleted && resultStatus != contracts.StatusInvalid {
-		resultStatus = contracts.StatusFailed
-	}
-	if err := s.Store.UpdateJobCompleted(ctx, resp.ID, resultStatus, raw); err != nil {
-		return fmt.Errorf("write result row: %w", err)
 	}
 	return nil
 }

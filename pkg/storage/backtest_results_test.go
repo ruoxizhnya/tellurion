@@ -207,3 +207,112 @@ func TestBacktestResultNotFound(t *testing.T) {
 		t.Fatalf("error = %v, want ErrBacktestResultNotFound", err)
 	}
 }
+
+// TestBacktestResultsBackfillFromLegacyJobs 钉住 Migration 064：
+//   - completed / invalid / failed 三类终态行被搬进结果面（failed 允许无载荷）；
+//   - pending / running 不搬（结论未定，搬了就是把队列状态当结果）；
+//   - 结果面已有同 run_id 时 ON CONFLICT DO NOTHING，新写不被旧行覆盖；
+//   - 输入幂等（跑两遍行数不变）。
+func TestBacktestResultsBackfillFromLegacyJobs(t *testing.T) {
+	store := newBacktestResultsTestStore(t)
+	ctx := context.Background()
+	prefix := fmt.Sprintf("test-br-%d", time.Now().UnixNano())
+
+	ids := map[string]string{
+		"completed":   prefix + "-completed",
+		"invalid":     prefix + "-invalid",
+		"failed":      prefix + "-failed",
+		"running":     prefix + "-running",
+		"preexisting": prefix + "-preexisting",
+	}
+	t.Cleanup(func() {
+		for _, id := range ids {
+			_, _ = store.pool.Exec(ctx, `DELETE FROM backtest_jobs WHERE id = $1`, id)
+			_, _ = store.pool.Exec(ctx, `DELETE FROM run.backtest_results WHERE run_id = $1`, id)
+		}
+	})
+
+	insertLegacy := func(id, status, resultStatus string, result *string, errMsg string) {
+		t.Helper()
+		if _, err := store.pool.Exec(ctx, `
+			INSERT INTO backtest_jobs (id, strategy_id, universe, start_date, end_date, status, result, result_status, error_message, created_at, completed_at)
+			VALUES ($1, 'momentum', '600000.SH', '2026-01-01', '2026-02-01', $2, $3::jsonb, NULLIF($4, ''), $5, now(), now())`,
+			id, status, result, resultStatus, errMsg,
+		); err != nil {
+			t.Fatalf("seed legacy row %s: %v", id, err)
+		}
+	}
+
+	completedPayload := `{"id":"` + ids["completed"] + `","status":"completed","strategy":"momentum"}`
+	invalidPayload := `{"id":"` + ids["invalid"] + `","status":"invalid","strategy":"size"}`
+	insertLegacy(ids["completed"], "completed", "completed", &completedPayload, "")
+	insertLegacy(ids["invalid"], "completed", "invalid", &invalidPayload, "")
+	insertLegacy(ids["failed"], "failed", "failed", nil, "engine exploded")
+	insertLegacy(ids["running"], "running", "", nil, "")
+
+	// 结果面已有同 run_id 的新写：回填不得覆盖。
+	stalePayload := `{"id":"` + ids["preexisting"] + `","status":"completed","strategy":"old"}`
+	insertLegacy(ids["preexisting"], "completed", "completed", &stalePayload, "")
+	fresh := &BacktestResultRecord{
+		RunID: ids["preexisting"], ResultStatus: "completed",
+		Result: json.RawMessage(`{"id":"` + ids["preexisting"] + `","status":"completed","strategy":"fresh"}`),
+	}
+	if _, err := store.SaveBacktestResult(ctx, fresh); err != nil {
+		t.Fatalf("seed result face: %v", err)
+	}
+
+	for i := 1; i <= 2; i++ { // 两遍：幂等
+		for j, stmt := range BacktestResultsBackfillSQL {
+			if _, err := store.pool.Exec(ctx, stmt); err != nil {
+				t.Fatalf("backfill 第 %d 遍第 %d 条失败: %v", i, j+1, err)
+			}
+		}
+	}
+
+	expect := map[string]string{
+		ids["completed"]:   "completed",
+		ids["invalid"]:     "invalid",
+		ids["failed"]:      "failed",
+		ids["preexisting"]: "completed",
+	}
+	for id, wantStatus := range expect {
+		var status string
+		if err := store.pool.QueryRow(ctx,
+			`SELECT result_status FROM run.backtest_results WHERE run_id = $1`, id).Scan(&status); err != nil {
+			t.Fatalf("%s 未回填: %v", id, err)
+		}
+		if status != wantStatus {
+			t.Fatalf("%s result_status = %q, want %q", id, status, wantStatus)
+		}
+	}
+
+	// pending / running 不搬。
+	var n int
+	if err := store.pool.QueryRow(ctx,
+		`SELECT count(*) FROM run.backtest_results WHERE run_id = $1`, ids["running"]).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("running row must not be backfilled, found %d", n)
+	}
+
+	// failed 的错误信息搬过来了。
+	var errMsg string
+	if err := store.pool.QueryRow(ctx,
+		`SELECT COALESCE(error_message, '') FROM run.backtest_results WHERE run_id = $1`, ids["failed"]).Scan(&errMsg); err != nil {
+		t.Fatal(err)
+	}
+	if errMsg != "engine exploded" {
+		t.Fatalf("failed error_message = %q", errMsg)
+	}
+
+	// 新写不被旧行覆盖。
+	var payload string
+	if err := store.pool.QueryRow(ctx,
+		`SELECT result::text FROM run.backtest_results WHERE run_id = $1`, ids["preexisting"]).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload, `"fresh"`) {
+		t.Fatalf("backfill overwrote a fresher result row: %s", payload)
+	}
+}
