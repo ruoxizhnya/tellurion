@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -150,7 +151,14 @@ func run() error {
 		RunnerFor: func(kernel string) (contracts.EngineRunner, error) {
 			return registry.Resolve(kernel)
 		},
-		Sink:      &orchestrationworker.JobStoreSink{Store: store},
+		Sink: orchestrationworker.MultiSink{
+			// 结果面（归属 core，`SVC-ORCH-G3`）：run.backtest_results 是新的
+			// 结果真相，单一写者是 worker。
+			&orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
+			// 任务面遗留表 backtest_jobs：过渡期双写。切读（/api/backtest 全
+			// 读面改读结果面）与存量迁移完成后删掉这一腿。
+			&orchestrationworker.JobStoreSink{Store: store},
+		},
 		Timeout:   *runTimeout,
 		Publisher: publisher,
 		Log:       logger,
@@ -215,6 +223,21 @@ func defaultWorkerID() string {
 
 // 编译期断言：worker 的存储面与执行器契约都由真实实现满足。
 var (
-	_ orchestrationworker.JobStore = (*storage.PostgresStore)(nil)
-	_ contracts.EngineRunner       = (*backtest.Engine)(nil)
+	_ orchestrationworker.JobStore        = (*storage.PostgresStore)(nil)
+	_ contracts.EngineRunner              = (*backtest.Engine)(nil)
+	_ orchestrationworker.ResultFaceStore = resultFaceStore{}
 )
+
+// resultFaceStore 把 *storage.PostgresStore 适配成 orchestrationworker 的结果面
+// 写口（接口用原始类型，执行器契约不依赖 storage 的数据结构）。
+type resultFaceStore struct{ store *storage.PostgresStore }
+
+// SaveBacktestResult 见 orchestrationworker.ResultFaceStore。
+func (s resultFaceStore) SaveBacktestResult(ctx context.Context, runID, resultStatus string, result []byte) error {
+	_, err := s.store.SaveBacktestResult(ctx, &storage.BacktestResultRecord{
+		RunID:        runID,
+		ResultStatus: resultStatus,
+		Result:       json.RawMessage(result),
+	})
+	return err
+}

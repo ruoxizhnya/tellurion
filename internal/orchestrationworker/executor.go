@@ -120,6 +120,67 @@ func ResultURI(backtestID string) string {
 	return "backtest:" + backtestID
 }
 
+// ResultFaceStore 是 core 结果面（`run.backtest_results`）的最小写面。
+//
+// 分工（`SVC-ORCH-G3`）：任务面归 orchestration 的 `run.backtest_jobs`，
+// 结果面归 core、单一写者是 worker。接口用原始类型表达，不把 storage 的
+// 数据结构带进执行器契约。
+type ResultFaceStore interface {
+	SaveBacktestResult(ctx context.Context, runID, resultStatus string, result []byte) error
+}
+
+// ResultStoreSink 把 completed / invalid 的载荷写进 core 的结果面。
+//
+// 与 JobStoreSink 的区别：后者写任务面遗留表 `backtest_jobs`（切读 + 存量
+// 迁移后删除），本 sink 写归属 core 的 `run.backtest_results`。过渡期由
+// MultiSink 双写，两个读面（新旧）同时可用；读面切换完成后只留本 sink。
+type ResultStoreSink struct {
+	Store ResultFaceStore
+}
+
+// Save 见 ResultSink。失败结论不落结果面时（failed 无载荷）由调用方走
+// Outcome 失败腿，本 sink 只接受 completed / invalid。
+func (s *ResultStoreSink) Save(ctx context.Context, resp *contracts.BacktestResponse) error {
+	if s.Store == nil {
+		return fmt.Errorf("orchestrationworker: no result face store configured")
+	}
+	if resp == nil {
+		return fmt.Errorf("orchestrationworker: nil response")
+	}
+	if strings.TrimSpace(resp.ID) == "" {
+		return fmt.Errorf("orchestrationworker: response has an empty id")
+	}
+	if resp.Status != contracts.StatusCompleted && resp.Status != contracts.StatusInvalid {
+		return fmt.Errorf("orchestrationworker: result face only accepts completed/invalid, got %q", resp.Status)
+	}
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("marshal result: %w", err)
+	}
+	if err := s.Store.SaveBacktestResult(ctx, resp.ID, resp.Status, raw); err != nil {
+		return fmt.Errorf("write result face: %w", err)
+	}
+	return nil
+}
+
+// MultiSink 顺序执行多个 sink，任一失败即返回。
+//
+// 只用于过渡期双写（结果面 + 任务面遗留表），不是通用编排设施。
+type MultiSink []ResultSink
+
+// Save 见 ResultSink。
+func (m MultiSink) Save(ctx context.Context, resp *contracts.BacktestResponse) error {
+	for _, sink := range m {
+		if sink == nil {
+			continue
+		}
+		if err := sink.Save(ctx, resp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // JobStore 是落结果需要的最小存储面（由 *storage.PostgresStore 满足）。
 type JobStore interface {
 	GetBacktestJob(ctx context.Context, jobID string) (map[string]any, error)

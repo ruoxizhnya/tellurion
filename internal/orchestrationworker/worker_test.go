@@ -244,6 +244,89 @@ func TestJobStoreSink_CreatesThenUpdates(t *testing.T) {
 	}
 }
 
+// ---------- 结果面 sink（SVC-ORCH-G3） ----------
+
+type fakeResultFace struct {
+	ids    []string
+	status []string
+	bodies [][]byte
+	failOn string
+}
+
+func (f *fakeResultFace) SaveBacktestResult(_ context.Context, runID, status string, result []byte) error {
+	if f.failOn != "" && f.failOn == runID {
+		return errors.New("result face unavailable")
+	}
+	f.ids = append(f.ids, runID)
+	f.status = append(f.status, status)
+	f.bodies = append(f.bodies, result)
+	return nil
+}
+
+func TestResultStoreSink_WritesCompletedAndInvalid(t *testing.T) {
+	face := &fakeResultFace{}
+	sink := &ResultStoreSink{Store: face}
+
+	resp := &contracts.BacktestResponse{ID: "run-9", Status: contracts.StatusCompleted, Strategy: "momentum"}
+	if err := sink.Save(context.Background(), resp); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if len(face.ids) != 1 || face.ids[0] != "run-9" || face.status[0] != "completed" {
+		t.Fatalf("ids=%v status=%v", face.ids, face.status)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(face.bodies[0], &decoded); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	if decoded["id"] != "run-9" || decoded["strategy"] != "momentum" {
+		t.Fatalf("payload lost fields: %v", decoded)
+	}
+
+	// invalid 是 K9 的「跑完但无效」，同样要落结果面。
+	resp.Status = contracts.StatusInvalid
+	if err := sink.Save(context.Background(), resp); err != nil {
+		t.Fatalf("Save invalid: %v", err)
+	}
+	if face.status[1] != "invalid" {
+		t.Fatalf("second status = %q", face.status[1])
+	}
+}
+
+func TestResultStoreSink_RejectsFailedAndBadInput(t *testing.T) {
+	face := &fakeResultFace{}
+	sink := &ResultStoreSink{Store: face}
+
+	if err := sink.Save(context.Background(), &contracts.BacktestResponse{ID: "r", Status: contracts.StatusFailed}); err == nil {
+		t.Fatal("failed status must not be written to the result face (no payload)")
+	}
+	if err := sink.Save(context.Background(), nil); err == nil {
+		t.Fatal("nil response must be rejected")
+	}
+	if err := sink.Save(context.Background(), &contracts.BacktestResponse{ID: "  ", Status: contracts.StatusCompleted}); err == nil {
+		t.Fatal("empty id must be rejected")
+	}
+	if len(face.ids) != 0 {
+		t.Fatalf("rejected inputs must not reach the store: %v", face.ids)
+	}
+}
+
+func TestMultiSink_StopsOnFirstFailure(t *testing.T) {
+	ok := &fakeResultFace{}
+	bad := &fakeResultFace{failOn: "run-1"}
+	sink := MultiSink{&ResultStoreSink{Store: ok}, &ResultStoreSink{Store: bad}}
+
+	resp := &contracts.BacktestResponse{ID: "run-1", Status: contracts.StatusCompleted}
+	if err := sink.Save(context.Background(), resp); err == nil {
+		t.Fatal("MultiSink must surface a failing leg")
+	}
+	if len(ok.ids) != 1 {
+		t.Fatalf("first leg should have run before the failure: %v", ok.ids)
+	}
+	if len(bad.ids) != 0 {
+		t.Fatalf("failing leg must not record: %v", bad.ids)
+	}
+}
+
 // ---------- loop ----------
 
 type reported struct {
