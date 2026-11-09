@@ -90,6 +90,73 @@ func TestWireWithRealOrchestrationProcess(t *testing.T) {
 	}
 }
 
+// TestWireWalkForwardWithRealOrchestrationProcess 覆盖 SVC-ORCH-G3 ⑤-4 的
+// walkforward 腿：真 orchestration 进程 + 真 PG，十个交易日切三窗、每窗
+// train/test 两段共 6 条子 run，由 worker loop 全部领完并回报；父记录按
+// **窗口**计数（3 completed / 3 settled）而不是按段，汇总里三段窗口齐全。
+func TestWireWalkForwardWithRealOrchestrationProcess(t *testing.T) {
+	dsn := os.Getenv("ORCHESTRATION_TEST_DSN")
+	if dsn == "" {
+		t.Skip("ORCHESTRATION_TEST_DSN is not set; skipping real orchestration wire test")
+	}
+	repo := os.Getenv("ORCHESTRATION_REPO")
+	if repo == "" {
+		repo = filepath.Join("..", "..", "..", "tellurion-orchestration")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "cmd", "orchestrationservice")); err != nil {
+		t.Skipf("orchestration repo not found at %s: %v", repo, err)
+	}
+
+	base := startOrchestration(t, repo, dsn)
+	parentID := submitWalkForwardParent(t, base)
+
+	client := orchestrationworker.NewClient(base, &http.Client{Timeout: 10 * time.Second})
+	if _, err := client.Register(context.Background(), "core-worker-wf-e2e", []string{"go"}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	executor := &orchestrationworker.Executor{
+		RunnerFor: func(string) (contracts.EngineRunner, error) { return echoRunner{}, nil },
+	}
+	loop := orchestrationworker.NewLoop(client, &orchestrationworker.AnchorResolver{}, executor,
+		"core-worker-wf-e2e", []string{"go"},
+		orchestrationworker.Options{HeartbeatEvery: 50 * time.Millisecond, PollEvery: 10 * time.Millisecond},
+		zerolog.Nop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	ran := 0
+	for {
+		worked, err := loop.Step(ctx)
+		if err != nil {
+			t.Fatalf("step: %v", err)
+		}
+		if !worked {
+			break
+		}
+		ran++
+		if ran > 12 {
+			t.Fatal("worker kept claiming without draining the parent")
+		}
+	}
+	if ran != 6 {
+		t.Fatalf("worker ran %d legs, want 6", ran)
+	}
+
+	page := getParent(t, base, parentID)
+	if page.Status != "completed" || page.Counts.Completed != 3 || page.Counts.Settled != 3 {
+		t.Fatalf("parent = %+v", page)
+	}
+	if len(page.Summary.Windows) != 3 {
+		t.Fatalf("windows = %+v", page.Summary.Windows)
+	}
+	for i, w := range page.Summary.Windows {
+		if w.Window != i+1 || w.Status != "completed" || w.TrainRunID == "" || w.TestRunID == "" {
+			t.Fatalf("window %d = %+v", i+1, w)
+		}
+	}
+}
+
 type echoRunner struct{}
 
 func (echoRunner) RunBacktest(_ context.Context, req contracts.BacktestRequest) (*contracts.BacktestResponse, error) {
@@ -111,6 +178,12 @@ type parentPage struct {
 			RunID        string `json:"run_id"`
 			ResultStatus string `json:"result_status"`
 		} `json:"Tasks"`
+		Windows []struct {
+			Window     int    `json:"window"`
+			TrainRunID string `json:"train_run_id"`
+			TestRunID  string `json:"test_run_id"`
+			Status     string `json:"status"`
+		} `json:"Windows"`
 	} `json:"summary"`
 }
 
@@ -131,6 +204,43 @@ func submitParent(t *testing.T, base string) string {
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("submit parent = %d %s", resp.StatusCode, raw)
+	}
+	var out struct {
+		ParentJobID string `json:"parent_job_id"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || out.ParentJobID == "" {
+		t.Fatalf("decode parent: %v (%s)", err, raw)
+	}
+	return out.ParentJobID
+}
+
+func submitWalkForwardParent(t *testing.T, base string) string {
+	t.Helper()
+	start := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	days := make([]string, 10)
+	for i := range days {
+		days[i] = start.AddDate(0, 0, i).Format("2006-01-02")
+	}
+	rawDays, err := json.Marshal(days)
+	if err != nil {
+		t.Fatalf("marshal trading days: %v", err)
+	}
+	body := fmt.Sprintf(`{
+		"idempotency_key":"core-worker-wf-e2e-%d",
+		"kind":"walkforward",
+		"walkforward":{"base_run_spec":{"strategy":"momentum","stock_pool":["600000.SH"],
+			"start_date":"2024-01-02","end_date":"2024-01-11","kernel":"go"},
+			"windows":{"train_days":3,"test_days":2,"step_days":2},
+			"trading_days":%s}}`,
+		time.Now().UnixNano(), rawDays)
+	resp, err := http.Post(base+"/api/runs/parents", "application/json", bytes.NewReader([]byte(body)))
+	if err != nil {
+		t.Fatalf("submit walkforward parent: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("submit walkforward parent = %d %s", resp.StatusCode, raw)
 	}
 	var out struct {
 		ParentJobID string `json:"parent_job_id"`
