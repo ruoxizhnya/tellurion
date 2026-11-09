@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewWalkForwardEngine(t *testing.T) {
-	wf := NewWalkForwardEngine(nil, nil, zerolog.Nop())
+	wf := NewWalkForwardEngine(nil, zerolog.Nop())
 	assert.NotNil(t, wf)
 }
 
@@ -142,7 +142,7 @@ func TestBuildWindows_InsufficientDays(t *testing.T) {
 }
 
 func TestRunWalkForward_InvalidParams(t *testing.T) {
-	wf := NewWalkForwardEngine(nil, nil, zerolog.Nop())
+	wf := NewWalkForwardEngine(nil, zerolog.Nop())
 
 	tests := []struct {
 		name string

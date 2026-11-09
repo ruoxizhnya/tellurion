@@ -97,9 +97,10 @@ go run ./cmd/recon \
 
 ### 5.2 `SVC-CORE-RUN-RETIRE`（`backtest_jobs` / `walk_forward_reports`）
 
-**今天无两侧可比的表**：orchestration 的 `run.walk_forward_reports` **无生产写者**
-（`tellurion-orchestration:docs/TASKS.md:57` 自证），`run` 侧没有可对拍的行 ⇒ 命令留白，
-等 `SVC-ORCH-G2` 落写者后再补。
+**WF 半边已退役（2026-11-09）**：core 的 `walk_forward_reports` DDL、读写腿与
+两个 GET 读端点均已删除，`POST /api/walkforward` 只计算并直接返回、不再落库
+⇒ core 侧没有可对拍的行。**jobs 半边仍待 `SVC-ORCH-G3`**：`run.backtest_jobs`
+与 core 的 `backtest_jobs` 目前仍由 core 写，等 orchestration 侧写者接管后再补对拍。
 
 ### 5.3 `SVC-CORE-STRAT-RETIRE`（`strategies`）
 

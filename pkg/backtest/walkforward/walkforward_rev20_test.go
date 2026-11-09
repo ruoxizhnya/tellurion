@@ -57,7 +57,7 @@ func TestREV20_WindowLog_TotalIsWindowCount(t *testing.T) {
 	var buf bytes.Buffer
 	wf := NewWalkForwardEngine(func() (contracts.EngineRunner, error) {
 		return &rev20FakeRunner{}, nil
-	}, nil, zerolog.New(&buf))
+	}, zerolog.New(&buf))
 
 	const totalWindows = 7
 	req := WalkForwardRequest{Strategy: "momentum", StockPool: []string{"600000.SH"}}
@@ -78,7 +78,7 @@ func TestREV20_TrainAndTestAreSameStrategySameParams(t *testing.T) {
 
 	wf := NewWalkForwardEngine(func() (contracts.EngineRunner, error) {
 		return &rev20FakeRunner{}, nil
-	}, nil, zerolog.Nop())
+	}, zerolog.Nop())
 
 	runner := &rev20FakeRunner{}
 	res := wf.runSingleWindow(context.Background(),

@@ -150,7 +150,7 @@ Browser (Vue SPA :5173)
   ├──► POST /api/backtest     ──► analysis-service → engine.go → postgres
   ├──► GET /ohlcv/:symbol     ──► analysis-service → data-service :8081 (proxy)
   ├──► GET /api/strategies    ──► analysis-service → StrategyDB (local)
-  ├──► POST /api/walkforward  ──► analysis-service → WalkForwardEngine → postgres
+  ├──► POST /api/walkforward  ──► analysis-service → WalkForwardEngine（纯计算，不落库）
   ├──► POST /api/batch/backtest ──► analysis-service → BatchEngine → postgres
   ├──► GET /api/sync/stream   ──► analysis-service → SSE (real-time progress)
   ├──► GET /api/sync/status   ──► analysis-service → SyncJobManager → postgres

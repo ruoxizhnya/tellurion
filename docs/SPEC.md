@@ -3072,8 +3072,8 @@ POST /api/walkforward             - Run rolling-origin segmented backtest (no pa
      两段都原样带上同一份 map，生效值由引擎在 RunBacktest 入口解析
      （清单默认 ⊕ 覆写）。窗口内单个回测失败仍是跳过语义（Warn + 略过），
      与「参数非法」的 400 不是同一条路径。
-GET  /api/walkforward             - List all walk-forward reports
-GET  /api/walkforward/:strategy_id - Get walk-forward report for strategy
+# SVC-CORE-RUN-RETIRE（2026-11-09）：报告不落库（walk_forward_reports 表已退役），
+# POST 直接返回；原两个 GET 读端点随表一起删除。
 ```
 
 #### Expression Validation / Catalog (QT-69 — S3 交接件)

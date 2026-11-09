@@ -299,7 +299,7 @@ func buildDataServices(
 		eng.SetRunObserver(m)
 		eng.SetWASMShardObserver(m)
 		return eng, nil
-	}, store, logger)
+	}, logger)
 	// SVC-CORE-DATA-RETIRE（2026-11-08）：trading_calendar 退休后，walk-forward
 	// 的交易日历改由 Provider（HTTP 数据服务面）提供，不再直查库。
 	wfEngine.SetTradingDaysSource(dataAdapter.GetTradingDays)

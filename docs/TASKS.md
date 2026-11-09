@@ -149,7 +149,7 @@ verified-by: `SVC-CORE-DATA-RETIRE` 收口（2026-11-08：④ 四条 grep 生产
   - **未执行（如实）**：未对任何数据库执行 DDL/DML；`tellurion-data` 侧切读与 `X1d` 停写未做（⑥ 边界）；数据服务补齐 core 的 5 条旧读面（K1 归 G3）之前，`/ohlcv/{symbol}`、`/trading-days`、`/stocks` 等读面会不可用。
   - **代裁待主任追认**：D24 动作数 10 → 7、`pkg/sync` 入未接线表、compose 的 `data-service` 走跨仓例外——三条均在代码注释里标了 `SVC-CORE-DATA-RETIRE` 与本条。
 
-### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] ⬜（串行第 5）
+### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] 🔶（串行第 5；WF 半边已落，jobs 半边待 SVC-ORCH-G3）
 
 - **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
 - **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
@@ -157,6 +157,13 @@ verified-by: `SVC-CORE-DATA-RETIRE` 收口（2026-11-08：④ 四条 grep 生产
 - **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。**CT-04 的 pin 前置已解除**（2026-11-08 补裁 #13-2：`v0.8.0` / `v0.9.0` 已推远端、core 已 pin `v0.9.0`），剩余只是 DTO 改用 `contracts/run` 的施工腿。
 - **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
 - **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
+- **施工记录（WF 半边，2026-11-09）**：
+  - **已删**：`pkg/storage/postgres.go` 的 Migration 010 `walk_forward_reports` 建表与 `idx_wfr_strategy` / `idx_wfr_report_date` 两条索引；`pkg/storage/cache.go` 的 `SaveWalkForwardReport` / `GetWalkForwardReports` / `GetLatestWalkForwardReport` / `ListAllWalkForwardReports`；`pkg/backtest/walkforward` 的 `store` 字段、构造形参、`GetLatestReport` / `ListReports` 与 `RunWalkForward` 末尾的落库调用；`cmd/analysis` 的两个 GET 读端点（`GET /api/walkforward`、`GET /api/walkforward/:strategy_id`）及 openapi 对应路径。
+  - **保留**：`POST /api/walkforward` 为**纯计算**端点（执行分段回测、直接返回报告、不落库；agent 的 walk-forward 工具走的就是这条）；`RunWalkForward` 计算腿（`pkg/backtest/batch` 仍调用）。
+  - **计数（生产侧，排除 _test）**：① 写点 **7 → 6**（只剩 `backtest_jobs`）；② 读点 **7 → 4**（只剩 `backtest_jobs`）；③ `pkg/backtest/**` 的 `*storage.PostgresStore` **未清零**（`engine.go` 的 `SetStore` 与 factor cache / adjustment anchors 属后续单），故本单**不标 ✅**。
+  - **新护栏**：`internal/repoguard/walkforward_persistence_retired_test.go`（`pkg/storage` 零表名引用、`pkg/backtest/walkforward` 禁 import storage、正向对照 `backtest_jobs` / `factor_cache` 仍在 DDL）。破坏验证实做：加回 SQL、加回 import 各红一次，逐字节还原后复绿。
+  - **仍阻塞**：`backtest_jobs` 半边归 `SVC-ORCH-G3`（`cmd/worker/main.go:106` 的 `JobStoreSink{Store: store}`、`cmd/analysis/setup.go` 的本地 `NewJobService(store, ...)`）。
+  - **产品影响**：WF 报告仍可计算并返回，但**不再提供历史报告查询**（两个 GET 已删）；`backtest_jobs` 的异步作业面不受影响。
 
 ### SVC-CORE-STRAT-RETIRE · core `strategies` 表与资产注册腿退役（ADR-036 G3）[P0] ⬜（串行第 6）
 

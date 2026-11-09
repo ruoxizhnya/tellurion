@@ -10,12 +10,16 @@ import (
 	"tellurion/pkg/backtest"
 )
 
+// registerWalkForwardRoutes 注册 walk-forward 计算端点。
+//
+// SVC-CORE-RUN-RETIRE（2026-11-09）：walk_forward_reports 持久化退役后，
+// 原先的两个读端点（GET /api/walkforward、GET /api/walkforward/:strategy_id）
+// 随表一起删除；POST 保留为**纯计算**端点 —— 执行分段回测并直接返回报告，
+// 不写库。agent 的 walk-forward 工具走的正是这条 POST。
 func registerWalkForwardRoutes(router *gin.Engine, wfEngine *backtest.WalkForwardEngine, logger zerolog.Logger) {
 	wf := router.Group("/api/walkforward")
 	{
 		wf.POST("", runWalkForwardHandler(wfEngine, logger))
-		wf.GET("/:strategy_id", getWalkForwardReportHandler(wfEngine))
-		wf.GET("", listWalkForwardReportsHandler(wfEngine))
 	}
 }
 
@@ -65,33 +69,5 @@ func runWalkForwardHandler(wfEngine *backtest.WalkForwardEngine, logger zerolog.
 		}
 
 		c.JSON(http.StatusOK, report)
-	}
-}
-
-func getWalkForwardReportHandler(wfEngine *backtest.WalkForwardEngine) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		strategyID := c.Param("strategy_id")
-
-		report, err := wfEngine.GetLatestReport(c.Request.Context(), strategyID)
-		if err != nil {
-			httpserver.Error(c, http.StatusInternalServerError, err)
-			return
-		}
-		if report == nil {
-			httpserver.Fail(c, http.StatusNotFound, "no walk-forward report found")
-			return
-		}
-		c.JSON(http.StatusOK, report)
-	}
-}
-
-func listWalkForwardReportsHandler(wfEngine *backtest.WalkForwardEngine) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		reports, err := wfEngine.ListReports(c.Request.Context(), 50)
-		if err != nil {
-			httpserver.Error(c, http.StatusInternalServerError, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"reports": reports, "count": len(reports)})
 	}
 }

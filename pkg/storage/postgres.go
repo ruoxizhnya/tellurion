@@ -228,21 +228,9 @@ func migrationStatements() []string {
 			top_ic DOUBLE PRECISION,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
-		// Migration 010: walk_forward_reports table
-		`CREATE TABLE IF NOT EXISTS walk_forward_reports (
-			id SERIAL PRIMARY KEY,
-			strategy_id VARCHAR(50) NOT NULL,
-			universe VARCHAR(100),
-			report_date DATE NOT NULL,
-			avg_test_sharpe DOUBLE PRECISION,
-			avg_test_return DOUBLE PRECISION,
-			avg_test_max_dd DOUBLE PRECISION,
-			avg_degradation DOUBLE PRECISION,
-			pass_rate DOUBLE PRECISION,
-			overall_pass BOOLEAN,
-			windows_json JSONB NOT NULL,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
+		// SVC-CORE-RUN-RETIRE（2026-11-09）：walk_forward_reports 的建表已退役
+		// （owner = orchestration 的 run.walk_forward_reports）。core 只保留
+		// WF 计算（POST /api/walkforward 直接返回报告，不落库）。
 		// Migration 011: strategies table (Sprint 6.2)
 		`CREATE TABLE IF NOT EXISTS strategies (
 			id SERIAL PRIMARY KEY,
@@ -827,8 +815,6 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ic_pk ON ic_analysis(factor_name, trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_ic_trade_date ON ic_analysis(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_ic_factor ON ic_analysis(factor_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_wfr_strategy ON walk_forward_reports(strategy_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_wfr_report_date ON walk_forward_reports(report_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_strategies_type ON strategies(strategy_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_strategies_active ON strategies(is_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_bj_status ON backtest_jobs(status)`,

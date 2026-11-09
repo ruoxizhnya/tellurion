@@ -57,7 +57,7 @@ func TestRunWindowsParallel_EachWindowGetsOwnRunner(t *testing.T) {
 		return r, nil
 	}
 
-	wf := NewWalkForwardEngine(factory, nil, zerolog.Nop())
+	wf := NewWalkForwardEngine(factory, zerolog.Nop())
 
 	base := time.Date(2022, 1, 3, 0, 0, 0, 0, time.UTC)
 	windows := []wfWindow{
@@ -126,7 +126,7 @@ func TestRunWindowsParallel_SharedRunnerIsActuallyDetected(t *testing.T) {
 		return shared, nil
 	}
 
-	wf := NewWalkForwardEngine(factory, nil, zerolog.Nop())
+	wf := NewWalkForwardEngine(factory, zerolog.Nop())
 
 	base := time.Date(2022, 1, 3, 0, 0, 0, 0, time.UTC)
 	windows := []wfWindow{

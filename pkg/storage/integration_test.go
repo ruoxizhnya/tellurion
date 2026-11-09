@@ -210,7 +210,7 @@ func truncateAll(t *testing.T, ctx context.Context, store *PostgresStore) {
 	// TRUNCATE 它们会直接报 “relation does not exist”。
 	tables := []string{
 		"stock_fundamentals", "factor_cache",
-		"factor_returns", "ic_analysis", "walk_forward_reports",
+		"factor_returns", "ic_analysis",
 		"strategies", "backtest_jobs",
 	}
 	for _, tbl := range tables {

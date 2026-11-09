@@ -446,45 +446,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalError'
-    get:
-      tags: [WalkForward]
-      summary: List walk-forward reports
-      operationId: listWalkForwardReports
-      responses:
-        '200':
-          description: List of walk-forward reports
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  reports:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/WalkForwardReport'
-                  count:
-                    type: integer
-
-  /api/walkforward/{strategy_id}:
-    get:
-      tags: [WalkForward]
-      summary: Get latest walk-forward report for a strategy
-      operationId: getWalkForwardReport
-      parameters:
-        - name: strategy_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Walk-forward report
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WalkForwardReport'
-        '404':
-          $ref: '#/components/responses/NotFound'
 
   # ============================================================
   # Batch

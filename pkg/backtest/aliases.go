@@ -13,7 +13,6 @@ import (
 	"tellurion/pkg/backtest/state"
 	"tellurion/pkg/backtest/tracker"
 	"tellurion/pkg/backtest/walkforward"
-	"tellurion/pkg/storage"
 )
 
 // S7-P2-1 (ODR-043): this file re-exports the canonical types,
@@ -230,10 +229,11 @@ type (
 // `SetRouter`（D6 日内预热），而**主引擎同样没接**（全仓唯一生产构造点在
 // `cmd/data/mining_cmd.go` 的 CLI）⇒ 缺口单立 QT-64，不属本签名。
 //
-// 旧签名 `(engine *Engine, store)` 注入的是共享实例，已废弃。
+// 旧签名 `(engine *Engine, store)` 注入共享实例与数据库句柄，均已废弃：
+// SVC-CORE-RUN-RETIRE（2026-11-09）起 walk-forward 报告不再落库，本构造器
+// 不再接收任何存储依赖。
 func NewWalkForwardEngine(
 	engineFactory func() (*Engine, error),
-	store *storage.PostgresStore,
 	logger zerolog.Logger,
 ) *WalkForwardEngine {
 	return walkforward.NewWalkForwardEngine(func() (contracts.EngineRunner, error) {
@@ -247,7 +247,7 @@ func NewWalkForwardEngine(
 			return nil, fmt.Errorf("walk-forward: engine factory returned a nil engine")
 		}
 		return eng, nil
-	}, store, logger)
+	}, logger)
 }
 
 // --- batch/ subpackage re-exports (S7-P2-1 Commit 7) ---

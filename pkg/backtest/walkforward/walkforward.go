@@ -12,7 +12,6 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 	"tellurion/pkg/backtest/workers"
-	"tellurion/pkg/storage"
 )
 
 // WalkForwardEngine runs walk-forward validation for a strategy.
@@ -30,7 +29,6 @@ type WalkForwardEngine struct {
 	// 「A 带财报 / B 不带」那条，它跑的就是共享 Engine）。
 	// 工厂保留下来是为了另一件事：每窗口一份干净的 state store 与桥接组件。
 	runnerFactory func() (contracts.EngineRunner, error)
-	store         *storage.PostgresStore
 	// tradingDays 是本引擎的交易日历来源（SVC-CORE-DATA-RETIRE，2026-11-08）：
 	// trading_calendar 表随数据面退役，core 不再直查；装配层注入 Provider 的
 	// GetTradingDays（HTTP 数据服务面）即可。未注入时 RunWalkForward fail-loud，
@@ -49,22 +47,14 @@ func (wf *WalkForwardEngine) SetTradingDaysSource(fn func(ctx context.Context, s
 // runnerFactory 为每个窗口返回一个 runner；返回错误时该窗口被跳过，不影响其他
 // 窗口。工厂可以返回共享实例 —— QT-12 之后那不会造成跨窗口污染（历史上的
 // 污染根因已在引擎内修掉，理由见 WalkForwardEngine.runnerFactory）。
-func NewWalkForwardEngine(runnerFactory func() (contracts.EngineRunner, error), store *storage.PostgresStore, logger zerolog.Logger) *WalkForwardEngine {
+//
+// SVC-CORE-RUN-RETIRE（2026-11-09）：`walk_forward_reports` 的持久化腿已退役，
+// 本引擎只做计算并把报告返回给调用方，不再持有任何存储句柄。
+func NewWalkForwardEngine(runnerFactory func() (contracts.EngineRunner, error), logger zerolog.Logger) *WalkForwardEngine {
 	return &WalkForwardEngine{
 		runnerFactory: runnerFactory,
-		store:         store,
 		logger:        logger.With().Str("component", "walkforward").Logger(),
 	}
-}
-
-// GetLatestReport returns the latest walk-forward report for a strategy.
-func (wf *WalkForwardEngine) GetLatestReport(ctx context.Context, strategyID string) (*domain.WalkForwardReport, error) {
-	return wf.store.GetLatestWalkForwardReport(ctx, strategyID)
-}
-
-// ListReports returns all walk-forward reports, limited to n most recent.
-func (wf *WalkForwardEngine) ListReports(ctx context.Context, limit int) ([]*domain.WalkForwardReport, error) {
-	return wf.store.ListAllWalkForwardReports(ctx, limit)
 }
 
 // WalkForwardRequest holds parameters for a walk-forward validation run.
@@ -183,10 +173,6 @@ func (wf *WalkForwardEngine) RunWalkForward(ctx context.Context, req WalkForward
 
 	wf.computeAggregateMetrics(report)
 	wf.detectOverfitting(report)
-
-	if err := wf.store.SaveWalkForwardReport(ctx, report); err != nil {
-		wf.logger.Warn().Err(err).Msg("Failed to save walk-forward report to DB")
-	}
 
 	return report, nil
 }

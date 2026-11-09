@@ -18,7 +18,7 @@ import (
 
 func TestRunWalkForwardHandler_InvalidStrategyParamsIs400NamingKey(t *testing.T) {
 	router := gin.New()
-	registerWalkForwardRoutes(router, backtest.NewWalkForwardEngine(nil, nil, zerolog.Nop()), zerolog.Nop())
+	registerWalkForwardRoutes(router, backtest.NewWalkForwardEngine(nil, zerolog.Nop()), zerolog.Nop())
 
 	cases := []struct {
 		name string
