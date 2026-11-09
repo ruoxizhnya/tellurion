@@ -782,6 +782,11 @@ func migrationStatements() []string {
 	// 本表按 (run_id, kind) 存 portfolio-snapshot / factor-exposures 两类载荷本体。
 	migrations = append(migrations, AnalysisArtifactsSchemaDDL...)
 
+	// Migration 063（SVC-ORCH-G3）：run.backtest_results —— 结果面归 core。
+	// 任务面（生命周期 / 租约）归 orchestration 的 run.backtest_jobs；本表只存
+	// 结论轴 result_status（K9 三值）与载荷，run_id 与 job_id 同值。
+	migrations = append(migrations, BacktestResultsSchemaDDL...)
+
 	return migrations
 }
 
