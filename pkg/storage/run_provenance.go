@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"tellurion/pkg/persistence"
 )
 
 // QT-63 · quant.run_provenance 的读写。
@@ -29,24 +30,10 @@ var ErrRunProvenanceConflict = errors.New("storage: run_provenance identity conf
 
 // RunProvenanceRecord 是 quant.run_provenance 的一行。
 //
-// 列清单由 QT-63 ③-⑦ 固定；新增列要先过那张单。RiskRulesHash 可空
-// （QT-42 预留：风控规则版本化之后才有人填）。
-type RunProvenanceRecord struct {
-	RunID               string    `json:"run_id"`
-	RunSpecHash         string    `json:"run_spec_hash"`
-	DatasetSnapshotHash string    `json:"dataset_snapshot_hash"`
-	ArtifactHash        string    `json:"artifact_hash"`
-	VersionHash         string    `json:"version_hash"`
-	StrategyRefInput    string    `json:"strategy_ref_input"`
-	ParamsJSON          []byte    `json:"params_json"`
-	ParamsHash          string    `json:"params_hash"`
-	Seed                int64     `json:"seed"`
-	Kernel              string    `json:"kernel"`
-	EngineVersion       string    `json:"engine_version"`
-	FillTiming          string    `json:"fill_timing"`
-	RiskRulesHash       string    `json:"risk_rules_hash,omitempty"`
-	CreatedAt           time.Time `json:"created_at"`
-}
+// 定义在 `pkg/persistence`（叶子包）：`pkg/backtest` 的写入端口与这里共用同一
+// 个类型，但回测包不再 import 本包（SVC-CORE-RUN-RETIRE ③）。别名让外部
+// 调用方继续写 `storage.RunProvenanceRecord`，类型身份不变。
+type RunProvenanceRecord = persistence.RunProvenanceRecord
 
 // RunProvenanceSchemaDDL 建表 DDL —— migrate() 的 Migration 056 执行的就是这组语句。
 //

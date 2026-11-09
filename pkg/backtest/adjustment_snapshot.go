@@ -64,7 +64,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"tellurion/pkg/domain"
-	"tellurion/pkg/storage"
+	"tellurion/pkg/persistence"
 )
 
 // priceQuantum 缩放后价格的量化步长。1e-6 远小于 A 股 0.01 的最小报价单位，
@@ -142,15 +142,12 @@ func clipToRunRange(bars []domain.OHLCV, start, end time.Time) []domain.OHLCV {
 }
 
 // AdjustmentAnchor 是一个 symbol 在某段回测区间起点的复权基准。
-type AdjustmentAnchor struct {
-	Symbol       string    `json:"symbol"`
-	AnchorDate   time.Time `json:"anchor_date"`
-	AnchorClose  float64   `json:"anchor_close"`
-	SeriesDigest string    `json:"series_digest"`
-}
+// 行形状定义在 `pkg/persistence`（与 `pkg/storage` 共用同一类型身份），
+// 别名保留本包既有导出名，调用方无需改。
+type AdjustmentAnchor = persistence.AdjustmentAnchor
 
-// AdjustmentAnchorStore 是 anchor 的持久化端口。生产实现是
-// *storage.PostgresStore（表 backtest_adjustment_anchors）；测试用内存实现。
+// AdjustmentAnchorStore 是 anchor 的持久化端口。生产实现是 storage 的 PG
+// store（表 backtest_adjustment_anchors）；测试用内存实现。
 //
 // 两件事必须由实现保证：
 //   - Save 是**首写者胜**（ON CONFLICT DO NOTHING）：基准一旦冻结就不可被后来
@@ -487,9 +484,11 @@ func (e *Engine) newAdjustmentRunForRun(ctx context.Context, rc *runContext, par
 		}, e.logger)
 }
 
-// adjustmentStore 把具体指针 e.store 适配成快照端口。
-// Typed-nil guard（同 warmFactorCache）：e.store 是 *storage.PostgresStore
-// 具体指针，直接塞进接口参数会造出 non-nil interface（Go 的 typed-nil 陷阱）。
+// adjustmentStore 返回本 run 的 anchor 端口：显式注入的优先，否则复用
+// e.store（`Storage` 已包含 `AdjustmentAnchorStore`）。
+//
+// e.store 是接口而不是具体指针，所以这里只需普通 nil 判断；typed-nil 陷阱
+// 由装配层负责（传具体 nil 指针进接口是调用方的错，本包不再制造那层包装）。
 func (e *Engine) adjustmentStore() AdjustmentAnchorStore {
 	e.mu.RLock()
 	custom, store := e.adjStore, e.store
@@ -498,47 +497,5 @@ func (e *Engine) adjustmentStore() AdjustmentAnchorStore {
 	if custom != nil {
 		return custom
 	}
-	if store == nil {
-		return nil
-	}
-	return storageAnchorStore{store: store}
-}
-
-// storageAnchorStore 把 *storage.PostgresStore 适配成 AdjustmentAnchorStore，
-// 并做 backtest↔storage 两侧 anchor 结构的转换（storage 不反向依赖 backtest）。
-type storageAnchorStore struct {
-	store *storage.PostgresStore
-}
-
-func (s storageAnchorStore) LoadAdjustmentAnchors(
-	ctx context.Context,
-	start time.Time,
-	symbols []string,
-) (map[string]AdjustmentAnchor, error) {
-	got, err := s.store.LoadAdjustmentAnchors(ctx, start, symbols)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]AdjustmentAnchor, len(got))
-	for sym, a := range got {
-		out[sym] = AdjustmentAnchor{
-			Symbol: a.Symbol, AnchorDate: a.AnchorDate,
-			AnchorClose: a.AnchorClose, SeriesDigest: a.SeriesDigest,
-		}
-	}
-	return out, nil
-}
-
-func (s storageAnchorStore) SaveAdjustmentAnchors(ctx context.Context, start time.Time, anchors []AdjustmentAnchor) error {
-	if len(anchors) == 0 {
-		return nil
-	}
-	converted := make([]storage.AdjustmentAnchor, len(anchors))
-	for i, a := range anchors {
-		converted[i] = storage.AdjustmentAnchor{
-			Symbol: a.Symbol, AnchorDate: a.AnchorDate,
-			AnchorClose: a.AnchorClose, SeriesDigest: a.SeriesDigest,
-		}
-	}
-	return s.store.SaveAdjustmentAnchors(ctx, start, converted)
+	return store
 }

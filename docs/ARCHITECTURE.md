@@ -178,6 +178,15 @@ tellurion/
 > `pkg/backtest/qt51_equivalence_test.go`。设计与取舍见
 > `docs/design/qt-decoupling/qt51-execution-port.md`。
 
+> **回测持久化端口边界（SVC-CORE-RUN-RETIRE ③，2026-11-10）**：`pkg/backtest`
+> **不 import `pkg/storage`**；因子缓存、基本面 PIT、复权基准、run 留痕四项
+> 能力收成一个组合端口 `backtest.Storage`（`pkg/backtest/ports.go`），由装配层
+> 注入。两侧逐字段共用的行形状（`RunProvenanceRecord` / `AdjustmentAnchor`）
+> 放在叶子包 `pkg/persistence`，`pkg/storage` 以类型别名继续导出旧名——
+> 生产实现 `*storage.PostgresStore` 因此结构化满足该端口，无转换层。编译期
+> 自证在 `cmd/analysis/wiring`（`_ backtest.Storage = (*storage.PostgresStore)(nil)`），
+> 结构护栏 `internal/repoguard/backtest_storage_decoupling_test.go`。
+
 ---
 
 ## 6. 端口速查
@@ -430,5 +439,5 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
 
 ---
 
-_Last updated: 2026-10-26（QT-51 / BE-02：§5 增补回测/实盘执行语义边界——`pkg/backtest` 不 import `pkg/live`，出站契约 `execution.ExecutionPort`，适配层在 `cmd/analysis/wiring`；此前 2026-10-21 system-spec-review 订正：compose 服务计数 4→3、§3 补 market/audit schema 分区并如实登记 3 处模块内自建表、D 编号引用改指数据因子蓝图（ADR-031 本体 D1–D5 另有其义）；REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
+_Last updated: 2026-11-10（SVC-CORE-RUN-RETIRE ③：§5 增补回测持久化端口边界——`pkg/backtest` 不 import `pkg/storage`，共用行形状下沉 `pkg/persistence`，装配层编译期自证；此前 2026-10-26（QT-51 / BE-02：§5 增补回测/实盘执行语义边界——`pkg/backtest` 不 import `pkg/live`，出站契约 `execution.ExecutionPort`，适配层在 `cmd/analysis/wiring`；此前 2026-10-21 system-spec-review 订正：compose 服务计数 4→3、§3 补 market/audit schema 分区并如实登记 3 处模块内自建表、D 编号引用改指数据因子蓝图（ADR-031 本体 D1–D5 另有其义）；REV-14：删掉手抄表数快照，只留 grep 口径；此前 §7 增补新数据源接入样板 ADR-031 D5；§7 增补多频率进策略视野 ADR-031 D6；§9 AI 因子挖掘流水线数据流 ADR-031 D8；2026-10-14 §7 增补 connector 注册契约上游闸门 ADR-031 D2；§7 规范层数据流 ADR-031 D1 + §8 因子定义库数据流 ADR-031 D3）_
 _维护规则：服务/端口/schema 分区变更时更新本文件（AGENTS.md Rule 1）；表数不手抄，只给 grep 口径。_

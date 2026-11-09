@@ -11,7 +11,7 @@ package cache
 //   - 提供 GetFactorZScore (lock-free 读取)
 //   - 提供 GetQuintile (读取预计算的 quintile) — P1-C
 //   - 提供 ComputeQuintile (z-score → 1-5 quintile 映射) — P1-C
-//   - 提供 Warm (从 storage.PostgresStore 批量预热，含 quintile 预计算)
+//   - 提供 Warm (从持久化端口批量预热，含 quintile 预计算)
 //
 // Engine 通过 Engine.FactorCache() 访问；旧字段 e.factorCache 与
 // 旧方法 (LoadFactorCache / GetFactorZScore / warmFactorCache) 保留为
@@ -32,13 +32,12 @@ import (
 
 	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
-	"tellurion/pkg/storage"
 )
 
 import "tellurion/pkg/domain"
 
 // FactorStore is the minimal interface FactorCacheAccessor needs from a
-// persistence layer. *storage.PostgresStore satisfies this.
+// persistence layer. 生产实现（storage 的 PG store）在装配层做编译期自证。
 type FactorStore interface {
 	GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error)
 }
@@ -219,9 +218,8 @@ func (f *FactorCacheAccessor) Get(factor cdom.FactorType, date time.Time, symbol
 // store 为 nil 时 no-op；具体因子加载失败时打 Warn 不中断。
 //
 // Nil-check 注意事项：FactorStore 是 interface。Go 的 typed-nil 陷阱
-// 意味着传入 (*storage.PostgresStore)(nil) 会得到一个**非 nil 的
-// interface 值**——直接调用方法会 panic。调用方（特别是
-// Engine.warmFactorCache）需要在传入前自行判空 underlying pointer。
+// 意味着把「值为 nil 的具体指针」塞进接口会得到一个**非 nil 的 interface
+// 值**——直接调用方法会 panic。装配层注入时必须先判具体指针，再传接口。
 // 这里只做 interface==nil 检查。
 func (f *FactorCacheAccessor) Warm(ctx context.Context, start, end time.Time, store FactorStore) error {
 	if store == nil {
@@ -327,6 +325,3 @@ func (f *FactorCacheAccessor) entriesLocked() int64 {
 	}
 	return n
 }
-
-// Compile-time check that *storage.PostgresStore satisfies FactorStore.
-var _ FactorStore = (*storage.PostgresStore)(nil)

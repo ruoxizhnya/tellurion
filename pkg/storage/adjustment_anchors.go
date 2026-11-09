@@ -17,6 +17,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"tellurion/pkg/persistence"
 )
 
 // LoadAdjustmentAnchors 读出 start_date 起的、给定 symbol 集合内已冻结的基准。
@@ -62,14 +64,12 @@ func (s *PostgresStore) LoadAdjustmentAnchors(
 	return out, nil
 }
 
-// AdjustmentAnchor 是 pkg/backtest.AdjustmentAnchor 的存储侧别名（同形结构，
-// 避免 storage 反向依赖 backtest 包）。
-type AdjustmentAnchor struct {
-	Symbol       string
-	AnchorDate   time.Time
-	AnchorClose  float64
-	SeriesDigest string
-}
+// AdjustmentAnchor 是一个 symbol 在某段回测区间起点的复权基准。
+//
+// 定义在 `pkg/persistence`（叶子包）：`pkg/backtest.AdjustmentAnchorStore`
+// 与本包共用同一个类型，但回测包不再 import 本包（SVC-CORE-RUN-RETIRE ③）。
+// 别名让外部调用方继续写 `storage.AdjustmentAnchor`，类型身份不变。
+type AdjustmentAnchor = persistence.AdjustmentAnchor
 
 // SaveAdjustmentAnchors 批量冻结基准（首写者胜）。同一批里既有已冻结又有
 // 新采集时，已冻结的保持原值。

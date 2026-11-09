@@ -144,8 +144,9 @@ func (rc *runContext) warmCache(ctx context.Context, symbols []string) error {
 
 // warmFactorCache 预热因子 z-score。
 //
-// Typed-nil 守卫照旧：e.store 是具体指针类型，直接塞进接口参数会造出
-// 非 nil 的 nil 接口（Go 的 typed-nil 陷阱），Warm 会解引用空接收者。
+// e.store 是 `Storage` 接口（SVC-CORE-RUN-RETIRE ③ 之后不再是具体指针），
+// 这里只需普通 nil 判断；把具体 nil 指针塞进接口的 typed-nil 陷阱由装配层
+// 负责避免（见 ports.go 的接线纪律）。
 func (rc *runContext) warmFactorCache(ctx context.Context) error {
 	rc.e.mu.RLock()
 	store := rc.e.store

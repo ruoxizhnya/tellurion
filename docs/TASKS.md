@@ -149,13 +149,13 @@ verified-by: `SVC-CORE-AI-RETIRE` 收口（2026-11-10：七表 DDL/索引/读写
   - **未执行（如实）**：未对任何数据库执行 DDL/DML；`tellurion-data` 侧切读与 `X1d` 停写未做（⑥ 边界）；数据服务补齐 core 的 5 条旧读面（K1 归 G3）之前，`/ohlcv/{symbol}`、`/trading-days`、`/stocks` 等读面会不可用。
   - **代裁待主任追认**：D24 动作数 10 → 7、`pkg/sync` 入未接线表、compose 的 `data-service` 走跨仓例外——三条均在代码注释里标了 `SVC-CORE-DATA-RETIRE` 与本条。
 
-### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] 🔶（串行第 5；WF 半边 + jobs 半边已落，第 ③ 条 `pkg/backtest` 直连存储待后续单）
+### SVC-CORE-RUN-RETIRE · core 侧回测任务表与落库腿退役（ADR-036 G3）[P0] ✅（2026-11-10，串行第 5；WF 半边 + jobs 半边 + `pkg/backtest` 接口注入三腿全落）
 
 - **① 目标**：`backtest_jobs` / `walk_forward_reports` 两张表的 core DDL 与写读点退役，`pkg/backtest` 不再直连存储。
 - **② 上下文**：判据正文 = 材料 §4.2；删除对象 = 两表 core DDL + `pkg/storage/{backtest_jobs,cache}.go` 的 job/WF 段 + `pkg/backtest/job`、`pkg/backtest/walkforward` 的落库腿；**不含** `backtest_adjustment_anchors`（core-only，保留）。
 - **③ 要求**：① 删两表 DDL 与 `pkg/storage` 对应段；② `pkg/backtest` 改为**接口注入**，不再出现 `*storage.PostgresStore`（今天 `pkg/backtest/engine.go:135` 的 `store *storage.PostgresStore` 字段与 `:511` 的 `func (e *Engine) SetStore(store *storage.PostgresStore)`）；③ 新建 repoguard：`pkg/backtest/**` 禁 import `tellurion/pkg/storage`。
 - **④ 约束与非目标**：不动 `backtest_adjustment_anchors`；不改引擎计算口径；**⛔ 前置**：orchestration 的 `run.walk_forward_reports` 今天**无生产读写**（材料 §4.2「阻塞」），先要有写者才谈得上停写 —— 即 `SVC-ORCH-G3` 的 K4（WF 写者归谁）要有答案。**CT-04 的 pin 前置已解除**（2026-11-08 补裁 #13-2：`v0.8.0` / `v0.9.0` 已推远端、core 已 pin `v0.9.0`）；**DTO 腿已于 2026-11-09 落地**（`internal/orchestrationworker` 的 `ClaimedJob` 删除、改引 `contracts/run.ClaimView`）。
-- **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。
+- **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（jobs 6 + wf 1）→ **0**；② `FROM[[:space:]]+(backtest_jobs\|walk_forward_reports)\b` 基线 **7**（4+3）→ **0**；③ `pkg/backtest/**` 出现 `*storage.PostgresStore` 的次数 → **0**。反向护栏 = 「往 `pkg/backtest` 加一行 `import "tellurion/pkg/storage"` ⇒ repoguard 红」，还原后复绿。（2026-11-10 当场重跑：①②③ 均 **0**；破坏验证实做见下。）
 - **⑥ 边界**：core 删除；orchestration 侧的 `run.*` 唯一 writer 归 `SVC-ORCH-G2`，切读归 `SVC-ORCH-G3`。
 - **施工记录（WF 半边，2026-11-09）**：
   - **已删**：`pkg/storage/postgres.go` 的 Migration 010 `walk_forward_reports` 建表与 `idx_wfr_strategy` / `idx_wfr_report_date` 两条索引；`pkg/storage/cache.go` 的 `SaveWalkForwardReport` / `GetWalkForwardReports` / `GetLatestWalkForwardReport` / `ListAllWalkForwardReports`；`pkg/backtest/walkforward` 的 `store` 字段、构造形参、`GetLatestReport` / `ListReports` 与 `RunWalkForward` 末尾的落库调用；`cmd/analysis` 的两个 GET 读端点（`GET /api/walkforward`、`GET /api/walkforward/:strategy_id`）及 openapi 对应路径。
@@ -181,7 +181,17 @@ verified-by: `SVC-CORE-AI-RETIRE` 收口（2026-11-10：七表 DDL/索引/读写
   - **门禁（本仓实跑）**：`gofmt -l`（本轮触碰文件）空；`go build ./...`、`go vet ./...`、`go test ./... -count=1` **全 0**；`go vet -tags=integration ./pkg/storage/` = 0。真库：`TEST_DATABASE_DSN=tellurion_fulltest` 下 `go test ./pkg/storage -run 'TestBacktestResult|TestListBacktestResults|TestQT72'` **PASS**；`psql` 实测 `quant.backtest_jobs` = NULL（已 drop）、`run.backtest_results` 在。
   - **代裁待主任追认**：① **065 删 064 回填**——064 的回填对象是即将被 065 删掉的表，保留它只会把旧行搬进结果面再随表退役混淆口径；本仓从未 push、无外部部署、开发库已执行过 064，故按「直接 drop」执行，代价是**未回填的存量终态行随表消失**；② **cancelled 语义变 409**——旧口径把 cancelled 当终态无留痕（404），新读面驱动表只能看到「结果行缺失」⇒ 409 `provenance_not_ready`；③ **commission_rate / slippage_rate 既有缺口**——异步 DTO 仍收这两个字段但同步/异步执行路径都不消费（`BacktestRequest` 无对应字段），本腿不静默新增语义，登记为后续单；④ **异步入口依赖 `ORCHESTRATION_URL`**——未配置即 503，是本 core 栈不含编排服务时的显式失败，不再是「静默用本地队列」。
   - **文档同步**：`docs/openapi.yaml` 更新 `/api/backtest` 列表双源说明、`/api/backtest/{id}/provenance` 的结论轴与三态、`BacktestJob` schema（`result_status` / `created_at` / `cancelled`）。
-  - **仍未做**：`pkg/backtest` 的 storage 直连（RUN-RETIRE ③）与 RUN-RETIRE 的状态翻转，归后续单。
+  - **仍未做（历史，2026-11-09 时点）**：`pkg/backtest` 的 storage 直连（RUN-RETIRE ③）与 RUN-RETIRE 的状态翻转，归后续单。
+- **施工记录（③ 接口注入，2026-11-10，本轮实跑）**：
+  - **裁决**：`pkg/backtest` 不再 import `tellurion/pkg/storage`；持久化能力收成一个组合端口 `backtest.Storage`（= `cache.FactorStore` + `FundamentalsReader` + `RunProvenanceWriter` + `AdjustmentAnchorStore`）。`Engine.store` / `SetStore` / `WithStore` 全部改成接口类型。
+  - **共享行形状怎么去依赖**：`RunProvenanceRecord` 与 `AdjustmentAnchor` 两个「storage 与 backtest 逐字段共用」的记录类型下沉到叶子包 `pkg/persistence`；`pkg/storage` 用**类型别名**继续导出旧名（`type RunProvenanceRecord = persistence.RunProvenanceRecord`、`type AdjustmentAnchor = persistence.AdjustmentAnchor`），外部调用方与测试零改、类型身份不变。这样 `*storage.PostgresStore` 可**结构化满足** `backtest.Storage`，不需要转换层，也不存在两份结构漂移。
+  - **删掉的适配**：`adjustment_snapshot.go` 的 `storageAnchorStore`（原先把 backtest↔storage 两侧 anchor 互转）整块删除 —— 别名之后 `e.store` 本身就是 `AdjustmentAnchorStore`；`provenanceSink` 的 typed-nil 包装注释同步收口（接口字段只需普通 nil 判断，传具体 nil 指针的责任回到装配层）。`cache/factor_cache.go` 删 `storage` import 与 `var _ FactorStore = (*storage.PostgresStore)(nil)` 断言。
+  - **编译期自证落点**：`cmd/analysis/wiring/modules_analysis.go` 增 `_ backtest.Storage = (*storage.PostgresStore)(nil)`。放装配层而不是 `pkg/storage`：`pkg/storage` import `pkg/backtest` 会成环（backtest → strategy → storage）。
+  - **新护栏**：`internal/repoguard/backtest_storage_decoupling_test.go` —— ① `pkg/backtest/**` 非测试文件零 `"tellurion/pkg/storage"` import；② 同范围零 `*storage.PostgresStore`（含注释，按验收全文口径）；③ 正向对照：`type Storage interface` / `Engine.SetStore(store Storage)` / `pkg/persistence` 两类型 / 装配层断言 / `pkg/storage` 两别名仍在（防止删空假绿）。
+  - **破坏验证（实做真还原）**：往 `pkg/backtest/engine.go` 加 `_ "tellurion/pkg/storage"` ⇒ 护栏报 `engine.go:28 重新 import`，`go test ./internal/repoguard -run TestBacktestDoesNotImportStorage` exit 1；逐字节还原后复绿（exit 0）。
+  - **计数（生产侧，排除 _test，2026-11-10 当场）**：① 写点 **0**；② 读点 **0**；③ `pkg/backtest/**` 的 `*storage.PostgresStore` **0**、`"tellurion/pkg/storage"` import **0**。
+  - **门禁**：`gofmt -l`（本轮触碰文件）空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./pkg/backtest/... ./pkg/storage/... ./cmd/analysis/... ./internal/repoguard/... -count=1` 全 0。
+  - **未执行（如实）**：真库端到端回测未跑（本机无 PG）；`backtest_adjustment_anchors` 表仍归 core（③ 只谈端口，不谈表搬迁）。
 
 - **产品影响**：WF 报告仍可计算并返回，但**不再提供历史报告查询**（两个 GET 已删）；异步回测的作业生命周期由 orchestration 的 `run.backtest_jobs` 承载，结论由 core 的 `run.backtest_results` 承载，core 本地队列表已退役。
 

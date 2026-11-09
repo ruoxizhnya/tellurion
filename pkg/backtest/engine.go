@@ -25,7 +25,6 @@ import (
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/sandbox/wasm"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
 
@@ -130,14 +129,15 @@ type Engine struct {
 	// routed through the adapter; when nil, the raw provider is used directly.
 	dataAdapter *marketdata.DataAdapter
 
-	// Optional PostgresStore for direct factor cache access.
+	// Optional Storage 端口（因子缓存 / 基本面 PIT / 复权基准 / run 留痕）。
 	// When set, the engine pre-loads factor z-scores from DB before backtest,
 	// eliminating per-symbol-per-day HTTP/DB queries for multi-factor strategies.
-	store *storage.PostgresStore
+	// 具体实现由装配层注入（生产 = storage.PostgresStore），本包不依赖存储包。
+	store Storage
 
 	// adjStore 是 REV-18 复权基准快照的持久化端口。nil = 未注入（无库 /
 	// 既有测试路径），快照完全直通。由 WithAdjustmentAnchorStore 注入；
-	// 未注入但 e.store 在位时自动用 storageAnchorStore 适配。
+	// 未注入但 e.store 在位时直接复用它的 anchor 端口（同一接口）。
 	adjStore AdjustmentAnchorStore
 
 	// provWriter 是 QT-63 的 provenance 写入端口。nil = 跟随 e.store
@@ -509,12 +509,14 @@ func (e *Engine) SetSignalObserver(observer func(date time.Time, signals []domai
 	e.signalObserver = observer
 }
 
-func (e *Engine) SetStore(store *storage.PostgresStore) {
+// SetStore 注入持久化端口（因子缓存 / 基本面 PIT / 复权基准 / run 留痕）。
+// 传 nil 表示本部署没有库：四项能力全部退化为直通。
+func (e *Engine) SetStore(store Storage) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.store = store
 	if store != nil {
-		e.logger.Info().Msg("PostgresStore attached to engine — factor cache warming enabled")
+		e.logger.Info().Msg("storage ports attached to engine — factor cache warming enabled")
 	}
 }
 
@@ -685,10 +687,10 @@ func (e *Engine) parseBacktestDateRange(ctx context.Context, req BacktestRequest
 // 「当前数据状态不满足前置」—— 两者的 HTTP 状态也不同（409 vs 400），
 // 映射见 internal/httpserver.StatusForAppError（AUD-60：这条原先被拍平成 500）。
 //
-// 收敛成函数是为了让它**可被单测钉住**：Engine 的 store 是具体类型
-// （`*storage.PostgresStore`）不是接口，所以「走到这个分支」需要真库；
-// 但「这个分支给出的分类是什么」不需要 —— 见 errTradingCalendarNotSynced_test.go
-// 与真环境 A/B（请求一个库里没有日历的区间应得 409）。
+// 收敛成函数是为了让它**可被单测钉住**：Engine 的持久化端口是接口，
+// 「走到这个分支」需要一份没有日历的真数据实现；但「这个分支给出的分类
+// 是什么」不需要 —— 见 errTradingCalendarNotSynced_test.go 与真环境 A/B
+// （请求一个库里没有日历的区间应得 409）。
 func errTradingCalendarNotSynced() error {
 	return apperrors.New(apperrors.ErrCodeDataQuality,
 		"trading calendar not synced, please run POST /sync/calendar first (with exchange 'SSE' or 'both')").

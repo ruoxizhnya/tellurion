@@ -35,7 +35,6 @@ import (
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/sandbox/wasm"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
 
@@ -68,20 +67,23 @@ func WithDataAdapter(adapter *marketdata.DataAdapter) EngineOption {
 	}
 }
 
-// WithStore 注入 Postgres 存储（用于 factor cache 预热、index constituents）。
-func WithStore(store *storage.PostgresStore) EngineOption {
+// WithStore 注入持久化端口（因子缓存预热、基本面 PIT、复权基准、run 留痕）。
+//
+// 参数是接口（`Storage`），不是具体存储类型：本包不 import `pkg/storage`。
+// 生产装配传 storage 的 PG store（它结构化满足该接口）。
+func WithStore(store Storage) EngineOption {
 	return func(e *Engine) {
 		e.mu.Lock()
 		e.store = store
 		e.mu.Unlock()
 		if store != nil {
-			e.logger.Info().Msg("PostgresStore attached via WithStore — factor cache warming enabled")
+			e.logger.Info().Msg("storage ports attached via WithStore — factor cache warming enabled")
 		}
 	}
 }
 
 // WithAdjustmentAnchorStore 注入 qfq 复权基准快照的持久化端口（REV-18）。
-// 传 nil 恢复「跟随 e.store 自动适配」的默认；两者都没有时快照完全直通。
+// 传 nil 恢复「跟随 e.store」的默认；两者都没有时快照完全直通。
 func WithAdjustmentAnchorStore(st AdjustmentAnchorStore) EngineOption {
 	return func(e *Engine) {
 		e.mu.Lock()

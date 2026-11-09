@@ -3,7 +3,7 @@ package backtest
 // QT-63 · run 留痕的写入路径。
 //
 // 定义在 pkg/backtest/contracts/provenance.go（QT-03 冻结），表在
-// quant.run_provenance（storage.RunProvenanceRecord）。本文件只负责一件事：
+// quant.run_provenance（行形状 = persistence.RunProvenanceRecord）。本文件只负责一件事：
 // **把一次真实 run 的输入身份算出来、落一次**。
 //
 // 三条纪律：
@@ -33,17 +33,17 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/domain"
+	"tellurion/pkg/persistence"
 	"tellurion/pkg/risk"
-	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
 
 // RunProvenanceWriter 是 quant.run_provenance 的写入端口。
 //
-// 生产实现是 *storage.PostgresStore（WithStore 注入后自动承接）；
+// 生产实现随 `Storage` 端口注入（PG store 的结构化满足由装配层自证）；
 // 测试 / 非 PG 后端经 WithRunProvenanceWriter 注入替身。
 type RunProvenanceWriter interface {
-	SaveRunProvenance(ctx context.Context, rec *storage.RunProvenanceRecord) error
+	SaveRunProvenance(ctx context.Context, rec *persistence.RunProvenanceRecord) error
 }
 
 // RiskRulesProvider 是 risk 仓规则快照 hash 的取数口（QT-66 · 裁-10）。
@@ -153,7 +153,6 @@ func (e *Engine) provenanceSink() RunProvenanceWriter {
 		return e.provWriter
 	}
 	if e.store == nil {
-		// Typed-nil guard：*storage.PostgresStore(nil) 塞进接口不是 nil。
 		return nil
 	}
 	return e.store
@@ -213,7 +212,7 @@ func (e *Engine) buildRunProvenance(
 	runUniverse []string,
 	adj *adjustmentRun,
 	riskRulesHash string,
-) (*storage.RunProvenanceRecord, error) {
+) (*persistence.RunProvenanceRecord, error) {
 	params := state.Params
 
 	fillTiming, err := ResolveFillTiming(params.FillTiming)
@@ -310,7 +309,7 @@ func (e *Engine) buildRunProvenance(
 		return nil, fmt.Errorf("run provenance: run_spec_hash: %w", err)
 	}
 
-	return &storage.RunProvenanceRecord{
+	return &persistence.RunProvenanceRecord{
 		RunID:               state.ID,
 		RunSpecHash:         runSpecHash,
 		DatasetSnapshotHash: datasetHash,

@@ -253,4 +253,10 @@ var (
 	_ kernel.Module = (*RiskEngineModule)(nil)
 	_ kernel.Module = (*ExecEngineModule)(nil)
 	_ kernel.Module = (*StrategyRuntimeModule)(nil)
+
+	// SVC-CORE-RUN-RETIRE ③（2026-11-10）：`pkg/backtest` 的持久化端口是
+	// 接口，这里自证生产实现仍满足它。断言放在装配层而不是 `pkg/backtest`
+	// 或 `pkg/storage`：前者禁 import storage，后者 import backtest 会成环
+	// （backtest → strategy → storage）。
+	_ backtest.Storage = (*storage.PostgresStore)(nil)
 )
