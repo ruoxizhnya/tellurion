@@ -38,7 +38,6 @@ func TestServerDeps_HasExpectedFields(t *testing.T) {
 		"JobService",
 		"WFEngine",
 		"BatchEngine",
-		"StrategyDB",
 		"PluginLoader",
 		"AuthSvc",
 		"RiskManager",
@@ -88,18 +87,17 @@ func TestServerDeps_FieldsAreTyped(t *testing.T) {
 		// resolves aliases to their canonical subpackage paths
 		// (*job.JobService, *walkforward.WalkForwardEngine,
 		// *batch.BatchEngine). The alias targets are the source of truth.
-		"Engine":           "*backtest.Engine",
-		"EngineRegistry":   "*contracts.EngineRegistry",
-		"MarketRouter":     "*contracts.MarketRouter",
-		"JobService":       "*job.JobService",
-		"WFEngine":         "*walkforward.WalkForwardEngine",
-		"BatchEngine":      "*batch.BatchEngine",
-		"StrategyDB":       "*strategy.StrategyDB",
-		"PluginLoader":     "*strategy.PluginLoader",
-		"AuthSvc":          "*auth.Service",
-		"RiskManager":      "*risk.RiskManager",
-		"Metrics":          "*observability.Metrics",
-		"Store":            "*storage.PostgresStore",
+		"Engine":         "*backtest.Engine",
+		"EngineRegistry": "*contracts.EngineRegistry",
+		"MarketRouter":   "*contracts.MarketRouter",
+		"JobService":     "*job.JobService",
+		"WFEngine":       "*walkforward.WalkForwardEngine",
+		"BatchEngine":    "*batch.BatchEngine",
+		"PluginLoader":   "*strategy.PluginLoader",
+		"AuthSvc":        "*auth.Service",
+		"RiskManager":    "*risk.RiskManager",
+		"Metrics":        "*observability.Metrics",
+		"Store":          "*storage.PostgresStore",
 	}
 	for field, wantType := range cases {
 		f, ok := typ.FieldByName(field)

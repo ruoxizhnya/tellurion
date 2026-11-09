@@ -96,12 +96,9 @@ var analysisRoutePolicy = authz.Policy{
 
 	// ── Trader：其余全部变更端点 ──
 	Trader: []string{
-		// 回测 / 批量 / 走查 / 策略 CRUD
+		// 回测 / 批量 / 走查
 		"POST /api/batch", // 批量回测：任务数 × 并发，资源放大
 		"POST /api/walkforward",
-		"POST /api/strategies",
-		"PUT /api/strategies/:id",
-		"DELETE /api/strategies/:id",
 
 		// 执行面（AUD-02 已挂 trader，此处登记同一条规则）
 		"POST /api/execution/orders",

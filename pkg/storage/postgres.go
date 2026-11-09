@@ -231,18 +231,9 @@ func migrationStatements() []string {
 		// SVC-CORE-RUN-RETIRE（2026-11-09）：walk_forward_reports 的建表已退役
 		// （owner = orchestration 的 run.walk_forward_reports）。core 只保留
 		// WF 计算（POST /api/walkforward 直接返回报告，不落库）。
-		// Migration 011: strategies table (Sprint 6.2)
-		`CREATE TABLE IF NOT EXISTS strategies (
-			id SERIAL PRIMARY KEY,
-			strategy_id VARCHAR(50) UNIQUE NOT NULL,
-			name VARCHAR(100) NOT NULL,
-			description TEXT,
-			strategy_type VARCHAR(30) NOT NULL,
-			params JSONB NOT NULL DEFAULT '{}',
-			is_active BOOLEAN NOT NULL DEFAULT TRUE,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`,
+		// SVC-CORE-STRAT-RETIRE（2026-11-09）：Migration 011 的 strategies 表已退役
+		// （定义真相源 = tellurion-strategy 的 strategy.strategy_definitions；core
+		// 只保留运行时 registry）。见 docs/SPEC.md §Strategy Management。
 		// Migration 009: backtest_jobs table (async job queue)
 		`CREATE TABLE IF NOT EXISTS backtest_jobs (
 			id VARCHAR(64) PRIMARY KEY,
@@ -815,8 +806,8 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ic_pk ON ic_analysis(factor_name, trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_ic_trade_date ON ic_analysis(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_ic_factor ON ic_analysis(factor_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategies_type ON strategies(strategy_type)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategies_active ON strategies(is_active)`,
+		// SVC-CORE-STRAT-RETIRE（2026-11-09）：idx_strategies_type / idx_strategies_active
+		// 随 strategies 表一并退役。
 		`CREATE INDEX IF NOT EXISTS idx_bj_status ON backtest_jobs(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_bj_created_at ON backtest_jobs(created_at)`,
 		// P1-2: auth indexes

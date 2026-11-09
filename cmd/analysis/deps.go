@@ -50,9 +50,6 @@ type ServerDeps struct {
 	// BatchEngine — batch backtests (POST /batch/backtest).
 	BatchEngine *backtest.BatchEngine
 
-	// StrategyDB — strategy CRUD + DB-backed list (GET /strategies).
-	StrategyDB *strategy.StrategyDB
-
 	// PluginLoader — strategy plugin hot-swap (GET /plugins, POST /plugins/reload).
 	PluginLoader *strategy.PluginLoader
 

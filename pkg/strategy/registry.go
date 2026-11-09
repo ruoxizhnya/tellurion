@@ -2,7 +2,6 @@
 package strategy
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"plugin"
@@ -428,30 +427,6 @@ func ConfigureStrategy(name string, params map[string]any) error {
 		defaultLogger.Info().Str("strategy", name).Interface("params", params).Msg("Strategy reconfigured")
 	}
 	return nil
-}
-
-// ReloadFromDB reloads strategy parameters from the database.
-// It looks up the strategy in the DB, applies the saved params, and returns the strategy name.
-func ReloadFromDB(ctx context.Context, db *StrategyDB, name string) error {
-	params, err := db.GetStrategyParams(ctx, name)
-	if err != nil {
-		return fmt.Errorf("failed to get params for %s: %w", name, err)
-	}
-	return ConfigureStrategy(name, params)
-}
-
-// ReloadAllFromDB reloads all registered strategies from the database.
-func ReloadAllFromDB(ctx context.Context, db *StrategyDB) map[string]string {
-	names := DefaultRegistry.List()
-	results := make(map[string]string)
-	for _, name := range names {
-		if err := ReloadFromDB(ctx, db, name); err != nil {
-			results[name] = "error: " + err.Error()
-		} else {
-			results[name] = "ok"
-		}
-	}
-	return results
 }
 
 // ReloadAll is the deprecated bulk reload. It always returns an error.

@@ -104,9 +104,12 @@ go run ./cmd/recon \
 
 ### 5.3 `SVC-CORE-STRAT-RETIRE`（`strategies`）
 
-**今天无两侧可比的表**：两侧不是同一张表的两个副本——core 的 `strategies`（配置行）与
-strategy 服务的 `strategy.strategy_definitions` + 版本链是**不同形状**，行级对拍没有意义；
-该线的停写判据是「唯一写者」而不是「行相等」（见材料 §4.3 前置）。
+**已退役（2026-11-09）：core 侧没有可对拍的表**。core 的 `public.strategies` DDL、
+`pkg/storage/strategies.go` 与 `pkg/strategy/db.go` 的 DB 腿均已删除；core 只保留
+运行时注册表的只读视图（`GET /api/strategies`，定义真相源是 strategy 服务的
+`strategy.strategy_definitions` + 版本链）。两侧形状本就不同（配置行 vs 定义 + 版本链），
+行级对拍没有意义——该线的判据是「唯一写者」，现已满足；反向护栏 =
+`internal/repoguard/strategy_definitions_retired_test.go`。
 
 ### 5.4 `SVC-CORE-RISK-RETIRE`
 

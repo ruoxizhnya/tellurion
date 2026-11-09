@@ -534,23 +534,17 @@ paths:
   /api/strategies:
     get:
       tags: [Strategies]
-      summary: List strategies
-      description: Returns all strategies, optionally filtered by type or active status.
+      summary: List registered strategies
+      description: |
+        Returns the strategies registered in this process (built-ins + loaded
+        plugins), sorted by name. Strategy **definitions** are owned by
+        `tellurion-strategy`; core exposes a read-only runtime-registry view
+        (SVC-CORE-STRAT-RETIRE, 2026-11-09).
       operationId: listStrategies
       x-agent-coarse-action: fetch_strategy_definitions
-      parameters:
-        - name: type
-          in: query
-          schema:
-            type: string
-        - name: active
-          in: query
-          schema:
-            type: string
-            enum: ["true", "false"]
       responses:
         '200':
-          description: List of strategies
+          description: List of registered strategies
           content:
             application/json:
               schema:
@@ -559,36 +553,12 @@ paths:
                   strategies:
                     type: array
                     items:
-                      $ref: '#/components/schemas/StrategyConfig'
-    post:
-      tags: [Strategies]
-      summary: Create a strategy
-      operationId: createStrategy
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateStrategyRequest'
-      responses:
-        '200':
-          description: Strategy created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  strategy_id:
-                    type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                      $ref: '#/components/schemas/StrategyInfo'
 
   /api/strategies/{id}:
     get:
       tags: [Strategies]
-      summary: Get a strategy by ID
+      summary: Get a registered strategy by name
       operationId: getStrategy
       parameters:
         - name: id
@@ -598,67 +568,13 @@ paths:
             type: string
       responses:
         '200':
-          description: Strategy configuration
+          description: Strategy descriptor (name / description / parameters)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StrategyConfig'
+                $ref: '#/components/schemas/StrategyInfo'
         '404':
           $ref: '#/components/responses/NotFound'
-    put:
-      tags: [Strategies]
-      summary: Update a strategy
-      operationId: updateStrategy
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateStrategyRequest'
-      responses:
-        '200':
-          description: Strategy updated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  strategy_id:
-                    type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags: [Strategies]
-      summary: Delete a strategy
-      operationId: deleteStrategy
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Strategy deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                  strategy_id:
-                    type: string
 
   # ============================================================
   # Datasource
@@ -4468,60 +4384,37 @@ components:
           type: string
           format: date-time
 
-    StrategyConfig:
+    StrategyInfo:
       type: object
+      description: |
+        Read-only runtime-registry descriptor. Strategy definitions live in
+        `tellurion-strategy`; this shape only describes what this process can
+        execute right now.
       properties:
-        id:
-          type: integer
-        strategy_id:
-          type: string
         name:
           type: string
         description:
           type: string
-        strategy_type:
-          type: string
-          enum: [momentum, value, quality, composite]
-        params:
-          type: string
-          description: JSON string of parameters schema.
-        is_active:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/StrategyParameter'
 
-    CreateStrategyRequest:
-      type: object
-      required: [strategy_id, name, strategy_type]
-      properties:
-        strategy_id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        strategy_type:
-          type: string
-        params:
-          type: object
-
-    UpdateStrategyRequest:
+    StrategyParameter:
       type: object
       properties:
         name:
           type: string
+        type:
+          type: string
+          description: '"int", "float", "string" or "bool"'
+        default: {}
         description:
           type: string
-        strategy_type:
-          type: string
-        params:
-          type: object
-        is_active:
-          type: boolean
+        min:
+          type: number
+        max:
+          type: number
 
     CopilotGenerateRequest:
       type: object

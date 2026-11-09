@@ -2881,7 +2881,8 @@ REV-13 从 `main()` 抽出的 alerts / reconciliation 第二批接线），与�
 快照）。新增第三批路由时只要接进 `registerAuxRoutes`，护栏自动覆盖。
 
 **破坏验证（三腿，均红→还原→绿）**：① 删 yaml 里 `/api/strategies/{id}` →
-`GET/PUT/DELETE` 三条当场红；② 代码注册 `/api/rev13-sabotage` → 红；③ yaml
+`GET` 当场红（该路径的 `PUT`/`DELETE` 已于 `SVC-CORE-STRAT-RETIRE` 删除）；
+② 代码注册 `/api/rev13-sabotage` → 红；③ yaml
 加一条 `/api/rev13-ghost` → `SpecToCode` 红。
 
 #### Agent 粗粒度动作（QT-50 ②③）
@@ -2899,7 +2900,7 @@ agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不
 | `submit_batch_backtest` | `POST /api/batch` | trader | 一次请求一批参数组合 |
 | `query_factor_evaluation` | `GET /api/factor/returns/{factor}` | 已认证（GET） | 日期区间整段返回，不按交易日逐次调用 |
 | `query_market_data` | `POST /api/v1/ohlcv/bulk` | 已认证（readonly-post） | 多 symbol × 区间一次取回 |
-| `fetch_strategy_definitions` | `GET /api/strategies` | 已认证（GET） | 定义清单/详情；执行与逐 bar 信号留在 core |
+| `fetch_strategy_definitions` | `GET /api/strategies` | 已认证（GET） | 运行时注册表清单/详情（定义真相源在 `tellurion-strategy`）；执行与逐 bar 信号留在 core |
 | `register_factor` | `POST /api/factor/registrations` | admin | 一版定义一次登记（治理账本，非行情写） |
 | `query_trading_calendar` | `GET /api/v1/trading-calendar` | 已认证（GET） | 整个 `[start, end]` 区间一次返回 |
 | `query_listing_windows` | `POST /api/v1/listing-windows` | 已认证（readonly-post） | 整批 symbol 一次取回；不是 per-symbol 端点 |
@@ -3154,12 +3155,18 @@ POST /api/v1/listing-windows      - 上市/摘牌窗口按标的查（QT-67；D2
 
 #### Strategy Management
 ```
-GET    /api/strategies            - List strategies (supports ?type=&active= filters)
-POST   /api/strategies            - Create/update strategy config
-GET    /api/strategies/:id        - Get strategy details
-PUT    /api/strategies/:id        - Update strategy config
-DELETE /api/strategies/:id        - Soft-delete strategy
+GET    /api/strategies            - List registered strategies (built-ins + plugins, sorted by name)
+GET    /api/strategies/:id        - Get a registered strategy descriptor
 ```
+**归属（SVC-CORE-STRAT-RETIRE，2026-11-09）**：策略**定义**的真相源是
+`tellurion-strategy` 的 `strategy.strategy_definitions` + 版本链；core 的
+`public.strategies` 表、`pkg/storage/strategies.go` 与 `pkg/strategy/db.go`
+的 DB 腿已删除。本组端点只读**运行时注册表**（ADR-036 §6「运行时
+`pkg/strategy` 保留」）。`POST` / `PUT` / `DELETE` 已退役：定义的创建、版本
+提升与下线走 strategy 服务，core 不再有可写落点。
+**内置策略配置行判定**：core 不再为任何内置策略保留配置行（原
+`SeedStrategies` 播种的 momentum / value / quality 与 registry 内置集重复）。
+运行时参数 = registry 默认值 + QT-20 的 run 级参数投递。
 
 #### Plugin Management (Phase 3 — Hot-Reload)
 ```

@@ -23,7 +23,7 @@ package main
 //     9. exec-algo         Noop（K4 执行算法 per-run 挂点）
 //    10. msgbus            真模块（最后开分发）
 //   main()（Boot 之后）：从模块检索产物装 ServerDeps；JobService/WF/Batch/
-//           FactorAttributor/StrategyDB/auth/alert 等 HTTP 面组件仍由
+//           FactorAttributor/auth/alert/plugin-loader 等 HTTP 面组件仍由
 //           buildDataServices / initStrategyAndPlugins / initAuth 构造
 //           —— 它们不在蓝图 10 模块矩阵内（无 BootOrder 槽位；改序列
 //           = 改宪法须走变更评审），偏差已在接管 TASKS 条目登记。

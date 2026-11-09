@@ -162,10 +162,10 @@ func buildAlertSystem(v *viper.Viper, store *storage.PostgresStore, executionTra
 // dataServices bundles the data-layer services that depend on the
 // Postgres store and backtest engine.
 type dataServices struct {
-	DataAdapter      *marketdata.DataAdapter
-	JobService       *backtest.JobService
-	WFEngine         *backtest.WalkForwardEngine
-	BatchEngine      *backtest.BatchEngine
+	DataAdapter *marketdata.DataAdapter
+	JobService  *backtest.JobService
+	WFEngine    *backtest.WalkForwardEngine
+	BatchEngine *backtest.BatchEngine
 
 	// EngineRegistry（K10）—— 内核路由注册表。装配期注册 go 内核
 	// （现有引擎，默认名）；同步 handler / 异步 job / batch 执行期经
@@ -325,17 +325,13 @@ func buildDataServices(
 	}
 }
 
-// initStrategyAndPlugins constructs the StrategyDB and PluginLoader,
-// seeds built-in strategies, and auto-loads plugins from the configured
-// directory if plugins.directory is set.
-func initStrategyAndPlugins(v *viper.Viper, store *storage.PostgresStore, logger zerolog.Logger) (*strategy.StrategyDB, *strategy.PluginLoader) {
-	strategyDB := strategy.NewStrategyDB(store)
-	if err := store.SeedStrategies(context.Background()); err != nil {
-		logger.Warn().Err(err).Msg("failed to seed built-in strategies")
-	} else {
-		logger.Info().Msg("strategy DB seeded")
-	}
-
+// initStrategyAndPlugins constructs the plugin loader and auto-loads plugins
+// from the configured directory if plugins.directory is set.
+//
+// SVC-CORE-STRAT-RETIRE（2026-11-09）：策略定义的真相源已迁到
+// tellurion-strategy；core 不再构造 StrategyDB、也不再向本地库播种内置
+// 策略（Migration 011 的 strategies 表已删）。运行时注册表保留。
+func initStrategyAndPlugins(v *viper.Viper, logger zerolog.Logger) *strategy.PluginLoader {
 	strategy.InitPluginLoader(strategy.DefaultRegistry, logger)
 	pluginLoader := strategy.GlobalPluginLoader
 	logger.Info().Msg("Plugin loader initialized")
@@ -352,5 +348,5 @@ func initStrategyAndPlugins(v *viper.Viper, store *storage.PostgresStore, logger
 			logger.Info().Int("count", len(loaded)).Str("dir", pluginDir).Msg("Plugins auto-loaded")
 		}
 	}
-	return strategyDB, pluginLoader
+	return pluginLoader
 }

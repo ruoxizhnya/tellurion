@@ -27,7 +27,7 @@
 // 2026-05-17 the package had 2.4% unit-test coverage because all
 // DB-touching code is unreachable without a real database. This
 // file exercises the major public surface (stocks, OHLCV,
-// calendar, backtest_jobs, strategies) against a real Postgres
+// calendar, backtest_jobs) against a real Postgres
 // 16 instance, lifting package coverage to ~60–70% per the
 // ODR-013 target.
 package storage
@@ -43,7 +43,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -211,7 +210,7 @@ func truncateAll(t *testing.T, ctx context.Context, store *PostgresStore) {
 	tables := []string{
 		"stock_fundamentals", "factor_cache",
 		"factor_returns", "ic_analysis",
-		"strategies", "backtest_jobs",
+		"backtest_jobs",
 	}
 	for _, tbl := range tables {
 		_, err := store.pool.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", tbl))
@@ -390,83 +389,4 @@ func TestIntegration_BacktestJob_ListAndDelete(t *testing.T) {
 	require.NoError(t, store.UpdateJobStarted(ctx, "j2"))
 	err = store.DeleteBacktestJob(ctx, "j2")
 	require.Error(t, err, "DeleteBacktestJob on a running job must fail-closed")
-}
-
-func TestIntegration_StrategyConfig_CRUD(t *testing.T) {
-	store, ctx := setUp(t)
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID:   "mom-v1",
-		Name:         "Momentum v1",
-		Description:  "20-day momentum",
-		StrategyType: "momentum",
-		Params:       `{"lookback": 20}`,
-		IsActive:     true,
-	}))
-
-	got, err := store.GetStrategyConfig(ctx, "mom-v1")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, "Momentum v1", got.Name)
-
-	// Upsert: same strategy_id → UPDATE.
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID:   "mom-v1",
-		Name:         "Momentum v1.1",
-		StrategyType: "momentum",
-		Params:       `{"lookback": 25}`,
-		IsActive:     true,
-	}))
-	got, _ = store.GetStrategyConfig(ctx, "mom-v1")
-	assert.Equal(t, "Momentum v1.1", got.Name)
-	assert.Equal(t, `{"lookback": 25}`, got.Params)
-}
-
-func TestIntegration_StrategyConfig_ListFiltered(t *testing.T) {
-	store, ctx := setUp(t)
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID: "m1", Name: "M1", StrategyType: "momentum", IsActive: true,
-	}))
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID: "m2", Name: "M2", StrategyType: "momentum", IsActive: false,
-	}))
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID: "v1", Name: "V1", StrategyType: "value", IsActive: true,
-	}))
-
-	all, err := store.ListStrategyConfigs(ctx, "", false)
-	require.NoError(t, err)
-	assert.Len(t, all, 3)
-
-	activeMom, err := store.ListStrategyConfigs(ctx, "momentum", true)
-	require.NoError(t, err)
-	assert.Len(t, activeMom, 1, "momentum + active = 1 result")
-	assert.Equal(t, "m1", activeMom[0].StrategyID)
-}
-
-func TestIntegration_StrategyConfig_DeleteIsSoftDelete(t *testing.T) {
-	store, ctx := setUp(t)
-	require.NoError(t, store.SaveStrategyConfig(ctx, &domain.StrategyConfig{
-		StrategyID: "to-delete", Name: "X", StrategyType: "momentum", IsActive: true,
-	}))
-	require.NoError(t, store.DeleteStrategyConfig(ctx, "to-delete"))
-	got, err := store.GetStrategyConfig(ctx, "to-delete")
-	require.NoError(t, err)
-	require.NotNil(t, got, "soft-deleted strategy must still be retrievable")
-	assert.False(t, got.IsActive, "soft delete must flip is_active")
-
-	err = store.DeleteStrategyConfig(ctx, "never-existed")
-	assert.Error(t, err, "delete on missing id must fail-closed")
-}
-
-func TestIntegration_StrategyConfig_SeedStrategies(t *testing.T) {
-	store, ctx := setUp(t)
-	require.NoError(t, store.SeedStrategies(ctx))
-	for _, sid := range []string{"momentum", "value", "quality"} {
-		got, err := store.GetStrategyConfig(ctx, sid)
-		require.NoError(t, err)
-		require.NotNil(t, got, "seed must create %s", sid)
-		assert.True(t, got.IsActive)
-	}
-	// Re-seeding must be idempotent (UPSERT, not INSERT).
-	require.NoError(t, store.SeedStrategies(ctx))
 }

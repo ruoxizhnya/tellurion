@@ -136,7 +136,7 @@ func main() {
 		Msg("market routing table assembled (D7) — unregistered markets are refused, never fallen back")
 
 	ds := buildDataServices(store, engine, ak.Wiring.Adapter, logger, newEngine, m, marketRouter)
-	strategyDB, pluginLoader := initStrategyAndPlugins(v, store, logger)
+	pluginLoader := initStrategyAndPlugins(v, logger)
 
 	// AI 拆仓阶段 1（ADR-027 §5 第 8 步前置切片）：Copilot / pipeline /
 	// explore / tools 四族 handler 随 ai-service 迁出，本服务对这四族
@@ -145,22 +145,21 @@ func main() {
 	// gene_pool pools —— 它们现在住在 cmd/ai。
 
 	deps := &ServerDeps{
-		Engine:           engine,
-		EngineRegistry:   ds.EngineRegistry,
-		MarketRouter:     marketRouter,
-		JobService:       ds.JobService,
-		WFEngine:         ds.WFEngine,
-		BatchEngine:      ds.BatchEngine,
-		StrategyDB:       strategyDB,
-		PluginLoader:     pluginLoader,
-		AuthSvc:          authSvc,
-		RiskManager:      riskManager,
-		ExecutionTrader:  executionTrader,
-		EmergencyToken:   v.GetString("trading.emergency_token"),
-		Metrics:          m,
-		Logger:           logger,
-		Viper:            v,
-		Store:            store,
+		Engine:          engine,
+		EngineRegistry:  ds.EngineRegistry,
+		MarketRouter:    marketRouter,
+		JobService:      ds.JobService,
+		WFEngine:        ds.WFEngine,
+		BatchEngine:     ds.BatchEngine,
+		PluginLoader:    pluginLoader,
+		AuthSvc:         authSvc,
+		RiskManager:     riskManager,
+		ExecutionTrader: executionTrader,
+		EmergencyToken:  v.GetString("trading.emergency_token"),
+		Metrics:         m,
+		Logger:          logger,
+		Viper:           v,
+		Store:           store,
 	}
 
 	// AUD-29: gin's run mode comes from server.gin_mode and is applied
@@ -292,7 +291,7 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, provenanceReader, deps.Logger)
 	registerWalkForwardRoutes(router, deps.WFEngine, deps.Logger)
 	registerBatchRoutes(router, deps.BatchEngine, deps.Logger)
-	registerStrategyRoutes(router, deps.StrategyDB)
+	registerStrategyRoutes(router)
 	registerDatasourceRoutes(router, deps.Engine)
 	// SVC-CORE-DATA-RETIRE（2026-11-08）：/api/factors/* 的归因读面依赖
 	// dividends / splits / ohlcv 明细，随数据面一并退役；因子登记写入面

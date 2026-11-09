@@ -48,7 +48,7 @@ Strategy = StrategyCore(Name/Description)
          + ResourceManaged(Cleanup)
 流式额外实现 BarHandler(OnBar / Signals / Warmup)
 ```
-参数来源：注册对象 + `Configure()`。**DB `strategies` 表的 `params` JSON 只是管理面元数据，执行路径不查它。**
+参数来源：注册对象 + `Configure()`。**DB 里从来没有执行路径读的参数：原 `strategies` 表的 `params` JSON 只是管理面元数据，且该表已于 `SVC-CORE-STRAT-RETIRE`（2026-11-09）删除——执行路径**始终**只认注册对象 + run 级参数投递（QT-20）。**
 
 ### 5. 风控 —— **外部注入，不在策略里写**
 
