@@ -28,6 +28,8 @@ import (
 // D7 added MarketRouter (market → kernel routing table) — the sync
 // handler resolves a request's `market` into the existing `kernel` field
 // before routing; unregistered markets are refused (400), never fallback.
+// SVC-ORCH-G3 added TaskClient (orchestration task face); non-nil switches
+// the async entry from the local job path to run-service submission.
 func TestServerDeps_HasExpectedFields(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +38,7 @@ func TestServerDeps_HasExpectedFields(t *testing.T) {
 		"EngineRegistry",
 		"MarketRouter",
 		"JobService",
+		"TaskClient",
 		"WFEngine",
 		"BatchEngine",
 		"PluginLoader",

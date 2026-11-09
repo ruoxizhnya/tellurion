@@ -195,6 +195,12 @@ paths:
           $ref: '#/components/responses/ConflictPrecondition'
         '500':
           $ref: '#/components/responses/InternalError'
+        '502':
+          description: Orchestration service unavailable — the async job could not be submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/backtest/{id}:
     get:

@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
+	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/live"
@@ -43,6 +44,10 @@ type ServerDeps struct {
 
 	// JobService — async backtest job management (POST /backtest).
 	JobService *backtest.JobService
+
+	// TaskClient — 编排任务面客户端（SVC-ORCH-G3）。非 nil 时异步入口把
+	// 创建请求提交给编排服务；nil = 未配置 ORCHESTRATION_URL，走本地旧路径。
+	TaskClient *orchestrationworker.Client
 
 	// WFEngine — walk-forward analysis (POST /walkforward).
 	WFEngine *backtest.WalkForwardEngine

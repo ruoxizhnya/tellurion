@@ -129,6 +129,13 @@ services:
       # DB_PASSWORD 已删除（零读取者，viper 读的是 database.password →
       # DATABASE_PASSWORD，见 data-service 的说明）。
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # ── SVC-ORCH-G3：异步任务面切到编排服务 ─────────────────────────
+      # 设置了 ORCHESTRATION_URL 时，POST /api/backtest 的异步分支提交给编排
+      # 服务（core 不再新增 backtest_jobs）；未设置 = 维持本地旧路径。
+      # 本 core 栈不含编排服务，默认留空；与服务仓聚合栈（127.0.0.1:8088）
+      # 联调时显式设置，例如 ORCHESTRATION_URL=http://host.docker.internal:8088。
+      ORCHESTRATION_URL: ${ORCHESTRATION_URL:-}
+      ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
       # ── P0-4 鉴权：两种模式**二选一**，默认是本地 open-access ──────────
       #
       # 本地默认走 open-access。**理由已经变了**（2026-09-25，ADR-026）：

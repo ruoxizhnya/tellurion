@@ -149,6 +149,7 @@ func main() {
 		EngineRegistry:  ds.EngineRegistry,
 		MarketRouter:    marketRouter,
 		JobService:      ds.JobService,
+		TaskClient:      ds.TaskClient,
 		WFEngine:        ds.WFEngine,
 		BatchEngine:     ds.BatchEngine,
 		PluginLoader:    pluginLoader,
@@ -288,7 +289,7 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	if deps.Store != nil && deps.Store.DB() != nil {
 		provenanceReader = deps.Store
 	}
-	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, provenanceReader, deps.Logger)
+	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, deps.TaskClient, provenanceReader, deps.Logger)
 	// QT-78：R2 分析产物读面（core 自持 quant.run_analysis_artifacts）。
 	// 与上面同款：未接库时路由照常注册、请求时 503。
 	var artifactReader analysisArtifactReader

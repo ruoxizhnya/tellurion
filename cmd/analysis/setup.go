@@ -20,6 +20,7 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
 	"tellurion/cmd/analysis/wiring"
+	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/authz"
@@ -183,6 +184,10 @@ type dataServices struct {
 	WFEngine    *backtest.WalkForwardEngine
 	BatchEngine *backtest.BatchEngine
 
+	// TaskClient — 编排任务面客户端（SVC-ORCH-G3）。nil = 未配置
+	// ORCHESTRATION_URL，异步入口维持本地旧路径。
+	TaskClient *orchestrationworker.Client
+
 	// EngineRegistry（K10）—— 内核路由注册表。装配期注册 go 内核
 	// （现有引擎，默认名）；同步 handler / 异步 job / batch 执行期经
 	// Resolve 取 runner。walk-forward 走 newEngine 工厂而不是注册表里
@@ -268,7 +273,15 @@ func buildDataServices(
 	// DBT-06：同一路由表注入 JobService——market 在**创建期**解析落定
 	// 进 params["kernel"]，worker 执行期只消费已定路由（与同步端点共用
 	// contracts.ResolveRunTarget 单一映射实现）。
-	jobService := backtest.NewJobService(store, engineRegistry, logger,
+	// SVC-ORCH-G3：异步任务面切到编排服务。未配置 ORCHESTRATION_URL 时
+	// taskClient == nil，JobService 仍持裸 store（本地旧路径）。
+	taskClient := newOrchestrationTaskClient(logger)
+	var jobStore backtest.JobStore = store
+	if taskClient != nil {
+		// 读面 = 存量行 → 结果面 → 任务面（切读过渡期三源并存）。
+		jobStore = newOrchestrationJobStore(store, store, taskClient, logger)
+	}
+	jobService := backtest.NewJobService(jobStore, engineRegistry, logger,
 		backtest.WithMarketRouter(marketRouter))
 	logger.Info().Msg("Job service initialized")
 
@@ -335,6 +348,7 @@ func buildDataServices(
 	return &dataServices{
 		DataAdapter:    dataAdapter,
 		JobService:     jobService,
+		TaskClient:     taskClient,
 		WFEngine:       wfEngine,
 		BatchEngine:    batchEngine,
 		EngineRegistry: engineRegistry,

@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/reporting"
 )
@@ -38,7 +40,7 @@ type backtestRequestEnvelope struct {
 	Market string `json:"market"`
 }
 
-func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, provenanceReader backtestProvenanceReader, logger zerolog.Logger) {
+func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, tasks *orchestrationworker.Client, provenanceReader backtestProvenanceReader, logger zerolog.Logger) {
 	api := router.Group("/api/backtest")
 	{
 		// QT-72：X0 三 hash 对外读面（读 quant.run_provenance ⋈ backtest_jobs）。
@@ -85,6 +87,30 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 					Str("end_date", jobReq.EndDate).
 					Str("universe", jobReq.Universe).
 					Msg("Creating backtest job")
+
+				// SVC-ORCH-G3：配置了编排服务时，异步任务创建走编排任务面
+				// （run.backtest_jobs），core 只保留结果面。未配置 = 本地旧
+				// 路径（部署还没接编排的显式形态）。
+				if tasks != nil {
+					spec, specErr := buildAsyncRunSpec(jobReq, marketRouter)
+					if specErr != nil {
+						if errors.Is(specErr, contracts.ErrMarketNotRegistered) ||
+							errors.Is(specErr, contracts.ErrKernelNotRegistered) {
+							httpserver.Fail(c, http.StatusBadRequest, specErr.Error())
+							return
+						}
+						httpserver.FailCause(c, http.StatusInternalServerError, "failed to build run spec", specErr)
+						return
+					}
+					submitted, submitErr := tasks.Submit(c.Request.Context(), uuid.New().String(), 0, spec)
+					if submitErr != nil {
+						logger.Error().Err(submitErr).Msg("Failed to submit run to orchestration")
+						httpserver.FailCause(c, http.StatusBadGateway, "failed to submit run", submitErr)
+						return
+					}
+					c.JSON(http.StatusAccepted, gin.H{"job_id": submitted.JobID, "status": submitted.Status})
+					return
+				}
 
 				job, err := jobService.CreateJob(c.Request.Context(), jobReq)
 				if err != nil {
