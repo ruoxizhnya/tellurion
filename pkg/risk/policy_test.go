@@ -204,6 +204,19 @@ func TestBuiltinPolicy_MatchesFactoryDefaults(t *testing.T) {
 	assert.Equal(t, "builtin_default", p.String())
 }
 
+// TestPolicyFromSnapshot_MatchesBuiltinDefaults 是 SVC-RISK-G3 ⑤「同批 run 新旧
+// 裁决一致」的对拍腿：用 risk 参数字典的出厂值构造快照，经新路
+// （`PolicyFromSnapshot`）与旧路（`BuiltinPolicy` 的代码常量）得到的限额必须逐
+// 字段相同。限额是同步裁决的唯一输入，逐字段相同比抽样 run 对拍更强——它证明
+// 的是「任何同一批 run 都不会因切换真相源而漂移」，而不只是某一个样本。
+func TestPolicyFromSnapshot_MatchesBuiltinDefaults(t *testing.T) {
+	p, err := PolicyFromSnapshot(snapshotJSON(t, fourRules(contractsrisk.ScopeStrategy)))
+	require.NoError(t, err)
+	assert.Equal(t, "risk_snapshot", p.Source)
+	assert.Equal(t, BuiltinPolicy().Config, p.Config,
+		"快照出厂值必须与旧代码常量逐字段一致（新旧裁决对拍）")
+}
+
 func TestParseSnapshotHash(t *testing.T) {
 	require.NoError(t, ParseSnapshotHash(strings.Repeat("a", 64)))
 	require.NoError(t, ParseSnapshotHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
