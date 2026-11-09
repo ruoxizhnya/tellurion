@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketdata"
@@ -36,6 +36,8 @@ import (
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ───────────────────────── 替身 ─────────────────────────
 
@@ -108,7 +110,7 @@ func (s *qt63ProbeStrategy) GenerateSignals(_ context.Context, bars map[string][
 	return []strategy.Signal{{
 		Symbol:    "600000.SH",
 		Action:    "buy",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  1.0,
 		Date:      last.Date,
 	}}, nil

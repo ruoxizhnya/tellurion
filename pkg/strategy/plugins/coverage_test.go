@@ -5,11 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 func TestBollingerMR_Description(t *testing.T) {
 	s := &bollingerMRStrategy{
@@ -38,7 +40,7 @@ func TestMultiFactor_SetFactorCache(t *testing.T) {
 		params:       MultiFactorConfig{ValueWeight: 0.4, QualityWeight: 0.3, MomentumWeight: 0.3},
 	}
 
-	reader := func(ft domain.FactorType, date time.Time, symbol string) (float64, bool) {
+	reader := func(ft cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 		return 1.5, true
 	}
 	s.SetFactorCache(reader)
@@ -55,24 +57,24 @@ func TestMultiFactor_GenerateSignalsFromFactorCache(t *testing.T) {
 	}
 
 	screenDate := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
-	s.SetFactorCache(func(ft domain.FactorType, date time.Time, symbol string) (float64, bool) {
+	s.SetFactorCache(func(ft cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 		if symbol == "600000.SH" {
 			switch ft {
-			case domain.FactorValue:
+			case cdom.FactorValue:
 				return 1.2, true
-			case domain.FactorQuality:
+			case cdom.FactorQuality:
 				return 0.8, true
-			case domain.FactorMomentum:
+			case cdom.FactorMomentum:
 				return 1.5, true
 			}
 		}
 		if symbol == "600001.SH" {
 			switch ft {
-			case domain.FactorValue:
+			case cdom.FactorValue:
 				return -0.5, true
-			case domain.FactorQuality:
+			case cdom.FactorQuality:
 				return 0.3, true
-			case domain.FactorMomentum:
+			case cdom.FactorMomentum:
 				return -1.0, true
 			}
 		}
@@ -96,7 +98,7 @@ func TestMultiFactor_GenerateSignalsFromFactorCache_NoFactors(t *testing.T) {
 		params:       MultiFactorConfig{ValueWeight: 0.4, QualityWeight: 0.3, MomentumWeight: 0.3},
 	}
 
-	s.SetFactorCache(func(ft domain.FactorType, date time.Time, symbol string) (float64, bool) {
+	s.SetFactorCache(func(ft cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 		return 0, false
 	})
 
@@ -115,8 +117,8 @@ func TestMultiFactor_GenerateSignalsFromFactorCache_PartialFactors(t *testing.T)
 	}
 
 	screenDate := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
-	s.SetFactorCache(func(ft domain.FactorType, date time.Time, symbol string) (float64, bool) {
-		if symbol == "600000.SH" && ft == domain.FactorValue {
+	s.SetFactorCache(func(ft cdom.FactorType, date time.Time, symbol string) (float64, bool) {
+		if symbol == "600000.SH" && ft == cdom.FactorValue {
 			return 1.0, true
 		}
 		return 0, false
@@ -250,7 +252,7 @@ func TestMultiFactor_GenerateSignals_WithFactorCache(t *testing.T) {
 	}
 
 	screenDate := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
-	s.SetFactorCache(func(ft domain.FactorType, date time.Time, symbol string) (float64, bool) {
+	s.SetFactorCache(func(ft cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 		if symbol == "600000.SH" {
 			return 1.0, true
 		}

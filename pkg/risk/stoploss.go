@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/errors"
 )
+
+import "tellurion/pkg/domain"
 
 // StopLossChecker handles dynamic stop loss calculations using ATR.
 type StopLossChecker struct {
@@ -129,7 +131,7 @@ func (slc *StopLossChecker) CalculateATR(ohlcv []domain.OHLCV) (float64, error) 
 
 // CalculateStopLoss calculates the stop loss price based on entry price and ATR.
 // Note: This returns the entry price as a placeholder. Use CalculateStopLossPrice with actual ATR.
-func (slc *StopLossChecker) CalculateStopLoss(entryPrice float64, regime *domain.MarketRegime) float64 {
+func (slc *StopLossChecker) CalculateStopLoss(entryPrice float64, regime *cdom.MarketRegime) float64 {
 	// This method is kept for interface compatibility
 	// Actual stop loss calculation requires ATR which is passed in CheckStopLoss
 	_ = slc.getStopLossMultiplier(regime)
@@ -137,7 +139,7 @@ func (slc *StopLossChecker) CalculateStopLoss(entryPrice float64, regime *domain
 }
 
 // getStopLossMultiplier returns the appropriate ATR multiplier based on market regime.
-func (slc *StopLossChecker) getStopLossMultiplier(regime *domain.MarketRegime) float64 {
+func (slc *StopLossChecker) getStopLossMultiplier(regime *cdom.MarketRegime) float64 {
 	if regime == nil {
 		return slc.baseMultiplier
 	}
@@ -153,18 +155,18 @@ func (slc *StopLossChecker) getStopLossMultiplier(regime *domain.MarketRegime) f
 }
 
 // CalculateStopLossPrice calculates the actual stop loss price given entry price and ATR.
-func (slc *StopLossChecker) CalculateStopLossPrice(entryPrice, atr float64, regime *domain.MarketRegime) float64 {
+func (slc *StopLossChecker) CalculateStopLossPrice(entryPrice, atr float64, regime *cdom.MarketRegime) float64 {
 	multiplier := slc.getStopLossMultiplier(regime)
 	return entryPrice - (multiplier * atr)
 }
 
 // CalculateTakeProfitPrice calculates the take profit price given entry price and ATR.
-func (slc *StopLossChecker) CalculateTakeProfitPrice(entryPrice, atr float64, regime *domain.MarketRegime) float64 {
+func (slc *StopLossChecker) CalculateTakeProfitPrice(entryPrice, atr float64, regime *cdom.MarketRegime) float64 {
 	return entryPrice + (slc.takeProfitMult * atr)
 }
 
 // GetStopLossLevels returns both stop loss and take profit levels.
-func (slc *StopLossChecker) GetStopLossLevels(entryPrice, atr float64, regime *domain.MarketRegime) (stopLoss, takeProfit float64) {
+func (slc *StopLossChecker) GetStopLossLevels(entryPrice, atr float64, regime *cdom.MarketRegime) (stopLoss, takeProfit float64) {
 	stopLoss = slc.CalculateStopLossPrice(entryPrice, atr, regime)
 	takeProfit = slc.CalculateTakeProfitPrice(entryPrice, atr, regime)
 	return
@@ -195,7 +197,7 @@ func (slc *StopLossChecker) CheckStopLoss(ctx context.Context, positions []domai
 		// Determine regime (would be passed in or fetched - using a simplified approach)
 		// For now, we use a default regime
 		// In production, this would come from the regime detector
-		regime := &domain.MarketRegime{
+		regime := &cdom.MarketRegime{
 			Trend:      slc.inferTrend(pos, currentPrice),
 			Volatility: slc.inferVolatility(pos, atr),
 		}
@@ -253,7 +255,7 @@ func (slc *StopLossChecker) CheckStopLoss(ctx context.Context, positions []domai
 }
 
 // CheckStopLossWithRegime checks positions with explicit regime information.
-func (slc *StopLossChecker) CheckStopLossWithRegime(ctx context.Context, positions []domain.Position, prices map[string]float64, atrData map[string]float64, regime *domain.MarketRegime) ([]domain.StopLossEvent, error) {
+func (slc *StopLossChecker) CheckStopLossWithRegime(ctx context.Context, positions []domain.Position, prices map[string]float64, atrData map[string]float64, regime *cdom.MarketRegime) ([]domain.StopLossEvent, error) {
 	var events []domain.StopLossEvent
 
 	for _, pos := range positions {

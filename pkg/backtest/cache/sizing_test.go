@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 func sizingBars(symbol string, n int) []domain.OHLCV {
 	out := make([]domain.OHLCV, n)
@@ -125,8 +127,8 @@ func TestFactorCacheBytesTracksLoadedEntries(t *testing.T) {
 	f := NewFactorCacheAccessor(zerolog.Nop())
 	assert.Equal(t, int64(0), f.Bytes())
 
-	data := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	data := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC): {"600000.SH": 1.5, "000001.SZ": -0.5},
 			time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC): {"600000.SH": 1.6},
 		},
@@ -150,39 +152,39 @@ func TestFactorCacheBytesTracksLoadedEntries(t *testing.T) {
 func TestFactorCacheCopyIsDeep(t *testing.T) {
 	day := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	other := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-	source := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {day: {"600000.SH": 1.5}},
+	source := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {day: {"600000.SH": 1.5}},
 	}
 
 	seed := NewFactorCacheAccessor(zerolog.Nop())
 	seed.Load(source)
 	shot := seed.Copy()
 
-	z, ok := shot.Get(domain.FactorMomentum, day, "600000.SH")
+	z, ok := shot.Get(cdom.FactorMomentum, day, "600000.SH")
 	require.True(t, ok, "Copy 必须带上种子里的全部读数")
 	assert.InDelta(t, 1.5, z, 1e-9)
 
 	// ① 最内层共享：原始 map 就地改一格 → Copy 的那格不许跟着变。
-	source[domain.FactorMomentum][day]["600000.SH"] = 99.0
-	zAfter, _ := shot.Get(domain.FactorMomentum, day, "600000.SH")
+	source[cdom.FactorMomentum][day]["600000.SH"] = 99.0
+	zAfter, _ := shot.Get(cdom.FactorMomentum, day, "600000.SH")
 	assert.InDelta(t, 1.5, zAfter, 1e-9,
 		"改原始 map 把 Copy 也改了 —— 内层 map 是共享的，QT-12 的隔离没做到")
 
 	// ② 中间层共享：给原始 map 加一个日期 → Copy 里不许凭空多出来。
-	source[domain.FactorMomentum][other] = map[string]float64{"600000.SH": 3.0}
-	_, okExtra := shot.Get(domain.FactorMomentum, other, "600000.SH")
+	source[cdom.FactorMomentum][other] = map[string]float64{"600000.SH": 3.0}
+	_, okExtra := shot.Get(cdom.FactorMomentum, other, "600000.SH")
 	assert.False(t, okExtra, "Copy 的按日期那层也在共享 —— 同一份 map 两个 run 一起长")
 
 	// ③ 外层共享：给原始 map 加一个因子 → 同样不许漏进来。
-	source[domain.FactorValue] = map[time.Time]map[string]float64{day: {"600000.SH": 7.0}}
-	_, okFactor := shot.Get(domain.FactorValue, day, "600000.SH")
+	source[cdom.FactorValue] = map[time.Time]map[string]float64{day: {"600000.SH": 7.0}}
+	_, okFactor := shot.Get(cdom.FactorValue, day, "600000.SH")
 	assert.False(t, okFactor, "Copy 的最外层也在共享")
 
 	// 反向也要成立：写 Copy 不能回染种子（引擎那份装配期数据）。
-	shot.Load(map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {day: {"600000.SH": -1.0}},
+	shot.Load(map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {day: {"600000.SH": -1.0}},
 	})
-	zSeed, okSeed := seed.Get(domain.FactorMomentum, day, "600000.SH")
+	zSeed, okSeed := seed.Get(cdom.FactorMomentum, day, "600000.SH")
 	require.True(t, okSeed)
 	assert.InDelta(t, 99.0, zSeed, 1e-9, "run 的 Load 回染了引擎级种子")
 }
@@ -191,8 +193,8 @@ func TestFactorCacheEntriesCountsSymbolDateCells(t *testing.T) {
 	f := NewFactorCacheAccessor(zerolog.Nop())
 	assert.Equal(t, int64(0), f.Entries())
 
-	f.Load(map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	f.Load(map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC): {"600000.SH": 1.5, "000001.SZ": -0.5},
 			time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC): {"600000.SH": 1.6},
 		},

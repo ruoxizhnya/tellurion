@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/ruoxizhnya/tellurion-kit/httpclient"
@@ -28,6 +28,8 @@ import (
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // Config holds backtest engine configuration.
 type Config struct {
@@ -833,7 +835,7 @@ func (e *Engine) newBacktestState(backtestID string, req BacktestRequest, stockP
 
 // buildBacktestResponse assembles the success BacktestResponse from the
 // completed state and result.
-func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, state *BacktestState, result *domain.BacktestResult, initialCapital float64) *BacktestResponse {
+func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, state *BacktestState, result *cdom.BacktestResult, initialCapital float64) *BacktestResponse {
 	resp := &BacktestResponse{
 		ID:              backtestID,
 		Status:          StatusCompleted,
@@ -963,7 +965,7 @@ func lookupStrategyGitHash(strategyName string) string {
 // 返回值具名（res / runErr）：QT-14 的会话收尾挂在 defer 里，EndRun 失败
 // 且本 run 尚无更早错误时接管 runErr —— finalize/Close 没做成的结果不可信，
 // 不能当成功返回。
-func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) (res *domain.BacktestResult, runErr error) {
+func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) (res *cdom.BacktestResult, runErr error) {
 	params := state.Params
 
 	// QT-02：成交口径是「这份结果能不能和别的比」的判据，引擎不猜。
@@ -1202,7 +1204,7 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		regime, err := e.detectRegime(ctx, marketDataCache)
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to detect market regime, using default")
-			regime = &domain.MarketRegime{
+			regime = &cdom.MarketRegime{
 				Trend:      "sideways",
 				Volatility: "medium",
 				Sentiment:  0.0,
@@ -1460,7 +1462,7 @@ func dateRangeBounds(bars []domain.OHLCV, start, end time.Time) (int, int) {
 }
 
 // detectRegime detects market regime using risk service.
-func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domain.OHLCV) (*domain.MarketRegime, error) {
+func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domain.OHLCV) (*cdom.MarketRegime, error) {
 	// 拼接顺序必须确定：allData 的顺序会进到 DetectRegime 的统计里
 	// （浮点求和、均线），进而改变仓位倍数的判断 —— 顺序一变，同一天
 	// 买卖的数量就不同，回测不可复现（P1-14）。
@@ -1470,7 +1472,7 @@ func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domai
 	}
 
 	if len(allData) < 20 {
-		return &domain.MarketRegime{
+		return &cdom.MarketRegime{
 			Trend:      "sideways",
 			Volatility: "medium",
 			Sentiment:  0.0,
@@ -1506,7 +1508,7 @@ func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domai
 		return nil, apperrors.Unavailable("risk", fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	var regime domain.MarketRegime
+	var regime cdom.MarketRegime
 	if err := json.Unmarshal(resp.Body, &regime); err != nil {
 		return nil, err
 	}
@@ -1645,16 +1647,16 @@ func convertStrategySignals(signals []strategy.Signal, defaultDate time.Time) []
 
 // resolveDirection maps a strategy signal's Action/Direction to a domain Direction.
 // Returns empty string when the signal should be skipped.
-func resolveDirection(s strategy.Signal) domain.Direction {
+func resolveDirection(s strategy.Signal) cdom.Direction {
 	dir := s.Direction
-	if dir != "" && dir != domain.DirectionHold {
+	if dir != "" && dir != cdom.DirectionHold {
 		return dir
 	}
 	if s.Action == "buy" {
-		return domain.DirectionLong
+		return cdom.DirectionLong
 	}
 	if s.Action == "sell" {
-		return domain.DirectionClose
+		return cdom.DirectionClose
 	}
 	return ""
 }
@@ -1738,13 +1740,13 @@ func signalOrderLess(a, b domain.Signal) bool {
 }
 
 // signalDirectionRank 是 Direction 的固定序（close 优先）。
-func signalDirectionRank(d domain.Direction) int {
+func signalDirectionRank(d cdom.Direction) int {
 	switch d {
-	case domain.DirectionClose:
+	case cdom.DirectionClose:
 		return 0
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		return 1
-	case domain.DirectionShort:
+	case cdom.DirectionShort:
 		return 2
 	default:
 		return 3
@@ -1768,7 +1770,7 @@ func mergeSameBarSignals(group []domain.Signal, diag *fillRunDiag) []domain.Sign
 	closeSum := 0.0
 	var closeBase *domain.Signal
 	for i := range group {
-		if group[i].Direction != domain.DirectionClose {
+		if group[i].Direction != cdom.DirectionClose {
 			continue
 		}
 		if closeBase == nil {
@@ -1780,13 +1782,13 @@ func mergeSameBarSignals(group []domain.Signal, diag *fillRunDiag) []domain.Sign
 	if closeBase != nil {
 		merged := *closeBase
 		merged.Strength = clampSignalStrength(closeSum)
-		merged.CompositeScore = maxSignalComposite(group, domain.DirectionClose)
+		merged.CompositeScore = maxSignalComposite(group, cdom.DirectionClose)
 		diag.recordDuplicateSignalsMerged(len(group) - 1)
 		return []domain.Signal{merged}
 	}
 
 	out := make([]domain.Signal, 0, len(group))
-	seen := make(map[domain.Direction]int, len(group))
+	seen := make(map[cdom.Direction]int, len(group))
 	for _, sig := range group {
 		if at, ok := seen[sig.Direction]; ok {
 			out[at].Strength = clampSignalStrength(out[at].Strength + sig.Strength)
@@ -1816,7 +1818,7 @@ func clampSignalStrength(v float64) float64 {
 }
 
 // maxSignalComposite 返回组内指定方向的 CompositeScore 最大值。
-func maxSignalComposite(group []domain.Signal, dir domain.Direction) float64 {
+func maxSignalComposite(group []domain.Signal, dir cdom.Direction) float64 {
 	max := math.Inf(-1)
 	for _, sig := range group {
 		if sig.Direction != dir {
@@ -1835,7 +1837,7 @@ func maxSignalComposite(group []domain.Signal, dir domain.Direction) float64 {
 // calculatePosition calculates position size using risk service.
 // When an in-process RiskManager is set (via SetRiskManager), computes locally
 // without HTTP calls. Otherwise falls back to the external risk-service.
-func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64) (domain.PositionSize, error) {
+func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, currentPrice float64) (domain.PositionSize, error) {
 	e.mu.RLock()
 	rm := e.riskManager
 	e.mu.RUnlock()
@@ -1857,10 +1859,10 @@ func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal d
 	url := fmt.Sprintf("%s/calculate_position", e.riskServiceURL)
 
 	reqBody := struct {
-		Signal       domain.Signal       `json:"signal"`
-		Portfolio    domain.Portfolio    `json:"portfolio"`
-		Regime       domain.MarketRegime `json:"regime"`
-		CurrentPrice float64             `json:"current_price"`
+		Signal       domain.Signal     `json:"signal"`
+		Portfolio    domain.Portfolio  `json:"portfolio"`
+		Regime       cdom.MarketRegime `json:"regime"`
+		CurrentPrice float64           `json:"current_price"`
 	}{
 		Signal:       riskSignal,
 		Portfolio:    *portfolio,
@@ -1892,7 +1894,7 @@ func (e *Engine) calculatePositionsBatch(
 	rc *runContext,
 	signals []domain.Signal,
 	portfolio *domain.Portfolio,
-	regime *domain.MarketRegime,
+	regime *cdom.MarketRegime,
 	pricesCache map[string]float64,
 	marketDataCache map[string][]domain.OHLCV,
 ) (map[string]domain.PositionSize, error) {
@@ -1943,7 +1945,7 @@ func signalForRiskSizing(sig domain.Signal) domain.Signal {
 	if _, ok := targetWeightOf(sig); !ok {
 		return sig
 	}
-	if sig.Direction != domain.DirectionLong && sig.Direction != domain.DirectionShort {
+	if sig.Direction != cdom.DirectionLong && sig.Direction != cdom.DirectionShort {
 		return sig // close 走全平路径，不经目标手数
 	}
 	out := sig
@@ -1972,7 +1974,7 @@ func (e *Engine) applyTargetWeightSizing(
 	if !ok {
 		return ps
 	}
-	if sig.Direction != domain.DirectionLong && sig.Direction != domain.DirectionShort {
+	if sig.Direction != cdom.DirectionLong && sig.Direction != cdom.DirectionShort {
 		return ps
 	}
 
@@ -2086,7 +2088,7 @@ func (e *Engine) checkStopLossesWithATR(ctx context.Context, tracker *Tracker, p
 }
 
 // GetBacktestResult retrieves the result of a completed backtest.
-func (e *Engine) GetBacktestResult(backtestID string) (*domain.BacktestResult, error) {
+func (e *Engine) GetBacktestResult(backtestID string) (*cdom.BacktestResult, error) {
 	state, ok := e.stateStore.Get(backtestID)
 	if !ok || state == nil {
 		return nil, apperrors.NotFound("backtest", backtestID)
@@ -2105,7 +2107,7 @@ func (e *Engine) GetBacktestResult(backtestID string) (*domain.BacktestResult, e
 }
 
 // GetBacktestTrades retrieves trades for a backtest.
-func (e *Engine) GetBacktestTrades(backtestID string) ([]domain.Trade, error) {
+func (e *Engine) GetBacktestTrades(backtestID string) ([]cdom.Trade, error) {
 	state, ok := e.stateStore.Get(backtestID)
 	if !ok || state == nil {
 		return nil, apperrors.NotFound("backtest", backtestID)
@@ -2135,7 +2137,7 @@ func (e *Engine) GetBacktestPositions(backtestID string) ([]domain.Position, err
 }
 
 // GetBacktestEquity retrieves equity curve for a backtest.
-func (e *Engine) GetBacktestEquity(backtestID string) ([]domain.PortfolioValue, error) {
+func (e *Engine) GetBacktestEquity(backtestID string) ([]cdom.PortfolioValue, error) {
 	state, ok := e.stateStore.Get(backtestID)
 	if !ok || state == nil {
 		return nil, apperrors.NotFound("backtest", backtestID)
@@ -2185,7 +2187,7 @@ func (e *Engine) CacheManager() *CacheManager {
 // Pass nil to clear the factor cache.
 //
 // P1-16 (ADR-020): thin shim to factor.Load().
-func (e *Engine) LoadFactorCache(data map[domain.FactorType]map[time.Time]map[string]float64) {
+func (e *Engine) LoadFactorCache(data map[cdom.FactorType]map[time.Time]map[string]float64) {
 	e.factor.Load(data)
 }
 
@@ -2199,7 +2201,7 @@ func (e *Engine) FactorCache() *FactorCacheAccessor {
 // Returns (0, false) if the factor cache is not loaded or the entry doesn't exist.
 //
 // P1-16 (ADR-020): thin shim to factor.Get().
-func (e *Engine) GetFactorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool) {
+func (e *Engine) GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 	return e.factor.Get(factor, date, symbol)
 }
 

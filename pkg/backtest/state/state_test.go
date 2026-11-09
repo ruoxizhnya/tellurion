@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // TestBacktestState_GetSetRoundTrip verifies the basic setter/getter
 // behavior of BacktestState (P1-20): the values written by Set* must
@@ -30,7 +32,7 @@ func TestBacktestState_GetSetRoundTrip(t *testing.T) {
 	assert.Equal(t, "completed", s.GetStatus())
 
 	// Result
-	res := &domain.BacktestResult{TotalReturn: 0.42}
+	res := &cdom.BacktestResult{TotalReturn: 0.42}
 	require.True(t, s.SetResult(res))
 	assert.Same(t, res, s.GetResult())
 
@@ -51,7 +53,7 @@ func TestBacktestState_GetSetRoundTrip(t *testing.T) {
 func TestBacktestState_FreezeRejectsWrites(t *testing.T) {
 	s := &BacktestState{ID: "bt-freeze"}
 	s.SetStatus("running")
-	s.SetResult(&domain.BacktestResult{TotalReturn: 0.1})
+	s.SetResult(&cdom.BacktestResult{TotalReturn: 0.1})
 
 	s.Freeze()
 	assert.True(t, s.IsFrozen())
@@ -63,7 +65,7 @@ func TestBacktestState_FreezeRejectsWrites(t *testing.T) {
 	assert.Equal(t, "running", prev, "status must not change after freeze")
 	assert.Equal(t, "running", s.GetStatus())
 
-	ok = s.SetResult(&domain.BacktestResult{TotalReturn: 0.99})
+	ok = s.SetResult(&cdom.BacktestResult{TotalReturn: 0.99})
 	assert.False(t, ok)
 	assert.InDelta(t, 0.1, s.GetResult().TotalReturn, 1e-9, "result must not change after freeze")
 
@@ -85,7 +87,7 @@ func TestBacktestState_FreezeRejectsWrites(t *testing.T) {
 func TestBacktestState_SnapshotAtomicity(t *testing.T) {
 	started := time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC)
 	completed := started.Add(2 * time.Hour)
-	res := &domain.BacktestResult{TotalReturn: 0.18, SharpeRatio: 1.42}
+	res := &cdom.BacktestResult{TotalReturn: 0.18, SharpeRatio: 1.42}
 	params := domain.BacktestParams{StrategyName: "momentum", InitialCapital: 1_000_000}
 
 	s := &BacktestState{
@@ -206,8 +208,8 @@ func TestBacktestState_ConcurrentReadWriteStatus(t *testing.T) {
 func TestBacktestState_ConcurrentResultErrorCompletedAt(t *testing.T) {
 	s := &BacktestState{ID: "bt-race-fields"}
 
-	res1 := &domain.BacktestResult{TotalReturn: 0.1}
-	res2 := &domain.BacktestResult{TotalReturn: 0.2}
+	res1 := &cdom.BacktestResult{TotalReturn: 0.1}
+	res2 := &cdom.BacktestResult{TotalReturn: 0.2}
 	err1 := errors.New("err1")
 	err2 := errors.New("err2")
 	t1 := time.Now()

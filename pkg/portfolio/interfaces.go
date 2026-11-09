@@ -16,8 +16,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // Fill 是成交回报事件——exec-engine 产出、portfolio 消费的最小契约。
 //
@@ -36,12 +38,12 @@ import (
 // pkg/fees 计算后再计入现金。可复用的 domain 词汇仍复用——Side 用
 // domain.Direction（"long"/"short"/"close"），不另造字符串枚举。
 type Fill struct {
-	OrderID string           `json:"order_id"` // 回链 quant.orders.order_id
-	Symbol  string           `json:"symbol"`
-	Side    domain.Direction `json:"side"`
-	Qty     float64          `json:"qty"`   // 成交数量（>0）
-	Price   float64          `json:"price"` // 成交均价
-	Ts      time.Time        `json:"ts"`    // 成交时间：回测=数据时间，实盘=回报时间
+	OrderID string         `json:"order_id"` // 回链 quant.orders.order_id
+	Symbol  string         `json:"symbol"`
+	Side    cdom.Direction `json:"side"`
+	Qty     float64        `json:"qty"`   // 成交数量（>0）
+	Price   float64        `json:"price"` // 成交均价
+	Ts      time.Time      `json:"ts"`    // 成交时间：回测=数据时间，实盘=回报时间
 }
 
 // Snapshot 是组合在某一时刻的快照，即 quant.portfolio_snapshot 的行契约。

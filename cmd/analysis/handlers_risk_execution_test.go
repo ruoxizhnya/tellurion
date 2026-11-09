@@ -11,12 +11,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // P1-15 (Sprint 6, ODR-021): exercise the in-process risk +
 // execution handlers end-to-end through gin. Each test stands up a
@@ -76,7 +78,7 @@ func TestRiskHandler_CalculatePosition_Success(t *testing.T) {
 	body := map[string]interface{}{
 		"signal": domain.Signal{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			Strength:  1.0,
 		},
 		"portfolio": domain.Portfolio{
@@ -84,7 +86,7 @@ func TestRiskHandler_CalculatePosition_Success(t *testing.T) {
 			TotalValue: 1_000_000,
 			Positions:  map[string]domain.Position{},
 		},
-		"regime": &domain.MarketRegime{
+		"regime": &cdom.MarketRegime{
 			Trend:      "sideways",
 			Volatility: "medium",
 			Sentiment:  0.0,
@@ -180,7 +182,7 @@ func TestRiskHandler_LegacyCalculatePosition_Route(t *testing.T) {
 	body := map[string]interface{}{
 		"signal": domain.Signal{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			Strength:  1.0,
 		},
 		"portfolio": domain.Portfolio{

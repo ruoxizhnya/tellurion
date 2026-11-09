@@ -7,8 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ---------------------------------------------------------------------------
 // P1-5 (ODR-018) — OrderManager 集成测试: 验证 SubmitOrder 走完 cage 校验
@@ -48,7 +50,7 @@ func TestOrderManager_SubmitOrder_AcceptsValidLimit(t *testing.T) {
 	om, broker := newTestOrderManagerWithCage()
 	order := domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 10.05, // within 9.7902-10.20 cage
 		Quantity:   100,
@@ -63,7 +65,7 @@ func TestOrderManager_SubmitOrder_RejectsCageViolation(t *testing.T) {
 	om, broker := newTestOrderManagerWithCage()
 	order := domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 10.30, // exceeds 10.20 cage ceiling
 		Quantity:   100,
@@ -80,7 +82,7 @@ func TestOrderManager_SubmitOrder_RejectsLimitUpViolation(t *testing.T) {
 	om, broker := newTestOrderManagerWithCage()
 	order := domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 11.05, // exceeds 11.00 (10% limit up)
 		Quantity:   100,
@@ -97,7 +99,7 @@ func TestOrderManager_SubmitOrder_AllowsAtLimitUp(t *testing.T) {
 	om, broker := newTestOrderManagerWithCage()
 	order := domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 11.00, // 涨停 — cage 规则豁免
 		Quantity:   100,
@@ -111,7 +113,7 @@ func TestOrderManager_SubmitOrder_MarketOrderSkipsCage(t *testing.T) {
 	om, broker := newTestOrderManagerWithCage()
 	order := domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Quantity:  100,
 		// Market 单不走 cage (无价格可校验).
@@ -127,7 +129,7 @@ func TestOrderManager_SubmitOrder_NoCageWired_AllowsAnyLimit(t *testing.T) {
 	om := NewOrderManager(broker, domain.DefaultExecutionConfig())
 	order := domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 999.99, // 离谱高价, 但没有 cage 校验
 		Quantity:   100,

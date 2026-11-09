@@ -144,6 +144,7 @@ tellurion/
 ├── pkg/
 │   ├── backtest/     # 回测引擎 + job/batch/walkforward（RunSpec/ResultSpec 四契约与 kernel/market 路由表 2026-10-23 起在 `tellurion-contracts:engine/`，本仓经 `aliases.go` 门面引用，DBT-06 / QT-05）
 │   ├── data/         # 数据管道（tushare 客户端、因子、产业链导入）
+│   ├── domain/       # CT-06-B（2026-11-10）从 tellurion-contracts 迁回的 core-only 形状（52 根名）；market 子包与 ≥2 使用方形状仍在契约仓
 │   ├── kernel/       # 模块化内核**框架**（Module/BootOrder/生命周期/槽位，K1–K12 线）；
 │   │                 # 业务模块包装与取数接线在 cmd/analysis/wiring（QT-50 ①：框架零业务 import）
 │   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
@@ -306,7 +307,7 @@ provider 实现无 provider/router/pool 句柄（反射断言）。日频决策�
 ## 8. 因子定义库数据流（数据因子蓝图 D3，2026-10-14）
 
 **不变量**：因子定义只认「库里公式」——一份种子定义
-（`tellurion-contracts:domain/factor_def_seed.go`，编译期常量）+ 一张持久表
+（`tellurion:pkg/domain/factor_def_seed.go`，编译期常量；CT-06-B 2026-11-10 自契约仓迁回）+ 一张持久表
 （`factor_definitions`，迁移 051）+ 一个进程内 Registry
 （`pkg/data/factor_registry.go`，构造时定稿、只读）。计算线
 （`ComputeAllFactors` / `ComputeFactorByName`）的因子清单 =

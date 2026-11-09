@@ -17,12 +17,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/execution"
 )
+
+import "tellurion/pkg/domain"
 
 const (
 	rev07Symbol = "600000.SH"
@@ -56,7 +58,7 @@ func rev07Quote() execution.Quote {
 }
 
 // rev07ApplyTradePath 走生产路径：ExecuteOrder → ApplyTrade，返回落账后的 trade。
-func rev07ApplyTradePath(t *testing.T, tr *Tracker, direction domain.Direction) *domain.Trade {
+func rev07ApplyTradePath(t *testing.T, tr *Tracker, direction cdom.Direction) *cdom.Trade {
 	t.Helper()
 	svc := rev07ExecService()
 	order := domain.Order{
@@ -77,11 +79,11 @@ func rev07ApplyTradePath(t *testing.T, tr *Tracker, direction domain.Direction) 
 // 逐分相等，且过户费非零（修复点：此前恒零）。
 func TestApplyTrade_FeesMatchExecuteTrade_Buy(t *testing.T) {
 	trA := rev07Tracker(t)
-	tradeA, err := trA.ExecuteTrade(rev07Symbol, domain.DirectionLong, rev07Qty, rev07Price, rev07TS, nil)
+	tradeA, err := trA.ExecuteTrade(rev07Symbol, cdom.DirectionLong, rev07Qty, rev07Price, rev07TS, nil)
 	require.NoError(t, err)
 
 	trB := rev07Tracker(t)
-	tradeB := rev07ApplyTradePath(t, trB, domain.DirectionLong)
+	tradeB := rev07ApplyTradePath(t, trB, cdom.DirectionLong)
 
 	assert.InDelta(t, tradeA.Commission, tradeB.Commission, 1e-9, "佣金应逐分相等")
 	assert.InDelta(t, tradeA.TransferFee, tradeB.TransferFee, 1e-9, "过户费应逐分相等")
@@ -99,11 +101,11 @@ func TestApplyTrade_FeesMatchExecuteTrade_Buy(t *testing.T) {
 // 丢弃）。
 func TestApplyTrade_FeesMatchExecuteTrade_ShortOpen(t *testing.T) {
 	trA := rev07Tracker(t)
-	tradeA, err := trA.ExecuteTrade(rev07Symbol, domain.DirectionShort, rev07Qty, rev07Price, rev07TS, nil)
+	tradeA, err := trA.ExecuteTrade(rev07Symbol, cdom.DirectionShort, rev07Qty, rev07Price, rev07TS, nil)
 	require.NoError(t, err)
 
 	trB := rev07Tracker(t)
-	tradeB := rev07ApplyTradePath(t, trB, domain.DirectionShort)
+	tradeB := rev07ApplyTradePath(t, trB, cdom.DirectionShort)
 
 	assert.InDelta(t, tradeA.Commission, tradeB.Commission, 1e-9, "佣金应逐分相等")
 	assert.InDelta(t, tradeA.TransferFee, tradeB.TransferFee, 1e-9, "过户费应逐分相等")
@@ -129,13 +131,13 @@ func TestApplyTrade_Fees_StampTaxDateSegmentation(t *testing.T) {
 	preCut := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	trA := rev07Tracker(t)
-	tradeA, err := trA.ExecuteTrade(rev07Symbol, domain.DirectionShort, rev07Qty, rev07Price, preCut, nil)
+	tradeA, err := trA.ExecuteTrade(rev07Symbol, cdom.DirectionShort, rev07Qty, rev07Price, preCut, nil)
 	require.NoError(t, err)
 
 	trB := rev07Tracker(t)
 	svc := rev07ExecService()
 	svcTrade, err := svc.ExecuteOrder(domain.Order{
-		Symbol: rev07Symbol, Direction: domain.DirectionShort,
+		Symbol: rev07Symbol, Direction: cdom.DirectionShort,
 		OrderType: domain.OrderTypeMarket, Quantity: rev07Qty,
 	}, execution.Quote{Symbol: rev07Symbol, Open: rev07Price, High: rev07Price, Low: rev07Price, Close: rev07Price, Volume: 1e6, Date: preCut})
 	require.NoError(t, err)

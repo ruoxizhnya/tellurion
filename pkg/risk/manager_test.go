@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 func TestRiskManager_NewRiskManager(t *testing.T) {
 	logger := zerolog.Nop()
@@ -46,7 +48,7 @@ func TestRiskManager_CalculatePosition_Basic(t *testing.T) {
 
 	signal := domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  0.8,
 		Date:      time.Now(),
 	}
@@ -54,7 +56,7 @@ func TestRiskManager_CalculatePosition_Basic(t *testing.T) {
 		TotalValue: 1000000,
 		Cash:       500000,
 	}
-	regime := &domain.MarketRegime{
+	regime := &cdom.MarketRegime{
 		Trend:      "bull",
 		Volatility: "medium",
 	}
@@ -80,9 +82,9 @@ func TestRiskManager_CalculatePosition_InsufficientData(t *testing.T) {
 	}
 	rm, _ := NewRiskManager(cfg, logger)
 
-	signal := domain.Signal{Symbol: "TEST.SH", Direction: domain.DirectionLong}
+	signal := domain.Signal{Symbol: "TEST.SH", Direction: cdom.DirectionLong}
 	portfolio := &domain.Portfolio{TotalValue: 1000000}
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	shortOHLCV := generateTestOHLCV(5, 50.0, 0.02)
 	ps, err := rm.CalculatePosition(context.Background(), signal, portfolio, regime, 50.0, shortOHLCV)
@@ -134,7 +136,7 @@ func TestRiskManager_StopLoss_ByMarketRegime(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			regime := &domain.MarketRegime{Trend: tc.regime}
+			regime := &cdom.MarketRegime{Trend: tc.regime}
 			sl := slc.CalculateStopLossPrice(entryPrice, atr, regime)
 			expected := entryPrice - (tc.expectedSLMult * atr)
 			assert.InDelta(t, expected, sl, 0.001, "stop loss price mismatch")
@@ -152,7 +154,7 @@ func TestRiskManager_StopLoss_TakeProfitRatio(t *testing.T) {
 	slc := NewStopLossChecker(cfg, logger)
 	entryPrice := 80.0
 	atr := 4.0
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	sl := slc.CalculateStopLossPrice(entryPrice, atr, regime)
 	tp := slc.CalculateTakeProfitPrice(entryPrice, atr, regime)
@@ -221,9 +223,9 @@ func TestRiskManager_CalculatePositionsBatch_Basic(t *testing.T) {
 	rm, _ := NewRiskManager(cfg, logger)
 
 	signals := []domain.Signal{
-		{Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8},
-		{Symbol: "000001.SZ", Direction: domain.DirectionLong, Strength: 0.6},
-		{Symbol: "600519.SH", Direction: domain.DirectionLong, Strength: 0.4},
+		{Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8},
+		{Symbol: "000001.SZ", Direction: cdom.DirectionLong, Strength: 0.6},
+		{Symbol: "600519.SH", Direction: cdom.DirectionLong, Strength: 0.4},
 	}
 
 	prices := map[string]float64{
@@ -239,7 +241,7 @@ func TestRiskManager_CalculatePositionsBatch_Basic(t *testing.T) {
 	}
 
 	portfolio := &domain.Portfolio{TotalValue: 1000000}
-	regime := &domain.MarketRegime{Trend: "bull", Volatility: "medium"}
+	regime := &cdom.MarketRegime{Trend: "bull", Volatility: "medium"}
 
 	results, err := rm.CalculatePositionsBatch(context.Background(), signals, portfolio, regime, prices, ohlcvData)
 	require.NoError(t, err)
@@ -285,11 +287,11 @@ func TestRiskManager_CalculatePositionsBatch_ConsistencyWithSingle(t *testing.T)
 	}
 	rm, _ := NewRiskManager(cfg, logger)
 
-	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.7}
+	signal := domain.Signal{Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.7}
 	prices := map[string]float64{"600000.SH": 50.0}
 	ohlcvData := map[string][]domain.OHLCV{"600000.SH": generateTestOHLCV(30, 50.0, 0.02)}
 	portfolio := &domain.Portfolio{TotalValue: 1000000}
-	regime := &domain.MarketRegime{Trend: "bull", Volatility: "medium"}
+	regime := &cdom.MarketRegime{Trend: "bull", Volatility: "medium"}
 
 	singleResult, err := rm.CalculatePosition(context.Background(), signal, portfolio, regime, 50.0, ohlcvData["600000.SH"])
 	require.NoError(t, err)
@@ -392,7 +394,7 @@ func TestRiskManager_CalculatePosition_DifferentRegimes(t *testing.T) {
 
 	signal := domain.Signal{
 		Symbol:    "600001.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  0.7,
 		Date:      time.Now(),
 	}
@@ -402,11 +404,11 @@ func TestRiskManager_CalculatePosition_DifferentRegimes(t *testing.T) {
 
 	regimes := []struct {
 		name   string
-		regime *domain.MarketRegime
+		regime *cdom.MarketRegime
 	}{
-		{"bull", &domain.MarketRegime{Trend: "bull", Volatility: "low"}},
-		{"bear", &domain.MarketRegime{Trend: "bear", Volatility: "high"}},
-		{"sideways", &domain.MarketRegime{Trend: "sideways", Volatility: "medium"}},
+		{"bull", &cdom.MarketRegime{Trend: "bull", Volatility: "low"}},
+		{"bear", &cdom.MarketRegime{Trend: "bear", Volatility: "high"}},
+		{"sideways", &cdom.MarketRegime{Trend: "sideways", Volatility: "medium"}},
 	}
 
 	for _, r := range regimes {
@@ -431,13 +433,13 @@ func TestRiskManager_PositionSize_RiskAdjustment(t *testing.T) {
 
 	signal := domain.Signal{
 		Symbol:    "600002.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  1.0,
 		Date:      time.Now(),
 	}
 	portfolio := &domain.Portfolio{TotalValue: 1000000}
 	currentPrice := 100.0
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	tests := []struct {
 		name          string

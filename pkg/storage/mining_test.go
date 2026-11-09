@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/testenv"
 )
+
+import "tellurion/pkg/domain"
 
 // 因子挖掘留痕（D8 ③2 / migration 055 factor_mining_records）的库侧测试。
 //
@@ -75,11 +77,11 @@ func newMiningRecordTestStore(t *testing.T) *PostgresStore {
 
 // miningRec 造一条挖掘留痕。admitted=false 时必须带 reject_reason（domain 与
 // DB CHECK 双向都要求），且不带沙箱凭证。
-func miningRec(hash string, name domain.FactorType, admitted bool, at time.Time) domain.FactorMiningRecord {
+func miningRec(hash string, name cdom.FactorType, admitted bool, at time.Time) domain.FactorMiningRecord {
 	rec := domain.FactorMiningRecord{
 		FactorName:   name,
 		VersionHash:  hash,
-		SourceKind:   domain.FactorSourceAI,
+		SourceKind:   cdom.FactorSourceAI,
 		Generator:    "dbt12-storage-test",
 		Generation:   2,
 		Rationale:    "10 日动量在样例快照上稳定",
@@ -129,7 +131,7 @@ func findMining(t *testing.T, store *PostgresStore, hash string) (domain.FactorM
 func TestFactorMiningRecords_RoundTripPreservesEveryField(t *testing.T) {
 	store := newMiningRecordTestStore(t)
 	hash := dbt12Hash("admitted")
-	want := miningRec(hash, domain.FactorMomentum, true, time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC))
+	want := miningRec(hash, cdom.FactorMomentum, true, time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC))
 	mustSaveMining(t, store, want)
 
 	got, ok := findMining(t, store, hash)
@@ -199,7 +201,7 @@ func TestFactorMiningRecords_RoundTripPreservesEveryField(t *testing.T) {
 func TestFactorMiningRecords_RoundTripRejectedKeepsEmptyAttestation(t *testing.T) {
 	store := newMiningRecordTestStore(t)
 	hash := dbt12Hash("rejected")
-	want := miningRec(hash, domain.FactorSize, false, time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC))
+	want := miningRec(hash, cdom.FactorSize, false, time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC))
 	mustSaveMining(t, store, want)
 
 	got, ok := findMining(t, store, hash)
@@ -227,7 +229,7 @@ func TestFactorMiningRecords_RoundTripRejectedKeepsEmptyAttestation(t *testing.T
 func TestFactorMiningRecords_SaveIdempotentKeepsFirstTrail(t *testing.T) {
 	store := newMiningRecordTestStore(t)
 	hash := dbt12Hash("idempotent")
-	first := miningRec(hash, domain.FactorMomentum, true, time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))
+	first := miningRec(hash, cdom.FactorMomentum, true, time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC))
 	mustSaveMining(t, store, first)
 
 	// 重放「同一天又挖出同一版」：换了 created_at 也不该刷新——一个定义版本
@@ -272,12 +274,12 @@ func TestFactorMiningRecords_SaveRejectsInvalidAndWritesNothing(t *testing.T) {
 		{"生成器缺失", func(r *domain.FactorMiningRecord) { r.Generator = "" }},
 		{"来源未登记", func(r *domain.FactorMiningRecord) { r.SourceKind = "made_up" }},
 		{"尝试次数非正", func(r *domain.FactorMiningRecord) { r.NumTrials = 0 }},
-		{"名册外的因子名", func(r *domain.FactorMiningRecord) { r.FactorName = domain.FactorType("dbt12_not_a_factor") }},
+		{"名册外的因子名", func(r *domain.FactorMiningRecord) { r.FactorName = cdom.FactorType("dbt12_not_a_factor") }},
 		{"被拒不写原因", func(r *domain.FactorMiningRecord) { r.Admitted = false; r.RejectReason = "" }},
 	}
 	for i, tc := range cases {
 		hash := dbt12Hash("invalid" + string(rune('a'+i)))
-		rec := miningRec(hash, domain.FactorMomentum, true, time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC))
+		rec := miningRec(hash, cdom.FactorMomentum, true, time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC))
 		tc.mut(&rec)
 		if err := store.SaveFactorMiningRecord(ctx, rec); err == nil {
 			t.Fatalf("%s: 缺样留痕竟然写成功了", tc.name)
@@ -326,12 +328,12 @@ func TestFactorMiningRecords_LoadOrderedByNameThenTime(t *testing.T) {
 	// 断言读回来稳定按 (因子名, 创建时刻) 升序——与查询的 ORDER BY 一致。
 	plan := []struct {
 		hash string
-		name domain.FactorType
+		name cdom.FactorType
 		at   time.Time
 	}{
-		{dbt12Hash("order-size-late"), domain.FactorSize, base.Add(2 * time.Hour)},
-		{dbt12Hash("order-momentum"), domain.FactorMomentum, base.Add(1 * time.Hour)},
-		{dbt12Hash("order-size-early"), domain.FactorSize, base},
+		{dbt12Hash("order-size-late"), cdom.FactorSize, base.Add(2 * time.Hour)},
+		{dbt12Hash("order-momentum"), cdom.FactorMomentum, base.Add(1 * time.Hour)},
+		{dbt12Hash("order-size-early"), cdom.FactorSize, base},
 	}
 	for _, p := range plan {
 		rec := miningRec(p.hash, p.name, true, p.at)
@@ -344,7 +346,7 @@ func TestFactorMiningRecords_LoadOrderedByNameThenTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	var got []domain.FactorType
+	var got []cdom.FactorType
 	var gotHashes []string
 	for _, r := range loaded {
 		if strings.HasPrefix(r.VersionHash, "dbt12-order-") {
@@ -353,13 +355,13 @@ func TestFactorMiningRecords_LoadOrderedByNameThenTime(t *testing.T) {
 		}
 	}
 	want := []struct {
-		name domain.FactorType
+		name cdom.FactorType
 		hash string
 	}{
 		// 读序 = 因子名字典序 + 同按创建时刻升序：momentum < size。
-		{domain.FactorMomentum, dbt12Hash("order-momentum")},
-		{domain.FactorSize, dbt12Hash("order-size-early")},
-		{domain.FactorSize, dbt12Hash("order-size-late")},
+		{cdom.FactorMomentum, dbt12Hash("order-momentum")},
+		{cdom.FactorSize, dbt12Hash("order-size-early")},
+		{cdom.FactorSize, dbt12Hash("order-size-late")},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("锚点行 %d 条, want %d（%v）", len(got), len(want), gotHashes)

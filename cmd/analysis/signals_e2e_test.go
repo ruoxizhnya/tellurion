@@ -28,10 +28,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"tellurion/pkg/backtest"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"

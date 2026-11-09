@@ -43,8 +43,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/pkg/domain"
 )
 
 // HostModuleName 是 host 导入函数的模块名，wasm 二进制 import 它。

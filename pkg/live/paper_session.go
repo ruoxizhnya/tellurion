@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // CurrentBarSource 是「能从当根 bar 定价」的 paper trader 可选实现。
 //
@@ -28,12 +30,12 @@ type CurrentBarSource interface {
 // 不含 OrderID / 墙钟时间戳，因为那些由 id.OrderID() / time.Now() 生成、
 // 逐次运行不同 —— 成交流要可复现，就不能把非确定量放进来。
 type PaperFill struct {
-	Date   time.Time        // 成交所在的交易日（回放日，非墙钟）
-	Symbol string           //
-	Side   domain.Direction // DirectionLong = 买 / DirectionClose = 卖
-	Qty    float64          // 成交量（股）
-	Price  float64          // 实际成交价（含滑点/冲击）
-	Fee    float64          // 该笔总费用（佣金 + 过户费 + 卖出印花税）
+	Date   time.Time      // 成交所在的交易日（回放日，非墙钟）
+	Symbol string         //
+	Side   cdom.Direction // DirectionLong = 买 / DirectionClose = 卖
+	Qty    float64        // 成交量（股）
+	Price  float64        // 实际成交价（含滑点/冲击）
+	Fee    float64        // 该笔总费用（佣金 + 过户费 + 卖出印花税）
 }
 
 // PaperSessionConfig 是 PaperSession 的依赖注入集。**禁全局单例**：
@@ -430,12 +432,12 @@ func toDomainSignals(signals []strategy.Signal, defaultDate time.Time) []domain.
 			continue
 		}
 		dir := sg.Direction
-		if dir == "" || dir == domain.DirectionHold {
+		if dir == "" || dir == cdom.DirectionHold {
 			switch sg.Action {
 			case "buy":
-				dir = domain.DirectionLong
+				dir = cdom.DirectionLong
 			case "sell":
-				dir = domain.DirectionClose
+				dir = cdom.DirectionClose
 			default:
 				continue
 			}

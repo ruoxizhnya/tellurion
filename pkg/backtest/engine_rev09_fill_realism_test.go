@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +29,8 @@ import (
 	"tellurion/pkg/backtest/tracker"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 var (
 	rev09Day1 = time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
@@ -125,7 +127,7 @@ func TestProcessSignalsAndExecuteTrades_SkipsSuspendedSignal(t *testing.T) {
 
 	eng.processSignalsAndExecuteTrades(
 		context.Background(), rc, state,
-		[]domain.Signal{{Symbol: "STALE.SH", Direction: domain.DirectionLong, Date: rev09Day2}},
+		[]domain.Signal{{Symbol: "STALE.SH", Direction: cdom.DirectionLong, Date: rev09Day2}},
 		map[string][]domain.OHLCV{}, map[string]float64{"STALE.SH": 10},
 		// QT-02：same_close 的成交计划 = 当日收盘可成交价 + 当日新鲜度（既有语义）。
 		sameClosePlan(map[string]float64{"STALE.SH": 10}, rev09Day2),
@@ -153,7 +155,7 @@ func TestExecuteSignalTrade_TruncatesByDailyVolume(t *testing.T) {
 
 	eng.executeSignalTrade(
 		context.Background(), state, nil, newExecAlgoRunDiag(), diag,
-		domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong, Date: rev09Day2},
+		domain.Signal{Symbol: "600000.SH", Direction: cdom.DirectionLong, Date: rev09Day2},
 		10_000, map[string]float64{"600000.SH": 10}, rev09Day2,
 		&OrderExecutionOpts{OrderType: domain.OrderTypeMarket, DayBar: &bar}, tp, zerolog.Nop(),
 	)

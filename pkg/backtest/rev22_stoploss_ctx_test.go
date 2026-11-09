@@ -18,8 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 func TestREV22_StopLossLoop_RespectsCancellation(t *testing.T) {
 	if testing.Short() {
@@ -47,7 +49,7 @@ func TestREV22_StopLossLoop_RespectsCancellation(t *testing.T) {
 	// 塞一个「该止损」的持仓与价格（价格相对成本大跌；是否真触发取决于
 	// 风控配置——断言只盯取消语义：ctx 已取消 ⇒ 无新成交）。
 	sym := symbols[0]
-	_, err := state.Tracker.ExecuteTrade(sym, domain.DirectionLong, 100, 10.0, start, nil)
+	_, err := state.Tracker.ExecuteTrade(sym, cdom.DirectionLong, 100, 10.0, start, nil)
 	require.NoError(t, err)
 
 	prices := map[string]float64{sym: 10.0}

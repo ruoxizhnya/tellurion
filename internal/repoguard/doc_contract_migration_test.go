@@ -9,9 +9,10 @@ package repoguard
 //
 // 本护栏把「文档与代码同源」做成可执行判据，分两条腿：
 //
-//	腿 A（目录树）：AGENTS.md §3 与 ARCHITECTURE.md §5 的 directory tree 里，已迁走
-//	  的三个包不得再作为条目出现；且 pkg/backtest 条目必须写明契约本体在契约仓。
-//	腿 B（正文路径）：三份文档正文里，旧路径只允许出现在**同一行也写了
+//	腿 A（目录树）：AGENTS.md §3 与 ARCHITECTURE.md §5 的 directory tree 里，仍外置
+//	  的 pkg/fees / pkg/backtest/contracts 不得再作为条目出现；pkg/domain 必须作为
+//	  core 自有宿主登记并写明 CT-06-B 迁回；pkg/backtest 条目必须写明契约本体在契约仓。
+//	腿 B（正文路径）：三份文档正文里，仍外置的旧路径只允许出现在**同一行也写了
 //	  tellurion-contracts** 的迁移声明行（AGENTS「已迁出」表）；core 的 contracts/
 //	  是运行时数据资产目录，正文里不许出现 contracts/*.go 这类 Go 源码路径；SPEC 里
 //	  指 domain/market 的位置必须指向契约仓，不得再指向 core 里已被删掉的锚点。
@@ -33,8 +34,16 @@ import (
 )
 
 var (
-	// migratedContractDocPaths 是 B1 迁走的三个包在本仓的旧目录路径。
-	migratedContractDocPaths = []string{"pkg/domain", "pkg/fees", "pkg/backtest/contracts"}
+	// migratedContractDocPaths 是仍整包住在契约仓的旧目录路径。
+	//
+	// CT-06-B（2026-11-10）把 `pkg/domain` 移出本清单：该包重新成为 core 的
+	// 合法宿主（只放只有 core 使用的形状），文档树必须登记它，不能再当成
+	// 「已迁走」来要求删除。
+	migratedContractDocPaths = []string{"pkg/fees", "pkg/backtest/contracts"}
+
+	// coreOwnedDomainDir 是迁回 core 的包目录；文档树必须显式登记并写明
+	// CT-06-B，否则后人会以为它仍整包在契约仓。
+	coreOwnedDomainDir = "pkg/domain"
 
 	// contractMigrationDocFiles 是 Rule 1 要求随代码同步的三份文档（相对仓根）。
 	contractMigrationDocFiles = []string{"AGENTS.md", "docs/ARCHITECTURE.md", "docs/SPEC.md"}
@@ -87,6 +96,17 @@ func TestCoreDocTreesOmitMigratedContractPackages(t *testing.T) {
 					strings.Contains(backtestLine, "contracts 仓"),
 				"%s 的 pkg/backtest 条目没写契约本体已外置（期望含 tellurion-contracts 或"+
 					" contracts 仓）：%s", tree.file, strings.TrimSpace(backtestLine))
+
+			// 正证据：CT-06-B 迁回的 pkg/domain 必须在树里登记，且写明迁回口径 ——
+			// 防止「把行删干净」的同时也把「哪些形状在 core、哪些在契约仓」的信息删掉。
+			domainLine, ok := entries[coreOwnedDomainDir]
+			require.True(t, ok,
+				"%s 的目录树里找不到 %s 条目 —— CT-06-B 后它住在 core，必须先修护栏再修文档",
+				tree.file, coreOwnedDomainDir)
+			assert.True(t,
+				strings.Contains(domainLine, "CT-06-B") || strings.Contains(domainLine, "迁回"),
+				"%s 的 %s 条目没写清它是 CT-06-B 迁回的 core-only 形状宿主：%s",
+				tree.file, coreOwnedDomainDir, strings.TrimSpace(domainLine))
 
 			// 正证据：core 的 contracts/ 是运行时数据资产目录，不是 Go 包 —— 两棵树都
 			// 必须这么写（否则又会有人把它当内核契约包来找）。
@@ -148,7 +168,8 @@ func TestCoreDocProseRoutesMigratedPackagesToContractsRepo(t *testing.T) {
 		pkgStructSeen = true
 		if !strings.Contains(line, "tellurion-contracts") {
 			offenders = append(offenders, "AGENTS.md:"+strconv.Itoa(i+1)+
-				"「包结构」仍把已迁走的 domain/ 画在本仓："+strings.TrimSpace(line))
+				"「包结构」行没写跨仓边界（pkg/domain 是 core 自有、其余契约形状取 "+
+				"tellurion-contracts）："+strings.TrimSpace(line))
 		}
 	}
 	assert.True(t, pkgStructSeen,
@@ -158,12 +179,18 @@ func TestCoreDocProseRoutesMigratedPackagesToContractsRepo(t *testing.T) {
 		"这些文档行还把人指向本仓已不存在的契约包/源码（Rule 1 文档触发器）：\n%s",
 		strings.Join(offenders, "\n"))
 
-	// 正证据 1：迁移知识不许丢 —— AGENTS.md 必须有一行同时列出三个旧路径与新家。
+	// 正证据 1：迁移知识不许丢 —— AGENTS.md 必须有一行同时列出仍外置的两个旧
+	// 路径与新家；另有一行说明 pkg/domain 是 CT-06-B 迁回 core 的。
 	assert.True(t,
 		coreDocHasLineContaining(coreDocLines(t, "AGENTS.md"),
-			"pkg/domain/", "pkg/fees/", "pkg/backtest/contracts/", "tellurion-contracts"),
-		"AGENTS.md 的「已迁出」表缺了契约包这一行：三个旧路径必须与新家 tellurion-contracts "+
-			"写在同一行，否则后人不知道它们搬到哪了（QT-05 交接单 A-7）")
+			"pkg/fees/", "pkg/backtest/contracts/", "tellurion-contracts"),
+		"AGENTS.md 的「已迁出」表缺了契约包这一行：仍外置的旧路径必须与新家 "+
+			"tellurion-contracts 写在同一行，否则后人不知道它们搬到哪了（QT-05 交接单 A-7）")
+	assert.True(t,
+		coreDocHasLineContaining(coreDocLines(t, "AGENTS.md"),
+			"pkg/domain", "CT-06-B", "core"),
+		"AGENTS.md 缺 CT-06-B 的所有权声明行：pkg/domain 是 core 自有形状的宿主，"+
+			"必须与契约仓保留的形状区分开（否则又会有人按「domain 在契约仓」去找）")
 
 	spec := strings.Join(coreDocLines(t, "docs/SPEC.md"), "\n")
 	assert.Contains(t, spec, "tellurion-contracts:engine/filltiming.go",

@@ -23,13 +23,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/examples"
 )
+
+import "tellurion/pkg/domain"
 
 // rev18ScaleBars 把一个 symbol 的四个价格字段乘 k —— 精确模拟「前复权基准
 // 换成更晚日」的效果（整条曲线乘常数；成交量/成交额不动，与
@@ -204,8 +206,8 @@ func TestEngine_REV18_SameRangeRerunBitIdenticalAcrossQfqResync(t *testing.T) {
 
 	// Trade.ID 是纳秒时间戳（tracker 既有行为，两次运行必然不同）——
 	// 剥离后逐位比对语义字段（方向/数量/价格/费用/日期）。
-	stripIDs := func(ts []domain.Trade) []domain.Trade {
-		out := make([]domain.Trade, len(ts))
+	stripIDs := func(ts []cdom.Trade) []cdom.Trade {
+		out := make([]cdom.Trade, len(ts))
 		copy(out, ts)
 		for i := range out {
 			out[i].ID = ""

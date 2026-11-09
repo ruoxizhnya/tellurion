@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 )
 
 // saveIndexDailySQL —— 幂等落库一条指数日线。数值列走 EXCLUDED 直传

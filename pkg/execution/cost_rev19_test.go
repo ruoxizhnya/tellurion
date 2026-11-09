@@ -12,9 +12,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 )
+
+import "tellurion/pkg/domain"
 
 // TestCostModel_FixedSlippageUsesConfiguredRate：配置值真的生效。
 func TestCostModel_FixedSlippageUsesConfiguredRate(t *testing.T) {
@@ -23,9 +25,9 @@ func TestCostModel_FixedSlippageUsesConfiguredRate(t *testing.T) {
 	cm := NewCostModel(domain.ExecutionConfig{SlippageModel: "fixed", SlippageRate: 0.0005})
 	const price = 100.0
 
-	assert.InDelta(t, 100.05, cm.SlippagePrice(price, domain.DirectionLong, 100, 1e6, 101, 99), 1e-9,
+	assert.InDelta(t, 100.05, cm.SlippagePrice(price, cdom.DirectionLong, 100, 1e6, 101, 99), 1e-9,
 		"买入价应为 price×(1+0.0005)")
-	assert.InDelta(t, 99.95, cm.SlippagePrice(price, domain.DirectionShort, 100, 1e6, 101, 99), 1e-9,
+	assert.InDelta(t, 99.95, cm.SlippagePrice(price, cdom.DirectionShort, 100, 1e6, 101, 99), 1e-9,
 		"卖出价应为 price×(1-0.0005)")
 }
 
@@ -39,7 +41,7 @@ func TestCostModel_FixedSlippageFallsBackWhenUnset(t *testing.T) {
 	const price = 100.0
 	want := price * (1 + fees.FixedSlippageRate)
 
-	assert.InDelta(t, want, cm.SlippagePrice(price, domain.DirectionLong, 100, 1e6, 101, 99), 1e-9)
+	assert.InDelta(t, want, cm.SlippagePrice(price, cdom.DirectionLong, 100, 1e6, 101, 99), 1e-9)
 	assert.Equal(t, 0.001, fees.FixedSlippageRate, "回落常量本身是 0.1%")
 }
 
@@ -50,11 +52,11 @@ func TestCostModel_OtherModelsUnaffected(t *testing.T) {
 	const price = 100.0
 
 	none := NewCostModel(domain.ExecutionConfig{SlippageModel: "none", SlippageRate: 0.05})
-	assert.InDelta(t, price, none.SlippagePrice(price, domain.DirectionLong, 100, 1e6, 101, 99), 1e-9,
+	assert.InDelta(t, price, none.SlippagePrice(price, cdom.DirectionLong, 100, 1e6, 101, 99), 1e-9,
 		"none 模型必须原样返回，配置的 rate 不该渗进来")
 
 	// variable：(high-low)/price × 0.1，与 SlippageRate 无关。
 	variable := NewCostModel(domain.ExecutionConfig{SlippageModel: "variable", SlippageRate: 0.05})
 	assert.InDelta(t, 100*(1+0.02*0.1),
-		variable.SlippagePrice(price, domain.DirectionLong, 100, 1e6, 101, 99), 1e-9)
+		variable.SlippagePrice(price, cdom.DirectionLong, 100, 1e6, 101, 99), 1e-9)
 }

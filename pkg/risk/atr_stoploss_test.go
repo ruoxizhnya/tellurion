@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 func TestATRStopLoss_Calculation(t *testing.T) {
 	logger := zerolog.Nop()
@@ -47,7 +49,7 @@ func TestATRStopLoss_Calculation(t *testing.T) {
 	t.Run("CalculateStopLossPrice_SidewaysMarket", func(t *testing.T) {
 		entryPrice := 100.0
 		atr := 2.0
-		regime := &domain.MarketRegime{
+		regime := &cdom.MarketRegime{
 			Trend:      "sideways",
 			Volatility: "medium",
 		}
@@ -62,7 +64,7 @@ func TestATRStopLoss_Calculation(t *testing.T) {
 	t.Run("CalculateStopLossPrice_BullMarket", func(t *testing.T) {
 		entryPrice := 100.0
 		atr := 2.0
-		regime := &domain.MarketRegime{
+		regime := &cdom.MarketRegime{
 			Trend:      "bull",
 			Volatility: "low",
 		}
@@ -77,7 +79,7 @@ func TestATRStopLoss_Calculation(t *testing.T) {
 	t.Run("CalculateStopLossPrice_BearMarket", func(t *testing.T) {
 		entryPrice := 100.0
 		atr := 2.0
-		regime := &domain.MarketRegime{
+		regime := &cdom.MarketRegime{
 			Trend:      "bear",
 			Volatility: "high",
 		}
@@ -92,7 +94,7 @@ func TestATRStopLoss_Calculation(t *testing.T) {
 	t.Run("CalculateTakeProfitPrice", func(t *testing.T) {
 		entryPrice := 100.0
 		atr := 2.0
-		regime := &domain.MarketRegime{Trend: "bull"}
+		regime := &cdom.MarketRegime{Trend: "bull"}
 
 		takeProfit := slc.CalculateTakeProfitPrice(entryPrice, atr, regime)
 		expected := entryPrice + (cfg.TakeProfitMult * atr)
@@ -129,7 +131,7 @@ func TestRiskManager_CalculatePosition_WithATR(t *testing.T) {
 	ctx := context.Background()
 	signal := domain.Signal{
 		Symbol:         "600000.SH",
-		Direction:      domain.DirectionLong,
+		Direction:      cdom.DirectionLong,
 		Strength:       0.8,
 		CompositeScore: 0.7,
 	}
@@ -138,7 +140,7 @@ func TestRiskManager_CalculatePosition_WithATR(t *testing.T) {
 		Positions:  make(map[string]domain.Position),
 		TotalValue: 1000000.0,
 	}
-	regime := &domain.MarketRegime{
+	regime := &cdom.MarketRegime{
 		Trend:      "bull",
 		Volatility: "medium",
 		Sentiment:  0.3,

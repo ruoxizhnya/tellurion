@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
+
+import "tellurion/pkg/domain"
 
 // RegimeDetector detects market regime from price data.
 type RegimeDetector struct {
@@ -38,7 +40,7 @@ func NewRegimeDetector(cfg RegimeConfig, logger zerolog.Logger) *RegimeDetector 
 }
 
 // DetectRegime detects the market regime from OHLCV data.
-func (rd *RegimeDetector) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*domain.MarketRegime, error) {
+func (rd *RegimeDetector) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*cdom.MarketRegime, error) {
 	if len(ohlcv) < rd.slowMAPeriod {
 		return nil, errors.DataQuality(
 			fmt.Sprintf("insufficient data for regime detection: need %d, got %d", rd.slowMAPeriod, len(ohlcv)),
@@ -65,7 +67,7 @@ func (rd *RegimeDetector) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV
 		}
 	}
 
-	regime := &domain.MarketRegime{
+	regime := &cdom.MarketRegime{
 		Trend:      trend,
 		Volatility: finalVolRegime,
 		Sentiment:  sentiment,

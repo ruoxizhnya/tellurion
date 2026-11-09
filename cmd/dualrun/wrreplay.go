@@ -24,11 +24,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/tracker"
 )
+
+import "tellurion/pkg/domain"
 
 // wrConfig 是回放器的口径参数——除 capital/signals 外全部有与侧车一致的
 // 默认值；显式列出是为了让 diff 报告能引用「实验用的是哪套口径」。
@@ -55,8 +57,8 @@ const goLegCaliber = contracts.FillTimingSameClose
 // wrResult 是 Go 侧回放产物：净值曲线 + 成交明细（与 NT 侧 wire 同形，
 // 两侧同喂 metrics.GenerateBacktestResult）。
 type wrResult struct {
-	PortfolioValues []domain.PortfolioValue
-	Trades          []domain.Trade
+	PortfolioValues []cdom.PortfolioValue
+	Trades          []cdom.Trade
 }
 
 // wrReplay 把信号流回放成 Go 内核的成交与净值序列。
@@ -144,7 +146,7 @@ func wrReplay(
 					qty := math.Min(delta, participationCap(bar.Volume, cfg.DMax)-tradedToday[sym])
 					qty = roundDownToLot(qty, cfg.LotSize)
 					if qty > 0 {
-						fill, err := tr.ExecuteTrade(sym, domain.DirectionLong, qty, price, dayStart, nil)
+						fill, err := tr.ExecuteTrade(sym, cdom.DirectionLong, qty, price, dayStart, nil)
 						if err != nil {
 							// 与侧车 _resolve_unfilled 同语义：拒单记档并停发
 							// 后续（目标不可达，逐 bar 重试只会重复拒单）。
@@ -164,7 +166,7 @@ func wrReplay(
 					want := math.Min(-delta, sellable[sym])
 					qty := math.Min(want, participationCap(bar.Volume, cfg.DMax)-tradedToday[sym])
 					if qty > 0 {
-						fill, err := tr.ExecuteTrade(sym, domain.DirectionShort, qty, price, dayStart, nil)
+						fill, err := tr.ExecuteTrade(sym, cdom.DirectionShort, qty, price, dayStart, nil)
 						if err != nil {
 							// Tracker 的 T+1 兜底只缩减、不拒绝缩减后的量；
 							// 走到这里说明现金/状态异常，fail-loud。

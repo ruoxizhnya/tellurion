@@ -4,8 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 type OrderStatus string
 
@@ -50,7 +52,7 @@ func convertToOrderResult(record *OrderRecord) *OrderResult {
 	return &OrderResult{
 		OrderID:     record.OrderID,
 		Symbol:      record.Symbol,
-		Direction:   domain.Direction(record.Direction),
+		Direction:   cdom.Direction(record.Direction),
 		OrderType:   domain.OrderType(record.OrderType),
 		Quantity:    record.Quantity,
 		FilledQty:   record.FilledQty,

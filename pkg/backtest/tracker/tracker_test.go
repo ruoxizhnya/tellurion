@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
+
+import "tellurion/pkg/domain"
 
 func TestNewTracker_InitialCash(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
@@ -19,7 +21,7 @@ func TestTracker_ExecuteTrade_Long(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -27,7 +29,7 @@ func TestTracker_ExecuteTrade_Long(t *testing.T) {
 	if trade.Symbol != "600519" {
 		t.Errorf("expected symbol 600519, got %s", trade.Symbol)
 	}
-	if trade.Direction != domain.DirectionLong {
+	if trade.Direction != cdom.DirectionLong {
 		t.Errorf("expected direction long, got %s", trade.Direction)
 	}
 	if trade.Quantity != 100 {
@@ -67,12 +69,12 @@ func TestTracker_ExecuteTrade_Short(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionShort, 100, 50.0, date, nil)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionShort, 100, 50.0, date, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if trade.Direction != domain.DirectionShort {
+	if trade.Direction != cdom.DirectionShort {
 		t.Errorf("expected direction short, got %s", trade.Direction)
 	}
 
@@ -95,19 +97,19 @@ func TestTracker_ExecuteTrade_CloseLong(t *testing.T) {
 	buyDate := time.Date(2026, 4, 9, 0, 0, 0, 0, time.Local)
 	sellDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, buyDate, nil)
+	_, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, buyDate, nil)
 	if err != nil {
 		t.Fatalf("buy failed: %v", err)
 	}
 
 	tracker.AdvanceDay(buyDate)
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionClose, 100, 55.0, sellDate, nil)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionClose, 100, 55.0, sellDate, nil)
 	if err != nil {
 		t.Fatalf("close failed: %v", err)
 	}
 
-	if trade.Direction != domain.DirectionClose {
+	if trade.Direction != cdom.DirectionClose {
 		t.Errorf("expected direction close, got %s", trade.Direction)
 	}
 	if trade.StampTax <= 0 {
@@ -123,12 +125,12 @@ func TestTracker_T1Violation(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 	if err != nil {
 		t.Fatalf("buy failed: %v", err)
 	}
 
-	_, err = tracker.ExecuteTrade("600519", domain.DirectionClose, 100, 55.0, date, nil)
+	_, err = tracker.ExecuteTrade("600519", cdom.DirectionClose, 100, 55.0, date, nil)
 	if err == nil {
 		t.Error("expected T+1 violation error, got nil")
 	}
@@ -139,14 +141,14 @@ func TestTracker_T1PartialSell(t *testing.T) {
 	buyDate := time.Date(2026, 4, 9, 0, 0, 0, 0, time.Local)
 	sellDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 200, 50.0, buyDate, nil)
+	_, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 200, 50.0, buyDate, nil)
 	if err != nil {
 		t.Fatalf("buy failed: %v", err)
 	}
 
 	tracker.AdvanceDay(buyDate)
 
-	_, err = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 52.0, sellDate, nil)
+	_, err = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 52.0, sellDate, nil)
 	if err != nil {
 		t.Fatalf("second buy failed: %v", err)
 	}
@@ -159,7 +161,7 @@ func TestTracker_T1PartialSell(t *testing.T) {
 		t.Errorf("expected QuantityToday=100, got %.2f", pos.QuantityToday)
 	}
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionClose, 250, 55.0, sellDate, nil)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionClose, 250, 55.0, sellDate, nil)
 	if err != nil {
 		t.Fatalf("partial sell failed: %v", err)
 	}
@@ -173,7 +175,7 @@ func TestTracker_AdvanceDay(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 
 	pos, _ := tracker.GetPosition("600519")
 	if pos.QuantityToday != 100 {
@@ -198,7 +200,7 @@ func TestTracker_InsufficientCash(t *testing.T) {
 	tracker := newTestTracker(1000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 	if err == nil {
 		t.Error("expected insufficient cash error, got nil")
 	}
@@ -218,7 +220,7 @@ func TestTracker_ProcessDividend(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 1000, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 1000, 50.0, date, nil)
 	cashBefore := tracker.GetCash()
 
 	dividend := domain.Dividend{
@@ -257,7 +259,7 @@ func TestTracker_ProcessSplit(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	buyTrade, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 1000, 50.0, date, nil)
+	buyTrade, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 1000, 50.0, date, nil)
 	if err != nil {
 		t.Fatalf("buy failed: %v", err)
 	}
@@ -297,7 +299,7 @@ func TestTracker_RecordDailyValue(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 
 	prices := map[string]float64{"600519": 55.0}
 	pv := tracker.RecordDailyValue(date, prices)
@@ -325,7 +327,7 @@ func TestTracker_GetPortfolio(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	buyTrade, _ := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	buyTrade, _ := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 
 	prices := map[string]float64{"600519": 55.0}
 	portfolio := tracker.GetPortfolio(prices)
@@ -347,7 +349,7 @@ func TestTracker_Reset(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 	tracker.RecordDailyValue(date, map[string]float64{"600519": 55.0})
 
 	tracker.Reset(500_000)
@@ -377,7 +379,7 @@ func TestTracker_LimitOrderBuy(t *testing.T) {
 		DayBar:     dayBar,
 	}
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, opts)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -398,7 +400,7 @@ func TestTracker_LimitOrderExpired(t *testing.T) {
 		DayBar:     dayBar,
 	}
 
-	_, err := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, opts)
+	_, err := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, opts)
 	if err == nil {
 		t.Error("expected limit order to expire, got nil error")
 	}
@@ -409,7 +411,7 @@ func TestTracker_LimitOrderSell(t *testing.T) {
 	buyDate := time.Date(2026, 4, 9, 0, 0, 0, 0, time.Local)
 	sellDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, buyDate, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, buyDate, nil)
 	tracker.AdvanceDay(buyDate)
 
 	dayBar := &domain.OHLCV{Open: 54, High: 56, Low: 53, Close: 55, Volume: 1000000}
@@ -419,7 +421,7 @@ func TestTracker_LimitOrderSell(t *testing.T) {
 		DayBar:     dayBar,
 	}
 
-	trade, err := tracker.ExecuteTrade("600519", domain.DirectionShort, 100, 54.0, sellDate, opts)
+	trade, err := tracker.ExecuteTrade("600519", cdom.DirectionShort, 100, 54.0, sellDate, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -433,8 +435,8 @@ func TestTracker_GetAllPositions(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
-	_, _ = tracker.ExecuteTrade("000858", domain.DirectionLong, 200, 30.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("000858", cdom.DirectionLong, 200, 30.0, date, nil)
 
 	positions := tracker.GetAllPositions()
 	if len(positions) != 2 {
@@ -446,8 +448,8 @@ func TestTracker_MultipleBuysSameSymbol(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	trade1, _ := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
-	trade2, _ := tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 55.0, date, nil)
+	trade1, _ := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
+	trade2, _ := tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 55.0, date, nil)
 
 	pos, _ := tracker.GetPosition("600519")
 	if pos.Quantity != 200 {
@@ -464,8 +466,8 @@ func TestTracker_TradeHistory(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
-	_, _ = tracker.ExecuteTrade("000858", domain.DirectionLong, 200, 30.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("000858", cdom.DirectionLong, 200, 30.0, date, nil)
 
 	trades := tracker.GetTrades()
 	if len(trades) != 2 {
@@ -477,7 +479,7 @@ func TestTracker_PortfolioValueCalculation(t *testing.T) {
 	tracker := newTestTracker(1_000_000)
 	date := time.Date(2026, 4, 10, 0, 0, 0, 0, time.Local)
 
-	_, _ = tracker.ExecuteTrade("600519", domain.DirectionLong, 100, 50.0, date, nil)
+	_, _ = tracker.ExecuteTrade("600519", cdom.DirectionLong, 100, 50.0, date, nil)
 
 	prices := map[string]float64{"600519": 55.0}
 	totalValue := tracker.GetPortfolioValue(prices)
@@ -509,7 +511,7 @@ func TestShortSellingCost_Accrual(t *testing.T) {
 	}
 
 	// Open a short position: 100 shares @ 50.0.
-	if _, err := tracker.ExecuteTrade("600519", domain.DirectionShort, 100, 50.0, date, nil); err != nil {
+	if _, err := tracker.ExecuteTrade("600519", cdom.DirectionShort, 100, 50.0, date, nil); err != nil {
 		t.Fatalf("short sell failed: %v", err)
 	}
 
@@ -548,7 +550,7 @@ func TestShortSellingCost_ZeroRate(t *testing.T) {
 		t.Fatalf("expected rate 0 after SetShortSellingRate(0), got %f", rate)
 	}
 
-	if _, err := tracker.ExecuteTrade("600519", domain.DirectionShort, 100, 50.0, date, nil); err != nil {
+	if _, err := tracker.ExecuteTrade("600519", cdom.DirectionShort, 100, 50.0, date, nil); err != nil {
 		t.Fatalf("short sell failed: %v", err)
 	}
 
@@ -577,7 +579,7 @@ func TestShortSellingCost_SetRate(t *testing.T) {
 		t.Fatalf("expected rate %f after SetShortSellingRate, got %f", customRate, rate)
 	}
 
-	if _, err := tracker.ExecuteTrade("600519", domain.DirectionShort, 100, 50.0, date, nil); err != nil {
+	if _, err := tracker.ExecuteTrade("600519", cdom.DirectionShort, 100, 50.0, date, nil); err != nil {
 		t.Fatalf("short sell failed: %v", err)
 	}
 

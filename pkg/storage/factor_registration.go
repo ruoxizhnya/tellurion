@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // 因子登记账本（D4 因子注册表治理细则——治理库的 DB 侧形态）。
 //
@@ -71,7 +73,7 @@ func (s *PostgresStore) SaveFactorRegistration(ctx context.Context, reg domain.F
 //
 // 只有仍在册（status='active'）的版本可回滚；找不到或已回滚 → 报错
 // （fail-closed）。actor 为空 → 报错（审计「谁」不可缺）。成功后追加审计留痕。
-func (s *PostgresStore) RollbackFactorRegistration(ctx context.Context, name domain.FactorType, versionHash, actor, reason string, at time.Time) error {
+func (s *PostgresStore) RollbackFactorRegistration(ctx context.Context, name cdom.FactorType, versionHash, actor, reason string, at time.Time) error {
 	if strings.TrimSpace(actor) == "" {
 		return fmt.Errorf("factor %q: rollback actor missing (audit trail requires 'who')", name)
 	}

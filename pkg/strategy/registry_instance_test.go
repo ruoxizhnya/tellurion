@@ -25,8 +25,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // cfgProbe 是一个「状态写在实例上」的探针：Configure 改 params，

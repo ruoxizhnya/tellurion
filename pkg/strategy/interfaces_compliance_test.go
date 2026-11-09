@@ -35,7 +35,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 
 	// Blank imports trigger init() in sub-packages, which register

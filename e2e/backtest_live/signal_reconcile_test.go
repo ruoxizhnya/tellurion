@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"github.com/ruoxizhnya/tellurion-kit/logging"
@@ -40,6 +40,8 @@ import (
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 回测侧合成夹具（与 pkg/backtest 的基准夹具同源，此处自持一份） ───
 
@@ -194,7 +196,7 @@ func (s *reconcileProbeStrategy) GenerateSignals(_ context.Context, bars map[str
 			Strength:  ret,
 			Price:     cur.Close,
 			Date:      cur.Date,
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 		})
 	}
 	return out, nil

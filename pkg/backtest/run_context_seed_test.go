@@ -24,12 +24,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 func seedDay() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }
 
@@ -51,30 +53,30 @@ func barsFor(symbol string, days int, start time.Time) []domain.OHLCV {
 func TestRunContext_FactorCacheSeedIsCopiedNotShared(t *testing.T) {
 	eng := newTestEngine(t)
 	day := seedDay()
-	eng.LoadFactorCache(map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {day: {"600000.SH": 1.5}},
+	eng.LoadFactorCache(map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {day: {"600000.SH": 1.5}},
 	})
 
 	rcA := newTestRun(t, eng)
 	rcB := newTestRun(t, eng)
 
 	// B 拿到的是同一条读数（种子真的传下来了）……
-	z, ok := rcB.factorZScore(domain.FactorMomentum, day, "600000.SH")
+	z, ok := rcB.factorZScore(cdom.FactorMomentum, day, "600000.SH")
 	require.True(t, ok, "装配期种子必须进本 run")
 	assert.InDelta(t, 1.5, z, 1e-9)
 
 	// ……然后 B 用自己的数据 Warm（整体替换语义），A 正在读的那份不能动。
-	rcB.factor.Load(map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {day: {"600000.SH": 99.0}},
+	rcB.factor.Load(map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {day: {"600000.SH": 99.0}},
 	})
 
-	zA, okA := rcA.factorZScore(domain.FactorMomentum, day, "600000.SH")
+	zA, okA := rcA.factorZScore(cdom.FactorMomentum, day, "600000.SH")
 	require.True(t, okA, "A run 的因子读数被 B run 覆盖 —— QT-12 的隔离失效")
 	assert.InDelta(t, 1.5, zA, 1e-9, "A 读到 99.0 等于读到别的 run 的数据")
 
 	// 引擎那份种子也不许被任何一侧改写：它是装配期对象，
 	// run 期间「谁都不写引擎」是本单的不变量。
-	zSeed, okSeed := eng.GetFactorZScore(domain.FactorMomentum, day, "600000.SH")
+	zSeed, okSeed := eng.GetFactorZScore(cdom.FactorMomentum, day, "600000.SH")
 	require.True(t, okSeed)
 	assert.InDelta(t, 1.5, zSeed, 1e-9, "run 写回了引擎级种子")
 }

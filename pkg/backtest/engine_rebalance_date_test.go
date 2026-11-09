@@ -20,12 +20,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/tracker"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/examples"
 )
+
+import "tellurion/pkg/domain"
 
 // asOfSpy 记录引擎每次生成信号时，组合快照里带着的日期。
 type asOfSpy struct {
@@ -55,7 +57,7 @@ func (s *asOfSpy) GenerateSignals(ctx context.Context, bars map[string][]domain.
 	return []strategy.Signal{{
 		Symbol:    s.sym,
 		Action:    "buy",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  1.0,
 		Date:      d,
 	}}, nil

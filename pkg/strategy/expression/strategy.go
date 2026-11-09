@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	expr "tellurion/pkg/expression"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ExpressionStrategyConfig holds all configuration for an
 // ExpressionStrategy. It is a plain struct so callers can construct it
@@ -45,7 +47,7 @@ func defaultExpressionStrategyConfig() ExpressionStrategyConfig {
 		SignalCfg: SignalConfig{
 			Expression: "cs_rank(close) > 0.8",
 			Action:     "buy",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 		},
 		SizingCfg: SizingConfig{
 			Method:      SizingEqual,
@@ -169,7 +171,7 @@ func (s *ExpressionStrategy) Configure(params map[string]interface{}) error {
 	cfg := s.cfg
 	cfg.SignalCfg.Expression = getStringParam(params, "signal_expr", cfg.SignalCfg.Expression)
 	cfg.SignalCfg.Action = getStringParam(params, "action", cfg.SignalCfg.Action)
-	cfg.SignalCfg.Direction = domain.Direction(getStringParam(params, "direction", string(cfg.SignalCfg.Direction)))
+	cfg.SignalCfg.Direction = cdom.Direction(getStringParam(params, "direction", string(cfg.SignalCfg.Direction)))
 	cfg.SignalCfg.MinStrength = getFloatParam(params, "min_strength", cfg.SignalCfg.MinStrength)
 	cfg.SignalCfg.Lookback = getIntParam(params, "lookback", cfg.SignalCfg.Lookback)
 	cfg.SizingCfg.Method = SizingMethod(getStringParam(params, "sizing_method", string(cfg.SizingCfg.Method)))

@@ -14,9 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // TestRiskEngineInterfaceMethods 断言 RiskEngine 的方法集合精确等于
 // {CalculatePosition, DetectRegime, CheckStopLoss, CheckOrder}。
@@ -142,7 +144,7 @@ func TestOrderIntentFields(t *testing.T) {
 			t.Errorf("OrderIntent 缺失冻结字段 %q", name)
 		}
 	}
-	assertFieldType(t, typ, "Side", reflect.TypeOf(domain.Direction("")))
+	assertFieldType(t, typ, "Side", reflect.TypeOf(cdom.Direction("")))
 	assertFieldType(t, typ, "OrderType", reflect.TypeOf(domain.OrderType("")))
 	assertFieldType(t, typ, "Ts", reflect.TypeOf(time.Time{}))
 }

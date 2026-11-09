@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 func sampleResponse(id string, strategy string, totalReturn float64) backtest.BacktestResponse {
 	return backtest.BacktestResponse{
@@ -35,12 +37,12 @@ func sampleResponse(id string, strategy string, totalReturn float64) backtest.Ba
 		CalmarRatio:     1.5,
 		StockPool:       []string{"600000.SH"},
 		InitialCapital:  1_000_000,
-		PortfolioValues: []domain.PortfolioValue{
+		PortfolioValues: []cdom.PortfolioValue{
 			{Date: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), TotalValue: 1_000_000, Cash: 1_000_000, Positions: 0},
 			{Date: time.Date(2024, 6, 30, 0, 0, 0, 0, time.UTC), TotalValue: 1_100_000, Cash: 500_000, Positions: 600_000},
 		},
-		Trades: []domain.Trade{
-			{Symbol: "600000.SH", Direction: domain.DirectionLong, Price: 10.0, Quantity: 1000, Timestamp: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)},
+		Trades: []cdom.Trade{
+			{Symbol: "600000.SH", Direction: cdom.DirectionLong, Price: 10.0, Quantity: 1000, Timestamp: time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)},
 		},
 	}
 }
@@ -286,7 +288,7 @@ func putCompareState(eng *backtest.Engine, id, status string, totalReturn float6
 		ID:     id,
 		Status: status,
 		Params: domain.BacktestParams{StrategyName: "momentum-" + id, StartDate: day, EndDate: day},
-		Result: &domain.BacktestResult{
+		Result: &cdom.BacktestResult{
 			StartDate:      day,
 			EndDate:        day,
 			TotalReturn:    totalReturn,

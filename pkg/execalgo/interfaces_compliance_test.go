@@ -15,10 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/portfolio"
 )
+
+import "tellurion/pkg/domain"
 
 // TestExecAlgorithmInterfaceMethods 断言 ExecAlgorithm 的方法集合精确
 // 等于 {Name, OnBar, OnFill, Schedule}——与策略同构 trait
@@ -104,7 +106,7 @@ func TestParentOrderFields(t *testing.T) {
 			t.Errorf("ParentOrder 缺失冻结字段 %q", name)
 		}
 	}
-	assertFieldType(t, typ, "Side", reflect.TypeOf(domain.Direction("")))
+	assertFieldType(t, typ, "Side", reflect.TypeOf(cdom.Direction("")))
 	assertFieldType(t, typ, "StartAt", reflect.TypeOf(time.Time{}))
 	assertFieldType(t, typ, "EndAt", reflect.TypeOf(time.Time{}))
 }

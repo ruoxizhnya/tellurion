@@ -1,13 +1,21 @@
 package repoguard
 
 // QT-05 B1（2026-10-23）契约身份护栏。domain / domain/market / engine / fees
-// 四包的本体已整包迁到 `tellurion-contracts`，本仓经版本依赖取用。迁走之后有
-// 四类复燃编译器**看不见**，本护栏钉的就是这四条：
+// 四包的本体曾整包迁到 `tellurion-contracts`。CT-06-B（2026-11-10，补裁 #12）
+// 把「只有 core 一个使用方」的 52 个根名迁回 `tellurion/pkg/domain`，契约仓
+// 只留 ≥2 使用方的形状；因此本护栏的口径变为：
+//   - pkg/domain 合法（core 自有形状），但 domain/market、fees、engine 契约
+//     仍只能住在契约仓；
+//   - 同名双份真相照样红：core 若定义与契约仓同名的类型，必须是指向契约包的
+//     别名；迁回的名字契约仓已删，所以不会误伤。
 //
-//	腿 A（包不许重建）：有人「先拷回来应急」，把 pkg/domain / pkg/fees /
+// 迁走之后有四类复燃编译器**看不见**，本护栏钉的就是这四条：
+//
+//	腿 A（包不许重建）：有人「先拷回来应急」，把 pkg/domain/market / pkg/fees /
 //	  pkg/backtest/contracts 重新建出来 —— 新建包完全合法，go build 不红，仓里
 //	  立刻有两份同名类型各自演化（交接单警告的「双份真相窗口」就是它）。同一
 //	  条里顺带核 import：旧路径再被 import 时，报错要说清「去契约仓改」。
+//	  注：`pkg/domain` 自身与 `tellurion/pkg/domain` 自 CT-06-B 起是合法路径。
 //	腿 B（门面不许变成第二份定义）：pkg/backtest/aliases.go 是 core 的门面，
 //	  与契约同名的类型全靠 `type X = contracts.X` 这层零成本别名。若有人为了
 //	  「消掉一个编译错误」把别名改成本地 struct，调用点仍然写
@@ -17,15 +25,15 @@ package repoguard
 //	腿 C（不许长出第二份形状）：core 里任何**用契约类型名**的顶层声明都必须是
 //	  指向契约包的别名，且被指的那个名字得真在契约里导出 —— 这条不限文件名，
 //	  所以「新加一个 aliases2.go 把 BacktestResponse 别名到本仓某个 struct」同
-//	  样咬得住（腿 B 只管门面那一个文件）。既成的 4 个**刻意分型**的本地同名
-//	  类型（逐条理由见 shadowContractNameBaseline）是 B1 之前就存在的既成事实，
-//	  这条腿守的是「第 5 个不许悄悄长出来」；基线条目不再命中 = 反向棘轮逼删
-//	  （白名单不许替已消失的违规打掩护）。
+//	  样咬得住（腿 B 只管门面那一个文件）。既成的**刻意分型**本地同名类型
+//	  （逐条理由见 shadowContractNameBaseline）是 B1 之前的既成事实，这条腿守
+//	  的是「新的不许悄悄长出来」；基线条目不再命中 = 反向棘轮逼删（白名单不许
+//	  替已消失的违规打掩护）。
 //	腿 D（跨语言面不许按路径读迁走的文件）：腿 A 判的是 Go 的 import 块，抓不住
 //	  「按路径 read 一个 Go 源文件」这种形状。B1 当天真实踩过：nt-sidecar 两把
 //	  跨语言字面量守卫读的是已删除的 pkg/domain/market/frequency.go 与
 //	  pkg/backtest/contracts/contracts.go，go build/vet/test 三条全绿，红的只会
-//	  是 CI 的 python job。这条腿把「.py 里出现那三个旧包路径」直接判红。
+//	  是 CI 的 python job。这条腿把「.py 里出现仍属契约仓的路径」直接判红。
 //
 // 四条都 fail-closed：定位不到契约模块、解析走空、扫描面走空，一律红，不把
 // 「没核成」伪装成「核过了」。
@@ -52,8 +60,10 @@ const contractsModulePath = "github.com/ruoxizhnya/tellurion-contracts"
 
 // minContractTypeNames 是解析正证据的下限。2026-10-23 用 go/ast 现场解析四包
 // （domain 71 / domain/market 12 / engine 26 / fees 1，按名字去重后共 98 个导出
-// 类型名）：留到 90 容得下 bump，容不下走空（名单为空会让腿 B/C 恒绿）。
-const minContractTypeNames = 90
+// 类型名）。CT-06-B（2026-11-10）把 domain 根包 52 个只有 core 使用方的类型迁走
+// 后，去重名数降到 53；下限取 45，容得下小幅删除、容不下走空（名单为空会让
+// 腿 B/C 恒绿）。
+const minContractTypeNames = 45
 
 // minFacadeAliases 是门面别名腿的正证据下限。2026-10-23 实测 7 条
 // （TradingConfig / PriceLimitConfig / BacktestRequest / BacktestResponse /
@@ -70,11 +80,16 @@ const minPythonFiles = 20
 
 var (
 	// legacyContractDirs 是已迁走的包目录（相对仓根）。
-	legacyContractDirs = []string{"pkg/domain", "pkg/domain/market", "pkg/fees", "pkg/backtest/contracts"}
+	//
+	// CT-06-B（2026-11-10）：`pkg/domain` 从本清单移出。补裁 #12 把「只有 core
+	// 一个使用方」的 52 个根名迁回本仓，`pkg/domain` 重新成为合法的 core 包；
+	// 但契约仓仍拥有 `domain/market`（全部跨仓共用）与 fees / engine 契约，所以
+	// 子包 pkg/domain/market 继续禁用 —— 腿 C 反转成反棘轮：core 若在 pkg/domain
+	// 里定义与契约仓同名的类型（且不是指向契约包的别名），照样判红。
+	legacyContractDirs = []string{"pkg/domain/market", "pkg/fees", "pkg/backtest/contracts"}
 
 	// legacyImportPaths 是与之对应的旧 import 路径。
 	legacyImportPaths = []string{
-		"tellurion/pkg/domain",
 		"tellurion/pkg/domain/market",
 		"tellurion/pkg/fees",
 		"tellurion/pkg/backtest/contracts",
@@ -90,10 +105,55 @@ var (
 // 类型（非别名声明）。key 形如 "<相对路径>:<类型名>"，每条写清撞的是什么、以及
 // 收敛归哪条单。
 //
-// 这 4 条都是 B1 之前就存在的既成事实（迁移只是把「core 的 pkg/domain vs core
-// 的本地包」换成「契约包 vs core 的本地包」），本基线守的是不要再长第 5 条。
+// 保留条目是 B1 之前就存在的既成事实（迁移只是把「core 的 pkg/domain vs core
+// 的本地包」换成「契约包 vs core 的本地包」），本基线守的是不要再长新的。
 // 2026-10-23 逐条实测过形状（见 docs/TASKS.md QT-05 core 腿结案段的缺口登记）。
+//
+// CT-06-B（2026-11-10）：原 Portfolio / RiskManager / Signal 三条随形状迁回
+// `tellurion:pkg/domain` 后，契约仓已不再导出这三个名字，撞名前提消失；按反向
+// 棘轮规则删除条目（白名单不许替已消失的撞名打掩护）。只剩 Provider 一条。
 var shadowContractNameBaseline = map[string]string{
+	// ─── CT-06-B（2026-11-10）迁回的 core-only 形状 ────────────────────
+	//
+	// 契约仓**工作区**已删掉这些同名导出（CT-06-B ①），但本仓 go.mod 仍 pin
+	// `tellurion-contracts v0.9.0`，本护栏按 pin 从 module cache 读，那里还导出。
+	// 因此这批条目是「版本滞后」而非双份真相：bump 到含 CT-06-B 的契约版本后
+	// 它们全部变成 stale，反向棘轮会逼删——这正是本条腿要的行为。
+	"pkg/domain/backtest.go:BacktestParams":                    ct06bMoved("BacktestParams"),
+	"pkg/domain/execution.go:ExecutionConfig":                  ct06bMoved("ExecutionConfig"),
+	"pkg/domain/factor.go:FactorCacheEntry":                    ct06bMoved("FactorCacheEntry"),
+	"pkg/domain/factor.go:FactorReturn":                        ct06bMoved("FactorReturn"),
+	"pkg/domain/factor.go:ICEntry":                             ct06bMoved("ICEntry"),
+	"pkg/domain/factor_def.go:FactorDefinition":                ct06bMoved("FactorDefinition"),
+	"pkg/domain/factor_def.go:FactorKernel":                    ct06bMoved("FactorKernel"),
+	"pkg/domain/factor_output.go:FactorCaliber":                ct06bMoved("FactorCaliber"),
+	"pkg/domain/factor_output.go:FactorOutput":                 ct06bMoved("FactorOutput"),
+	"pkg/domain/factor_registration.go:FactorRegistration":     ct06bMoved("FactorRegistration"),
+	"pkg/domain/factor_registration.go:RegistrationAction":     ct06bMoved("RegistrationAction"),
+	"pkg/domain/factor_registration.go:RegistrationAuditEntry": ct06bMoved("RegistrationAuditEntry"),
+	"pkg/domain/factor_registration.go:RegistrationStatus":     ct06bMoved("RegistrationStatus"),
+	"pkg/domain/fundamentals_detail.go:FundamentalsDetailRow":  ct06bMoved("FundamentalsDetailRow"),
+	"pkg/domain/mining.go:FactorMiningRecord":                  ct06bMoved("FactorMiningRecord"),
+	"pkg/domain/screen.go:ScreenFilters":                       ct06bMoved("ScreenFilters"),
+	"pkg/domain/screen.go:ScreenRequest":                       ct06bMoved("ScreenRequest"),
+	"pkg/domain/screen.go:ScreenResult":                        ct06bMoved("ScreenResult"),
+	"pkg/domain/supply_chain.go:ETFConstituent":                ct06bMoved("ETFConstituent"),
+	"pkg/domain/supply_chain.go:IndustryVitality":              ct06bMoved("IndustryVitality"),
+	"pkg/domain/supply_chain.go:SWIndustryNode":                ct06bMoved("SWIndustryNode"),
+	"pkg/domain/supply_chain.go:SupplyChainEdge":               ct06bMoved("SupplyChainEdge"),
+	"pkg/domain/types.go:Order":                                ct06bMoved("Order"),
+	"pkg/domain/types.go:OrderType":                            ct06bMoved("OrderType"),
+	"pkg/domain/types.go:Portfolio":                            ct06bMoved("Portfolio"),
+	"pkg/domain/types.go:Position":                             ct06bMoved("Position"),
+	"pkg/domain/types.go:PositionSize":                         ct06bMoved("PositionSize"),
+	"pkg/domain/types.go:RiskManager":                          ct06bMoved("RiskManager"),
+	"pkg/domain/types.go:RiskMetrics":                          ct06bMoved("RiskMetrics"),
+	"pkg/domain/types.go:Signal":                               ct06bMoved("Signal"),
+	"pkg/domain/types.go:StopLossEvent":                        ct06bMoved("StopLossEvent"),
+	"pkg/domain/types.go:TargetPosition":                       ct06bMoved("TargetPosition"),
+
+	// ─── B1 之前就存在的刻意分型（契约 pin 里仍有同名类型）────────────
+	//
 	// 实测（2026-10-23，逐条读了签名）：core 这 11 个方法里有 5 个与契约
 	// market.Provider 的名字与签名逐字相同（GetOHLCV / GetFundamental /
 	// GetStocks / GetLatestPrice / GetIndexConstituents，返回的 domain.OHLCV 等
@@ -106,6 +166,12 @@ var shadowContractNameBaseline = map[string]string{
 	// 实测 51 个 .go 里出现 strategy.Signal（`git grep -l 'strategy\.Signal' -- '*.go' | wc -l`；
 	// 去掉 _test.go 是 24 个）。
 	"pkg/strategy/strategy.go:Signal": "策略插件的产出形状（Action string / Price / Date interface{}），在 pkg/backtest/engine.go 的 convertStrategySignals 显式映射成契约 domain.Signal（Direction / CompositeScore / Factors）；要不要收敛属策略面的单，不由本护栏裁",
+}
+
+// ct06bMoved 生成「版本滞后」条目的统一理由。
+func ct06bMoved(name string) string {
+	return name + " 自契约仓迁回 core（CT-06-B 补裁 #12）；契约仓工作区已删同名导出，" +
+		"本仓 pin 的 v0.9.0 仍含 —— bump 到含 CT-06-B 的契约版本后删本条目"
 }
 
 // TestLegacyContractPackagesNotRebuilt 腿 A：旧契约包不得在本仓重建，也不得再
@@ -122,8 +188,9 @@ func TestLegacyContractPackagesNotRebuilt(t *testing.T) {
 		}
 	}
 	assert.Empty(t, rebuilt,
-		"这些已整包迁到 %s 的契约包在本仓被重建了。形状的唯一真相在契约仓：要改就"+
-			"去那边改、走它的兼容矩阵与发版流程；本仓只经版本依赖取用，不留第二份：%v",
+		"这些仍属 %s 的契约包在本仓被重建了。形状的唯一真相在契约仓：要改就"+
+			"去那边改、走它的兼容矩阵与发版流程；本仓只经版本依赖取用，不留第二份"+
+			"（CT-06-B 后只有 pkg/domain 本身允许住在 core）：%v",
 		contractsModulePath, rebuilt)
 
 	bad := filesImporting(t, root, legacyImportPaths)

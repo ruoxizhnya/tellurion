@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 type Provider interface {

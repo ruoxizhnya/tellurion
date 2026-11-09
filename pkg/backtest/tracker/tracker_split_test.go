@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // TestTracker_ProcessSplit_StockDividend —— 原始价口径：10 送 5，股数 1000→1500、
 // 均价摊薄。仅 ExecuteTrade 内存路径专用，非 qfq 生产口径（见文件头）。
@@ -27,7 +29,7 @@ func TestTracker_ProcessSplit_StockDividend(t *testing.T) {
 	symbol := "600010.SH"
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, 10.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, 10.0, day, nil)
 
 	cashBefore := tracker.GetCash()
 	pos, exists := tracker.GetPosition(symbol)
@@ -60,7 +62,7 @@ func TestTracker_ProcessSplit_CashDividend(t *testing.T) {
 	symbol := "600011.SH"
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, 10.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, 10.0, day, nil)
 
 	cashBefore := tracker.GetCash()
 
@@ -90,7 +92,7 @@ func TestTracker_ProcessSplit_BothDividends(t *testing.T) {
 	symbol := "600012.SH"
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, 10.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, 10.0, day, nil)
 
 	cashBefore := tracker.GetCash()
 
@@ -135,7 +137,7 @@ func TestTracker_GetTotalValue(t *testing.T) {
 	total := tracker.GetTotalValue(map[string]float64{})
 	assert.Equal(t, 1000000.0, total)
 
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 500, 20.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 500, 20.0, day, nil)
 
 	prices := map[string]float64{symbol: 25.0}
 	total = tracker.GetTotalValue(prices)

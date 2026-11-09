@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // P2-12：引擎侧的基本面注入。
 //
@@ -57,7 +59,7 @@ func TestEngine_WarmFundamentals_NoStoreLeavesEmpty(t *testing.T) {
 		SignalCfg: expression.SignalConfig{
 			Expression: "cs_rank(neg(pe)) > 0.8",
 			Action:     "buy",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 		},
 	})
 	require.NoError(t, err)

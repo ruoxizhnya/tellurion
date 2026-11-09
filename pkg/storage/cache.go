@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ── Factor Cache ──────────────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ func (s *PostgresStore) SaveFactorCacheBatch(ctx context.Context, entries []*dom
 }
 
 // GetFactorCache retrieves a single factor cache entry.
-func (s *PostgresStore) GetFactorCache(ctx context.Context, symbol string, date time.Time, factor domain.FactorType) (*domain.FactorCacheEntry, error) {
+func (s *PostgresStore) GetFactorCache(ctx context.Context, symbol string, date time.Time, factor cdom.FactorType) (*domain.FactorCacheEntry, error) {
 	query := `
 		SELECT id, symbol, trade_date, factor_name, raw_value, z_score, percentile, citation
 		FROM factor_cache
@@ -88,7 +90,7 @@ func (s *PostgresStore) GetFactorCache(ctx context.Context, symbol string, date 
 }
 
 // GetFactorCacheRange retrieves factor cache entries for a factor within a date range.
-func (s *PostgresStore) GetFactorCacheRange(ctx context.Context, factor domain.FactorType, startDate, endDate time.Time) ([]*domain.FactorCacheEntry, error) {
+func (s *PostgresStore) GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, startDate, endDate time.Time) ([]*domain.FactorCacheEntry, error) {
 	query := `
 		SELECT id, symbol, trade_date, factor_name, raw_value, z_score, percentile, citation
 		FROM factor_cache
@@ -161,7 +163,7 @@ func (s *PostgresStore) SaveFactorReturnBatch(ctx context.Context, records []*do
 }
 
 // GetFactorReturns retrieves factor returns for a factor within a date range.
-func (s *PostgresStore) GetFactorReturns(ctx context.Context, factor domain.FactorType, startDate, endDate time.Time) ([]*domain.FactorReturn, error) {
+func (s *PostgresStore) GetFactorReturns(ctx context.Context, factor cdom.FactorType, startDate, endDate time.Time) ([]*domain.FactorReturn, error) {
 	query := `
 		SELECT id, factor_name, trade_date, quintile, avg_return, cumulative_return, top_minus_bot
 		FROM factor_returns
@@ -234,7 +236,7 @@ func (s *PostgresStore) SaveICEntryBatch(ctx context.Context, records []*domain.
 }
 
 // GetICEntries retrieves IC entries for a factor within a date range.
-func (s *PostgresStore) GetICEntries(ctx context.Context, factor domain.FactorType, startDate, endDate time.Time) ([]*domain.ICEntry, error) {
+func (s *PostgresStore) GetICEntries(ctx context.Context, factor cdom.FactorType, startDate, endDate time.Time) ([]*domain.ICEntry, error) {
 	query := `
 		SELECT id, factor_name, trade_date, ic, p_value, top_ic
 		FROM ic_analysis

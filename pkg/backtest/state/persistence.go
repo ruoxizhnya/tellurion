@@ -28,8 +28,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ErrStateNotFound is returned by Load when no persisted state exists
 // for the given ID.
@@ -43,14 +45,14 @@ var ErrInvalidStateID = errors.New("backtest: invalid state ID")
 // The error field is converted to a string because the error interface
 // cannot be JSON-marshalled.
 type persistedState struct {
-	ID          string                 `json:"id"`
-	Status      string                 `json:"status"`
-	Params      domain.BacktestParams  `json:"params"`
-	Result      *domain.BacktestResult `json:"result,omitempty"`
-	StartedAt   time.Time              `json:"started_at"`
-	CompletedAt time.Time              `json:"completed_at"`
-	ErrorMsg    string                 `json:"error_msg,omitempty"`
-	Frozen      bool                   `json:"frozen"`
+	ID          string                `json:"id"`
+	Status      string                `json:"status"`
+	Params      domain.BacktestParams `json:"params"`
+	Result      *cdom.BacktestResult  `json:"result,omitempty"`
+	StartedAt   time.Time             `json:"started_at"`
+	CompletedAt time.Time             `json:"completed_at"`
+	ErrorMsg    string                `json:"error_msg,omitempty"`
+	Frozen      bool                  `json:"frozen"`
 }
 
 // DiskStateStore persists BacktestStateSnapshot values to disk as JSON

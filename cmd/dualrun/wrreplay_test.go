@@ -9,9 +9,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 )
+
+import "tellurion/pkg/domain"
 
 func testBar(sym string, y, m, d int, close, volume float64) domain.OHLCV {
 	return domain.OHLCV{
@@ -48,9 +50,9 @@ func TestWRReplay_OpenAndClose(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		i   int
-		dir domain.Direction
+		dir cdom.Direction
 		qty float64
-	}{{0, domain.DirectionLong, 5000}, {1, domain.DirectionShort, 500}, {2, domain.DirectionShort, 4500}} {
+	}{{0, cdom.DirectionLong, 5000}, {1, cdom.DirectionShort, 500}, {2, cdom.DirectionShort, 4500}} {
 		got := res.Trades[tc.i]
 		if got.Direction != tc.dir || got.Quantity != tc.qty {
 			t.Fatalf("trade[%d]: %s %v, want %s %v", tc.i, got.Direction, got.Quantity, tc.dir, tc.qty)
@@ -89,9 +91,9 @@ func TestWRReplay_ConstantNotionalRebalance(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		i   int
-		dir domain.Direction
+		dir cdom.Direction
 		qty float64
-	}{{0, domain.DirectionLong, 5000}, {1, domain.DirectionShort, 500}, {2, domain.DirectionLong, 1000}} {
+	}{{0, cdom.DirectionLong, 5000}, {1, cdom.DirectionShort, 500}, {2, cdom.DirectionLong, 1000}} {
 		if res.Trades[tc.i].Direction != tc.dir || res.Trades[tc.i].Quantity != tc.qty {
 			t.Fatalf("trade[%d]: %s %v want %s %v", tc.i,
 				res.Trades[tc.i].Direction, res.Trades[tc.i].Quantity, tc.dir, tc.qty)
@@ -228,14 +230,14 @@ func TestBuildReport_TradeReconciliationNamesOrphans(t *testing.T) {
 	// 静默 matched。把 ntTrades 的第二条删掉 → 本测试红（护栏反向自检见
 	// 台账收口记录）。
 	day := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-	goTrades := []domain.Trade{
-		{Symbol: "A", Direction: domain.DirectionLong, Quantity: 100, Price: 10, Timestamp: day, Commission: 5},
-		{Symbol: "B", Direction: domain.DirectionLong, Quantity: 200, Price: 20, Timestamp: day, Commission: 5},
+	goTrades := []cdom.Trade{
+		{Symbol: "A", Direction: cdom.DirectionLong, Quantity: 100, Price: 10, Timestamp: day, Commission: 5},
+		{Symbol: "B", Direction: cdom.DirectionLong, Quantity: 200, Price: 20, Timestamp: day, Commission: 5},
 	}
-	ntTrades := []domain.Trade{
-		{Symbol: "A", Direction: domain.DirectionLong, Quantity: 100, Price: 10, Timestamp: day, Commission: 5},
+	ntTrades := []cdom.Trade{
+		{Symbol: "A", Direction: cdom.DirectionLong, Quantity: 100, Price: 10, Timestamp: day, Commission: 5},
 	}
-	report := buildReport("w", "s", "k", domain.BacktestResult{Trades: goTrades}, domain.BacktestResult{Trades: ntTrades})
+	report := buildReport("w", "s", "k", cdom.BacktestResult{Trades: goTrades}, cdom.BacktestResult{Trades: ntTrades})
 	if report.MatchedTrades != 1 || report.GoOnlyTrades != 1 {
 		t.Fatalf("expect 1 matched + 1 go_only, got matched=%d go_only=%d",
 			report.MatchedTrades, report.GoOnlyTrades)
@@ -255,8 +257,8 @@ func containsKind(r *Report, kind string) bool {
 }
 
 func TestBuildReport_MetricDiffComputed(t *testing.T) {
-	goRes := domain.BacktestResult{TotalReturn: 0.10, SharpeRatio: 1.5}
-	ntRes := domain.BacktestResult{TotalReturn: 0.12, SharpeRatio: 1.4}
+	goRes := cdom.BacktestResult{TotalReturn: 0.10, SharpeRatio: 1.5}
+	ntRes := cdom.BacktestResult{TotalReturn: 0.12, SharpeRatio: 1.4}
 	report := buildReport("w", "s", "k", goRes, ntRes)
 	var found bool
 	for _, m := range report.MetricRows {

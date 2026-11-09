@@ -28,13 +28,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/testenv"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 测试装置 ────────────────────────────────────────────────────────
 
@@ -486,7 +488,7 @@ func TestEngine_IntradayAwareStrategy_Backtest(t *testing.T) {
 	// 一开一平配对计 1），逐笔看 len(resp.Trades)。
 	require.Equal(t, 1, resp.TotalTrades, "一个开平往返")
 	require.Len(t, resp.Trades, 2, "trades=%+v", resp.Trades)
-	assert.Equal(t, domain.DirectionLong, resp.Trades[0].Direction)
+	assert.Equal(t, cdom.DirectionLong, resp.Trades[0].Direction)
 	assert.Equal(t, sym, resp.Trades[0].Symbol)
 	// 买入价 = 收盘 × (1 + 滑点) = 10.50 × 1.0001。
 	//
@@ -497,7 +499,7 @@ func TestEngine_IntradayAwareStrategy_Backtest(t *testing.T) {
 	assert.InDelta(t, 10.50105, resp.Trades[0].Price, 1e-9, "成交价 = 01-02 收盘含滑点（配置口径 0.0001，REV-19）")
 	assert.Equal(t, d6Day, resp.Trades[0].Timestamp.UTC(), "首笔成交在 01-02")
 	// 强平在回测末日（01-04），卖出价 = 10.15 × (1 - 滑点)。
-	assert.Equal(t, domain.DirectionClose, resp.Trades[1].Direction)
+	assert.Equal(t, cdom.DirectionClose, resp.Trades[1].Direction)
 	assert.Equal(t, d6Day.AddDate(0, 0, 2), resp.Trades[1].Timestamp.UTC(), "强平在 01-04")
 	assert.InDelta(t, 10.148985, resp.Trades[1].Price, 1e-9)
 }

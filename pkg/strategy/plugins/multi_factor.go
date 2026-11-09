@@ -10,10 +10,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // MultiFactorConfig holds configuration for the multi-factor strategy.
 type MultiFactorConfig struct {
@@ -406,9 +408,9 @@ func (s *multiFactorStrategy) generateSignalsFromFactorCache(
 ) []rankedStock {
 	var ranked []rankedStock
 	for symbol := range bars {
-		valZ, valOk := s.factorReader(domain.FactorValue, screenDate, symbol)
-		quaZ, quaOk := s.factorReader(domain.FactorQuality, screenDate, symbol)
-		momZ, momOk := s.factorReader(domain.FactorMomentum, screenDate, symbol)
+		valZ, valOk := s.factorReader(cdom.FactorValue, screenDate, symbol)
+		quaZ, quaOk := s.factorReader(cdom.FactorQuality, screenDate, symbol)
+		momZ, momOk := s.factorReader(cdom.FactorMomentum, screenDate, symbol)
 
 		factorsAvailable := 0
 		if valOk {

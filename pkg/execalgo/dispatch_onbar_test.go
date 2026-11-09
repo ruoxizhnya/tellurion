@@ -14,10 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // onBarErrAlgo 是注入 OnBar 错误的测试替身：Schedule 正常、OnBar 恒错。
 type onBarErrAlgo struct {
@@ -43,7 +45,7 @@ func TestDispatcher_OnBarErrorReturnsTakenChildren(t *testing.T) {
 
 	// 父单 A（字典序在前）：算法运行态损坏，OnBar 报错。
 	badPlan, err := NewTWAP(2).Schedule(ctx, ParentOrder{
-		OrderID: "EA-20260105-A-long", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		OrderID: "EA-20260105-A-long", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 200, StartAt: start, EndAt: start.AddDate(0, 0, 2),
 	})
 	require.NoError(t, err)
@@ -53,7 +55,7 @@ func TestDispatcher_OnBarErrorReturnsTakenChildren(t *testing.T) {
 	d.parents["EA-20260105-A-long"] = &parentRun{
 		spec: AttachSpec{
 			ParentID: "EA-20260105-A-long", Symbol: "000001.SZ",
-			Side: domain.DirectionLong, Qty: 200, OrderType: domain.OrderTypeMarket,
+			Side: cdom.DirectionLong, Qty: 200, OrderType: domain.OrderTypeMarket,
 		},
 		algo: stub,
 		due:  stub,
@@ -62,7 +64,7 @@ func TestDispatcher_OnBarErrorReturnsTakenChildren(t *testing.T) {
 
 	// 父单 B（字典序在后）：真 TWAP，正常到点。
 	_, err = d.Attach(ctx, AttachSpec{
-		ParentID: "EA-20260105-B-long", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		ParentID: "EA-20260105-B-long", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 1000, Style: StyleTWAP, Slices: 2, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 2),
 	})

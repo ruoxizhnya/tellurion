@@ -30,9 +30,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"

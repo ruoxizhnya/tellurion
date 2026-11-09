@@ -15,9 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 测试替身（自造自用，不共享 DefaultRegistry）────────────────────
 
@@ -144,8 +146,8 @@ func TestLocalSignalProviderRejectsFutureDatedOutput(t *testing.T) {
 func TestLocalSignalProviderBatchPassthrough(t *testing.T) {
 	asOf := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
 	want := []Signal{
-		{Symbol: "A", Direction: domain.DirectionLong, Strength: 0.5, Date: asOf.AddDate(0, 0, -1)},
-		{Symbol: "B", Direction: domain.DirectionClose}, // Date 零值也必须透传
+		{Symbol: "A", Direction: cdom.DirectionLong, Strength: 0.5, Date: asOf.AddDate(0, 0, -1)},
+		{Symbol: "B", Direction: cdom.DirectionClose}, // Date 零值也必须透传
 	}
 	reg := NewRegistry()
 	batch := &pvBatch{name: "pv-batch", gen: func(map[string][]domain.OHLCV, *domain.Portfolio) ([]Signal, error) {
@@ -219,7 +221,7 @@ func TestLocalSignalProviderInjectsFactorAndFundamentals(t *testing.T) {
 	batch := &pvBatch{name: "pv-inject"}
 	require.NoError(t, reg.RegisterFactory(func() Strategy { return batch }))
 
-	reader := FactorZScoreReader(func(domain.FactorType, time.Time, string) (float64, bool) { return 0, false })
+	reader := FactorZScoreReader(func(cdom.FactorType, time.Time, string) (float64, bool) { return 0, false })
 	fund := map[string]FundamentalSeries{"A": {}}
 
 	p := NewLocalSignalProvider(reg)

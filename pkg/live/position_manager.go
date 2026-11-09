@@ -3,8 +3,10 @@ package live
 import (
 	"sync"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // PositionManager manages trading positions
 type PositionManager struct {
@@ -27,7 +29,7 @@ func (pm *PositionManager) UpdatePosition(position domain.Position) {
 }
 
 // UpdateFromTrade updates positions based on a trade
-func (pm *PositionManager) UpdateFromTrade(trade domain.Trade) {
+func (pm *PositionManager) UpdateFromTrade(trade cdom.Trade) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -38,7 +40,7 @@ func (pm *PositionManager) UpdateFromTrade(trade domain.Trade) {
 		}
 	}
 
-	if trade.Direction == domain.DirectionLong {
+	if trade.Direction == cdom.DirectionLong {
 		totalCost := position.AvgCost*position.Quantity + trade.Price*trade.Quantity
 		position.Quantity += trade.Quantity
 		if position.Quantity > 0 {

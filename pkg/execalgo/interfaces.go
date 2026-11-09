@@ -24,9 +24,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/portfolio"
 )
+
+import "tellurion/pkg/domain"
 
 // Fill 是成交回报事件——与 portfolio 共用同一契约
 // （pkg/portfolio/interfaces.go）。
@@ -39,28 +41,28 @@ type Fill = portfolio.Fill
 // ParentOrder 是父订单——策略产出的「要买/卖多少」的大单，算法把它
 // 拆成若干子订单。
 type ParentOrder struct {
-	OrderID    string           `json:"order_id"` // 父订单号（回链 quant.orders）
-	RunID      string           `json:"run_id"`   // 归属 run
-	Symbol     string           `json:"symbol"`
-	Side       domain.Direction `json:"side"`
-	Qty        float64          `json:"qty"`         // 总数量
-	LimitPrice float64          `json:"limit_price"` // 0 = 不限价（跟随市价）
-	Style      string           `json:"style"`       // 拆单算法："" / "twap" / "vwap"
-	StartAt    time.Time        `json:"start_at"`    // 执行窗口起点
-	EndAt      time.Time        `json:"end_at"`      // 执行窗口终点（TWAP 按此均分）
+	OrderID    string         `json:"order_id"` // 父订单号（回链 quant.orders）
+	RunID      string         `json:"run_id"`   // 归属 run
+	Symbol     string         `json:"symbol"`
+	Side       cdom.Direction `json:"side"`
+	Qty        float64        `json:"qty"`         // 总数量
+	LimitPrice float64        `json:"limit_price"` // 0 = 不限价（跟随市价）
+	Style      string         `json:"style"`       // 拆单算法："" / "twap" / "vwap"
+	StartAt    time.Time      `json:"start_at"`    // 执行窗口起点
+	EndAt      time.Time      `json:"end_at"`      // 执行窗口终点（TWAP 按此均分）
 }
 
 // ChildOrder 是子订单——算法按时间片 / 成交量分布拆出的每一笔，
 // 逐笔过风控后交给 exec-engine。
 type ChildOrder struct {
-	OrderID    string           `json:"order_id"`  // 子订单号（由算法生成，须幂等）
-	ParentID   string           `json:"parent_id"` // 回链 ParentOrder.OrderID
-	RunID      string           `json:"run_id"`
-	Symbol     string           `json:"symbol"`
-	Side       domain.Direction `json:"side"`
-	Qty        float64          `json:"qty"`         // 本片数量
-	LimitPrice float64          `json:"limit_price"` // 0 = 市价
-	SubmitAt   time.Time        `json:"submit_at"`   // 计划报送时刻（由 Schedule 排定）
+	OrderID    string         `json:"order_id"`  // 子订单号（由算法生成，须幂等）
+	ParentID   string         `json:"parent_id"` // 回链 ParentOrder.OrderID
+	RunID      string         `json:"run_id"`
+	Symbol     string         `json:"symbol"`
+	Side       cdom.Direction `json:"side"`
+	Qty        float64        `json:"qty"`         // 本片数量
+	LimitPrice float64        `json:"limit_price"` // 0 = 市价
+	SubmitAt   time.Time      `json:"submit_at"`   // 计划报送时刻（由 Schedule 排定）
 }
 
 // ExecAlgorithm 是执行算法的统一抽象（与策略同构 trait）。

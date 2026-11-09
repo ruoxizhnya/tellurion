@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/testenv"
 )
+
+import "tellurion/pkg/domain"
 
 // 因子登记账本（D4）的库侧测试。与同包 D3 测试同款：本机 PG 直连、
 // 测试数据自清理、无库（TEST_DATABASE_DSN 未设置）则显式 Skip 并登记
@@ -44,7 +46,7 @@ func newFactorRegistrationTestStore(t *testing.T) *PostgresStore {
 // govReg 造一条合规登记：momentum 公式型定义第 lookback 版。
 func govReg(lookback int, registrar string, at time.Time) domain.FactorRegistration {
 	def := domain.FactorDefinition{
-		Name:          domain.FactorMomentum,
+		Name:          cdom.FactorMomentum,
 		Kernel:        domain.KernelFormula,
 		Formula:       "close / ts_delay(close, 20) - 1",
 		Validity:      "close > 0 and ts_delay(close, 20) > 0",
@@ -143,7 +145,7 @@ func TestFactorRegistrations_RollbackLeavesVersionRow(t *testing.T) {
 	if err := store.SaveFactorRegistration(ctx, reg); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if err := store.RollbackFactorRegistration(ctx, domain.FactorMomentum, reg.VersionHash, "alice", "window too short", regAt(16)); err != nil {
+	if err := store.RollbackFactorRegistration(ctx, cdom.FactorMomentum, reg.VersionHash, "alice", "window too short", regAt(16)); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
 
@@ -187,18 +189,18 @@ func TestFactorRegistrations_RollbackFailClosed(t *testing.T) {
 	}
 
 	// 未登记版本。
-	if err := store.RollbackFactorRegistration(ctx, domain.FactorMomentum, "deadbeef", "alice", "", regAt(16)); err == nil {
+	if err := store.RollbackFactorRegistration(ctx, cdom.FactorMomentum, "deadbeef", "alice", "", regAt(16)); err == nil {
 		t.Fatal("rollback of an unregistered version must fail closed")
 	}
 	// 缺 actor（审计「谁」不可缺）。
-	if err := store.RollbackFactorRegistration(ctx, domain.FactorMomentum, reg.VersionHash, "  ", "", regAt(16)); err == nil {
+	if err := store.RollbackFactorRegistration(ctx, cdom.FactorMomentum, reg.VersionHash, "  ", "", regAt(16)); err == nil {
 		t.Fatal("rollback without actor must fail closed")
 	}
 	// 正常回滚 → 再次回滚应拒收。
-	if err := store.RollbackFactorRegistration(ctx, domain.FactorMomentum, reg.VersionHash, "alice", "", regAt(16)); err != nil {
+	if err := store.RollbackFactorRegistration(ctx, cdom.FactorMomentum, reg.VersionHash, "alice", "", regAt(16)); err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if err := store.RollbackFactorRegistration(ctx, domain.FactorMomentum, reg.VersionHash, "alice", "", regAt(17)); err == nil {
+	if err := store.RollbackFactorRegistration(ctx, cdom.FactorMomentum, reg.VersionHash, "alice", "", regAt(17)); err == nil {
 		t.Fatal("rollback of an already-rolled-back version must fail closed")
 	}
 }
@@ -223,7 +225,7 @@ func TestFactorRegistrations_SaveRejectsMissingFour(t *testing.T) {
 	// 缺公式（pending 无内核体）。
 	pending := domain.FactorRegistration{
 		Definition: domain.FactorDefinition{
-			Name: domain.FactorSize, Kernel: domain.KernelPending,
+			Name: cdom.FactorSize, Kernel: domain.KernelPending,
 			Caliber: domain.CaliberZScore, EffectiveFrom: "2026-10-14", Lookahead: "trade_date",
 		},
 		Registrar: "alice", Status: domain.RegistrationActive, RegisteredAt: regAt(14),

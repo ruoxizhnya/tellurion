@@ -6,9 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	expr "tellurion/pkg/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // ohlcvFields are the data fields extractable from domain.OHLCV bars.
 var ohlcvFields = map[string]bool{
@@ -64,7 +66,7 @@ type OHLCVDataProvider struct {
 	fundamentals map[string][]domain.Fundamental
 	// activity 是每股的市场活跃度观测，**按交易日升序**（D5）。
 	// nil = 这一路没有活跃度数据，用了 turnover_rate 之类会明确报错。
-	activity map[string][]domain.MarketActivity
+	activity map[string][]cdom.MarketActivity
 }
 
 // NewOHLCVDataProvider constructs a provider from a bars map.
@@ -96,7 +98,7 @@ func NewOHLCVDataProviderWithFundamentals(
 func NewOHLCVDataProviderWithActivity(
 	bars map[string][]domain.OHLCV,
 	records map[string][]domain.Fundamental,
-	activity map[string][]domain.MarketActivity,
+	activity map[string][]cdom.MarketActivity,
 ) *OHLCVDataProvider {
 	symbols := make([]string, 0, len(bars))
 	for s := range bars {
@@ -302,7 +304,7 @@ func fundamentalValue(f domain.Fundamental, field string) (float64, bool) {
 // 与 fundamentalValue 的估值倍数字段不同，这里不套「非正即 NaN」规则：
 // 换手率/量比的 0 与负值在有数据时是有意义观测（量比可小于 1 即萎缩），
 // 「缺失」由 nil 承载，不由数值域承载。
-func activityValue(r domain.MarketActivity, field string) (float64, bool) {
+func activityValue(r cdom.MarketActivity, field string) (float64, bool) {
 	var p *float64
 	switch field {
 	case "turnover_rate":

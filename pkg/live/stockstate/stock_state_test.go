@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/live"
 )
+
+import "tellurion/pkg/domain"
 
 // ============================================================
 // 测试辅助: stub LiveTrader for ForcedLiquidator tests
@@ -35,7 +37,7 @@ type flattenCall struct {
 	reason string
 }
 
-func (s *stockStateStubTrader) SubmitOrder(_ context.Context, _ string, _ domain.Direction, _ domain.OrderType, _ float64, _ float64) (*live.OrderResult, error) {
+func (s *stockStateStubTrader) SubmitOrder(_ context.Context, _ string, _ cdom.Direction, _ domain.OrderType, _ float64, _ float64) (*live.OrderResult, error) {
 	return nil, errors.New("not implemented")
 }
 func (s *stockStateStubTrader) CancelOrder(_ context.Context, _ string) error {

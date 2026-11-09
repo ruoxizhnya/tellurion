@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 var nopLogger = zerolog.Nop()
 
@@ -109,7 +111,7 @@ func TestBoundary_StopLossChecker_CalculateStopLossPrice_ZeroATR(t *testing.T) {
 
 	entryPrice := 100.0
 	atr := 0.0
-	regime := &domain.MarketRegime{Trend: "bull", Volatility: "low"}
+	regime := &cdom.MarketRegime{Trend: "bull", Volatility: "low"}
 
 	stopLoss := slc.CalculateStopLossPrice(entryPrice, atr, regime)
 	// With zero ATR, stop loss should equal entry price
@@ -129,7 +131,7 @@ func TestBoundary_StopLossChecker_CalculateStopLossPrice_NegativeATR(t *testing.
 
 	entryPrice := 100.0
 	atr := -5.0 // negative — should not happen but code should not panic
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	stopLoss := slc.CalculateStopLossPrice(entryPrice, atr, regime)
 	// stopLoss = entry - (multiplier * atr) = 100 - (2.0 * -5.0) = 100 + 10 = 110.
@@ -177,13 +179,13 @@ func TestBoundary_StopLossChecker_RegimeMultipliers(t *testing.T) {
 	atr := 5.0
 
 	cases := []struct {
-		regime  *domain.MarketRegime
+		regime  *cdom.MarketRegime
 		wantMul float64
 	}{
-		{&domain.MarketRegime{Trend: "bull"}, 1.5},
-		{&domain.MarketRegime{Trend: "bear"}, 3.0},
-		{&domain.MarketRegime{Trend: "sideways"}, 2.5},
-		{&domain.MarketRegime{Trend: "unknown"}, 2.5}, // default → sideways
+		{&cdom.MarketRegime{Trend: "bull"}, 1.5},
+		{&cdom.MarketRegime{Trend: "bear"}, 3.0},
+		{&cdom.MarketRegime{Trend: "sideways"}, 2.5},
+		{&cdom.MarketRegime{Trend: "unknown"}, 2.5}, // default → sideways
 	}
 	for _, c := range cases {
 		stopLoss := slc.CalculateStopLossPrice(entryPrice, atr, c.regime)
@@ -202,7 +204,7 @@ func TestBoundary_StopLossChecker_CalculateTakeProfitPrice(t *testing.T) {
 
 	entryPrice := 100.0
 	atr := 5.0
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	tp := slc.CalculateTakeProfitPrice(entryPrice, atr, regime)
 	expected := entryPrice + (3.0 * atr)
@@ -219,7 +221,7 @@ func TestBoundary_StopLossChecker_GetStopLossLevels(t *testing.T) {
 
 	entryPrice := 100.0
 	atr := 5.0
-	regime := &domain.MarketRegime{Trend: "bull"}
+	regime := &cdom.MarketRegime{Trend: "bull"}
 
 	sl, tp := slc.GetStopLossLevels(entryPrice, atr, regime)
 	if sl >= entryPrice {
@@ -340,7 +342,7 @@ func TestBoundary_StopLossChecker_CheckStopLossWithRegime(t *testing.T) {
 	}
 	prices := map[string]float64{"TEST": 80.0}
 	atrData := map[string]float64{"TEST": 5.0}
-	regime := &domain.MarketRegime{Trend: "bear", Volatility: "high"}
+	regime := &cdom.MarketRegime{Trend: "bear", Volatility: "high"}
 
 	events, err := slc.CheckStopLossWithRegime(context.Background(), positions, prices, atrData, regime)
 	if err != nil {
@@ -685,7 +687,7 @@ func TestBoundary_VolatilitySizer_CalculatePositionWeight_HighVolRegime(t *testi
 	}
 	vs := NewVolatilitySizer(cfg, nopLogger)
 
-	regime := &domain.MarketRegime{Volatility: "high"}
+	regime := &cdom.MarketRegime{Volatility: "high"}
 	weight := vs.CalculatePositionWeight(0.20, regime)
 	// High vol regime → multiplier 0.5 → reduced weight
 	if weight > cfg.MaxPositionWeight {
@@ -703,7 +705,7 @@ func TestBoundary_VolatilitySizer_CalculatePositionWeight_LowVolRegime(t *testin
 	}
 	vs := NewVolatilitySizer(cfg, nopLogger)
 
-	regime := &domain.MarketRegime{Volatility: "low"}
+	regime := &cdom.MarketRegime{Volatility: "low"}
 	weight := vs.CalculatePositionWeight(0.20, regime)
 	if weight > cfg.MaxPositionWeight {
 		t.Errorf("weight = %v, should be <= max %v", weight, cfg.MaxPositionWeight)
@@ -720,7 +722,7 @@ func TestBoundary_VolatilitySizer_CalculatePositionWeight_BearRegime(t *testing.
 	}
 	vs := NewVolatilitySizer(cfg, nopLogger)
 
-	regime := &domain.MarketRegime{Trend: "bear", Volatility: "medium"}
+	regime := &cdom.MarketRegime{Trend: "bear", Volatility: "medium"}
 	weight := vs.CalculatePositionWeight(0.20, regime)
 	// Bear regime → multiplier 0.7 → reduced weight
 	if weight > cfg.MaxPositionWeight {
@@ -797,7 +799,7 @@ func TestBoundary_VolatilitySizer_CalculatePosition(t *testing.T) {
 	ohlcv := makeOHLCV(15, 100.0)
 	signal := domain.Signal{
 		Symbol:    "TEST",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  0.8,
 	}
 	portfolio := &domain.Portfolio{
@@ -805,7 +807,7 @@ func TestBoundary_VolatilitySizer_CalculatePosition(t *testing.T) {
 		TotalValue: 1000000,
 		Positions:  map[string]domain.Position{},
 	}
-	regime := &domain.MarketRegime{Trend: "bull", Volatility: "low"}
+	regime := &cdom.MarketRegime{Trend: "bull", Volatility: "low"}
 
 	pos, err := vs.CalculatePosition(context.Background(), signal, portfolio, regime, ohlcv)
 	if err != nil {
@@ -826,7 +828,7 @@ func TestBoundary_VolatilitySizer_CalculatePosition_InsufficientData(t *testing.
 	vs := NewVolatilitySizer(cfg, nopLogger)
 
 	ohlcv := makeOHLCV(5, 100.0) // insufficient
-	signal := domain.Signal{Symbol: "TEST", Direction: domain.DirectionLong, Strength: 0.5}
+	signal := domain.Signal{Symbol: "TEST", Direction: cdom.DirectionLong, Strength: 0.5}
 	portfolio := &domain.Portfolio{TotalValue: 1000000, Positions: map[string]domain.Position{}}
 
 	_, err := vs.CalculatePosition(context.Background(), signal, portfolio, nil, ohlcv)

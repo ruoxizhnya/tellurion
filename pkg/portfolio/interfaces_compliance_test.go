@@ -13,9 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/portfolio"
 )
+
+import "tellurion/pkg/domain"
 
 // TestPortfolioInterfaceMethods 断言 Portfolio 的方法集合精确等于
 // {ApplyFill, Value, Positions, Snapshot}。
@@ -50,7 +52,7 @@ func TestFillFields(t *testing.T) {
 	typ := reflect.TypeOf(portfolio.Fill{})
 	assertFieldType(t, typ, "OrderID", reflect.TypeOf(""))
 	assertFieldType(t, typ, "Symbol", reflect.TypeOf(""))
-	assertFieldType(t, typ, "Side", reflect.TypeOf(domain.Direction("")))
+	assertFieldType(t, typ, "Side", reflect.TypeOf(cdom.Direction("")))
 	assertFieldType(t, typ, "Qty", reflect.TypeOf(float64(0)))
 	assertFieldType(t, typ, "Price", reflect.TypeOf(float64(0)))
 	assertFieldType(t, typ, "Ts", reflect.TypeOf(time.Time{}))

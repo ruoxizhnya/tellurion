@@ -30,12 +30,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/live"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // rev23LeakMarker 是 fake trader 返回的内部错误标记。断言要求它**不**
 // 出现在任何 5xx 响应体里——若有人把出口改回 err.Error() 原文回传，
@@ -50,7 +52,7 @@ type rev23FailingTrader struct {
 	mu sync.Mutex
 }
 
-func (t *rev23FailingTrader) SubmitOrder(_ context.Context, _ string, _ domain.Direction, _ domain.OrderType, _ float64, _ float64) (*live.OrderResult, error) {
+func (t *rev23FailingTrader) SubmitOrder(_ context.Context, _ string, _ cdom.Direction, _ domain.OrderType, _ float64, _ float64) (*live.OrderResult, error) {
 	panic("rev23FailingTrader: SubmitOrder not expected in these tests")
 }
 func (t *rev23FailingTrader) CancelOrder(_ context.Context, _ string) error {

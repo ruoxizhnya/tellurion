@@ -14,8 +14,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ExecutionPort 是引擎把「信号已经翻译成订单」之后唯一需要的出站能力。
 //
@@ -49,7 +51,7 @@ type ExecutionPort interface {
 // 让边界语义变糊。
 type OrderRequest struct {
 	Symbol    string
-	Direction domain.Direction
+	Direction cdom.Direction
 	OrderType domain.OrderType
 	Quantity  float64
 	// Price：限价单为限价；市价单必须为 0（与 live.LiveTrader 约定一致）。
@@ -63,7 +65,7 @@ type OrderRequest struct {
 type OrderResult struct {
 	OrderID     string
 	Symbol      string
-	Direction   domain.Direction
+	Direction   cdom.Direction
 	OrderType   domain.OrderType
 	Quantity    float64
 	FilledQty   float64

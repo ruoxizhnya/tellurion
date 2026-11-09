@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 // AUD-22 — the two wiring guards for the risk-warning daily buy cap.
 //
@@ -65,7 +67,7 @@ func TestEngine_RiskWarningDailyBuyCap_ApplyTradePath(t *testing.T) {
 		t.Helper()
 		trade, err := execSvc.ExecuteOrder(domain.Order{
 			Symbol:    symbol,
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  qty,
 			Timestamp: at,

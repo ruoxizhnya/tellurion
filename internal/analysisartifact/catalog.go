@@ -9,7 +9,7 @@ package analysisartifact
 import (
 	"context"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // StockListProvider 是证券列表的最小读面（*marketdata.Provider 满足）。

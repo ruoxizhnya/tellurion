@@ -29,11 +29,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 
 	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/auth"
 )
+
+import "tellurion/pkg/domain"
 
 // factorRegistrationStore 是写入门所需的最小存储能力（*storage.PostgresStore
 // 满足）。窄接口让 handler 单测不必拖真库。
@@ -75,7 +77,7 @@ type registerFactorRequest struct {
 
 // registerFactorResponse 是成功应答（摘要，不回整份定义快照——快照在库里）。
 type registerFactorResponse struct {
-	Factor       domain.FactorType         `json:"factor"`
+	Factor       cdom.FactorType           `json:"factor"`
 	VersionHash  string                    `json:"version_hash"`
 	Registrar    string                    `json:"registrar"`
 	Status       domain.RegistrationStatus `json:"status"`

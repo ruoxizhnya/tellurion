@@ -27,10 +27,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ── RV2 · nil 接收者 ────────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ func (p *k17rv4CancelProbe) GenerateSignals(_ context.Context, bars map[string][
 	switch len(series) {
 	case 1:
 		return []strategy.Signal{{
-			Symbol: "000001.SZ", Action: "buy", Direction: domain.DirectionLong,
+			Symbol: "000001.SZ", Action: "buy", Direction: cdom.DirectionLong,
 			Strength: 1.0, Date: series[0].Date, ExecAlgo: "twap", ExecSlices: 5,
 		}}, nil
 	case 3:

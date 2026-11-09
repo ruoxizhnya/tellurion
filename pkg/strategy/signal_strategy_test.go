@@ -13,9 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // fakeSignalStore 是 SignalStore 的内存实现（测试专用）。
 //
@@ -66,7 +68,7 @@ func drain(t *testing.T, s *SignalStrategy) []Signal {
 func TestSignalStrategyEmitsSignalOnMatchingBar(t *testing.T) {
 	store := &fakeSignalStore{filterByAsOf: true}
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
 	}
 	s := NewSignalStrategy("sigtest", "m", store)
 	ctx := context.Background()
@@ -80,7 +82,7 @@ func TestSignalStrategyEmitsSignalOnMatchingBar(t *testing.T) {
 	require.NoError(t, s.OnBar(ctx, sigBar("600000.SH", sigDay(3))))
 	got := drain(t, s)
 	require.Len(t, got, 1)
-	require.Equal(t, domain.DirectionLong, got[0].Direction)
+	require.Equal(t, cdom.DirectionLong, got[0].Direction)
 	require.InDelta(t, 0.8, got[0].Strength, 1e-12)
 	require.Equal(t, "600000.SH", got[0].Symbol)
 }
@@ -88,7 +90,7 @@ func TestSignalStrategyEmitsSignalOnMatchingBar(t *testing.T) {
 func TestSignalStrategySkipsPreWindowSignal(t *testing.T) {
 	store := &fakeSignalStore{filterByAsOf: true}
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sigDay(1)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sigDay(1)},
 	}
 	s := NewSignalStrategy("sigtest", "m", store)
 	ctx := context.Background()
@@ -105,7 +107,7 @@ func TestSignalStrategyWeekendSignalEmittedNextTradingDay(t *testing.T) {
 	fri := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
 	mon := time.Date(2024, 3, 4, 0, 0, 0, 0, time.UTC)
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sat},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sat},
 	}
 	s := NewSignalStrategy("sigtest", "m", store)
 	ctx := context.Background()
@@ -120,7 +122,7 @@ func TestSignalStrategyWeekendSignalEmittedNextTradingDay(t *testing.T) {
 func TestSignalStrategyCursorDedupNoDoubleEmit(t *testing.T) {
 	store := &fakeSignalStore{filterByAsOf: true}
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
 	}
 	s := NewSignalStrategy("sigtest", "m", store)
 	ctx := context.Background()
@@ -138,7 +140,7 @@ func TestSignalStrategyRejectsFutureSignal(t *testing.T) {
 	// buggy store：ListFor 无视 upTo，把未来信号也吐出来。
 	store := &fakeSignalStore{filterByAsOf: false}
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sigDay(5)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sigDay(5)},
 	}
 	s := NewSignalStrategy("sigtest", "m", store)
 	ctx := context.Background()
@@ -152,10 +154,10 @@ func TestSignalStrategyRejectsFutureSignal(t *testing.T) {
 func TestRejectFutureSignalsPureFunc(t *testing.T) {
 	today := sigDay(3)
 	require.NoError(t, rejectFutureSignals([]ExternalSignal{
-		{ModelID: "m", Symbol: "s", Direction: domain.DirectionLong, Strength: 0.1, AsOf: sigDay(3)},
+		{ModelID: "m", Symbol: "s", Direction: cdom.DirectionLong, Strength: 0.1, AsOf: sigDay(3)},
 	}, today), "as_of == upTo 是合法（当日信号）")
 	require.Error(t, rejectFutureSignals([]ExternalSignal{
-		{ModelID: "m", Symbol: "s", Direction: domain.DirectionLong, Strength: 0.1, AsOf: sigDay(4)},
+		{ModelID: "m", Symbol: "s", Direction: cdom.DirectionLong, Strength: 0.1, AsOf: sigDay(4)},
 	}, today), "as_of > upTo 必须被拒")
 }
 
@@ -164,8 +166,8 @@ func TestRejectFutureSignalsPureFunc(t *testing.T) {
 func TestSignalStrategySaveLoadStateResume(t *testing.T) {
 	store := &fakeSignalStore{filterByAsOf: true}
 	store.signals = []ExternalSignal{
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
-		{ModelID: "m", Symbol: "600000.SH", Direction: domain.DirectionClose, Strength: 0.5, AsOf: sigDay(5)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionLong, Strength: 0.8, AsOf: sigDay(3)},
+		{ModelID: "m", Symbol: "600000.SH", Direction: cdom.DirectionClose, Strength: 0.5, AsOf: sigDay(5)},
 	}
 	ctx := context.Background()
 
@@ -187,7 +189,7 @@ func TestSignalStrategySaveLoadStateResume(t *testing.T) {
 	require.NoError(t, b.OnBar(ctx, sigBar("600000.SH", sigDay(5))))
 	got := drain(t, b)
 	require.Len(t, got, 1, "day5 应产出 day5 信号（续跑不重放 day3）")
-	require.Equal(t, domain.DirectionClose, got[0].Direction)
+	require.Equal(t, cdom.DirectionClose, got[0].Direction)
 }
 
 func TestSignalStrategyLoadStateRejectsBadInput(t *testing.T) {

@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/execution"
 	"tellurion/pkg/id"
 	"tellurion/pkg/portfolio"
 )
+
+import "tellurion/pkg/domain"
 
 // MockTraderConfig configures the mock trader simulation.
 //
@@ -99,10 +101,10 @@ func (m *MockTrader) SetCurrentBarProvider(f func(symbol string) (Quote, bool)) 
 // pkg/backtest/execution 走同一段代码，因此 paper 与回测的成本公式不可能
 // 各自漂移。这是「读法 A」在成本侧的落点：差异只可能来自执行机制，不来自
 // 两份公式。
-func (m *MockTrader) applyExecutionCost(symbol string, direction domain.Direction, quantity, execPrice float64) float64 {
+func (m *MockTrader) applyExecutionCost(symbol string, direction cdom.Direction, quantity, execPrice float64) float64 {
 	if m.config.SlippageModel == "" {
 		slippage := execPrice * m.config.SlippageRate
-		if direction == domain.DirectionLong {
+		if direction == cdom.DirectionLong {
 			return execPrice + slippage
 		}
 		return execPrice - slippage
@@ -204,7 +206,7 @@ func (m *MockTrader) currentBar(symbol string) (Quote, bool) {
 // For buy orders: deducts cash including commission and transfer fee.
 // For sell orders: credits cash after deducting commission, transfer fee, and stamp tax.
 // T+1 settlement: bought shares are tracked as QuantityToday (not sellable until next day).
-func (m *MockTrader) SubmitOrder(_ context.Context, symbol string, direction domain.Direction, orderType domain.OrderType, quantity float64, price float64) (*OrderResult, error) {
+func (m *MockTrader) SubmitOrder(_ context.Context, symbol string, direction cdom.Direction, orderType domain.OrderType, quantity float64, price float64) (*OrderResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -232,9 +234,9 @@ func (m *MockTrader) SubmitOrder(_ context.Context, symbol string, direction dom
 	}
 
 	switch direction {
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		return m.executeBuy(symbol, orderType, quantity, execPrice)
-	case domain.DirectionClose:
+	case cdom.DirectionClose:
 		return m.executeSell(symbol, orderType, quantity, execPrice)
 	default:
 		return nil, fmt.Errorf("unsupported direction: %s (only 'long' and 'close' supported)", direction)
@@ -243,7 +245,7 @@ func (m *MockTrader) SubmitOrder(_ context.Context, symbol string, direction dom
 
 func (m *MockTrader) executeBuy(symbol string, orderType domain.OrderType, quantity float64, execPrice float64) (*OrderResult, error) {
 	// K5 切片 1：成交价经成本落点（空模型 = 旧固定滑点，非空 = 共享成本核）。
-	fillPrice := m.applyExecutionCost(symbol, domain.DirectionLong, quantity, execPrice)
+	fillPrice := m.applyExecutionCost(symbol, cdom.DirectionLong, quantity, execPrice)
 	tradeValue := quantity * fillPrice
 	// S7-P1-1: delegate fee math to the shared primitive so tracker and
 	// mock_trader can never drift on the commission/transfer formula.
@@ -279,7 +281,7 @@ func (m *MockTrader) executeBuy(symbol string, orderType domain.OrderType, quant
 	result := &OrderResult{
 		OrderID:     id.OrderID(),
 		Symbol:      symbol,
-		Direction:   domain.DirectionLong,
+		Direction:   cdom.DirectionLong,
 		OrderType:   orderType,
 		Quantity:    quantity,
 		FilledQty:   quantity,
@@ -328,7 +330,7 @@ func (m *MockTrader) executeSell(symbol string, orderType domain.OrderType, quan
 		quantity = pos.QuantityYesterday
 	}
 
-	fillPrice := m.applyExecutionCost(symbol, domain.DirectionClose, quantity, execPrice)
+	fillPrice := m.applyExecutionCost(symbol, cdom.DirectionClose, quantity, execPrice)
 	tradeValue := quantity * fillPrice
 	// S7-P1-1: shared fee primitive — stamp tax applies on the sell side.
 	fb := portfolio.ComputeFees(tradeValue, true, m.feeSchedule())
@@ -347,7 +349,7 @@ func (m *MockTrader) executeSell(symbol string, orderType domain.OrderType, quan
 	result := &OrderResult{
 		OrderID:     id.OrderID(),
 		Symbol:      symbol,
-		Direction:   domain.DirectionClose,
+		Direction:   cdom.DirectionClose,
 		OrderType:   orderType,
 		Quantity:    quantity,
 		FilledQty:   quantity,
@@ -597,7 +599,7 @@ func (m *MockTrader) flattenPosition(result *EmergencyFlattenResult, sym, reason
 		return
 	}
 
-	fillPrice := m.applyExecutionCost(sym, domain.DirectionClose, qty, execPrice)
+	fillPrice := m.applyExecutionCost(sym, cdom.DirectionClose, qty, execPrice)
 	tradeValue := qty * fillPrice
 	// S7-P1-1: shared fee primitive — emergency flatten is a sell-side
 	// transaction (closing longs), so stamp tax applies.
@@ -634,7 +636,7 @@ func (m *MockTrader) flattenPosition(result *EmergencyFlattenResult, sym, reason
 	m.orders[orderID] = &OrderResult{
 		OrderID:     orderID,
 		Symbol:      sym,
-		Direction:   domain.DirectionClose,
+		Direction:   cdom.DirectionClose,
 		OrderType:   domain.OrderTypeMarket,
 		Quantity:    qty,
 		FilledQty:   qty,

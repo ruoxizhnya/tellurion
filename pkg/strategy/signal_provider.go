@@ -22,9 +22,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 )
 
 // Scope 是一次取信号调用的输入快照（契约参数包）。

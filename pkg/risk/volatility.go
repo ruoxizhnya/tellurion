@@ -7,10 +7,12 @@ import (
 	"math"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
+
+import "tellurion/pkg/domain"
 
 // VolatilitySizer calculates position sizes based on volatility targeting.
 type VolatilitySizer struct {
@@ -95,7 +97,7 @@ func (vs *VolatilitySizer) CalculateVolatility(ohlcv []domain.OHLCV) (float64, e
 // CalculatePositionWeight computes the target position weight based on volatility targeting.
 // Formula: position_size = target_vol / current_vol * base_weight
 // The result is capped between min and max position weights.
-func (vs *VolatilitySizer) CalculatePositionWeight(currentVol float64, regime *domain.MarketRegime) float64 {
+func (vs *VolatilitySizer) CalculatePositionWeight(currentVol float64, regime *cdom.MarketRegime) float64 {
 	if currentVol <= 0 {
 		vs.logger.Warn().Msg("invalid current volatility, using base weight")
 		return vs.minPositionWeight
@@ -180,7 +182,7 @@ func (vs *VolatilitySizer) GetVolatilityStats(ohlcv []domain.OHLCV) (daily, annu
 }
 
 // CalculatePosition calls CalculatePositionWeight but returns a PositionSize.
-func (vs *VolatilitySizer) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
+func (vs *VolatilitySizer) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
 	currentVol, err := vs.CalculateVolatility(ohlcv)
 	if err != nil {
 		vs.logger.Error().Err(err).Msg("failed to calculate volatility")

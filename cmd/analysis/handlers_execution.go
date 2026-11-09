@@ -11,10 +11,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/live"
 )
+
+import "tellurion/pkg/domain"
 
 // P1-15 (Sprint 6, ODR-021): execution service merged into analysis
 // service. The endpoints below mirror the original
@@ -165,7 +167,7 @@ func (h *ExecutionHandler) requireTrader() gin.HandlerFunc {
 // createOrderRequest mirrors the original cmd/execution request body.
 type createOrderRequest struct {
 	Symbol    string           `json:"symbol" binding:"required"`
-	Direction domain.Direction `json:"side" binding:"required"`
+	Direction cdom.Direction   `json:"side" binding:"required"`
 	OrderType domain.OrderType `json:"type"`
 	Quantity  float64          `json:"quantity" binding:"required,gt=0"`
 	Price     float64          `json:"price"`
@@ -181,7 +183,7 @@ func (h *ExecutionHandler) createOrder(c *gin.Context) {
 		req.OrderType = domain.OrderTypeMarket
 	}
 	if req.Direction == "" {
-		req.Direction = domain.DirectionLong
+		req.Direction = cdom.DirectionLong
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)

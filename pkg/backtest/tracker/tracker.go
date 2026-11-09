@@ -9,13 +9,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/portfolio"
 	"tellurion/pkg/settlement"
 )
+
+import "tellurion/pkg/domain"
 
 // Tracker maintains portfolio state during a backtest run.
 type Tracker struct {
@@ -27,9 +29,9 @@ type Tracker struct {
 	initialCash float64
 
 	// History
-	portfolioValues []domain.PortfolioValue
-	trades          []domain.Trade
-	equityCurve     []domain.PortfolioValue
+	portfolioValues []cdom.PortfolioValue
+	trades          []cdom.Trade
+	equityCurve     []cdom.PortfolioValue
 
 	// asOf 是回测的「今天」——引擎推进到哪个交易日，这里就是哪天。
 	//
@@ -289,7 +291,7 @@ type OrderExecutionOpts struct {
 
 // ExecuteTrade executes a trade and returns the trade record.
 // opts may be nil (defaults to market order at given price).
-func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quantity float64, price float64, timestamp time.Time, opts *OrderExecutionOpts) (*domain.Trade, error) {
+func (t *Tracker) ExecuteTrade(symbol string, direction cdom.Direction, quantity float64, price float64, timestamp time.Time, opts *OrderExecutionOpts) (*cdom.Trade, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -309,13 +311,13 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 
 	if orderType == domain.OrderTypeLimit && dayBar != nil {
 		limitFilled := false
-		if direction == domain.DirectionLong {
+		if direction == cdom.DirectionLong {
 			// Buy limit: fills if price dropped to or below limit
 			if dayBar.Low <= limitPrice {
 				limitFilled = true
 				executionPrice = min(limitPrice, dayBar.Close)
 			}
-		} else if direction == domain.DirectionShort {
+		} else if direction == cdom.DirectionShort {
 			// Sell limit: fills if price rose to or above limit
 			if dayBar.High >= limitPrice {
 				limitFilled = true
@@ -360,11 +362,11 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 	// --- Apply slippage (for market orders only; limit orders use LimitPrice) ---
 	if orderType != domain.OrderTypeLimit {
 		switch direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			executionPrice = price * (1 + t.slippageRate)
-		case domain.DirectionShort:
+		case cdom.DirectionShort:
 			executionPrice = price * (1 - t.slippageRate)
-		case domain.DirectionClose:
+		case cdom.DirectionClose:
 			if pos, exists := t.positions[symbol]; exists {
 				if pos.Quantity > 0 {
 					executionPrice = price * (1 - t.slippageRate)
@@ -381,10 +383,10 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 	// short (DirectionShort). A-share stamp tax is sell-side-only and
 	// date-segmented (0.1% before 2023-08-28, 0.05% since) — the rate is
 	// resolved per trade in feeSchedule, not hard-coded here.
-	isSell := direction == domain.DirectionClose || direction == domain.DirectionShort
+	isSell := direction == cdom.DirectionClose || direction == cdom.DirectionShort
 	fb := portfolio.ComputeFees(tradeValue, isSell, t.feeSchedule(timestamp))
 
-	trade := &domain.Trade{
+	trade := &cdom.Trade{
 		ID:          uuid.New().String(),
 		Symbol:      symbol,
 		Direction:   direction,
@@ -399,7 +401,7 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 	}
 
 	switch direction {
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		// Cost includes commission + transfer fee (stamp tax does not apply to buy)
 		cost := tradeValue + fb.Total()
 		if cost > t.cash {
@@ -453,7 +455,7 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 			}
 		}
 
-	case domain.DirectionShort:
+	case cdom.DirectionShort:
 		// Short selling: receive cash, owe shares (commission + transfer fee deducted)
 		proceeds := tradeValue - fb.Total()
 		t.cash += proceeds
@@ -475,7 +477,7 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 			}
 		}
 
-	case domain.DirectionClose:
+	case cdom.DirectionClose:
 		if pos, exists := t.positions[symbol]; exists {
 			closeQty := abs(pos.Quantity)
 			if closeQty <= 0 {
@@ -622,7 +624,7 @@ func (t *Tracker) ExecuteTrade(symbol string, direction domain.Direction, quanti
 // in-memory path charged them in full — backtest returns were systematically
 // overstated. Cash direction is unchanged (buy pays / short-open receives);
 // only the fees are now complete.
-func (t *Tracker) ApplyTrade(trade domain.Trade) (*domain.Trade, error) {
+func (t *Tracker) ApplyTrade(trade cdom.Trade) (*cdom.Trade, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -639,7 +641,7 @@ func (t *Tracker) ApplyTrade(trade domain.Trade) (*domain.Trade, error) {
 	tradeValue := quantity * executionPrice
 
 	switch direction {
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		// REV-07：买入费用经 ComputeFees 重算并覆盖 trade（isSell=false：
 		// A 股印花税只卖侧收；过户费照收）。原样采信 ExecutionService 只设
 		// 了 Commission 的 trade 会让过户费全免（transferFee 恒零）。
@@ -694,7 +696,7 @@ func (t *Tracker) ApplyTrade(trade domain.Trade) (*domain.Trade, error) {
 			}
 		}
 
-	case domain.DirectionShort:
+	case cdom.DirectionShort:
 		// REV-07：卖空开仓是卖出侧（印花税适用）。原代码 _ = trade.StampTax
 		// 直接丢弃 ⇒ 印花税全免。
 		fb := portfolio.ComputeFees(tradeValue, true, t.feeSchedule(timestamp))
@@ -719,7 +721,7 @@ func (t *Tracker) ApplyTrade(trade domain.Trade) (*domain.Trade, error) {
 			}
 		}
 
-	case domain.DirectionClose:
+	case cdom.DirectionClose:
 		if pos, exists := t.positions[symbol]; exists {
 			closeQty := abs(pos.Quantity)
 			if closeQty <= 0 {
@@ -947,7 +949,7 @@ func (t *Tracker) AdvanceDay(date time.Time) {
 }
 
 // RecordDailyValue records the portfolio value for a given day.
-func (t *Tracker) RecordDailyValue(date time.Time, prices map[string]float64) domain.PortfolioValue {
+func (t *Tracker) RecordDailyValue(date time.Time, prices map[string]float64) cdom.PortfolioValue {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -989,7 +991,7 @@ func (t *Tracker) RecordDailyValue(date time.Time, prices map[string]float64) do
 
 	totalValue := cash + positionsValue
 
-	pv := domain.PortfolioValue{
+	pv := cdom.PortfolioValue{
 		Date:       date,
 		TotalValue: totalValue,
 		Cash:       cash,
@@ -1023,28 +1025,28 @@ func (t *Tracker) DropLastRecordedOn(date time.Time) bool {
 }
 
 // GetPortfolioValues returns all recorded portfolio values.
-func (t *Tracker) GetPortfolioValues() []domain.PortfolioValue {
+func (t *Tracker) GetPortfolioValues() []cdom.PortfolioValue {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	result := make([]domain.PortfolioValue, len(t.portfolioValues))
+	result := make([]cdom.PortfolioValue, len(t.portfolioValues))
 	copy(result, t.portfolioValues)
 	return result
 }
 
 // GetTrades returns all executed trades.
-func (t *Tracker) GetTrades() []domain.Trade {
+func (t *Tracker) GetTrades() []cdom.Trade {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	result := make([]domain.Trade, len(t.trades))
+	result := make([]cdom.Trade, len(t.trades))
 	copy(result, t.trades)
 	return result
 }
 
 // GetEquityCurve returns the equity curve.
-func (t *Tracker) GetEquityCurve() []domain.PortfolioValue {
+func (t *Tracker) GetEquityCurve() []cdom.PortfolioValue {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	result := make([]domain.PortfolioValue, len(t.equityCurve))
+	result := make([]cdom.PortfolioValue, len(t.equityCurve))
 	copy(result, t.equityCurve)
 	return result
 }
@@ -1056,7 +1058,7 @@ func (t *Tracker) GetTotalValue(prices map[string]float64) float64 {
 
 // ClosePosition closes a position for a symbol.
 // No lock needed here — ExecuteTrade acquires its own write lock.
-func (t *Tracker) ClosePosition(symbol string, price float64, timestamp time.Time) (*domain.Trade, error) {
+func (t *Tracker) ClosePosition(symbol string, price float64, timestamp time.Time) (*cdom.Trade, error) {
 	// Read position quantity without lock (ExecuteTrade locks internally)
 	t.mu.RLock()
 	pos, exists := t.positions[symbol]
@@ -1067,7 +1069,7 @@ func (t *Tracker) ClosePosition(symbol string, price float64, timestamp time.Tim
 	}
 
 	// ExecuteTrade acquires its own write lock — no deadlock since we release RLock first
-	return t.ExecuteTrade(symbol, domain.DirectionClose, abs(pos.Quantity), price, timestamp, nil)
+	return t.ExecuteTrade(symbol, cdom.DirectionClose, abs(pos.Quantity), price, timestamp, nil)
 }
 
 // HasPosition checks if there is an open position for a symbol.

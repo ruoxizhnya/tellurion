@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +15,8 @@ import (
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 // 本文件在**外部测试包** live_test 里：它要 import pkg/backtest/execution 做
 // 成本同构比对，而 pkg/backtest/execution 又 import pkg/live（live_bridge.go）。
@@ -45,7 +47,7 @@ func TestCostIsomorphism_Fixed(t *testing.T) {
 	require.Equal(t, "fixed", cfg.SlippageModel)
 
 	back := execution.NewBacktestExecutionService(cfg)
-	order := domain.Order{Symbol: isoSymbol, Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty}
+	order := domain.Order{Symbol: isoSymbol, Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty}
 	quote := isoQuote(isoADV)
 
 	tr, err := back.ExecuteOrder(order, quote)
@@ -76,7 +78,7 @@ func TestCostIsomorphism_Impact(t *testing.T) {
 	cfg.ImpactLiquidityFactor = 0 // 文档默认 1.0
 
 	back := execution.NewBacktestExecutionService(cfg)
-	order := domain.Order{Symbol: isoSymbol, Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty}
+	order := domain.Order{Symbol: isoSymbol, Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty}
 	quote := isoQuote(isoADV)
 
 	tr, err := back.ExecuteOrder(order, quote)
@@ -127,13 +129,13 @@ func TestMockTrader_FillPriceIsSharedCore(t *testing.T) {
 		return marketdata.Quote{}, false
 	})
 
-	res, err := mt.SubmitOrder(context.Background(), isoSymbol, domain.DirectionLong, domain.OrderTypeMarket, isoQty, 0)
+	res, err := mt.SubmitOrder(context.Background(), isoSymbol, cdom.DirectionLong, domain.OrderTypeMarket, isoQty, 0)
 	require.NoError(t, err)
 
 	// 回测侧同一输入。
 	back := execution.NewBacktestExecutionService(cfg)
 	tr, err := back.ExecuteOrder(
-		domain.Order{Symbol: isoSymbol, Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty},
+		domain.Order{Symbol: isoSymbol, Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty},
 		execution.Quote{Symbol: isoSymbol, Open: 10, High: isoHigh, Low: isoLow, Close: isoRefPrice, Volume: isoADV, Date: bar.Timestamp},
 	)
 	require.NoError(t, err)

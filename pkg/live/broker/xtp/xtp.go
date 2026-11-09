@@ -44,10 +44,12 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── Errors ────────────────────────────────────────────────
 
@@ -212,7 +214,7 @@ func (s ConnectionState) String() string {
 // OrderReq is the XTP order request structure.
 type OrderReq struct {
 	Symbol       string           `json:"symbol"`
-	Direction    domain.Direction `json:"direction"`
+	Direction    cdom.Direction   `json:"direction"`
 	OrderType    domain.OrderType `json:"order_type"`
 	Quantity     float64          `json:"quantity"`
 	Price        float64          `json:"price"`
@@ -346,7 +348,7 @@ func (t *XTPTrader) Disconnect() error {
 func (t *XTPTrader) SubmitOrder(
 	ctx context.Context,
 	symbol string,
-	direction domain.Direction,
+	direction cdom.Direction,
 	orderType domain.OrderType,
 	quantity float64,
 	price float64,
@@ -383,7 +385,7 @@ func (t *XTPTrader) SubmitOrder(
 	// rejected legal orders — including ones our own sizer had just
 	// produced. It also truncated through int(), letting 100.9 shares
 	// through while refusing 250.0.
-	isSell := direction == domain.DirectionClose || direction == domain.DirectionShort
+	isSell := direction == cdom.DirectionClose || direction == cdom.DirectionShort
 	if err := risk.ValidateOrderQuantity(quantity, symbol, isSell); err != nil {
 		return nil, fmt.Errorf("xtp: %w", err)
 	}

@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 假 Provider（只覆盖 PaperSession 用到的两个方法） ─────────────
 
@@ -96,7 +98,7 @@ func (p *probeBatch) GenerateSignals(_ context.Context, bars map[string][]domain
 	}
 	p.seenMax = append(p.seenMax, maxT)
 	return []strategy.Signal{{
-		Symbol: p.buySymbol, Action: "buy", Direction: domain.DirectionLong, Strength: 1.0,
+		Symbol: p.buySymbol, Action: "buy", Direction: cdom.DirectionLong, Strength: 1.0,
 	}}, nil
 }
 
@@ -118,7 +120,7 @@ func newProbeStream(sym string) *probeStream {
 func (p *probeStream) OnBar(_ context.Context, bar domain.OHLCV) error {
 	p.barsSeen = append(p.barsSeen, bar)
 	p.pending = append(p.pending, strategy.Signal{
-		Symbol: p.buySymbol, Action: "buy", Direction: domain.DirectionLong, Strength: 1.0,
+		Symbol: p.buySymbol, Action: "buy", Direction: cdom.DirectionLong, Strength: 1.0,
 	})
 	return nil
 }

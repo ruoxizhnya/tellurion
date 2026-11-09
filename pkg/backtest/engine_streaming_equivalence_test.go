@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 )
 

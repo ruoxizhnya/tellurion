@@ -13,8 +13,8 @@ import (
 	"math"
 	"sort"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 )
 

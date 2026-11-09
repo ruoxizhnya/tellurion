@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // ------------------------------------------------------------------------------
 // Golden Fixture Loader
@@ -131,7 +133,7 @@ func TestInvariant_CashNeverNegative(t *testing.T) {
 			continue
 		}
 		// Buy on first day
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 		require.NoErrorf(t, err, "buy trade should not fail for %s", sym)
 
 		// Advance through all days and check cash
@@ -166,7 +168,7 @@ func TestInvariant_PositionQuantityNeverNegative(t *testing.T) {
 		}
 
 		// Buy-and-hold replay
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 		require.NoError(t, err)
 
 		positions := tracker.GetAllPositions()
@@ -210,7 +212,7 @@ func TestInvariant_NAVEqualsCashPlusPositions(t *testing.T) {
 		if len(bars) == 0 {
 			continue
 		}
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 		require.NoError(t, err)
 	}
 
@@ -283,14 +285,14 @@ func TestInvariant_AllTradesHavePositiveFee(t *testing.T) {
 		}
 
 		// Buy
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 		require.NoError(t, err)
 
 		// Advance to next day
 		tracker.AdvanceDay(bars[1].Date)
 
 		// Sell
-		_, err = tracker.ExecuteTrade(sym, domain.DirectionClose, 1000, bars[1].Close, bars[1].Date, nil)
+		_, err = tracker.ExecuteTrade(sym, cdom.DirectionClose, 1000, bars[1].Close, bars[1].Date, nil)
 		require.NoError(t, err)
 	}
 
@@ -325,7 +327,7 @@ func TestInvariant_AllTradesHaveTimestamp(t *testing.T) {
 		if len(bars) < 2 {
 			continue
 		}
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 500, bars[0].Close, bars[0].Date, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 500, bars[0].Close, bars[0].Date, nil)
 		require.NoError(t, err)
 	}
 
@@ -361,7 +363,7 @@ func TestInvariant_EquityCurveIsNonEmptyAfterBacktest(t *testing.T) {
 		if len(bars) == 0 {
 			continue
 		}
-		_, _ = tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+		_, _ = tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 	}
 
 	// Record daily values for each trading day
@@ -442,11 +444,11 @@ func TestGolden_Momentum5Stock1Yr(t *testing.T) {
 			for _, sig := range signals {
 				switch sig.Direction {
 				case "long":
-					_, _ = tracker.ExecuteTrade(sig.Symbol, domain.DirectionLong, 1000, prices[sig.Symbol], d, nil)
+					_, _ = tracker.ExecuteTrade(sig.Symbol, cdom.DirectionLong, 1000, prices[sig.Symbol], d, nil)
 				case "short":
-					_, _ = tracker.ExecuteTrade(sig.Symbol, domain.DirectionShort, 1000, prices[sig.Symbol], d, nil)
+					_, _ = tracker.ExecuteTrade(sig.Symbol, cdom.DirectionShort, 1000, prices[sig.Symbol], d, nil)
 				case "close":
-					_, _ = tracker.ExecuteTrade(sig.Symbol, domain.DirectionClose, 999999, prices[sig.Symbol], d, nil)
+					_, _ = tracker.ExecuteTrade(sig.Symbol, cdom.DirectionClose, 999999, prices[sig.Symbol], d, nil)
 				}
 			}
 			tracker.AdvanceDay(d.AddDate(0, 0, 1))
@@ -458,7 +460,7 @@ func TestGolden_Momentum5Stock1Yr(t *testing.T) {
 			if len(bars) == 0 {
 				continue
 			}
-			_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
+			_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 1000, bars[0].Close, bars[0].Date, nil)
 			require.NoError(t, err)
 		}
 	}
@@ -494,7 +496,7 @@ func TestGolden_Momentum5Stock1Yr(t *testing.T) {
 
 		longTrades := 0
 		for _, tr := range trades {
-			if tr.Direction == domain.DirectionLong {
+			if tr.Direction == cdom.DirectionLong {
 				longTrades++
 			}
 		}

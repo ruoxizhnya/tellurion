@@ -32,8 +32,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // LiveTrader defines the core interface for live trading execution.
 // All broker implementations (real or simulated) must satisfy this interface.
@@ -44,7 +46,7 @@ type LiveTrader interface {
 	// For market orders, set price to 0.
 	// For limit orders, price is the limit price.
 	// Returns the order result with assigned OrderID and fill status.
-	SubmitOrder(ctx context.Context, symbol string, direction domain.Direction, orderType domain.OrderType, quantity float64, price float64) (*OrderResult, error)
+	SubmitOrder(ctx context.Context, symbol string, direction cdom.Direction, orderType domain.OrderType, quantity float64, price float64) (*OrderResult, error)
 
 	// CancelOrder attempts to cancel a pending or partially filled order.
 	// Returns error if the order is already filled, cancelled, or not found.
@@ -141,7 +143,7 @@ type EmergencyFlattenSkip struct {
 type OrderResult struct {
 	OrderID     string           `json:"order_id"`
 	Symbol      string           `json:"symbol"`
-	Direction   domain.Direction `json:"direction"`
+	Direction   cdom.Direction   `json:"direction"`
 	OrderType   domain.OrderType `json:"order_type"`
 	Quantity    float64          `json:"quantity"`
 	FilledQty   float64          `json:"filled_qty"`
@@ -207,7 +209,7 @@ func (r *OrderResult) TotalFees(commissionRate, stampTaxRate, transferFeeRate fl
 	}
 	transferFee := tradeValue * transferFeeRate
 	stampTax := 0.0
-	if r.Direction == domain.DirectionClose || r.Direction == domain.DirectionShort {
+	if r.Direction == cdom.DirectionClose || r.Direction == cdom.DirectionShort {
 		stampTax = tradeValue * stampTaxRate
 	}
 	return commission + transferFee + stampTax

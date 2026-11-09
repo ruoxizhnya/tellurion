@@ -81,13 +81,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/examples"
 )
+
+import "tellurion/pkg/domain"
 
 const (
 	probeDays    = 520
@@ -217,7 +219,7 @@ func probeParams() map[string]interface{} {
 // 这条通道是系统性的（不是路径噪声），也正是「每票各自缩放」比「统一缩放」
 // 凶得多的原因 —— 前者只把高基准的那几只票推出可交易集合。
 type probeOutcome struct {
-	res              *domain.BacktestResult
+	res              *cdom.BacktestResult
 	insufficientCash int
 	executeFailed    int
 }
@@ -316,7 +318,7 @@ func probeRunEx(
 
 	logs := logBuf.String()
 	return probeOutcome{
-		res: &domain.BacktestResult{
+		res: &cdom.BacktestResult{
 			TotalReturn:     resp.TotalReturn,
 			SharpeRatio:     resp.SharpeRatio,
 			MaxDrawdown:     resp.MaxDrawdown,
@@ -331,7 +333,7 @@ func probeRunEx(
 
 // probeTradeKey 把一笔成交压成「哪天、哪只票、买还是卖」—— 不含数量与价格。
 // 数量在两腿之间本来就该差一个比例（不是分歧），要比的是**决策本身**。
-func probeTradeKey(tr domain.Trade) string {
+func probeTradeKey(tr cdom.Trade) string {
 	return fmt.Sprintf("%s %s %s", tr.Timestamp.Format("2006-01-02"), tr.Symbol, tr.Direction)
 }
 
@@ -340,8 +342,8 @@ func probeTradeKey(tr domain.Trade) string {
 // 注意**不能按位置逐笔比**：一条腿只要在某一天多吐出一笔，后面全体错位，
 // 按位置比出来的「第 N 笔岔开」是伪分歧（第一版就是这么读错的）。这里改成
 // 按「(日期,票,方向) 的集合」比，先找出所有不对称的键，再取最早的那一天。
-func probeFirstDivergentDay(a, b []domain.Trade) (day string, asymCount int, diverged bool) {
-	count := func(trades []domain.Trade) map[string]int {
+func probeFirstDivergentDay(a, b []cdom.Trade) (day string, asymCount int, diverged bool) {
+	count := func(trades []cdom.Trade) map[string]int {
 		m := make(map[string]int, len(trades))
 		for _, tr := range trades {
 			m[probeTradeKey(tr)]++
@@ -371,7 +373,7 @@ func probeFirstDivergentDay(a, b []domain.Trade) (day string, asymCount int, div
 	return asym[0][:10], len(asym), true
 }
 
-func probeSumQty(trades []domain.Trade) float64 {
+func probeSumQty(trades []cdom.Trade) float64 {
 	total := 0.0
 	for _, tr := range trades {
 		total += math.Abs(tr.Quantity)
@@ -709,9 +711,9 @@ func TestEngineDoesNotRebuySymbolsThatStayInTarget(t *testing.T) {
 	buys, closes := 0, 0
 	for _, tr := range o.res.Trades {
 		switch tr.Direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			buys++
-		case domain.DirectionClose:
+		case cdom.DirectionClose:
 			closes++
 		}
 	}
@@ -724,7 +726,7 @@ func TestEngineDoesNotRebuySymbolsThatStayInTarget(t *testing.T) {
 		var n int
 		var qty float64
 		for _, tr := range o.res.Trades {
-			if tr.Symbol == sym && tr.Direction == domain.DirectionLong {
+			if tr.Symbol == sym && tr.Direction == cdom.DirectionLong {
 				n++
 				qty += tr.Quantity
 			}
@@ -758,7 +760,7 @@ func TestEngineDoesNotRebuySymbolsThatStayInTarget(t *testing.T) {
 	lastDay := bars[symbols[0]][len(bars[symbols[0]])-1].Date
 	intraRunExits := 0
 	for _, tr := range o.res.Trades {
-		if tr.Direction == domain.DirectionClose && tr.Timestamp.Before(lastDay) {
+		if tr.Direction == cdom.DirectionClose && tr.Timestamp.Before(lastDay) {
 			intraRunExits++
 			t.Logf("  ⚠ 运行期间平仓：%s %s", tr.Timestamp.Format("2006-01-02"), tr.Symbol)
 		}

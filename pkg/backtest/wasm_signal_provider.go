@@ -31,11 +31,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/sandbox/wasm"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // Signal.Metadata 的键与 sizing_source 取值（QT-26）。
 //
@@ -359,7 +361,7 @@ func convertWASEmission(symbols []string, sigs []wasm.EmittedSignal, targets []w
 			continue // host 已 trap；这里是纵深防御
 		}
 		dir, err := contracts.Action(es.Action).Direction()
-		if err != nil || dir == domain.DirectionHold {
+		if err != nil || dir == cdom.DirectionHold {
 			continue
 		}
 		out = append(out, strategy.Signal{
@@ -377,12 +379,12 @@ func convertWASEmission(symbols []string, sigs []wasm.EmittedSignal, targets []w
 		if w == -1 { // 不动
 			continue
 		}
-		dir := domain.DirectionLong
+		dir := cdom.DirectionLong
 		switch {
 		case w == 0:
-			dir = domain.DirectionClose
+			dir = cdom.DirectionClose
 		case w < 0:
-			dir = domain.DirectionShort
+			dir = cdom.DirectionShort
 		}
 		out = append(out, strategy.Signal{
 			Symbol:    symbols[et.SymbolIdx],

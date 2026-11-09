@@ -15,11 +15,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // stubLiveTrader is a minimal LiveTrader that returns canned
 // positions and account state. It satisfies pkg/live.LiveTrader so
@@ -68,7 +70,7 @@ func (s *stubLiveTrader) setAccount(a live.AccountInfo) {
 // The remaining LiveTrader methods are unused by the alert loop;
 // embed a no-op helper to satisfy the interface. Tests do not call
 // them, so panic-on-call is acceptable to surface accidental use.
-func (s *stubLiveTrader) SubmitOrder(context.Context, string, domain.Direction, domain.OrderType, float64, float64) (*live.OrderResult, error) {
+func (s *stubLiveTrader) SubmitOrder(context.Context, string, cdom.Direction, domain.OrderType, float64, float64) (*live.OrderResult, error) {
 	panic("stubLiveTrader.SubmitOrder should not be called from alert loop tests")
 }
 func (s *stubLiveTrader) CancelOrder(context.Context, string) error {

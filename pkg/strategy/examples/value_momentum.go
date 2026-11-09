@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ValueMomentumConfig holds configuration for the value_momentum strategy.
 type ValueMomentumConfig struct {
@@ -423,17 +425,17 @@ func (s *valueMomentumStrategy) generateSignals(
 	signals := make([]domain.Signal, 0)
 
 	for symbol, sc := range scores {
-		var direction domain.Direction
+		var direction cdom.Direction
 		var strength float64
 
 		if sc.CompositeScore > s.config.Signal.LongThreshold {
-			direction = domain.DirectionLong
+			direction = cdom.DirectionLong
 			strength = math.Min(1.0, sc.CompositeScore)
 		} else if sc.CompositeScore < s.config.Signal.ShortThreshold {
-			direction = domain.DirectionShort
+			direction = cdom.DirectionShort
 			strength = math.Min(1.0, -sc.CompositeScore)
 		} else {
-			direction = domain.DirectionHold
+			direction = cdom.DirectionHold
 			strength = 0.0
 		}
 
@@ -454,7 +456,7 @@ func (s *valueMomentumStrategy) generateSignals(
 // Weight calculates the portfolio weight for a signal.
 func (s *valueMomentumStrategy) Weight(signal strategy.Signal, portfolioValue float64) float64 {
 	// Equal weight for now, can be enhanced with risk-based weighting
-	if signal.Direction == domain.DirectionHold {
+	if signal.Direction == cdom.DirectionHold {
 		return 0
 	}
 

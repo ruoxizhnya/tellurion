@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/ruoxizhnya/tellurion-kit/httpclient"
+	"tellurion/pkg/domain"
 )
 
 type httpProvider struct {

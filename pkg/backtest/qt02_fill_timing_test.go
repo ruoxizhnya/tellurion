@@ -28,13 +28,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 const (
 	qt02Symbol      = "600000.SH"
@@ -145,7 +147,7 @@ func (p *qt02Probe) GenerateSignals(_ context.Context, bars map[string][]domain.
 	return []strategy.Signal{{
 		Symbol:    qt02Symbol,
 		Action:    "buy",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  1.0,
 		Date:      last.Date,
 	}}, nil
@@ -166,10 +168,10 @@ const qt02FillFactor = 1 + 0.001
 // trade），它按最后一天的持仓盯市价成交，与本次口径无关。把强平算进「成交
 // 笔数」会让断言变成「2 笔 vs 0 笔」这种看不出机制的形状；建仓笔数才是
 // 口径作用的地方。
-func qt02OpeningTrades(resp *BacktestResponse) []domain.Trade {
-	var out []domain.Trade
+func qt02OpeningTrades(resp *BacktestResponse) []cdom.Trade {
+	var out []cdom.Trade
 	for _, tr := range resp.Trades {
-		if tr.Direction == domain.DirectionLong || tr.Direction == domain.DirectionShort {
+		if tr.Direction == cdom.DirectionLong || tr.Direction == cdom.DirectionShort {
 			out = append(out, tr)
 		}
 	}
@@ -209,7 +211,7 @@ func TestQT02_OpenPrices_FillsAtOpenNotClose(t *testing.T) {
 	}
 	diag := newFillRunDiag()
 
-	got := openPricesForSignals([]domain.Signal{{Symbol: qt02Symbol, Direction: domain.DirectionLong}}, mdc, diag)
+	got := openPricesForSignals([]domain.Signal{{Symbol: qt02Symbol, Direction: cdom.DirectionLong}}, mdc, diag)
 
 	assert.InDelta(t, qt02OpenAt(qt02DecisionIdx+1), got[qt02Symbol], 1e-9,
 		"next_open 的可成交价 = 成交日末根 bar 的开盘价")
@@ -236,7 +238,7 @@ func TestQT02_OpenPrices_MissingOrDirtyBarRejectsInsteadOfFallingBackToClose(t *
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			diag := newFillRunDiag()
-			got := openPricesForSignals([]domain.Signal{{Symbol: qt02Symbol, Direction: domain.DirectionLong}}, tc.mdc, diag)
+			got := openPricesForSignals([]domain.Signal{{Symbol: qt02Symbol, Direction: cdom.DirectionLong}}, tc.mdc, diag)
 
 			assert.LessOrEqual(t, got[qt02Symbol], float64(0), "被拒的 symbol 不得拿到任何可成交价（尤其不能是收盘价）")
 			assert.Equal(t, 1, diag.noOpenPriceSkips, "被拒的委托必须计数，否则这份留痕看不出少成交了几笔")
@@ -249,8 +251,8 @@ func TestQT02_OpenPrices_CountsOncePerSymbolNotPerSignal(t *testing.T) {
 	// 该计一次，否则诊断里的「拒了几笔」会被重复信号放大。
 	diag := newFillRunDiag()
 	got := openPricesForSignals([]domain.Signal{
-		{Symbol: "GONE.SH", Direction: domain.DirectionLong},
-		{Symbol: "GONE.SH", Direction: domain.DirectionClose},
+		{Symbol: "GONE.SH", Direction: cdom.DirectionLong},
+		{Symbol: "GONE.SH", Direction: cdom.DirectionClose},
 	}, map[string][]domain.OHLCV{}, diag)
 
 	assert.Len(t, got, 1, "同 symbol 只出一个键")

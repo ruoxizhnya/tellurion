@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // AUD-10: GetPositions / GetAccount used to write the refreshed price
 // back into the stored *PositionInfo while holding only an RLock. Two
@@ -52,7 +54,7 @@ func newAuditTrader(t *testing.T, priceProvider func(string) float64) (*MockTrad
 
 	_, err := mt.SubmitOrder(
 		context.Background(), auditSymbol,
-		domain.DirectionLong, domain.OrderTypeLimit,
+		cdom.DirectionLong, domain.OrderTypeLimit,
 		100, auditOrderPrice,
 	)
 	require.NoError(t, err)

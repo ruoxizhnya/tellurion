@@ -66,8 +66,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── K17-R1：受支持算法名与挂载失败分类（单点真相）─────────────────
 
@@ -144,7 +146,7 @@ type AttachSpec struct {
 	ParentID   string           // 父单号（调用方纯函数派生；会话内唯一，重复挂载 fail-loud）
 	RunID      string           // 归属 run（可空）
 	Symbol     string           // 父单标的
-	Side       domain.Direction // long / short / close
+	Side       cdom.Direction   // long / short / close
 	Qty        float64          // 父单总量（>0，Schedule 会校验）
 	LimitPrice float64          // 0 = 市价（子单继承）
 	Style      string           // "twap" / "vwap"；未知值 fail-loud
@@ -158,11 +160,11 @@ type AttachSpec struct {
 // ParentProgress 是父单的执行进度快照（Unfinished / CancelSymbol /
 // ActiveParents 的返回元素）。
 type ParentProgress struct {
-	ParentID string           `json:"parent_id"`
-	Symbol   string           `json:"symbol"`
-	Side     domain.Direction `json:"side"`   // 父单方向（对账「外部改仓」时判敞口符号）
-	Filled   float64          `json:"filled"` // Σ 已成交量
-	Total    float64          `json:"total"`  // 父单量
+	ParentID string         `json:"parent_id"`
+	Symbol   string         `json:"symbol"`
+	Side     cdom.Direction `json:"side"`   // 父单方向（对账「外部改仓」时判敞口符号）
+	Filled   float64        `json:"filled"` // Σ 已成交量
+	Total    float64        `json:"total"`  // 父单量
 	// Reason 仅在窗口中途取消（Cancel/CancelSymbol）时非空：取消原因，
 	// 进日志区分「窗口中段取消」与「会话结束撤销」。Unfinished/ActiveParents
 	// 返回的元素该字段为空。

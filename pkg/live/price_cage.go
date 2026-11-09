@@ -53,8 +53,10 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // PriceCageError is returned by the validator when a limit-order price
 // falls outside the allowed cage or exceeds the daily price limit. It
@@ -223,12 +225,12 @@ func (v *CageValidator) Validate(order *domain.Order, ref ReferencePrice) error 
 	// 选取参考价: 买用 ask (or last as fallback), 卖用 bid (or last as fallback).
 	var reference float64
 	switch order.Direction {
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		reference = ref.BestAsk
 		if reference <= 0 {
 			reference = ref.Last
 		}
-	case domain.DirectionShort, domain.DirectionClose:
+	case cdom.DirectionShort, cdom.DirectionClose:
 		reference = ref.BestBid
 		if reference <= 0 {
 			reference = ref.Last

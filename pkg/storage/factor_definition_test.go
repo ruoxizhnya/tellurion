@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/testenv"
 )
+
+import "tellurion/pkg/domain"
 
 // newFactorDefTestStore 连真库（与仓内其他存储测试同款：本机 PG 直连，测试
 // 数据自清理）。DSN 走 TEST_DATABASE_DSN 统一契约（REV-21，
@@ -54,7 +56,7 @@ func TestFactorDefinitions_SaveAndLoadRoundTrip(t *testing.T) {
 	if len(loaded) != len(domain.BuiltinFactorDefinitions) {
 		t.Fatalf("loaded %d definitions, want %d", len(loaded), len(domain.BuiltinFactorDefinitions))
 	}
-	byName := make(map[domain.FactorType]domain.FactorDefinition, len(loaded))
+	byName := make(map[cdom.FactorType]domain.FactorDefinition, len(loaded))
 	for _, d := range loaded {
 		byName[d.Name] = d
 	}
@@ -131,7 +133,7 @@ func TestFactorDefinitions_InvalidDefinitionRejected(t *testing.T) {
 	ctx := context.Background()
 
 	bad := domain.FactorDefinition{
-		Name:          domain.FactorMomentum,
+		Name:          cdom.FactorMomentum,
 		Kernel:        domain.KernelFormula,
 		Formula:       "close / ts_delay(close, 20) - 1",
 		Caliber:       domain.CaliberZScore,

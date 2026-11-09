@@ -35,12 +35,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/sandbox/wasm"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 模块 globals / on_bar locals ─────────────────────────────────
 
@@ -329,9 +331,9 @@ func (s *qt31GoProbe) GenerateSignals(_ context.Context, bars map[string][]domai
 }
 
 func qt31TargetSignal(sym string, w float64, date time.Time) strategy.Signal {
-	dir := domain.DirectionLong
+	dir := cdom.DirectionLong
 	if w == 0 {
-		dir = domain.DirectionClose
+		dir = cdom.DirectionClose
 	}
 	return strategy.Signal{
 		Symbol:    sym,
@@ -614,7 +616,7 @@ func TestQT31_TargetWeightTiersClampedAtPolicyCap(t *testing.T) {
 	for _, tc := range cases {
 		sig := domain.Signal{
 			Symbol:    "600000.SH",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			Metadata:  map[string]any{signalMetaTargetWeight: tc.target},
 		}
 		ps := eng.applyTargetWeightSizing(domain.PositionSize{Size: capQty}, sig, portfolio, price, diag)

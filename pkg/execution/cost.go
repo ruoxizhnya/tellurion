@@ -38,10 +38,12 @@ package execution
 import (
 	"fmt"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/marketimpact"
 )
+
+import "tellurion/pkg/domain"
 
 // CostModel 是单一执行成本核：给定参考价 + 配置，算出成交价与佣金。
 //
@@ -81,7 +83,7 @@ func (m *CostModel) SlippageModel() string { return m.config.SlippageModel }
 // 为什么 impact 在 adv<=0 时退化为 fixed 而不是零：零会被下游读成
 // 「无成交量数据 = 无冲击 = 成本为零」，是危险的乐观偏差。退化到 fixed
 // 至少保持一个保守 haircut。该语义与 pkg/backtest/execution 一致。
-func (m *CostModel) SlippagePrice(price float64, direction domain.Direction, orderQty, adv, high, low float64) float64 {
+func (m *CostModel) SlippagePrice(price float64, direction cdom.Direction, orderQty, adv, high, low float64) float64 {
 	switch m.config.SlippageModel {
 	case "fixed":
 		// REV-19：优先用配置值；零值回落 fees.FixedSlippageRate（0.001）。
@@ -91,21 +93,21 @@ func (m *CostModel) SlippagePrice(price float64, direction domain.Direction, ord
 		if slippage <= 0 {
 			slippage = fees.FixedSlippageRate
 		}
-		if direction == domain.DirectionLong {
+		if direction == cdom.DirectionLong {
 			return price * (1 + slippage)
 		}
 		return price * (1 - slippage)
 	case "variable":
 		volatility := (high - low) / price
 		slippage := volatility * 0.1
-		if direction == domain.DirectionLong {
+		if direction == cdom.DirectionLong {
 			return price * (1 + slippage)
 		}
 		return price * (1 - slippage)
 	case "impact":
 		if adv <= 0 {
 			slippage := fees.FixedSlippageRate
-			if direction == domain.DirectionLong {
+			if direction == cdom.DirectionLong {
 				return price * (1 + slippage)
 			}
 			return price * (1 - slippage)
@@ -115,7 +117,7 @@ func (m *CostModel) SlippagePrice(price float64, direction domain.Direction, ord
 			LiquidityFactor: m.config.ImpactLiquidityFactor,
 		}
 		impact := model.CalculateImpact(orderQty, adv)
-		if direction == domain.DirectionLong {
+		if direction == cdom.DirectionLong {
 			return price * (1 + impact)
 		}
 		return price * (1 - impact)

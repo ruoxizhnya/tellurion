@@ -11,17 +11,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/execalgo"
 )
 
+import "tellurion/pkg/domain"
+
 // dispatchParent 构造一个 7 片 TWAP 父单的 AttachSpec（窗口 7 个自然日）。
 func dispatchParent(parentID, symbol string, qty float64, start time.Time) execalgo.AttachSpec {
 	n, end := execalgo.ResolveExecWindow(start, 7, nil)
 	return execalgo.AttachSpec{
-		ParentID: parentID, Symbol: symbol, Side: domain.DirectionLong,
+		ParentID: parentID, Symbol: symbol, Side: cdom.DirectionLong,
 		Qty: qty, Style: "twap", Slices: n, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: end,
 	}
@@ -237,7 +239,7 @@ func TestDispatcher_VWAPProfileWeights(t *testing.T) {
 	start := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
 	n, end := execalgo.ResolveExecWindow(start, 0, []float64{1, 2, 3, 4})
 	spec := execalgo.AttachSpec{
-		ParentID: "PO-V", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		ParentID: "PO-V", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 1000, Style: "vwap", Slices: n, Profile: []float64{1, 2, 3, 4},
 		OrderType: domain.OrderTypeMarket, StartAt: start, EndAt: end,
 	}
@@ -265,13 +267,13 @@ func TestDispatcher_SameSymbolParentsSorted(t *testing.T) {
 	start := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
 	// 挂载序故意与排序序相反（先挂 close 方向）。
 	_, err := d.Attach(context.Background(), execalgo.AttachSpec{
-		ParentID: "EA-20260105-000001.SZ-close", Symbol: "000001.SZ", Side: domain.DirectionClose,
+		ParentID: "EA-20260105-000001.SZ-close", Symbol: "000001.SZ", Side: cdom.DirectionClose,
 		Qty: 500, Style: "twap", Slices: 3, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 3),
 	})
 	require.NoError(t, err)
 	_, err = d.Attach(context.Background(), execalgo.AttachSpec{
-		ParentID: "EA-20260105-000001.SZ-long", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		ParentID: "EA-20260105-000001.SZ-long", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 1000, Style: "twap", Slices: 3, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 3),
 	})

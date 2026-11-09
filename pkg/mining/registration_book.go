@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ErrRegistrationDuplicate：同一 (因子名, 版本哈希) 重复登记——改定义必须
 // 改哈希（版本纪律），原样重放同一版是幂等而非新增。
@@ -29,7 +31,7 @@ var ErrRegistrationDuplicate = fmt.Errorf("factor version already registered")
 type RegistrationBook struct {
 	mu sync.RWMutex
 	// byNameHash 按 (因子名, 版本哈希) 索引登记记录。
-	byNameHash map[domain.FactorType]map[string]*domain.FactorRegistration
+	byNameHash map[cdom.FactorType]map[string]*domain.FactorRegistration
 	// ordered 保持登记顺序（判定「最新在册版本」时同刻按登记序取后者，
 	// 避免 map 遍历的随机性破坏确定性）。
 	ordered []*domain.FactorRegistration
@@ -39,7 +41,7 @@ type RegistrationBook struct {
 // NewRegistrationBook 构造空账本。
 func NewRegistrationBook() *RegistrationBook {
 	return &RegistrationBook{
-		byNameHash: make(map[domain.FactorType]map[string]*domain.FactorRegistration),
+		byNameHash: make(map[cdom.FactorType]map[string]*domain.FactorRegistration),
 	}
 }
 
@@ -114,7 +116,7 @@ func (b *RegistrationBook) Register(def domain.FactorDefinition, registrar, reas
 // Rollback 回滚某一版登记：新引用不再命中，历史引用照旧命中。
 //
 // 找不到版本、已回滚、或缺 actor（审计「谁」）都 fail-closed 报错。
-func (b *RegistrationBook) Rollback(name domain.FactorType, versionHash, actor, reason string, at time.Time) error {
+func (b *RegistrationBook) Rollback(name cdom.FactorType, versionHash, actor, reason string, at time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	byHash := b.byNameHash[name]
@@ -146,7 +148,7 @@ func (b *RegistrationBook) Rollback(name domain.FactorType, versionHash, actor, 
 
 // ResolveEffective 解析一个因子的「新引用」应命中哪一版：最新的**在册**
 // （active）版本。被回滚的版本不参与。无在册版本 → ok=false。
-func (b *RegistrationBook) ResolveEffective(name domain.FactorType) (domain.FactorDefinition, string, bool) {
+func (b *RegistrationBook) ResolveEffective(name cdom.FactorType) (domain.FactorDefinition, string, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	var best *domain.FactorRegistration
@@ -167,7 +169,7 @@ func (b *RegistrationBook) ResolveEffective(name domain.FactorType) (domain.Fact
 
 // ResolvePinned 解析一个因子的「历史引用」：按版本哈希精确锁定，无论该
 // 版本是否已回滚都能命中——历史回测钉着当时的哈希跑，回滚不许破坏复现。
-func (b *RegistrationBook) ResolvePinned(name domain.FactorType, versionHash string) (domain.FactorDefinition, bool) {
+func (b *RegistrationBook) ResolvePinned(name cdom.FactorType, versionHash string) (domain.FactorDefinition, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	reg, ok := b.byNameHash[name][versionHash]

@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // piStream 是「状态写在实例上」的流式替身：fed 记录本实例见过的 bar。

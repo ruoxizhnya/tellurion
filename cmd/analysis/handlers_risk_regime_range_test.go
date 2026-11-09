@@ -22,10 +22,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 type fakeRegimeStore struct {
 	calls  int
@@ -80,7 +82,7 @@ func TestDetectRegime_CoarseShapeFetchesBars(t *testing.T) {
 	w := postRegime(t, h, `{"symbol":"600000.SH","start_date":"1990-01-01","end_date":"1990-06-30"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	var regime domain.MarketRegime
+	var regime cdom.MarketRegime
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &regime))
 	assert.NotEmpty(t, regime.Trend)
 	assert.NotEmpty(t, regime.Volatility)

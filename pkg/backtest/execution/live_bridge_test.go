@@ -24,8 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // fakeExecutionPort — 测试用 ExecutionPort stub，只记录调用、不写 broker。
 type fakeExecutionPort struct {
@@ -40,7 +42,7 @@ type fakeExecutionPort struct {
 
 type fakeSubmitCall struct {
 	Symbol    string
-	Direction domain.Direction
+	Direction cdom.Direction
 	OrderType domain.OrderType
 	Quantity  float64
 	Price     float64
@@ -103,7 +105,7 @@ func TestLiveBridge_SetGetRoundTrip(t *testing.T) {
 
 func TestLiveBridge_ExecuteSignal_NilTraderReturnsNil(t *testing.T) {
 	b := newTestLiveBridge()
-	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
+	signal := domain.Signal{Symbol: "600000.SH", Direction: cdom.DirectionLong}
 	result, err := b.ExecuteSignal(context.Background(), signal, 10.0)
 	require.NoError(t, err)
 	assert.Nil(t, result, "nil port must return (nil, nil) per backward compat contract")
@@ -113,7 +115,7 @@ func TestLiveBridge_ExecuteSignal_InvalidPrice(t *testing.T) {
 	b := newTestLiveBridge()
 	b.Set(&fakeExecutionPort{name: "fake"})
 
-	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
+	signal := domain.Signal{Symbol: "600000.SH", Direction: cdom.DirectionLong}
 	for _, badPrice := range []float64{0, -0.01, -100} {
 		result, err := b.ExecuteSignal(context.Background(), signal, badPrice)
 		require.Error(t, err, "price=%.2f must be rejected", badPrice)
@@ -129,7 +131,7 @@ func TestLiveBridge_ExecuteSignal_MarketOrder(t *testing.T) {
 
 	signal := domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Strength:  0.0, // → quantity = 100 default
 	}
@@ -140,7 +142,7 @@ func TestLiveBridge_ExecuteSignal_MarketOrder(t *testing.T) {
 	require.Len(t, port.submitCalls, 1)
 	call := port.submitCalls[0]
 	assert.Equal(t, "600000.SH", call.Symbol)
-	assert.Equal(t, domain.DirectionLong, call.Direction)
+	assert.Equal(t, cdom.DirectionLong, call.Direction)
 	assert.Equal(t, domain.OrderTypeMarket, call.OrderType)
 	assert.Equal(t, 0.0, call.Price, "market order must send price=0 to broker")
 	assert.Equal(t, 100.0, call.Quantity, "strength=0 must use default lot of 100")
@@ -153,7 +155,7 @@ func TestLiveBridge_ExecuteSignal_LimitOrder(t *testing.T) {
 
 	signal := domain.Signal{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		LimitPrice: 11.5,
 		Strength:   0.5, // → quantity = 100 * max(1.0, 0.5*10) = 100 * 5.0 = 500
@@ -177,7 +179,7 @@ func TestLiveBridge_ExecuteSignal_LimitPriceFallback(t *testing.T) {
 	// Limit order with no explicit LimitPrice → fallback to currentPrice
 	signal := domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeLimit,
 		// LimitPrice == 0
 	}
@@ -195,7 +197,7 @@ func TestLiveBridge_ExecuteSignal_QuantityScalingCap(t *testing.T) {
 	// strength=200 → scaled = 200*10 = 2000 → quantity = 200000, but cap to 10000
 	signal := domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  200.0,
 	}
 	_, err := b.ExecuteSignal(context.Background(), signal, 10.0)
@@ -212,7 +214,7 @@ func TestLiveBridge_ExecuteSignal_SubmitError(t *testing.T) {
 	b := newTestLiveBridge()
 	b.Set(port)
 
-	signal := domain.Signal{Symbol: "600000.SH", Direction: domain.DirectionLong}
+	signal := domain.Signal{Symbol: "600000.SH", Direction: cdom.DirectionLong}
 	result, err := b.ExecuteSignal(context.Background(), signal, 10.0)
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -225,10 +227,10 @@ func TestLiveBridge_ExecuteSignals_BatchWithMissingPrices(t *testing.T) {
 	b.Set(port)
 
 	signals := []domain.Signal{
-		{Symbol: "600000.SH", Direction: domain.DirectionLong},
-		{Symbol: "600001.SH", Direction: domain.DirectionLong},
-		{Symbol: "600002.SH", Direction: domain.DirectionLong}, // missing price → skip
-		{Symbol: "600003.SH", Direction: domain.DirectionLong}, // price=0 → skip
+		{Symbol: "600000.SH", Direction: cdom.DirectionLong},
+		{Symbol: "600001.SH", Direction: cdom.DirectionLong},
+		{Symbol: "600002.SH", Direction: cdom.DirectionLong}, // missing price → skip
+		{Symbol: "600003.SH", Direction: cdom.DirectionLong}, // price=0 → skip
 	}
 	prices := map[string]float64{
 		"600000.SH": 10.0,
@@ -248,7 +250,7 @@ func TestLiveBridge_ExecuteSignals_BatchWithMissingPrices(t *testing.T) {
 
 func TestLiveBridge_ExecuteSignals_NilTraderReturnsNil(t *testing.T) {
 	b := newTestLiveBridge()
-	signals := []domain.Signal{{Symbol: "600000.SH", Direction: domain.DirectionLong}}
+	signals := []domain.Signal{{Symbol: "600000.SH", Direction: cdom.DirectionLong}}
 	results := b.ExecuteSignals(context.Background(), signals, map[string]float64{"600000.SH": 10.0})
 	assert.Nil(t, results, "nil port must return nil map per backward compat")
 }

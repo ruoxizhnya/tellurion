@@ -37,7 +37,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/ruoxizhnya/tellurion-kit/logging"
@@ -47,6 +47,8 @@ import (
 	"tellurion/pkg/strategy"
 	_ "tellurion/pkg/strategy/plugins"
 )
+
+import "tellurion/pkg/domain"
 
 // qt04Strategies 是 ③-① 要求的「14 个内置策略」—— `pkg/strategy/plugins` 里通过
 // init() + strategy.GlobalRegister 注册的那一批。
@@ -206,7 +208,7 @@ type qt04Row struct {
 type qt04ScanState struct {
 	row    qt04Row
 	groups map[string]*qt04Group
-	trades []domain.Trade
+	trades []cdom.Trade
 
 	// days: 交易日 → 当日信号切片里标的的出现顺序（原样，不排序）。
 	// A8 的「引擎不排序」到底有没有后果，就看这个序在复跑之间变不变。
@@ -328,9 +330,9 @@ func (st *qt04ScanState) fold(maxSamples int) {
 // q04DirectionsConflict：同组里既有建仓又有平仓/反向，就是 A12 里最坏的那一类 ——
 // 哪条生效决定仓位方向。
 func q04DirectionsConflict(dirs map[string]bool) bool {
-	hasLong := dirs[string(domain.DirectionLong)]
-	hasShort := dirs[string(domain.DirectionShort)]
-	hasClose := dirs[string(domain.DirectionClose)]
+	hasLong := dirs[string(cdom.DirectionLong)]
+	hasShort := dirs[string(cdom.DirectionShort)]
+	hasClose := dirs[string(cdom.DirectionClose)]
 	if hasLong && hasShort {
 		return true
 	}
@@ -693,7 +695,7 @@ func qt04RunOne(t *testing.T, store *storage.PostgresStore, strategyName string,
 // 只有仓位尺寸取自 `positionSizes[signal.Symbol]`（map，最后一条写进去的那个）。
 // 也就是说覆盖的是仓位、不是订单。这条把两种说法用成交流水区分开，不靠读代码下结论。
 func qt04JoinTrades(st *qt04ScanState) {
-	perKey := map[string][]domain.Trade{}
+	perKey := map[string][]cdom.Trade{}
 	for _, tr := range st.trades {
 		key := tr.Timestamp.Format("2006-01-02") + "|" + tr.Symbol
 		perKey[key] = append(perKey[key], tr)
@@ -742,13 +744,13 @@ func actionKeys(members []qt04Sig) []string {
 }
 
 // q04RoundTrip = 同一个 (date,symbol) 的成交流水里既有建仓又有平仓。
-func q04RoundTrip(trades []domain.Trade) bool {
+func q04RoundTrip(trades []cdom.Trade) bool {
 	var hasOpen, hasClose bool
 	for _, tr := range trades {
 		switch tr.Direction {
-		case domain.DirectionLong, domain.DirectionShort:
+		case cdom.DirectionLong, cdom.DirectionShort:
 			hasOpen = true
-		case domain.DirectionClose:
+		case cdom.DirectionClose:
 			hasClose = true
 		}
 	}

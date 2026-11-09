@@ -10,13 +10,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"tellurion/pkg/storage"
 )
+
+import "tellurion/pkg/domain"
 
 type fakeProvenance struct {
 	rec *storage.RunProvenanceRecord
@@ -36,7 +38,7 @@ func (f fakeEngine) GetBacktestPositions(runID string) ([]domain.Position, error
 	return f.positions, nil
 }
 
-func (f fakeEngine) GetFactorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool) {
+func (f fakeEngine) GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 	if f.zscores == nil {
 		return 0, false
 	}
@@ -96,8 +98,8 @@ func publisherFixture() (*Publisher, *fakeEngine, *fakeArtifactStore, *fakeDeliv
 	eng := &fakeEngine{
 		positions: in.Positions,
 		zscores: fakeZScores{
-			"A": {domain.FactorMomentum: 1.0},
-			"B": {domain.FactorMomentum: -1.0},
+			"A": {cdom.FactorMomentum: 1.0},
+			"B": {cdom.FactorMomentum: -1.0},
 		},
 	}
 	store := &fakeArtifactStore{}
@@ -108,12 +110,12 @@ func publisherFixture() (*Publisher, *fakeEngine, *fakeArtifactStore, *fakeDeliv
 		Engine:        eng,
 		Market:        market,
 		Catalog:       catalog,
-		FactorReturns: fakeFactorReturns{domain.FactorMomentum: {{TradeDate: in.EndDate, TopMinusBot: 0.05}}},
+		FactorReturns: fakeFactorReturns{cdom.FactorMomentum: {{TradeDate: in.EndDate, TopMinusBot: 0.05}}},
 		Provenance:    fakeProvenance{rec: provenanceFixture()},
 		Artifacts:     store,
 		Deliverer:     deliverer,
 		Benchmark:     "000300.SH",
-		Factors:       []domain.FactorType{domain.FactorMomentum},
+		Factors:       []cdom.FactorType{cdom.FactorMomentum},
 		Log:           zerolog.Nop(),
 	}
 	return p, eng, store, deliverer

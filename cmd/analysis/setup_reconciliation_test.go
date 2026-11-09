@@ -17,11 +17,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/live"
 	"tellurion/pkg/live/reconciliation"
 )
+
+import "tellurion/pkg/domain"
 
 // reconCaptureChannel 捕获派发进告警通道的每条 alert。
 type reconCaptureChannel struct {
@@ -67,7 +69,7 @@ func (d *driftedBrokerView) QuerySettlement(ctx context.Context, accountID strin
 func newReconTestTrader(t *testing.T) *live.MockTrader {
 	t.Helper()
 	trader := live.NewMockTrader(live.MockTraderConfig{InitialCash: 1_000_000}, zerolog.Nop())
-	_, err := trader.SubmitOrder(context.Background(), "600000.SH", domain.DirectionLong, domain.OrderTypeMarket, 200, 10)
+	_, err := trader.SubmitOrder(context.Background(), "600000.SH", cdom.DirectionLong, domain.OrderTypeMarket, 200, 10)
 	require.NoError(t, err)
 	return trader
 }

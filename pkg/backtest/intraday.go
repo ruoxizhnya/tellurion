@@ -26,8 +26,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )

@@ -6,10 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"tellurion/pkg/execution"
 )
+
+import "tellurion/pkg/domain"
 
 // SimulatedBroker implements a paper trading broker for testing
 type SimulatedBroker struct {
@@ -187,7 +189,7 @@ func (b *SimulatedBroker) fillOrder(orderID string) {
 	// SimulatedBroker consistent with MockTrader and the backtest engine.
 	commission := math.Max(amount*b.fees.CommissionRate, b.fees.MinCommission)
 
-	if order.Direction == domain.DirectionLong {
+	if order.Direction == cdom.DirectionLong {
 		position.Quantity += order.Quantity
 		position.AvgCost = (position.AvgCost*(position.Quantity-order.Quantity) + amount) / position.Quantity
 		b.balance -= amount + commission

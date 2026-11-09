@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // SignalReconcileConfig 决定信号对账的容差。全部是「绝对容差」，

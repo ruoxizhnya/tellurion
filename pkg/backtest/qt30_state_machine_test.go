@@ -26,11 +26,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 极简 wasm 汇编器（只覆盖本用例需要的指令）──────────────────────
 
@@ -298,9 +300,9 @@ func (s *qt30GoProbe) GenerateSignals(_ context.Context, bars map[string][]domai
 	s.lastTargetPct = targetPct
 
 	w := float64(targetPct) / 100.0
-	dir := domain.DirectionLong
+	dir := cdom.DirectionLong
 	if w == 0 {
-		dir = domain.DirectionClose
+		dir = cdom.DirectionClose
 	}
 	return []strategy.Signal{{
 		Symbol:    "600000.SH",

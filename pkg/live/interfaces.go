@@ -20,9 +20,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // OrderIntent 是 risk-engine 冻结的订单意图类型（pkg/risk/interfaces.go）。
 //
@@ -55,7 +57,7 @@ type OrderLifecycle interface {
 	GetOrders() []domain.Order
 	GetPendingOrders() []domain.Order
 	UpdateOrderStatus(orderID string, status string)
-	GetTrades() []domain.Trade
+	GetTrades() []cdom.Trade
 }
 
 // Reconciler 是对账能力（蓝图 §5 exec-engine 行 + §7.2 实盘数据流）。
@@ -168,7 +170,7 @@ var (
 	_ func(OrderLifecycle) []domain.Order                = OrderLifecycle.GetOrders
 	_ func(OrderLifecycle) []domain.Order                = OrderLifecycle.GetPendingOrders
 	_ func(OrderLifecycle, string, string)               = OrderLifecycle.UpdateOrderStatus
-	_ func(OrderLifecycle) []domain.Trade                = OrderLifecycle.GetTrades
+	_ func(OrderLifecycle) []cdom.Trade                  = OrderLifecycle.GetTrades
 
 	_ func(Broker) error                         = Broker.Connect
 	_ func(Broker) error                         = Broker.Disconnect

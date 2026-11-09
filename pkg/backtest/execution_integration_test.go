@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // TestEngine_ExecutionServiceIntegration tests that Engine correctly uses ExecutionService
 func TestEngine_ExecutionServiceIntegration(t *testing.T) {
@@ -38,7 +40,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 	t.Run("long_trade_with_fixed_slippage", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 			Timestamp: time.Now(),
@@ -57,7 +59,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 		trade, err := execSvc.ExecuteOrder(order, quote)
 		require.NoError(t, err)
 		assert.Equal(t, "000001.SZ", trade.Symbol)
-		assert.Equal(t, domain.DirectionLong, trade.Direction)
+		assert.Equal(t, cdom.DirectionLong, trade.Direction)
 		assert.Equal(t, 100.0, trade.Quantity)
 		// Fixed slippage: 10.0 * 1.001 = 10.01
 		assert.InDelta(t, 10.01, trade.Price, 0.001)
@@ -81,7 +83,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionShort,
+			Direction: cdom.DirectionShort,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 			Timestamp: time.Now(),
@@ -119,7 +121,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 			Timestamp: time.Now(),
@@ -152,7 +154,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 9.5,
@@ -183,7 +185,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 	t.Run("limit_order_not_reached", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 8.0,
@@ -214,7 +216,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 		// First buy
 		buyOrder := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 			Timestamp: time.Now(),
@@ -236,7 +238,7 @@ func TestEngine_ExecutionServiceIntegration(t *testing.T) {
 		// Then sell
 		sellOrder := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionClose,
+			Direction: cdom.DirectionClose,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 			Timestamp: time.Now().Add(24 * time.Hour),
@@ -265,9 +267,9 @@ func TestTracker_ApplyTrade_InsufficientCash(t *testing.T) {
 		logger,
 	)
 
-	trade := domain.Trade{
+	trade := cdom.Trade{
 		Symbol:     "000001.SZ",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		Quantity:   1000,
 		Price:      100.0, // Total = 1000 * 100 = 100000, way over cash
 		Commission: 25.0,
@@ -293,9 +295,9 @@ func TestTracker_ApplyTrade_T1Violation(t *testing.T) {
 	now := time.Now()
 
 	// Buy today
-	buyTrade := domain.Trade{
+	buyTrade := cdom.Trade{
 		Symbol:     "000001.SZ",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		Quantity:   100,
 		Price:      10.0,
 		Commission: 2.5,
@@ -306,9 +308,9 @@ func TestTracker_ApplyTrade_T1Violation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to sell today (T+1 violation)
-	sellTrade := domain.Trade{
+	sellTrade := cdom.Trade{
 		Symbol:     "000001.SZ",
-		Direction:  domain.DirectionClose,
+		Direction:  cdom.DirectionClose,
 		Quantity:   100,
 		Price:      11.0,
 		Commission: 2.75,
@@ -362,7 +364,7 @@ func TestBacktestExecutionService_NoSlippage(t *testing.T) {
 
 	order := domain.Order{
 		Symbol:    "000001.SZ",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Quantity:  100,
 		Timestamp: time.Now(),

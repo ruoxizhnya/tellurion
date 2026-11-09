@@ -17,16 +17,18 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 
 	"tellurion/pkg/storage"
 )
 
+import "tellurion/pkg/domain"
+
 // EnginePort 是发布器需要的引擎读面。
 type EnginePort interface {
 	GetBacktestPositions(runID string) ([]domain.Position, error)
-	GetFactorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool)
+	GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool)
 }
 
 // ProvenanceReader 读一次 run 的输入身份（quant.run_provenance）。
@@ -56,7 +58,7 @@ type Publisher struct {
 	Benchmark     string
 	// BenchmarkFor 可选：按 run 覆盖基准指数（空串 = 用 Benchmark 默认值）。
 	BenchmarkFor func(ctx context.Context, runID string) string
-	Factors      []domain.FactorType
+	Factors      []cdom.FactorType
 	Log          zerolog.Logger
 }
 

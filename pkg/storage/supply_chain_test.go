@@ -22,10 +22,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 
 	"tellurion/pkg/testenv"
 )

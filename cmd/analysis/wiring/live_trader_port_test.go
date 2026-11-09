@@ -13,7 +13,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,9 +23,11 @@ import (
 	"tellurion/pkg/marketdata"
 )
 
+import "tellurion/pkg/domain"
+
 type fakeTrader struct {
 	lastSymbol    string
-	lastDirection domain.Direction
+	lastDirection cdom.Direction
 	lastOrderType domain.OrderType
 	lastQty       float64
 	lastPrice     float64
@@ -35,7 +37,7 @@ type fakeTrader struct {
 	order         *live.OrderResult
 }
 
-func (f *fakeTrader) SubmitOrder(ctx context.Context, symbol string, dir domain.Direction, orderType domain.OrderType, qty, price float64) (*live.OrderResult, error) {
+func (f *fakeTrader) SubmitOrder(ctx context.Context, symbol string, dir cdom.Direction, orderType domain.OrderType, qty, price float64) (*live.OrderResult, error) {
 	f.lastSymbol, f.lastDirection, f.lastOrderType = symbol, dir, orderType
 	f.lastQty, f.lastPrice = qty, price
 	if f.submitErr != nil {
@@ -76,7 +78,7 @@ func TestLiveTraderPort_SubmitOrder_MapsBothWays(t *testing.T) {
 
 	res, err := port.SubmitOrder(context.Background(), execution.OrderRequest{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeLimit,
 		Quantity:  500,
 		Price:     11.5,
@@ -86,7 +88,7 @@ func TestLiveTraderPort_SubmitOrder_MapsBothWays(t *testing.T) {
 
 	// 请求原样下发
 	assert.Equal(t, "600000.SH", trader.lastSymbol)
-	assert.Equal(t, domain.DirectionLong, trader.lastDirection)
+	assert.Equal(t, cdom.DirectionLong, trader.lastDirection)
 	assert.Equal(t, domain.OrderTypeLimit, trader.lastOrderType)
 	assert.Equal(t, 500.0, trader.lastQty)
 	assert.Equal(t, 11.5, trader.lastPrice)
@@ -120,7 +122,7 @@ func TestAttachLiveTrader_InjectsWorkingPortIntoEngine(t *testing.T) {
 
 	res, err := eng.ExecuteSignalViaLiveTrader(context.Background(), domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Strength:  0.5,
 	}, 10.0)

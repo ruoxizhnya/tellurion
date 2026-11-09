@@ -22,23 +22,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/examples"
 )
+
+import "tellurion/pkg/domain"
 
 var qt21Day = time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 
 // qt21BaseBatch 是一组「已含重复」的信号，用来验证排序与合并的组合行为。
 func qt21BaseBatch() []domain.Signal {
 	return []domain.Signal{
-		{Symbol: "600003.SH", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.30, CompositeScore: 0.30},
-		{Symbol: "600001.SH", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.20, CompositeScore: 0.20},
-		{Symbol: "600002.SH", Date: qt21Day, Direction: domain.DirectionShort, Strength: 0.90, CompositeScore: 0.95},
-		{Symbol: "600001.SH", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.70, CompositeScore: 0.75},
-		{Symbol: "600002.SH", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.90, CompositeScore: 0.95},
-		{Symbol: "600004.SH", Date: qt21Day, Direction: domain.DirectionClose, Strength: 0.40, CompositeScore: 0.40},
-		{Symbol: "600004.SH", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.80, CompositeScore: 0.80},
+		{Symbol: "600003.SH", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.30, CompositeScore: 0.30},
+		{Symbol: "600001.SH", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.20, CompositeScore: 0.20},
+		{Symbol: "600002.SH", Date: qt21Day, Direction: cdom.DirectionShort, Strength: 0.90, CompositeScore: 0.95},
+		{Symbol: "600001.SH", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.70, CompositeScore: 0.75},
+		{Symbol: "600002.SH", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.90, CompositeScore: 0.95},
+		{Symbol: "600004.SH", Date: qt21Day, Direction: cdom.DirectionClose, Strength: 0.40, CompositeScore: 0.40},
+		{Symbol: "600004.SH", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.80, CompositeScore: 0.80},
 	}
 }
 
@@ -73,13 +75,13 @@ func TestNormalizeSignalSequence_TwentyShufflesIdentical(t *testing.T) {
 func TestMergeSameBarSignals_CloseWins(t *testing.T) {
 	diag := newFillRunDiag()
 	in := []domain.Signal{
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.80, CompositeScore: 0.80, LimitPrice: 99},
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionClose, Strength: 0.30, CompositeScore: 0.40, LimitPrice: 10},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.80, CompositeScore: 0.80, LimitPrice: 99},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionClose, Strength: 0.30, CompositeScore: 0.40, LimitPrice: 10},
 	}
 	out := normalizeSignalSequence(in, diag)
 
 	require.Len(t, out, 1)
-	assert.Equal(t, domain.DirectionClose, out[0].Direction, "close 必须优先于 long")
+	assert.Equal(t, cdom.DirectionClose, out[0].Direction, "close 必须优先于 long")
 	assert.Equal(t, 0.30, out[0].Strength, "只剩一条 close 时保留原 strength")
 	assert.Equal(t, 10.0, out[0].LimitPrice, "合并保留 close 那条的下单参数")
 	assert.Equal(t, 1, diag.duplicateSignalsMerged)
@@ -88,13 +90,13 @@ func TestMergeSameBarSignals_CloseWins(t *testing.T) {
 func TestMergeSameBarSignals_SameDirectionSumClamped(t *testing.T) {
 	diag := newFillRunDiag()
 	in := []domain.Signal{
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.60, CompositeScore: 0.55},
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.70, CompositeScore: 0.90},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.60, CompositeScore: 0.55},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.70, CompositeScore: 0.90},
 	}
 	out := normalizeSignalSequence(in, diag)
 
 	require.Len(t, out, 1)
-	assert.Equal(t, domain.DirectionLong, out[0].Direction)
+	assert.Equal(t, cdom.DirectionLong, out[0].Direction)
 	assert.Equal(t, 1.0, out[0].Strength, "0.6+0.7 必须 clamp 到 1.0")
 	assert.Equal(t, 0.90, out[0].CompositeScore, "CompositeScore 取组内最大")
 	assert.Equal(t, 1, diag.duplicateSignalsMerged)
@@ -103,8 +105,8 @@ func TestMergeSameBarSignals_SameDirectionSumClamped(t *testing.T) {
 func TestMergeSameBarSignals_OppositeDirectionsNotMerged(t *testing.T) {
 	diag := newFillRunDiag()
 	in := []domain.Signal{
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.60},
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionShort, Strength: 0.50},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.60},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionShort, Strength: 0.50},
 	}
 	out := normalizeSignalSequence(in, diag)
 
@@ -115,8 +117,8 @@ func TestMergeSameBarSignals_OppositeDirectionsNotMerged(t *testing.T) {
 func TestMergeSameBarSignals_DifferentBarsNotMerged(t *testing.T) {
 	diag := newFillRunDiag()
 	in := []domain.Signal{
-		{Symbol: "A", Date: qt21Day, Direction: domain.DirectionLong, Strength: 0.60},
-		{Symbol: "A", Date: qt21Day.AddDate(0, 0, 1), Direction: domain.DirectionLong, Strength: 0.50},
+		{Symbol: "A", Date: qt21Day, Direction: cdom.DirectionLong, Strength: 0.60},
+		{Symbol: "A", Date: qt21Day.AddDate(0, 0, 1), Direction: cdom.DirectionLong, Strength: 0.50},
 	}
 	out := normalizeSignalSequence(in, diag)
 
@@ -150,9 +152,9 @@ func (s *qt21MapOrderProbe) GenerateSignals(_ context.Context, bars map[string][
 	for sym, series := range bars { // ← 非确定顺序：本单要消灭的就是它
 		last := series[len(series)-1]
 		out = append(out,
-			strategy.Signal{Symbol: sym, Action: "buy", Direction: domain.DirectionLong, Strength: 0.3, Date: last.Date},
-			strategy.Signal{Symbol: sym, Action: "buy", Direction: domain.DirectionLong, Strength: 0.4, Date: last.Date},
-			strategy.Signal{Symbol: sym, Action: "sell", Direction: domain.DirectionClose, Strength: 0.2, Date: last.Date},
+			strategy.Signal{Symbol: sym, Action: "buy", Direction: cdom.DirectionLong, Strength: 0.3, Date: last.Date},
+			strategy.Signal{Symbol: sym, Action: "buy", Direction: cdom.DirectionLong, Strength: 0.4, Date: last.Date},
+			strategy.Signal{Symbol: sym, Action: "sell", Direction: cdom.DirectionClose, Strength: 0.2, Date: last.Date},
 		)
 	}
 	return out, nil

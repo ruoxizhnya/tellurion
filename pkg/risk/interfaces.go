@@ -17,8 +17,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // OrderIntent 是订单意图——策略 / 执行算法产出、报送前的「待裁决」订单。
 // 它是 risk-engine 的输入契约，也是 exec-engine.Submit 的输入契约
@@ -30,7 +32,7 @@ type OrderIntent struct {
 	OrderID   string           `json:"order_id"` // 调用方生成的幂等键，回链 quant.orders
 	RunID     string           `json:"run_id"`   // 归属 run（落 quant.risk_events）
 	Symbol    string           `json:"symbol"`
-	Side      domain.Direction `json:"side"`       // long / short / close
+	Side      cdom.Direction   `json:"side"`       // long / short / close
 	OrderType domain.OrderType `json:"order_type"` // market / limit / stop / trailing
 	Qty       float64          `json:"qty"`
 	Price     float64          `json:"price"` // 限价单的限价；市价单为 0
@@ -63,8 +65,8 @@ type Verdict struct {
 // （D1）**——如涨跌停、T+1、持仓集中度、自成交等制度的落地属 K1+ 的
 // 实现范围，本契约不预先规定规则集。
 type RiskEngine interface {
-	CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error)
-	DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*domain.MarketRegime, error)
+	CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error)
+	DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*cdom.MarketRegime, error)
 	CheckStopLoss(ctx context.Context, positions []domain.Position, prices map[string]float64) ([]domain.StopLossEvent, error)
 	CheckOrder(ctx context.Context, intent OrderIntent) (Verdict, error)
 }
@@ -75,12 +77,12 @@ type RiskEngine interface {
 type StandardRiskEngine struct{}
 
 // CalculatePosition 计算仓位大小（冻结自 domain.RiskManager）。
-func (r *StandardRiskEngine) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
+func (r *StandardRiskEngine) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
 	panic("contract stub: not implemented")
 }
 
 // DetectRegime 判定市场状态（冻结自 domain.RiskManager）。
-func (r *StandardRiskEngine) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*domain.MarketRegime, error) {
+func (r *StandardRiskEngine) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*cdom.MarketRegime, error) {
 	panic("contract stub: not implemented")
 }
 
@@ -110,8 +112,8 @@ var (
 	_ RiskEngine         = (*StandardRiskEngine)(nil)
 	_ domain.RiskManager = (*StandardRiskEngine)(nil)
 
-	_ func(RiskEngine, context.Context, domain.Signal, *domain.Portfolio, *domain.MarketRegime, float64, []domain.OHLCV) (domain.PositionSize, error) = RiskEngine.CalculatePosition
-	_ func(RiskEngine, context.Context, []domain.OHLCV) (*domain.MarketRegime, error)                                                                 = RiskEngine.DetectRegime
-	_ func(RiskEngine, context.Context, []domain.Position, map[string]float64) ([]domain.StopLossEvent, error)                                        = RiskEngine.CheckStopLoss
-	_ func(RiskEngine, context.Context, OrderIntent) (Verdict, error)                                                                                 = RiskEngine.CheckOrder
+	_ func(RiskEngine, context.Context, domain.Signal, *domain.Portfolio, *cdom.MarketRegime, float64, []domain.OHLCV) (domain.PositionSize, error) = RiskEngine.CalculatePosition
+	_ func(RiskEngine, context.Context, []domain.OHLCV) (*cdom.MarketRegime, error)                                                                 = RiskEngine.DetectRegime
+	_ func(RiskEngine, context.Context, []domain.Position, map[string]float64) ([]domain.StopLossEvent, error)                                      = RiskEngine.CheckStopLoss
+	_ func(RiskEngine, context.Context, OrderIntent) (Verdict, error)                                                                               = RiskEngine.CheckOrder
 )

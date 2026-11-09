@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/batch"
 	"tellurion/pkg/backtest/cache"
@@ -14,6 +14,8 @@ import (
 	"tellurion/pkg/backtest/tracker"
 	"tellurion/pkg/backtest/walkforward"
 )
+
+import "tellurion/pkg/domain"
 
 // S7-P2-1 (ODR-043): this file re-exports the canonical types,
 // constants, and the EngineRunner interface from the leaf package
@@ -86,7 +88,7 @@ func ResolveFillTiming(raw string) (FillTiming, error) {
 
 // CheckValidity (OBS-01) 是 contracts.CheckValidity 的薄包装 —— Go 没有函数
 // 别名，包内调用点（engine.go）与包内测试统一走这个名字。
-func CheckValidity(res *domain.BacktestResult) []InvalidReason {
+func CheckValidity(res *cdom.BacktestResult) []InvalidReason {
 	return contracts.CheckValidity(res)
 }
 

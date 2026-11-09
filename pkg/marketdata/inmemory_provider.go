@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 )
 
 type inmemoryProvider struct {

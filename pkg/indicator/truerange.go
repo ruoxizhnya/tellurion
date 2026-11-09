@@ -11,7 +11,7 @@ package indicator
 import (
 	"math"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // TrueRange 计算单根 bar 的真实波幅：max(H-L, |H-prevClose|, |L-prevClose|)。

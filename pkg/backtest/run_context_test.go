@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/strategy"
 )

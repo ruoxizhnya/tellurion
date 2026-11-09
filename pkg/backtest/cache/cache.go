@@ -36,8 +36,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 )
 

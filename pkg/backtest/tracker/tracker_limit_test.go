@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 func TestTracker_LimitUp_BlocksBuy(t *testing.T) {
 	tracker := newTestTracker(1000000.0)
@@ -29,7 +31,7 @@ func TestTracker_LimitUp_BlocksBuy(t *testing.T) {
 
 	// Try to buy on limit-up day — should succeed in tracker (engine blocks before this)
 	// This test verifies the tracker correctly records the trade if allowed
-	trade, err := tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, limitUpPrice, day, nil)
+	trade, err := tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, limitUpPrice, day, nil)
 	if err != nil {
 		t.Fatalf("buy should succeed when not blocked by engine: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestTracker_LimitDown_BlocksSell(t *testing.T) {
 	day2 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	// Day 1: Buy shares
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, price, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, price, day1, nil)
 
 	// Advance to day 2 for T+1 settlement
 	tracker.AdvanceDay(day2)
@@ -65,7 +67,7 @@ func TestTracker_LimitDown_BlocksSell(t *testing.T) {
 	limitDownPrice := price * 0.90 // 9.0 (跌停价)
 
 	// Try to sell on limit-down day — tracker allows it (engine blocks before this)
-	trade, err := tracker.ExecuteTrade(symbol, domain.DirectionClose, 1000, limitDownPrice, day2, nil)
+	trade, err := tracker.ExecuteTrade(symbol, cdom.DirectionClose, 1000, limitDownPrice, day2, nil)
 	if err != nil {
 		t.Fatalf("sell should succeed when not blocked by engine: %v", err)
 	}
@@ -95,7 +97,7 @@ func TestTracker_STStockLimit_5Percent(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Buy at ST limit-up price
-	trade, _ := tracker.ExecuteTrade(symbol, domain.DirectionLong, 2000, stLimitUp, day, nil)
+	trade, _ := tracker.ExecuteTrade(symbol, cdom.DirectionLong, 2000, stLimitUp, day, nil)
 	if trade == nil {
 		t.Fatal("trade should succeed")
 	}
@@ -117,7 +119,7 @@ func TestTracker_NewStockLimit_20Percent(t *testing.T) {
 	newStockLimitUp := prevClose * 1.20 // 24.0 (新股涨停 ±20%)
 
 	// Simulate new stock buy at 20% limit-up
-	trade, _ := tracker.ExecuteTrade(symbol, domain.DirectionLong, 500, newStockLimitUp, tradeDay, nil)
+	trade, _ := tracker.ExecuteTrade(symbol, cdom.DirectionLong, 500, newStockLimitUp, tradeDay, nil)
 	if trade == nil {
 		t.Fatal("trade should succeed")
 	}
@@ -139,7 +141,7 @@ func TestTracker_LimitUp_ConsecutiveDays(t *testing.T) {
 
 	// Day 1: Buy at normal price
 	day1Price := initialPrice
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, day1Price, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, day1Price, day1, nil)
 
 	// Day 1 limit-up: close = 11.0 (+10%)
 	day1LimitUp := initialPrice * 1.10
@@ -159,7 +161,7 @@ func TestTracker_LimitUp_ConsecutiveDays(t *testing.T) {
 	}
 
 	// Sell at day2's limit-up price (if engine allows)
-	trade, _ := tracker.ExecuteTrade(symbol, domain.DirectionClose, 1000, day2LimitUp, day2, nil)
+	trade, _ := tracker.ExecuteTrade(symbol, cdom.DirectionClose, 1000, day2LimitUp, day2, nil)
 	if trade == nil {
 		t.Fatal("trade should succeed")
 	}
@@ -181,7 +183,7 @@ func TestTracker_LimitDown_StopLossScenario(t *testing.T) {
 	day2 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	// Day 1: Buy at 15.0
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, buyPrice, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, buyPrice, day1, nil)
 
 	// Advance to day 2
 	tracker.AdvanceDay(day2)
@@ -190,7 +192,7 @@ func TestTracker_LimitDown_StopLossScenario(t *testing.T) {
 	limitDownPrice := buyPrice * 0.90 // 13.5
 
 	// Sell at limit-down (stop-loss scenario)
-	trade, _ := tracker.ExecuteTrade(symbol, domain.DirectionClose, 1000, limitDownPrice, day2, nil)
+	trade, _ := tracker.ExecuteTrade(symbol, cdom.DirectionClose, 1000, limitDownPrice, day2, nil)
 	if trade == nil {
 		t.Fatal("trade should succeed")
 	}
@@ -218,11 +220,11 @@ func TestTracker_NormalDay_NoLimitRestriction(t *testing.T) {
 	day2 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	// Normal buy/sell cycle without hitting limits
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 800, price, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 800, price, day1, nil)
 	tracker.AdvanceDay(day2)
 
 	newPrice := 13.56 // Normal price change (~10%, but not exactly at limit)
-	trade, _ := tracker.ExecuteTrade(symbol, domain.DirectionClose, 800, newPrice, day2, nil)
+	trade, _ := tracker.ExecuteTrade(symbol, cdom.DirectionClose, 800, newPrice, day2, nil)
 	if trade == nil {
 		t.Fatal("normal trade should succeed")
 	}

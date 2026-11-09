@@ -31,7 +31,7 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // LiveBridge 桥接 Engine 与 ExecutionPort。

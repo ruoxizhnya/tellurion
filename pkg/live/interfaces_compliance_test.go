@@ -17,10 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // TestExecEngineInterfaceMethods 断言 ExecEngine 的方法集合精确等于
 // {Submit, Cancel, Reconcile, Broker}。
@@ -152,7 +154,7 @@ func TestOrderLifecycleMethods(t *testing.T) {
 		reflect.TypeOf(func(domain.Order) (string, error) { return "", nil }))
 	assertMethodType(t, iface, "GetOrder",
 		reflect.TypeOf(func(string) (domain.Order, bool) { return domain.Order{}, false }))
-	assertMethodType(t, iface, "GetTrades", reflect.TypeOf(func() []domain.Trade { return nil }))
+	assertMethodType(t, iface, "GetTrades", reflect.TypeOf(func() []cdom.Trade { return nil }))
 }
 
 // TestBrokerFrozenMethods 冻结既有 Broker（pkg/live/engine.go）的

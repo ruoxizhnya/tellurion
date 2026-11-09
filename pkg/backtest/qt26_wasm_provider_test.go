@@ -27,10 +27,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 手工 artifact 编码（只在测试里用）─────────────────────────────
 
@@ -287,7 +289,7 @@ func (s *qt26GoProbe) GenerateSignals(_ context.Context, bars map[string][]domai
 	}
 	return []strategy.Signal{{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  w,
 		Date:      series[len(series)-1].Date,
 		Metadata: map[string]interface{}{
@@ -361,9 +363,9 @@ func TestWASMProvider_RealBacktestFromArtifactMatchesGo(t *testing.T) {
 		provenanceTestStart.AddDate(0, 0, 8),
 	}
 	for _, resp := range []*BacktestResponse{goResp, wasmResp} {
-		var buys []domain.Trade
+		var buys []cdom.Trade
 		for _, tr := range resp.Trades {
-			if tr.Direction == domain.DirectionLong {
+			if tr.Direction == cdom.DirectionLong {
 				buys = append(buys, tr)
 			}
 		}
@@ -421,9 +423,9 @@ func TestWASMProvider_SymbolScopeRunsThroughShards(t *testing.T) {
 	})
 	require.NoError(t, err, "QT-25 起 symbol scope 已接线，不应再 fail-closed")
 	require.Equal(t, StatusCompleted, resp.Status)
-	var buys []domain.Trade
+	var buys []cdom.Trade
 	for _, tr := range resp.Trades {
-		if tr.Direction == domain.DirectionLong {
+		if tr.Direction == cdom.DirectionLong {
 			buys = append(buys, tr)
 		}
 	}
@@ -437,7 +439,7 @@ func TestTargetWeightSizing_FormulaAndCap(t *testing.T) {
 	portfolio := &domain.Portfolio{TotalValue: 1_000_000}
 	sig := domain.Signal{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Metadata:  map[string]any{signalMetaTargetWeight: 0.05},
 	}
 

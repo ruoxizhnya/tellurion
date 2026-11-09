@@ -27,12 +27,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/strategy"
 
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 )
+
+import "tellurion/pkg/domain"
 
 // runContext 承载一个 run 的全部可变运行态。字段一律不导出：只有本包
 // 的 run 流程能碰，调用方拿到的是 Engine 的稳定 API。
@@ -275,7 +277,7 @@ func (rc *runContext) listingSnapshot() map[string]ListingWindow {
 
 // factorZScore 读本 run 的因子缓存。Engine.GetFactorZScore 是引擎级
 // 种子的访问器（外部 API 不变），run 流程一律走这里。
-func (rc *runContext) factorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool) {
+func (rc *runContext) factorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 	return rc.factor.Get(factor, date, symbol)
 }
 

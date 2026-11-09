@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // P2-12：把 PE / PB / ROE 接进表达式引擎。
 //
@@ -22,7 +24,7 @@ func TestExpressionStrategy_ValueExprFailsWithoutFundamentals(t *testing.T) {
 		SignalCfg: SignalConfig{
 			Expression: "cs_rank(neg(pe)) > 0.8",
 			Action:     "buy",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 		},
 		SizingCfg: SizingConfig{Method: SizingEqual, MaxPerStock: 0.5, MaxTotal: 1.0},
 	})
@@ -53,7 +55,7 @@ func TestExpressionStrategy_ValueExprWorksWithFundamentals(t *testing.T) {
 		SignalCfg: SignalConfig{
 			Expression: "cs_rank(neg(pe)) > 0.5",
 			Action:     "buy",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 		},
 		SizingCfg: SizingConfig{Method: SizingEqual, MaxPerStock: 0.5, MaxTotal: 1.0},
 	})

@@ -55,9 +55,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/execalgo"
 )
+
+import "tellurion/pkg/domain"
 
 // paperCancelReasonExternalPositionChange 是 paper 侧窗口中途取消的
 // cancel-reason（与回测侧 pkg/backtest/exec_algo.go 的 cancelReason* 同属
@@ -71,7 +73,7 @@ const paperReconcileTolerance = 1e-6
 
 // execAlgoParentID 派生父单号：纯函数 (日期, symbol, 方向)——与回测侧
 // pkg/backtest/exec_algo.go 的同名函数同规则（禁时间戳派生，K17 验收 4）。
-func execAlgoParentID(date time.Time, symbol string, dir domain.Direction) string {
+func execAlgoParentID(date time.Time, symbol string, dir cdom.Direction) string {
 	return fmt.Sprintf("EA-%s-%s-%s", date.Format("20060102"), symbol, string(dir))
 }
 
@@ -192,11 +194,11 @@ func (s *PaperSession) reconcileExternalPositionChanges(ctx context.Context) {
 	for _, p := range s.execAlgo.ActiveParents() {
 		h := held[p.Symbol]
 		switch p.Side {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			if h < p.Filled-paperReconcileTolerance {
 				s.cancelExecAlgoParentsForSymbol(p.Symbol, paperCancelReasonExternalPositionChange)
 			}
-		case domain.DirectionShort:
+		case cdom.DirectionShort:
 			if h > -p.Filled+paperReconcileTolerance {
 				s.cancelExecAlgoParentsForSymbol(p.Symbol, paperCancelReasonExternalPositionChange)
 			}

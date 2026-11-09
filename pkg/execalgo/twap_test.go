@@ -10,18 +10,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/execalgo"
 	"tellurion/pkg/portfolio"
 )
 
+import "tellurion/pkg/domain"
+
 func twapParent(qty float64, slices int) execalgo.ParentOrder {
 	start := time.Date(2026, 1, 5, 9, 30, 0, 0, time.UTC)
 	return execalgo.ParentOrder{
 		OrderID: "PO-1", RunID: "RUN-1", Symbol: "000001.SZ",
-		Side: domain.DirectionLong, Qty: qty,
+		Side: cdom.DirectionLong, Qty: qty,
 		StartAt: start, EndAt: start.Add(time.Duration(slices) * time.Hour),
 	}
 }
@@ -224,7 +226,7 @@ func TestTWAP_DeriveSlices(t *testing.T) {
 	a := execalgo.NewTWAP(0) // 自动推导
 	start := time.Date(2026, 1, 5, 9, 30, 0, 0, time.UTC)
 	parent := execalgo.ParentOrder{
-		OrderID: "PO-2", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		OrderID: "PO-2", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 600, StartAt: start, EndAt: start.Add(30 * time.Minute), // 30min/5min = 6 片
 	}
 	plan, err := a.Schedule(context.Background(), parent)

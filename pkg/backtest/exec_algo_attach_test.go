@@ -19,10 +19,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // runExecAlgoAttachProbe 跑一次回测，不做状态断言（失败腿的状态正是
 // 被测对象），返回响应与撮合层观测。
@@ -94,7 +96,7 @@ func (s *execAlgoDupStrategy) GenerateSignals(_ context.Context, bars map[string
 		return nil, nil
 	}
 	sig := strategy.Signal{
-		Symbol: "000001.SZ", Action: "buy", Direction: domain.DirectionLong,
+		Symbol: "000001.SZ", Action: "buy", Direction: cdom.DirectionLong,
 		Strength: 1.0, Date: series[0].Date, ExecAlgo: "twap", ExecSlices: 2,
 	}
 	return []strategy.Signal{sig, sig}, nil

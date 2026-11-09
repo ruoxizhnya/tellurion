@@ -20,12 +20,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/tracker"
 )
+
+import "tellurion/pkg/domain"
 
 // rev06Symbol / rev06QfqPrice 是护栏 fixture 的独享标的与 qfq 价。
 // qfq 的关键性质：除权日价格**连续**（10 送 5 + 每股派 0.1 的除权跳空已
@@ -49,7 +51,7 @@ func rev06QfqPrices() map[string]float64 {
 func rev06Tracker(t *testing.T) *tracker.Tracker {
 	t.Helper()
 	tr := tracker.NewTracker(1_000_000, 0.0003, 0.001, contracts.DefaultTradingConfig(), zerolog.Nop())
-	if _, err := tr.ExecuteTrade(rev06Symbol, domain.DirectionLong, 1000, rev06QfqPrice, rev06Day1, nil); err != nil {
+	if _, err := tr.ExecuteTrade(rev06Symbol, cdom.DirectionLong, 1000, rev06QfqPrice, rev06Day1, nil); err != nil {
 		t.Fatalf("fixture 建仓失败: %v", err)
 	}
 	return tr

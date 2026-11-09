@@ -5,12 +5,14 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/statistics"
 )
 
+import "tellurion/pkg/domain"
+
 // CalculateMetrics computes all risk and performance metrics from portfolio values and trades.
-func CalculateMetrics(portfolioValues []domain.PortfolioValue, trades []domain.Trade, riskFreeRate float64) domain.RiskMetrics {
+func CalculateMetrics(portfolioValues []cdom.PortfolioValue, trades []cdom.Trade, riskFreeRate float64) domain.RiskMetrics {
 	if len(portfolioValues) < 2 {
 		return domain.RiskMetrics{}
 	}
@@ -51,7 +53,7 @@ type TradeMetrics struct {
 }
 
 // CalculateTradeMetrics calculates trade-specific metrics.
-func CalculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.PortfolioValue) TradeMetrics {
+func CalculateTradeMetrics(trades []cdom.Trade, portfolioValues []cdom.PortfolioValue) TradeMetrics {
 	if len(trades) == 0 {
 		return TradeMetrics{}
 	}
@@ -87,7 +89,7 @@ func CalculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.Portf
 //
 // 若未来真要支持申赎，应引入按交易日核算的、带外部流的时间加权收益率，
 // 而不是把本式的 cashFlow 加回来。
-func CalculateReturns(portfolioValues []domain.PortfolioValue) []float64 {
+func CalculateReturns(portfolioValues []cdom.PortfolioValue) []float64 {
 	if len(portfolioValues) < 2 {
 		return nil
 	}
@@ -107,7 +109,7 @@ func CalculateReturns(portfolioValues []domain.PortfolioValue) []float64 {
 }
 
 // CalculateMaxDrawdown calculates the maximum drawdown and its date.
-func CalculateMaxDrawdown(portfolioValues []domain.PortfolioValue) (float64, time.Time) {
+func CalculateMaxDrawdown(portfolioValues []cdom.PortfolioValue) (float64, time.Time) {
 	if len(portfolioValues) == 0 {
 		return 0, time.Time{}
 	}
@@ -164,7 +166,7 @@ func CalculateSharpeRatio(returns []float64, riskFreeRate float64) float64 {
 // 费用来源是 trade 上已收取的三项费用字段——REV-07 已让 ApplyTrade /
 // ExecuteTrade 两条路径的费用都出自 portfolio.ComputeFees，这里直接用
 // 实收值，不重算（重算反而可能和账面不一致）。
-func netTradePnl(grossPnl float64, trade domain.Trade) float64 {
+func netTradePnl(grossPnl float64, trade cdom.Trade) float64 {
 	return grossPnl - trade.Commission - trade.TransferFee - trade.StampTax
 }
 
@@ -213,7 +215,7 @@ func CalculateCalmarRatio(annualReturn float64, maxDrawdown float64) float64 {
 }
 
 // calculateAnnualizedReturn calculates the annualized return from portfolio values.
-func calculateAnnualizedReturn(portfolioValues []domain.PortfolioValue) float64 {
+func calculateAnnualizedReturn(portfolioValues []cdom.PortfolioValue) float64 {
 	if len(portfolioValues) < 2 {
 		return 0
 	}
@@ -298,13 +300,13 @@ func calculateCVaR(returns []float64, confidence float64) float64 {
 }
 
 // calculateTradeMetrics calculates trade statistics.
-func calculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.PortfolioValue) (winRate float64, totalTrades, winTrades, loseTrades int, avgHoldingDays float64) {
+func calculateTradeMetrics(trades []cdom.Trade, portfolioValues []cdom.PortfolioValue) (winRate float64, totalTrades, winTrades, loseTrades int, avgHoldingDays float64) {
 	if len(trades) == 0 {
 		return 0, 0, 0, 0, 0
 	}
 
 	// Group trades by symbol
-	symbolTrades := make(map[string][]domain.Trade)
+	symbolTrades := make(map[string][]cdom.Trade)
 	for _, trade := range trades {
 		symbolTrades[trade.Symbol] = append(symbolTrades[trade.Symbol], trade)
 	}
@@ -318,18 +320,18 @@ func calculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.Portf
 		var entryPrice float64
 		var entryTime time.Time
 		var positionQty float64
-		var entryDir domain.Direction // "long" or "short"
+		var entryDir cdom.Direction // "long" or "short"
 
 		for _, trade := range symTrades {
 			switch trade.Direction {
-			case domain.DirectionLong:
+			case cdom.DirectionLong:
 				if positionQty == 0 {
 					// Fresh long entry
 					entryPrice = trade.Price
 					entryTime = trade.Timestamp
-					entryDir = domain.DirectionLong
+					entryDir = cdom.DirectionLong
 					positionQty = trade.Quantity
-				} else if entryDir == domain.DirectionLong {
+				} else if entryDir == cdom.DirectionLong {
 					// Adding to existing long
 					newQty := positionQty + trade.Quantity
 					entryPrice = (entryPrice*positionQty + trade.Price*trade.Quantity) / newQty
@@ -351,18 +353,18 @@ func calculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.Portf
 					// Open new long
 					entryPrice = trade.Price
 					entryTime = trade.Timestamp
-					entryDir = domain.DirectionLong
+					entryDir = cdom.DirectionLong
 					positionQty = trade.Quantity
 				}
 
-			case domain.DirectionShort:
+			case cdom.DirectionShort:
 				if positionQty == 0 {
 					// Fresh short entry
 					entryPrice = trade.Price
 					entryTime = trade.Timestamp
-					entryDir = domain.DirectionShort
+					entryDir = cdom.DirectionShort
 					positionQty = -trade.Quantity
-				} else if entryDir == domain.DirectionShort {
+				} else if entryDir == cdom.DirectionShort {
 					// Adding to existing short
 					newQty := positionQty - trade.Quantity
 					entryPrice = (entryPrice*abs(positionQty) + trade.Price*trade.Quantity) / abs(newQty)
@@ -383,11 +385,11 @@ func calculateTradeMetrics(trades []domain.Trade, portfolioValues []domain.Portf
 					// Open new short
 					entryPrice = trade.Price
 					entryTime = trade.Timestamp
-					entryDir = domain.DirectionShort
+					entryDir = cdom.DirectionShort
 					positionQty = -trade.Quantity
 				}
 
-			case domain.DirectionClose:
+			case cdom.DirectionClose:
 				// Explicit close
 				if positionQty > 0 {
 					// Closing long
@@ -448,14 +450,14 @@ func filterNegative(values []float64) []float64 {
 
 // GenerateBacktestResult creates a BacktestResult from tracker data and metrics.
 func GenerateBacktestResult(
-	portfolioValues []domain.PortfolioValue,
-	trades []domain.Trade,
+	portfolioValues []cdom.PortfolioValue,
+	trades []cdom.Trade,
 	riskFreeRate float64,
 	startDate, endDate time.Time,
 	initialCapital float64,
-) domain.BacktestResult {
+) cdom.BacktestResult {
 	if len(portfolioValues) == 0 {
-		return domain.BacktestResult{
+		return cdom.BacktestResult{
 			StartDate: startDate,
 			EndDate:   endDate,
 		}
@@ -490,7 +492,7 @@ func GenerateBacktestResult(
 	// Trade metrics
 	winRate, totalTrades, winTrades, loseTrades, avgHoldingDays := calculateTradeMetrics(trades, portfolioValues)
 
-	return domain.BacktestResult{
+	return cdom.BacktestResult{
 		StartDate:       startDate,
 		EndDate:         endDate,
 		TotalReturn:     totalReturn,

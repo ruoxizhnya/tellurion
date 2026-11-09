@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // barsWithClose builds a bars map where each symbol has a single OHLCV
 // bar with the given close price. Used for ExpressionStrategy tests
@@ -30,7 +32,7 @@ func testConfig() ExpressionStrategyConfig {
 		SignalCfg: SignalConfig{
 			Expression: "close > 50",
 			Action:     "buy",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 		},
 		SizingCfg: SizingConfig{
 			Method:      SizingEqual,
@@ -147,8 +149,8 @@ func TestExpressionStrategy_GenerateSignals_HappyPath(t *testing.T) {
 		if sig.Action != "buy" {
 			t.Errorf("%s: Action = %q, want %q", sig.Symbol, sig.Action, "buy")
 		}
-		if sig.Direction != domain.DirectionLong {
-			t.Errorf("%s: Direction = %q, want %q", sig.Symbol, sig.Direction, domain.DirectionLong)
+		if sig.Direction != cdom.DirectionLong {
+			t.Errorf("%s: Direction = %q, want %q", sig.Symbol, sig.Direction, cdom.DirectionLong)
 		}
 		// raw_strength should preserve the original DSL value (1.0 for comparison pass).
 		if raw, ok := sig.Metadata["raw_strength"]; !ok {

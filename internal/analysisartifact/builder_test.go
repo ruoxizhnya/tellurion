@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 type fakeMarket struct {
 	constituents []string
@@ -26,9 +28,9 @@ func (f *fakeMarket) BulkLoadOHLCV(ctx context.Context, symbols []string, start,
 	return f.bars, nil
 }
 
-type fakeZScores map[string]map[domain.FactorType]float64
+type fakeZScores map[string]map[cdom.FactorType]float64
 
-func (f fakeZScores) GetFactorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool) {
+func (f fakeZScores) GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 	byFactor, ok := f[symbol]
 	if !ok {
 		return 0, false
@@ -37,9 +39,9 @@ func (f fakeZScores) GetFactorZScore(factor domain.FactorType, date time.Time, s
 	return z, ok
 }
 
-type fakeFactorReturns map[domain.FactorType][]*domain.FactorReturn
+type fakeFactorReturns map[cdom.FactorType][]*domain.FactorReturn
 
-func (f fakeFactorReturns) GetFactorReturns(ctx context.Context, factor domain.FactorType, start, end time.Time) ([]*domain.FactorReturn, error) {
+func (f fakeFactorReturns) GetFactorReturns(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorReturn, error) {
 	return f[factor], nil
 }
 
@@ -160,13 +162,13 @@ func TestBuildFactors_Shape(t *testing.T) {
 
 	in, _ := portfolioFixture()
 	b := &Builder{
-		Factors: []domain.FactorType{domain.FactorMomentum},
+		Factors: []cdom.FactorType{cdom.FactorMomentum},
 		ZScores: fakeZScores{
-			"A": {domain.FactorMomentum: 1.0},
-			"B": {domain.FactorMomentum: -1.0},
+			"A": {cdom.FactorMomentum: 1.0},
+			"B": {cdom.FactorMomentum: -1.0},
 		},
 		FactorReturns: fakeFactorReturns{
-			domain.FactorMomentum: {
+			cdom.FactorMomentum: {
 				{TradeDate: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC), TopMinusBot: 0.03},
 				{TradeDate: time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC), TopMinusBot: 0.05},
 			},
@@ -187,7 +189,7 @@ func TestBuildFactors_FailClosed(t *testing.T) {
 
 	in, _ := portfolioFixture()
 	b := &Builder{
-		Factors:       []domain.FactorType{domain.FactorMomentum},
+		Factors:       []cdom.FactorType{cdom.FactorMomentum},
 		ZScores:       fakeZScores{},
 		FactorReturns: fakeFactorReturns{},
 	}

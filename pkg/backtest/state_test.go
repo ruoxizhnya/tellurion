@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 )
+
+import "tellurion/pkg/domain"
 
 // TestBacktestState_EngineGetBacktestStatusRace uses the real Engine
 // API to exercise the public read paths concurrently with a goroutine
@@ -54,7 +56,7 @@ func TestBacktestState_EngineGetBacktestStatusRace(t *testing.T) {
 		defer wg.Done()
 		for j := 0; j < 100; j++ {
 			state.SetStatus("running")
-			state.SetResult(&domain.BacktestResult{TotalReturn: float64(j) / 100.0})
+			state.SetResult(&cdom.BacktestResult{TotalReturn: float64(j) / 100.0})
 			state.SetCompletedAt(time.Now())
 		}
 		state.SetStatus("completed")

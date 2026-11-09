@@ -37,12 +37,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // execAlgoFlatBars 造确定性振荡 bar：close 在 10.00/10.02 间交替，
 // high/low = close±0.05，Volume=1e6，无涨跌停标志。
@@ -150,7 +152,7 @@ func (s *execAlgoProbeStrategy) GenerateSignals(_ context.Context, bars map[stri
 	return []strategy.Signal{{
 		Symbol:      s.symbol,
 		Action:      "buy",
-		Direction:   domain.DirectionLong,
+		Direction:   cdom.DirectionLong,
 		Strength:    s.strength,
 		Date:        series[0].Date,
 		ExecAlgo:    s.execAlgo,
@@ -170,8 +172,8 @@ func (s *execAlgoProbeStrategy) register(t *testing.T) {
 type recordedOrder struct {
 	Order domain.Order
 	Quote Quote
-	Trade domain.Trade // inner.ExecuteOrder 的返回（撮合层成交）
-	OK    bool         // 撮合是否成功
+	Trade cdom.Trade // inner.ExecuteOrder 的返回（撮合层成交）
+	OK    bool       // 撮合是否成功
 }
 
 // recordingExecService 包住真实 BacktestExecutionService，记录全部
@@ -182,7 +184,7 @@ type recordingExecService struct {
 	seen  []recordedOrder
 }
 
-func (s *recordingExecService) ExecuteOrder(order domain.Order, quote Quote) (domain.Trade, error) {
+func (s *recordingExecService) ExecuteOrder(order domain.Order, quote Quote) (cdom.Trade, error) {
 	trade, err := s.inner.ExecuteOrder(order, quote)
 	s.mu.Lock()
 	s.seen = append(s.seen, recordedOrder{Order: order, Quote: quote, Trade: trade, OK: err == nil})
@@ -224,7 +226,7 @@ func impactExecConfig() domain.ExecutionConfig {
 func spyImpactCost(recs []recordedOrder) float64 {
 	var cost float64
 	for _, rec := range recs {
-		if !rec.OK || rec.Trade.Direction != domain.DirectionLong {
+		if !rec.OK || rec.Trade.Direction != cdom.DirectionLong {
 			continue
 		}
 		cost += (rec.Trade.Price - rec.Quote.Close) * rec.Trade.Quantity
@@ -300,7 +302,7 @@ func TestExecAlgo_BacktestTWAP7Slices(t *testing.T) {
 			fmt.Sprintf("EA-20260302-000001.SZ-long-C%04d", i),
 			rec.Order.ID, "第 %d 片子单号 = (父单号, 片序号) 纯函数", i)
 		assert.Positive(t, rec.Order.Quantity, "每片为正手")
-		assert.Equal(t, domain.DirectionLong, rec.Order.Direction)
+		assert.Equal(t, cdom.DirectionLong, rec.Order.Direction)
 		assert.Equal(t, domain.OrderTypeMarket, rec.Order.OrderType)
 	}
 	assert.Equal(t, wholeQty, sum, "Σ 子单量必须等于同策略整单量")
@@ -414,13 +416,13 @@ func (s *execAlgoMixedStrategy) GenerateSignals(_ context.Context, bars map[stri
 	var out []strategy.Signal
 	if series := bars["000001.SZ"]; len(series) == 1 {
 		out = append(out, strategy.Signal{
-			Symbol: "000001.SZ", Action: "buy", Direction: domain.DirectionLong,
+			Symbol: "000001.SZ", Action: "buy", Direction: cdom.DirectionLong,
 			Strength: 1.0, Date: series[0].Date, ExecAlgo: "twap", ExecSlices: 7,
 		})
 	}
 	if series := bars["600000.SH"]; len(series) == 1 {
 		out = append(out, strategy.Signal{
-			Symbol: "600000.SH", Action: "buy", Direction: domain.DirectionLong,
+			Symbol: "600000.SH", Action: "buy", Direction: cdom.DirectionLong,
 			Strength: 1.0, Date: series[0].Date,
 		})
 	}

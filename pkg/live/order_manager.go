@@ -7,15 +7,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // OrderManager manages order lifecycle
 type OrderManager struct {
 	broker  Broker
 	config  domain.ExecutionConfig
 	orders  map[string]domain.Order
-	trades  []domain.Trade
+	trades  []cdom.Trade
 	pending []string
 	mu      sync.RWMutex
 
@@ -36,7 +38,7 @@ func NewOrderManager(broker Broker, config domain.ExecutionConfig) *OrderManager
 		broker:  broker,
 		config:  config,
 		orders:  make(map[string]domain.Order),
-		trades:  make([]domain.Trade, 0),
+		trades:  make([]cdom.Trade, 0),
 		pending: make([]string, 0),
 	}
 }
@@ -225,17 +227,17 @@ func (om *OrderManager) syncOrderStatus() {
 }
 
 // GetTrades returns all executed trades
-func (om *OrderManager) GetTrades() []domain.Trade {
+func (om *OrderManager) GetTrades() []cdom.Trade {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
 
-	result := make([]domain.Trade, len(om.trades))
+	result := make([]cdom.Trade, len(om.trades))
 	copy(result, om.trades)
 	return result
 }
 
 // AddTrade adds a trade to the trade history
-func (om *OrderManager) AddTrade(trade domain.Trade) {
+func (om *OrderManager) AddTrade(trade cdom.Trade) {
 	om.mu.Lock()
 	defer om.mu.Unlock()
 	om.trades = append(om.trades, trade)

@@ -27,11 +27,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 // newReadPathEngine 构造一个带 NoopStateStore 的内存引擎（不触库、不跑回测）。
 func newReadPathEngine(t *testing.T) *backtest.Engine {
@@ -53,7 +55,7 @@ func putBacktestState(eng *backtest.Engine, id, status string, reasons []string)
 		ID:     id,
 		Status: status,
 		Params: domain.BacktestParams{StrategyName: "momentum", StartDate: day, EndDate: day},
-		Result: &domain.BacktestResult{
+		Result: &cdom.BacktestResult{
 			StartDate:      day,
 			EndDate:        day,
 			InvalidReasons: reasons,

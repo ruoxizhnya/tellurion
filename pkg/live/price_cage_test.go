@@ -7,8 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ---------------------------------------------------------------------------
 // P1-5 (ODR-018) — A-share price cage validator tests
@@ -23,7 +25,7 @@ import (
 // 期望 reason), 用 assert + errors.As 精确检查错误类型与字段。
 // ---------------------------------------------------------------------------
 
-func mkLimitOrder(symbol string, dir domain.Direction, price float64) *domain.Order {
+func mkLimitOrder(symbol string, dir cdom.Direction, price float64) *domain.Order {
 	return &domain.Order{
 		Symbol:     symbol,
 		Direction:  dir,
@@ -33,7 +35,7 @@ func mkLimitOrder(symbol string, dir domain.Direction, price float64) *domain.Or
 	}
 }
 
-func mkMarketOrder(symbol string, dir domain.Direction) *domain.Order {
+func mkMarketOrder(symbol string, dir cdom.Direction) *domain.Order {
 	return &domain.Order{
 		Symbol:    symbol,
 		Direction: dir,
@@ -54,7 +56,7 @@ func TestPriceCage_MainBoard_BuyWithinCage_OK(t *testing.T) {
 	// 600519.SH (贵州茅台), prev close 1700.00, 卖一 1710.00, 买一 1708.00
 	// 买限价 1710.00 → 偏差 (1710 - 1710) / 1710 = 0% ≤ 2% ✓
 	v := NewCageValidator()
-	order := mkLimitOrder("600519.SH", domain.DirectionLong, 1710.0)
+	order := mkLimitOrder("600519.SH", cdom.DirectionLong, 1710.0)
 	err := v.Validate(order, ref(1708.0, 1710.0, 1709.0, 1700.0))
 	assert.NoError(t, err)
 }
@@ -62,7 +64,7 @@ func TestPriceCage_MainBoard_BuyWithinCage_OK(t *testing.T) {
 func TestPriceCage_MainBoard_BuyAtCageCeiling_OK(t *testing.T) {
 	// 卖一 10.00, cage 2% 顶 = 10.20. 申报 10.20 → 边界通过.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 10.20)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 10.20)
 	err := v.Validate(order, ref(9.99, 10.00, 10.00, 9.50))
 	require.NoError(t, err)
 }
@@ -70,7 +72,7 @@ func TestPriceCage_MainBoard_BuyAtCageCeiling_OK(t *testing.T) {
 func TestPriceCage_MainBoard_BuyExceedsCageCeiling_Rejected(t *testing.T) {
 	// 卖一 10.00, cage 2% 顶 = 10.20. 申报 10.30 → 超出 2% 笼子.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 10.30)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 10.30)
 	err := v.Validate(order, ref(9.99, 10.00, 10.00, 9.50))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -85,7 +87,7 @@ func TestPriceCage_MainBoard_SellWithinCage_OK(t *testing.T) {
 	// 买一 9.99, cage 2% 底 = 9.99 × 0.98 = 9.7902 (round4).
 	// 卖限价 9.7902 → 边界通过.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionClose, 9.7902)
+	order := mkLimitOrder("600000.SH", cdom.DirectionClose, 9.7902)
 	err := v.Validate(order, ref(9.99, 10.00, 10.00, 10.00))
 	require.NoError(t, err)
 }
@@ -93,7 +95,7 @@ func TestPriceCage_MainBoard_SellWithinCage_OK(t *testing.T) {
 func TestPriceCage_MainBoard_SellBelowCageFloor_Rejected(t *testing.T) {
 	// 买一 9.99, cage 2% 底 = 9.7902. 卖限价 9.79 → 低于 2% 笼子.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionClose, 9.79)
+	order := mkLimitOrder("600000.SH", cdom.DirectionClose, 9.79)
 	err := v.Validate(order, ref(9.99, 10.00, 10.00, 10.00))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -105,7 +107,7 @@ func TestPriceCage_MainBoard_SellBelowCageFloor_Rejected(t *testing.T) {
 func TestPriceCage_MainBoard_AtLimitUp_ExemptFromCage(t *testing.T) {
 	// prev close 10.00, 涨停 11.00. 即便 ask 12.00, 涨停申报 11.00 必须允许.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 11.00)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 11.00)
 	err := v.Validate(order, ref(10.50, 12.00, 10.50, 10.00))
 	require.NoError(t, err, "at-limit-up orders must be exempt from cage rule")
 }
@@ -113,7 +115,7 @@ func TestPriceCage_MainBoard_AtLimitUp_ExemptFromCage(t *testing.T) {
 func TestPriceCage_MainBoard_AtLimitDown_ExemptFromCage(t *testing.T) {
 	// prev close 10.00, 跌停 9.00. 即便 bid 8.00, 跌停申报 9.00 必须允许.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionClose, 9.00)
+	order := mkLimitOrder("600000.SH", cdom.DirectionClose, 9.00)
 	err := v.Validate(order, ref(8.00, 9.50, 8.50, 10.00))
 	require.NoError(t, err, "at-limit-down orders must be exempt from cage rule")
 }
@@ -121,7 +123,7 @@ func TestPriceCage_MainBoard_AtLimitDown_ExemptFromCage(t *testing.T) {
 func TestPriceCage_MainBoard_BuyAboveLimitUp_Rejected(t *testing.T) {
 	// prev close 10.00, 涨停 11.00. 申报 11.05 → 超出 10% 涨跌幅.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 11.05)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 11.05)
 	err := v.Validate(order, ref(10.50, 10.60, 10.55, 10.00))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -132,7 +134,7 @@ func TestPriceCage_MainBoard_BuyAboveLimitUp_Rejected(t *testing.T) {
 
 func TestPriceCage_MainBoard_SellBelowLimitDown_Rejected(t *testing.T) {
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionClose, 8.95)
+	order := mkLimitOrder("600000.SH", cdom.DirectionClose, 8.95)
 	err := v.Validate(order, ref(9.00, 9.10, 9.05, 10.00))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -148,7 +150,7 @@ func TestPriceCage_MainBoard_SellBelowLimitDown_Rejected(t *testing.T) {
 func TestPriceCage_ChiNext_NoCageRule(t *testing.T) {
 	v := NewCageValidator()
 	// 卖一 100.00, 笼子顶应是 100.00 (无 ±2%). 申报 105.00 (5% 偏离) → 允许.
-	order := mkLimitOrder("300750.SZ", domain.DirectionLong, 105.00)
+	order := mkLimitOrder("300750.SZ", cdom.DirectionLong, 105.00)
 	err := v.Validate(order, ref(99.00, 100.00, 99.50, 100.00))
 	require.NoError(t, err, "ChiNext has no ±2% cage rule")
 }
@@ -156,7 +158,7 @@ func TestPriceCage_ChiNext_NoCageRule(t *testing.T) {
 func TestPriceCage_ChiNext_LimitUp_20pct(t *testing.T) {
 	v := NewCageValidator()
 	// prev close 100.00, 涨停 120.00.
-	order := mkLimitOrder("300750.SZ", domain.DirectionLong, 120.00)
+	order := mkLimitOrder("300750.SZ", cdom.DirectionLong, 120.00)
 	err := v.Validate(order, ref(119.00, 119.50, 119.25, 100.00))
 	require.NoError(t, err)
 }
@@ -164,7 +166,7 @@ func TestPriceCage_ChiNext_LimitUp_20pct(t *testing.T) {
 func TestPriceCage_ChiNext_RejectsAbove20pct(t *testing.T) {
 	v := NewCageValidator()
 	// prev close 100.00, 涨停 120.00. 申报 121.00 → 超出 20%.
-	order := mkLimitOrder("300750.SZ", domain.DirectionLong, 121.00)
+	order := mkLimitOrder("300750.SZ", cdom.DirectionLong, 121.00)
 	err := v.Validate(order, ref(119.00, 120.00, 119.50, 100.00))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -180,14 +182,14 @@ func TestPriceCage_ChiNext_RejectsAbove20pct(t *testing.T) {
 func TestPriceCage_STAR_NoCageRule(t *testing.T) {
 	v := NewCageValidator()
 	// 同样, 卖一 50.00, 申报 53.00 (6% 偏离) → 允许 (无 2% 笼子).
-	order := mkLimitOrder("688981.SH", domain.DirectionLong, 53.00)
+	order := mkLimitOrder("688981.SH", cdom.DirectionLong, 53.00)
 	err := v.Validate(order, ref(49.50, 50.00, 49.75, 50.00))
 	require.NoError(t, err, "STAR has no ±2% cage rule")
 }
 
 func TestPriceCage_STAR_LimitUp_20pct(t *testing.T) {
 	v := NewCageValidator()
-	order := mkLimitOrder("688981.SH", domain.DirectionLong, 60.00) // prev 50 × 1.20
+	order := mkLimitOrder("688981.SH", cdom.DirectionLong, 60.00) // prev 50 × 1.20
 	err := v.Validate(order, ref(58.00, 59.00, 58.50, 50.00))
 	require.NoError(t, err)
 }
@@ -199,14 +201,14 @@ func TestPriceCage_STAR_LimitUp_20pct(t *testing.T) {
 func TestPriceCage_BSE_NoCageRule(t *testing.T) {
 	v := NewCageValidator()
 	// 卖一 20.00, 申报 22.00 (10% 偏离) → 允许 (无 2% 笼子).
-	order := mkLimitOrder("830799.BJ", domain.DirectionLong, 22.00)
+	order := mkLimitOrder("830799.BJ", cdom.DirectionLong, 22.00)
 	err := v.Validate(order, ref(19.50, 20.00, 19.75, 20.00))
 	require.NoError(t, err)
 }
 
 func TestPriceCage_BSE_LimitUp_30pct(t *testing.T) {
 	v := NewCageValidator()
-	order := mkLimitOrder("830799.BJ", domain.DirectionLong, 26.00) // prev 20 × 1.30
+	order := mkLimitOrder("830799.BJ", cdom.DirectionLong, 26.00) // prev 20 × 1.30
 	err := v.Validate(order, ref(25.00, 25.50, 25.25, 20.00))
 	require.NoError(t, err)
 }
@@ -214,7 +216,7 @@ func TestPriceCage_BSE_LimitUp_30pct(t *testing.T) {
 func TestPriceCage_BSE_RejectsAbove30pct(t *testing.T) {
 	v := NewCageValidator()
 	// prev 20, 涨停 26. 申报 27 → 超出 30%.
-	order := mkLimitOrder("830799.BJ", domain.DirectionLong, 27.00)
+	order := mkLimitOrder("830799.BJ", cdom.DirectionLong, 27.00)
 	err := v.Validate(order, ref(25.00, 26.00, 25.50, 20.00))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -229,7 +231,7 @@ func TestPriceCage_BSE_RejectsAbove30pct(t *testing.T) {
 
 func TestPriceCage_MarketOrder_AlwaysPass(t *testing.T) {
 	v := NewCageValidator()
-	order := mkMarketOrder("600000.SH", domain.DirectionLong)
+	order := mkMarketOrder("600000.SH", cdom.DirectionLong)
 	// 即便没有参考价, market 单总通过.
 	err := v.Validate(order, ref(0, 0, 0, 0))
 	require.NoError(t, err)
@@ -237,7 +239,7 @@ func TestPriceCage_MarketOrder_AlwaysPass(t *testing.T) {
 
 func TestPriceCage_NonPositivePrice_Rejected(t *testing.T) {
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, -1.0)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, -1.0)
 	err := v.Validate(order, ref(10.0, 10.0, 10.0, 10.0))
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -247,7 +249,7 @@ func TestPriceCage_NonPositivePrice_Rejected(t *testing.T) {
 
 func TestPriceCage_MissingReference_Rejected(t *testing.T) {
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 10.0)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 10.0)
 	err := v.Validate(order, ref(0, 0, 0, 0)) // prev_close = 0
 	require.Error(t, err)
 	var cage *PriceCageError
@@ -264,7 +266,7 @@ func TestPriceCage_NilOrder_ReturnsError(t *testing.T) {
 func TestPriceCage_MainBoard_NoQuoteButHasLast_FallsBackToLast(t *testing.T) {
 	// 卖一/买一都无, 用 last 作参考. prev close 10, last 10, cage 2% 顶 = 10.20.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 10.15)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 10.15)
 	err := v.Validate(order, ref(0, 0, 10.0, 10.0))
 	require.NoError(t, err, "should fall back to last when bid/ask missing")
 }
@@ -279,7 +281,7 @@ func TestPriceCage_CustomBoardResolver(t *testing.T) {
 	})
 	// 600000.SH 通常 ±10%, 强制 BSE → ±30%.
 	// prev close 10, 涨停 13. 申报 12 → 主板会被拒, BSE 允许.
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 12.0)
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 12.0)
 	err := v.Validate(order, ref(11.0, 11.5, 11.25, 10.0))
 	require.NoError(t, err, "custom resolver overrides to BSE ±30%")
 }
@@ -287,7 +289,7 @@ func TestPriceCage_CustomBoardResolver(t *testing.T) {
 func TestPriceCageError_Is(t *testing.T) {
 	// 验证 errors.Is(err, &PriceCageError{}) 匹配.
 	v := NewCageValidator()
-	order := mkLimitOrder("600000.SH", domain.DirectionLong, 100.0) // way above 10% limit
+	order := mkLimitOrder("600000.SH", cdom.DirectionLong, 100.0) // way above 10% limit
 	err := v.Validate(order, ref(10, 10, 10, 10))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, &PriceCageError{}), "errors.Is should match PriceCageError")

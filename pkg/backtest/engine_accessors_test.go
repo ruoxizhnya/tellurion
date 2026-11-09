@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 type mockProvider struct {
 	name string
@@ -110,8 +112,8 @@ func TestEngine_SwitchDataSource_WithAdapter(t *testing.T) {
 func TestEngine_LoadFactorCache(t *testing.T) {
 	eng := newTestEngine(t)
 
-	cache := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	cache := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC): {
 				"600000.SH": 1.5,
 			},
@@ -119,7 +121,7 @@ func TestEngine_LoadFactorCache(t *testing.T) {
 	}
 	eng.LoadFactorCache(cache)
 
-	z, ok := eng.GetFactorZScore(domain.FactorMomentum, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
+	z, ok := eng.GetFactorZScore(cdom.FactorMomentum, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
 	assert.True(t, ok)
 	assert.InDelta(t, 1.5, z, 0.001)
 }
@@ -127,7 +129,7 @@ func TestEngine_LoadFactorCache(t *testing.T) {
 func TestEngine_GetFactorZScore_Miss(t *testing.T) {
 	eng := newTestEngine(t)
 
-	z, ok := eng.GetFactorZScore(domain.FactorMomentum, time.Now(), "NOTEXIST.SH")
+	z, ok := eng.GetFactorZScore(cdom.FactorMomentum, time.Now(), "NOTEXIST.SH")
 	assert.False(t, ok)
 	assert.Equal(t, 0.0, z)
 }
@@ -136,15 +138,15 @@ func TestEngine_GetFactorZScore_NoCache(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.LoadFactorCache(nil)
 
-	z, ok := eng.GetFactorZScore(domain.FactorMomentum, time.Now(), "600000.SH")
+	z, ok := eng.GetFactorZScore(cdom.FactorMomentum, time.Now(), "600000.SH")
 	assert.False(t, ok)
 	assert.Equal(t, 0.0, z)
 }
 
 func TestEngine_GetFactorZScore_WrongFactor(t *testing.T) {
 	eng := newTestEngine(t)
-	cache := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	cache := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC): {
 				"600000.SH": 1.5,
 			},
@@ -152,15 +154,15 @@ func TestEngine_GetFactorZScore_WrongFactor(t *testing.T) {
 	}
 	eng.LoadFactorCache(cache)
 
-	z, ok := eng.GetFactorZScore(domain.FactorValue, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
+	z, ok := eng.GetFactorZScore(cdom.FactorValue, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
 	assert.False(t, ok)
 	assert.Equal(t, 0.0, z)
 }
 
 func TestEngine_GetFactorZScore_WrongDate(t *testing.T) {
 	eng := newTestEngine(t)
-	cache := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	cache := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC): {
 				"600000.SH": 1.5,
 			},
@@ -168,7 +170,7 @@ func TestEngine_GetFactorZScore_WrongDate(t *testing.T) {
 	}
 	eng.LoadFactorCache(cache)
 
-	z, ok := eng.GetFactorZScore(domain.FactorMomentum, time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
+	z, ok := eng.GetFactorZScore(cdom.FactorMomentum, time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), "600000.SH")
 	assert.False(t, ok)
 	assert.Equal(t, 0.0, z)
 }
@@ -187,7 +189,7 @@ func TestEngine_GetBacktestResult_NotFound(t *testing.T) {
 
 func TestEngine_GetBacktestResult_Completed(t *testing.T) {
 	eng := newTestEngine(t)
-	eng.stateStore.Put("test-123", &BacktestState{ID: "test-123", Status: "completed", Result: &domain.BacktestResult{TotalReturn: 0.15}})
+	eng.stateStore.Put("test-123", &BacktestState{ID: "test-123", Status: "completed", Result: &cdom.BacktestResult{TotalReturn: 0.15}})
 
 	result, err := eng.GetBacktestResult("test-123")
 	require.NoError(t, err)
@@ -210,7 +212,7 @@ func TestEngine_GetBacktestResult_InvalidIsReadable(t *testing.T) {
 	eng.stateStore.Put("test-invalid", &BacktestState{
 		ID:     "test-invalid",
 		Status: "invalid",
-		Result: &domain.BacktestResult{InvalidReasons: []string{"empty_universe", "zero_trades"}},
+		Result: &cdom.BacktestResult{InvalidReasons: []string{"empty_universe", "zero_trades"}},
 	})
 
 	result, err := eng.GetBacktestResult("test-invalid")
@@ -233,7 +235,7 @@ func TestEngine_GetBacktestTrades_Found(t *testing.T) {
 	eng := newTestEngine(t)
 	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
-	tracker.ExecuteTrade("600000.SH", domain.DirectionLong, 100, 10.0, day, nil)
+	tracker.ExecuteTrade("600000.SH", cdom.DirectionLong, 100, 10.0, day, nil)
 
 	eng.stateStore.Put("test-trades", &BacktestState{ID: "test-trades", Status: "completed", Tracker: tracker})
 
@@ -253,7 +255,7 @@ func TestEngine_GetBacktestPositions_Found(t *testing.T) {
 	eng := newTestEngine(t)
 	tracker := NewTracker(1000000, 0.0003, 0.001, defaultTradingConfig(), zerolog.Nop())
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
-	tracker.ExecuteTrade("600000.SH", domain.DirectionLong, 100, 10.0, day, nil)
+	tracker.ExecuteTrade("600000.SH", cdom.DirectionLong, 100, 10.0, day, nil)
 
 	eng.stateStore.Put("test-positions", &BacktestState{ID: "test-positions", Status: "completed", Tracker: tracker})
 

@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // Representative symbols per board. Kept as named constants so the
 // board a case is meant to exercise is obvious at the call site.
@@ -237,14 +239,14 @@ const (
 	normalizationPrice      = 10.0
 )
 
-func normalizationInputs(symbol string) (domain.Signal, *domain.Portfolio, *domain.MarketRegime, []domain.OHLCV) {
+func normalizationInputs(symbol string) (domain.Signal, *domain.Portfolio, *cdom.MarketRegime, []domain.OHLCV) {
 	signal := domain.Signal{
 		Symbol:    symbol,
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  1.0,
 	}
 	portfolio := &domain.Portfolio{TotalValue: normalizationTotalValue}
-	regime := &domain.MarketRegime{Trend: "sideways", Volatility: "medium"}
+	regime := &cdom.MarketRegime{Trend: "sideways", Volatility: "medium"}
 	ohlcv := generateTestOHLCV(30, normalizationPrice, 0.02)
 	return signal, portfolio, regime, ohlcv
 }
@@ -304,11 +306,11 @@ func TestRiskManager_CalculatePosition_MainBoardSizeIsAlwaysALot(t *testing.T) {
 			t.Parallel()
 			signal := domain.Signal{
 				Symbol:    symMainSH,
-				Direction: domain.DirectionLong,
+				Direction: cdom.DirectionLong,
 				Strength:  1.0,
 			}
 			portfolio := &domain.Portfolio{TotalValue: total}
-			regime := &domain.MarketRegime{Trend: "sideways", Volatility: "medium"}
+			regime := &cdom.MarketRegime{Trend: "sideways", Volatility: "medium"}
 			ohlcv := generateTestOHLCV(30, normalizationPrice, 0.02)
 
 			ps, err := rm.CalculatePosition(
@@ -529,14 +531,14 @@ func TestRiskManager_PositionSizeWeightCanContradictItsOwnSize(t *testing.T) {
 	rm, err := NewRiskManager(normalizationConfig(), zerolog.Nop())
 	require.NoError(t, err)
 
-	regime := &domain.MarketRegime{Trend: "sideways", Volatility: "medium"}
+	regime := &cdom.MarketRegime{Trend: "sideways", Volatility: "medium"}
 	// MaxPositionWeight is 0.05 in normalizationConfig, so the budget is
 	// 5% of TotalValue and the cap that `Weight` reports is 0.05.
 	const totalValue = 1_000_000.0
 	const price = 5000.0 // budget/price = 10 shares → lifted to 100
 	budget := totalValue * 0.05
 
-	signal := domain.Signal{Symbol: symMainSH, Direction: domain.DirectionLong, Strength: 1.0}
+	signal := domain.Signal{Symbol: symMainSH, Direction: cdom.DirectionLong, Strength: 1.0}
 	ps, err := rm.CalculatePosition(
 		context.Background(), signal,
 		&domain.Portfolio{TotalValue: totalValue},

@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── 公共测试夹具 ───────────────────────────────────────────────────────
 
@@ -34,7 +36,7 @@ func testSnapshot() *Snapshot {
 // 种子的 20 日——改公式 = 新版本哈希）。
 func goodCandidate() Candidate {
 	return Candidate{
-		Name:          domain.FactorMomentum,
+		Name:          cdom.FactorMomentum,
 		Formula:       "close / ts_delay(close, 10) - 1",
 		Validity:      "close > 0 and ts_delay(close, 10) > 0",
 		Caliber:       domain.CaliberZScore,
@@ -42,7 +44,7 @@ func goodCandidate() Candidate {
 		Lookback:      20,
 		EffectiveFrom: "2026-10-15",
 		Provenance: Provenance{
-			SourceKind:   domain.FactorSourceAI,
+			SourceKind:   cdom.FactorSourceAI,
 			Generator:    "unit-test-generator",
 			Generation:   1,
 			Rationale:    "10 日动量在样例快照上稳定",
@@ -127,7 +129,7 @@ func TestPipeline_EndToEnd_MineTestUse(t *testing.T) {
 	}
 
 	// 用一条：策略按名解析到刚登记的版本，并在只读快照上算出值（零代码改动）。
-	def, hash, ok := p.Effective(domain.FactorMomentum)
+	def, hash, ok := p.Effective(cdom.FactorMomentum)
 	if !ok || hash != rec.VersionHash {
 		t.Fatalf("effective resolution must return the just-registered version, got ok=%v hash=%s", ok, hash)
 	}
@@ -136,7 +138,7 @@ func TestPipeline_EndToEnd_MineTestUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registered definition must pass registry gates: %v", err)
 	}
-	if reg.VersionHash(domain.FactorMomentum) != rec.VersionHash {
+	if reg.VersionHash(cdom.FactorMomentum) != rec.VersionHash {
 		t.Fatalf("registry must resolve the same version hash")
 	}
 	got, err := EvaluateOnSnapshot(def, snap)
@@ -161,7 +163,7 @@ func TestPipeline_Admit_RejectsWhenSandboxNotRun(t *testing.T) {
 		t.Fatalf("admit without attestation must be rejected with ErrSandboxNotRun, got %v", err)
 	}
 	// 且库里不得留下任何登记。
-	if _, _, ok := p.Effective(domain.FactorMomentum); ok {
+	if _, _, ok := p.Effective(cdom.FactorMomentum); ok {
 		t.Fatalf("no registration must land when the sandbox was skipped")
 	}
 }

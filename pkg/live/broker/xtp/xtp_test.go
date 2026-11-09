@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 func validConfig() Config {
 	return Config{
@@ -142,7 +144,7 @@ func TestOffline_HealthCheck(t *testing.T) {
 func TestOffline_SubmitOrder(t *testing.T) {
 	trader, _ := NewXTPTrader(validConfig(), zerolog.Nop())
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeMarket, 100, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
 	assert.ErrorIs(t, err, ErrOffline)
 }
 
@@ -200,7 +202,7 @@ func TestNotConnected_SubmitOrder(t *testing.T) {
 	cfg.OfflineMode = false
 	trader, _ := NewXTPTrader(cfg, zerolog.Nop())
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeMarket, 100, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
 }
@@ -244,7 +246,7 @@ func TestSubmitOrder_EmptySymbol(t *testing.T) {
 	// Force state to Ready for validation testing
 	trader.state.Store(int32(StateReady))
 	_, err := trader.SubmitOrder(context.Background(), "",
-		domain.DirectionLong, domain.OrderTypeMarket, 100, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
 	require.Error(t, err)
 }
 
@@ -254,7 +256,7 @@ func TestSubmitOrder_NegativeQuantity(t *testing.T) {
 	trader, _ := NewXTPTrader(cfg, zerolog.Nop())
 	trader.state.Store(int32(StateReady))
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeMarket, -100, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, -100, 0)
 	require.Error(t, err)
 }
 
@@ -264,7 +266,7 @@ func TestSubmitOrder_LimitNoPrice(t *testing.T) {
 	trader, _ := NewXTPTrader(cfg, zerolog.Nop())
 	trader.state.Store(int32(StateReady))
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeLimit, 100, 0)
+		cdom.DirectionLong, domain.OrderTypeLimit, 100, 0)
 	require.Error(t, err)
 }
 
@@ -274,7 +276,7 @@ func TestSubmitOrder_QuantityNotMultipleOf100(t *testing.T) {
 	trader, _ := NewXTPTrader(cfg, zerolog.Nop())
 	trader.state.Store(int32(StateReady))
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeMarket, 150, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, 150, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "multiple of 100")
 }
@@ -301,21 +303,21 @@ func TestSubmitOrder_QuantityPerBoardRules(t *testing.T) {
 	cases := []struct {
 		name    string
 		symbol  string
-		dir     domain.Direction
+		dir     cdom.Direction
 		qty     float64
 		wantMsg string // substring of the rejection; "" = must clear the gate
 	}{
-		{"main board lot 100", "000001.SZ", domain.DirectionLong, 100, ""},
-		{"main board odd 137", "000001.SZ", domain.DirectionLong, 137, "multiple of 100"},
-		{"main board 100.9 rejected, not truncated to 100", "000001.SZ", domain.DirectionLong, 100.9, "whole number"},
-		{"STAR floor 200", "688981.SH", domain.DirectionLong, 200, ""},
-		{"STAR 250 (1-share increment)", "688981.SH", domain.DirectionLong, 250, ""},
-		{"STAR 617 (the registry's case)", "688981.SH", domain.DirectionLong, 617, ""},
-		{"STAR 150 (below the 200 floor)", "688981.SH", domain.DirectionLong, 150, "at least 200"},
-		{"BSE 150 (1-share increment)", "830799.BJ", domain.DirectionLong, 150, ""},
-		{"BSE 50 (below the 100 floor)", "830799.BJ", domain.DirectionLong, 50, "at least 100"},
-		{"odd-lot SELL clears the gate", "000001.SZ", domain.DirectionClose, 137, ""},
-		{"zero", "000001.SZ", domain.DirectionLong, 0, "must be positive"},
+		{"main board lot 100", "000001.SZ", cdom.DirectionLong, 100, ""},
+		{"main board odd 137", "000001.SZ", cdom.DirectionLong, 137, "multiple of 100"},
+		{"main board 100.9 rejected, not truncated to 100", "000001.SZ", cdom.DirectionLong, 100.9, "whole number"},
+		{"STAR floor 200", "688981.SH", cdom.DirectionLong, 200, ""},
+		{"STAR 250 (1-share increment)", "688981.SH", cdom.DirectionLong, 250, ""},
+		{"STAR 617 (the registry's case)", "688981.SH", cdom.DirectionLong, 617, ""},
+		{"STAR 150 (below the 200 floor)", "688981.SH", cdom.DirectionLong, 150, "at least 200"},
+		{"BSE 150 (1-share increment)", "830799.BJ", cdom.DirectionLong, 150, ""},
+		{"BSE 50 (below the 100 floor)", "830799.BJ", cdom.DirectionLong, 50, "at least 100"},
+		{"odd-lot SELL clears the gate", "000001.SZ", cdom.DirectionClose, 137, ""},
+		{"zero", "000001.SZ", cdom.DirectionLong, 0, "must be positive"},
 	}
 
 	for _, tc := range cases {
@@ -350,7 +352,7 @@ func TestSubmitOrder_SDKNotLinked(t *testing.T) {
 	trader, _ := NewXTPTrader(cfg, zerolog.Nop())
 	trader.state.Store(int32(StateReady))
 	_, err := trader.SubmitOrder(context.Background(), "000001.SZ",
-		domain.DirectionLong, domain.OrderTypeMarket, 100, 0)
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SDK not linked")
 }

@@ -5,11 +5,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // ---- S7-P0-5 (ODR-043): SimulatedBroker fee consistency ----
 //
@@ -47,7 +49,7 @@ func TestSimulatedBroker_BuyCommissionUsesFeesPackage(t *testing.T) {
 
 	orderID, err := broker.SubmitOrder(domain.Order{
 		Symbol:     "600519.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeMarket,
 		Quantity:   qty,
 		LimitPrice: limitPrice,
@@ -87,7 +89,7 @@ func TestSimulatedBroker_SellCommissionUsesFeesPackage(t *testing.T) {
 
 	orderID, err := broker.SubmitOrder(domain.Order{
 		Symbol:     "600519.SH",
-		Direction:  domain.DirectionShort,
+		Direction:  cdom.DirectionShort,
 		OrderType:  domain.OrderTypeMarket,
 		Quantity:   qty,
 		LimitPrice: limitPrice,
@@ -123,7 +125,7 @@ func TestSimulatedBroker_MinCommissionFloor(t *testing.T) {
 
 	orderID, err := broker.SubmitOrder(domain.Order{
 		Symbol:     "000001.SZ",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeMarket,
 		Quantity:   qty,
 		LimitPrice: limitPrice,

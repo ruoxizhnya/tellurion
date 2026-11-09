@@ -9,16 +9,18 @@ package mining
 import (
 	"fmt"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // Registry 是因子定义的进程内注册表（「库管理」的读路径）。
 //
 // 不可变快照：构造时定稿（含跨层校验），之后只读。
 type Registry struct {
-	defs  map[domain.FactorType]domain.FactorDefinition
-	order []domain.FactorType
+	defs  map[cdom.FactorType]domain.FactorDefinition
+	order []cdom.FactorType
 }
 
 // NewRegistry 用种子定义构造注册表，并做全量 fail-closed 校验：
@@ -33,7 +35,7 @@ type Registry struct {
 // 任何一条不过即返回 error——注册表加载失败是启动级故障。
 func NewRegistry(defs []domain.FactorDefinition) (*Registry, error) {
 	r := &Registry{
-		defs: make(map[domain.FactorType]domain.FactorDefinition, len(defs)),
+		defs: make(map[cdom.FactorType]domain.FactorDefinition, len(defs)),
 	}
 	for _, d := range defs {
 		if _, dup := r.defs[d.Name]; dup {
@@ -118,20 +120,20 @@ func (r *Registry) validateFormulaDef(d domain.FactorDefinition) error {
 }
 
 // Definition 取一个因子的定义。未登记 → ok=false。
-func (r *Registry) Definition(name domain.FactorType) (domain.FactorDefinition, bool) {
+func (r *Registry) Definition(name cdom.FactorType) (domain.FactorDefinition, bool) {
 	d, ok := r.defs[name]
 	return d, ok
 }
 
 // Names 返回全部已登记因子名（定义序）。
-func (r *Registry) Names() []domain.FactorType {
-	out := make([]domain.FactorType, len(r.order))
+func (r *Registry) Names() []cdom.FactorType {
+	out := make([]cdom.FactorType, len(r.order))
 	copy(out, r.order)
 	return out
 }
 
 // VersionHash 返回某因子定义的版本指纹（未登记 → 空串）。
-func (r *Registry) VersionHash(name domain.FactorType) string {
+func (r *Registry) VersionHash(name cdom.FactorType) string {
 	d, ok := r.defs[name]
 	if !ok {
 		return ""

@@ -12,8 +12,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // DefaultFactors 返回缺省参与因子归因的因子清单。
 //
@@ -22,10 +24,10 @@ import (
 // repoguard 的 TestNoBypassOfFactorRegistry 钉住 core 侧不许在库外重建清单。
 // 某次 run 是否真的产出某个因子，仍由「取得到 z-score 且有 top_minus_bot」
 // 决定 —— 名册在册不等于本次有数。
-func DefaultFactors() []domain.FactorType {
+func DefaultFactors() []cdom.FactorType {
 	defs := domain.BuiltinFactorDefinitions
-	out := make([]domain.FactorType, 0, len(defs))
-	seen := make(map[domain.FactorType]bool, len(defs))
+	out := make([]cdom.FactorType, 0, len(defs))
+	seen := make(map[cdom.FactorType]bool, len(defs))
 	for _, def := range defs {
 		if def.Name == "" || seen[def.Name] {
 			continue
@@ -65,12 +67,12 @@ type StockCatalog interface {
 
 // FactorZScores 是因子暴露的读面（由 *backtest.Engine 满足）。
 type FactorZScores interface {
-	GetFactorZScore(factor domain.FactorType, date time.Time, symbol string) (float64, bool)
+	GetFactorZScore(factor cdom.FactorType, date time.Time, symbol string) (float64, bool)
 }
 
 // FactorReturnReader 是历史因子收益的读面（由 *storage.PostgresStore 满足）。
 type FactorReturnReader interface {
-	GetFactorReturns(ctx context.Context, factor domain.FactorType, start, end time.Time) ([]*domain.FactorReturn, error)
+	GetFactorReturns(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorReturn, error)
 }
 
 // Input 是构建两类产物共用的 run 终态输入。
@@ -89,7 +91,7 @@ type Builder struct {
 	Market        MarketProvider
 	ZScores       FactorZScores
 	FactorReturns FactorReturnReader
-	Factors       []domain.FactorType
+	Factors       []cdom.FactorType
 }
 
 // BuildPortfolio 构建 Brinson 归因输入。
@@ -221,7 +223,7 @@ func (b *Builder) BuildFactors(ctx context.Context, in Input) (*FactorExposures,
 }
 
 // portfolioExposure 返回持仓市值加权因子 z-score；一个可得暴露都没有时返回 false。
-func (b *Builder) portfolioExposure(factor domain.FactorType, date time.Time, positions []domain.Position, weights map[string]float64) (float64, bool) {
+func (b *Builder) portfolioExposure(factor cdom.FactorType, date time.Time, positions []domain.Position, weights map[string]float64) (float64, bool) {
 	var sum float64
 	var covered bool
 	for _, pos := range positions {

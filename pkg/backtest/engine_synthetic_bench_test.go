@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"github.com/spf13/viper"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 )

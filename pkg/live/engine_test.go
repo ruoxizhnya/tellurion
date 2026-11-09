@@ -8,9 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 )
+
+import "tellurion/pkg/domain"
 
 // ---------------------------------------------------------------------------
 // P1-3 (ODR-016) — LiveEngine 限价单单元测试
@@ -75,8 +77,8 @@ func mkQuote(symbol string, bid, ask float64) Quote {
 func TestTryFillOrder_Market_BuyFillsAtAsk(t *testing.T) {
 	e := newTestEngine()
 	var tradeMu sync.Mutex
-	var trades []domain.Trade
-	e.onTrade = func(tr domain.Trade) {
+	var trades []cdom.Trade
+	e.onTrade = func(tr cdom.Trade) {
 		tradeMu.Lock()
 		defer tradeMu.Unlock()
 		trades = append(trades, tr)
@@ -84,7 +86,7 @@ func TestTryFillOrder_Market_BuyFillsAtAsk(t *testing.T) {
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Quantity:  100,
 	})
@@ -109,11 +111,11 @@ func TestTryFillOrder_Market_BuyFillsAtAsk(t *testing.T) {
 func TestTryFillOrder_Limit_BuyFillsWhenAskAtOrBelowLimit(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		Quantity:   100,
 		LimitPrice: 10.0,
@@ -131,11 +133,11 @@ func TestTryFillOrder_Limit_BuyFillsWhenAskAtOrBelowLimit(t *testing.T) {
 func TestTryFillOrder_Limit_SellFillsWhenBidAtOrAboveLimit(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionClose,
+		Direction:  cdom.DirectionClose,
 		OrderType:  domain.OrderTypeLimit,
 		Quantity:   100,
 		LimitPrice: 11.0,
@@ -152,13 +154,13 @@ func TestTryFillOrder_Limit_SellFillsWhenBidAtOrAboveLimit(t *testing.T) {
 
 func TestTryFillOrder_Limit_FillPriceIsLimitNotAsk(t *testing.T) {
 	e := newTestEngine()
-	var captured domain.Trade
+	var captured cdom.Trade
 	var once sync.Once
-	e.onTrade = func(tr domain.Trade) { once.Do(func() { captured = tr }) }
+	e.onTrade = func(tr cdom.Trade) { once.Do(func() { captured = tr }) }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		Quantity:   100,
 		LimitPrice: 10.0,
@@ -176,11 +178,11 @@ func TestTryFillOrder_Limit_FillPriceIsLimitNotAsk(t *testing.T) {
 func TestTryFillOrder_Stop_BuyTriggersOnAskBreakout(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeStop,
 		Quantity:  100,
 		StopPrice: 10.0,
@@ -196,11 +198,11 @@ func TestTryFillOrder_Stop_BuyTriggersOnAskBreakout(t *testing.T) {
 func TestTryFillOrder_Stop_SellTriggersOnBidBreakdown(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionClose,
+		Direction: cdom.DirectionClose,
 		OrderType: domain.OrderTypeStop,
 		Quantity:  100,
 		StopPrice: 10.0,
@@ -216,13 +218,13 @@ func TestTryFillOrder_Stop_SellTriggersOnBidBreakdown(t *testing.T) {
 func TestTryFillOrder_Stop_FillPriceIsMarket(t *testing.T) {
 	// 触发后, Stop 单转为市价单, 买入按 Ask, 卖出按 Bid.
 	e := newTestEngine()
-	var captured domain.Trade
+	var captured cdom.Trade
 	var once sync.Once
-	e.onTrade = func(tr domain.Trade) { once.Do(func() { captured = tr }) }
+	e.onTrade = func(tr cdom.Trade) { once.Do(func() { captured = tr }) }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionClose,
+		Direction: cdom.DirectionClose,
 		OrderType: domain.OrderTypeStop,
 		Quantity:  100,
 		StopPrice: 10.0,
@@ -240,7 +242,7 @@ func TestTryFillOrder_Trailing_HWMRisesMonotonically(t *testing.T) {
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   0.5,
@@ -263,11 +265,11 @@ func TestTryFillOrder_Trailing_HWMRisesMonotonically(t *testing.T) {
 func TestTryFillOrder_Trailing_TriggersOnPullback(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   0.5,
@@ -294,7 +296,7 @@ func TestTryFillOrder_Trailing_TriggerPriceUsesHWMNotQuote(t *testing.T) {
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   0.5,
@@ -307,12 +309,12 @@ func TestTryFillOrder_Trailing_TriggerPriceUsesHWMNotQuote(t *testing.T) {
 func TestTryFillOrder_Trailing_TrailPercentFallback(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	// TrailAmount=0, TrailPercent=0.05 (5%), HWM 预置 100 → 触发价 95
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailPercent:  0.05,
@@ -330,7 +332,7 @@ func TestTryFillOrder_Trailing_AmountWinsOverPercent(t *testing.T) {
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   2.0, // 期望触发价 100 - 2 = 98
@@ -345,11 +347,11 @@ func TestTryFillOrder_Trailing_NoHWMYetNeverFills(t *testing.T) {
 	// HWM 仍为 0 时, 跟踪止损不应触发 (无参考价).
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   0.5,
@@ -368,11 +370,11 @@ func TestTryFillOrder_LimitZero_DoesNotSilentlyFill(t *testing.T) {
 	// LimitPrice == 0 视为配置错误, 不应被静默当作市价单成交.
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:     "600000.SH",
-		Direction:  domain.DirectionLong,
+		Direction:  cdom.DirectionLong,
 		OrderType:  domain.OrderTypeLimit,
 		Quantity:   100,
 		LimitPrice: 0,
@@ -384,11 +386,11 @@ func TestTryFillOrder_LimitZero_DoesNotSilentlyFill(t *testing.T) {
 func TestTryFillOrder_StopZero_DoesNotTrigger(t *testing.T) {
 	e := newTestEngine()
 	var trades int
-	e.onTrade = func(domain.Trade) { trades++ }
+	e.onTrade = func(cdom.Trade) { trades++ }
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeStop,
 		Quantity:  100,
 	})
@@ -407,7 +409,7 @@ func TestUpdateTrailingHWM_PersistsAcrossManager(t *testing.T) {
 
 	order := seedPending(t, e, domain.Order{
 		Symbol:        "600000.SH",
-		Direction:     domain.DirectionClose,
+		Direction:     cdom.DirectionClose,
 		OrderType:     domain.OrderTypeTrailing,
 		Quantity:      100,
 		TrailAmount:   0.5,

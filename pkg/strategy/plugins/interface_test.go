@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 func TestMomentumStrategy_Interface(t *testing.T) {
 	s := &momentumStrategy{
@@ -284,7 +286,7 @@ func TestSignal_Structure(t *testing.T) {
 			Strength:  0.85,
 			Price:     12.5,
 			Date:      now,
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			Factors: map[string]float64{
 				"momentum": 0.6,
 				"value":    0.4,
@@ -298,7 +300,7 @@ func TestSignal_Structure(t *testing.T) {
 		if sig.Symbol != "600000.SH" {
 			t.Error("symbol mismatch")
 		}
-		if sig.Direction != domain.DirectionLong {
+		if sig.Direction != cdom.DirectionLong {
 			t.Error("direction should be DirectionLong")
 		}
 		if sig.Factors["momentum"] != 0.6 {

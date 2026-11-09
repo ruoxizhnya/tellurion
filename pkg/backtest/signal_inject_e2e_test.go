@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // e2eSignalStore 是 SignalStore 的内存实现（正确兑现 as_of <= upTo 契约）。
 // 真库 PGSignalStore 已在 pkg/strategy 覆盖，这里只为把信号注入这条链路
@@ -59,8 +61,8 @@ func TestSignalInject_SignalDrivesOrders(t *testing.T) {
 	injectDay := time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)
 	closeDay := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
 	store := &e2eSignalStore{signals: []strategy.ExternalSignal{
-		{ModelID: "ml-model", Symbol: symbols[0], Direction: domain.DirectionLong, Strength: 0.8, AsOf: injectDay},
-		{ModelID: "ml-model", Symbol: symbols[0], Direction: domain.DirectionClose, Strength: 0.5, AsOf: closeDay},
+		{ModelID: "ml-model", Symbol: symbols[0], Direction: cdom.DirectionLong, Strength: 0.8, AsOf: injectDay},
+		{ModelID: "ml-model", Symbol: symbols[0], Direction: cdom.DirectionClose, Strength: 0.5, AsOf: closeDay},
 	}}
 
 	s := strategy.NewSignalStrategy("k7_signal_inject_probe", "ml-model", store)
@@ -98,12 +100,12 @@ func TestSignalInject_SignalDrivesOrders(t *testing.T) {
 			t.Fatalf("信号 symbol 漂移：%s, want %s", sig.Symbol, symbols[0])
 		}
 		switch sig.Direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			gotLong = true
 			if gotLong && sig.Strength != 0.8 {
 				t.Fatalf("buy 信号 strength 漂移：%v, want 0.8", sig.Strength)
 			}
-		case domain.DirectionClose:
+		case cdom.DirectionClose:
 			gotClose = true
 		}
 	}
@@ -134,7 +136,7 @@ func TestSignalInject_FutureSignalNotTraded(t *testing.T) {
 	// 未来信号：as_of 远在回测窗口之后。
 	futureDay := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
 	store := &e2eSignalStore{signals: []strategy.ExternalSignal{
-		{ModelID: "ml-model", Symbol: symbols[0], Direction: domain.DirectionLong, Strength: 0.8, AsOf: futureDay},
+		{ModelID: "ml-model", Symbol: symbols[0], Direction: cdom.DirectionLong, Strength: 0.8, AsOf: futureDay},
 	}}
 
 	s := strategy.NewSignalStrategy("k7_signal_future_probe", "ml-model", store)

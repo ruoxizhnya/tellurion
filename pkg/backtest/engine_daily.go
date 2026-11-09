@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"tellurion/pkg/execalgo"
 )
+
+import "tellurion/pkg/domain"
 
 type stockJob struct {
 	symbol    string
@@ -357,7 +359,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 	marketDataCache map[string][]domain.OHLCV,
 	pricesCache map[string]float64,
 	plan fillPlan,
-	regime *domain.MarketRegime,
+	regime *cdom.MarketRegime,
 	date time.Time,
 	algo *execalgo.Dispatcher,
 	execAlgoDiag *execAlgoRunDiag,
@@ -403,7 +405,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 		var todayBar *domain.OHLCV
 		if ohlcvData, ok := marketDataCache[signal.Symbol]; ok && len(ohlcvData) > 0 {
 			todayBar = &ohlcvData[len(ohlcvData)-1]
-			if todayBar.LimitUp && (signal.Direction == domain.DirectionLong || signal.Direction == domain.DirectionShort) {
+			if todayBar.LimitUp && (signal.Direction == cdom.DirectionLong || signal.Direction == cdom.DirectionShort) {
 				logger.Info().
 					Str("symbol", signal.Symbol).
 					Str("direction", string(signal.Direction)).
@@ -411,7 +413,7 @@ func (e *Engine) processSignalsAndExecuteTrades(
 					Msg("Trade blocked: stock hit limit-up (涨停), cannot buy")
 				continue
 			}
-			if todayBar.LimitDown && signal.Direction == domain.DirectionClose {
+			if todayBar.LimitDown && signal.Direction == cdom.DirectionClose {
 				logger.Info().
 					Str("symbol", signal.Symbol).
 					Time("date", date).
@@ -474,7 +476,7 @@ func (e *Engine) processSignalsFallback(
 	marketDataCache map[string][]domain.OHLCV,
 	pricesCache map[string]float64,
 	plan fillPlan,
-	regime *domain.MarketRegime,
+	regime *cdom.MarketRegime,
 	date time.Time,
 	algo *execalgo.Dispatcher,
 	execAlgoDiag *execAlgoRunDiag,
@@ -491,10 +493,10 @@ func (e *Engine) processSignalsFallback(
 		var todayBar *domain.OHLCV
 		if ohlcvData, ok := marketDataCache[signal.Symbol]; ok && len(ohlcvData) > 0 {
 			todayBar = &ohlcvData[len(ohlcvData)-1]
-			if todayBar.LimitUp && (signal.Direction == domain.DirectionLong || signal.Direction == domain.DirectionShort) {
+			if todayBar.LimitUp && (signal.Direction == cdom.DirectionLong || signal.Direction == cdom.DirectionShort) {
 				continue
 			}
-			if todayBar.LimitDown && signal.Direction == domain.DirectionClose {
+			if todayBar.LimitDown && signal.Direction == cdom.DirectionClose {
 				continue
 			}
 		}
@@ -562,13 +564,13 @@ func (e *Engine) computeEffectiveTarget(
 	state *BacktestState,
 	tp *domain.TargetPosition,
 	targetQty float64,
-	direction domain.Direction,
+	direction cdom.Direction,
 	date time.Time,
 	logger zerolog.Logger,
 ) float64 {
 	// Close / Hold 不走「目标 − 已持」：Close 是全平（`executeSignalTrade`
 	// 直接调 `Tracker.ClosePosition`，不看这个数），Hold 是空信号。
-	if direction != domain.DirectionLong && direction != domain.DirectionShort {
+	if direction != cdom.DirectionLong && direction != cdom.DirectionShort {
 		return targetQty
 	}
 
@@ -710,23 +712,23 @@ func (e *Engine) executeSignalTrade(
 		}
 	}
 
-	var trade *domain.Trade
+	var trade *cdom.Trade
 	var err error
 
 	// Check if ExecutionService is available for more realistic execution
 	// P1-17 (ADR-020): read via ExecutionBridge (the live component)
 	execSvc := e.executionBridge.Get()
 
-	useExecutionService := execSvc != nil && signal.Direction != domain.DirectionHold
+	useExecutionService := execSvc != nil && signal.Direction != cdom.DirectionHold
 
 	switch signal.Direction {
-	case domain.DirectionLong:
+	case cdom.DirectionLong:
 		if useExecutionService {
 			trade, err = e.executeViaExecutionService(state, signal, effectiveTarget, price, date, execOpts, logger)
 		} else {
 			trade, err = state.Tracker.ExecuteTrade(
 				signal.Symbol,
-				domain.DirectionLong,
+				cdom.DirectionLong,
 				effectiveTarget,
 				price,
 				date,
@@ -743,13 +745,13 @@ func (e *Engine) executeSignalTrade(
 			return
 		}
 
-	case domain.DirectionShort:
+	case cdom.DirectionShort:
 		if useExecutionService {
 			trade, err = e.executeViaExecutionService(state, signal, effectiveTarget, price, date, execOpts, logger)
 		} else {
 			trade, err = state.Tracker.ExecuteTrade(
 				signal.Symbol,
-				domain.DirectionShort,
+				cdom.DirectionShort,
 				effectiveTarget,
 				price,
 				date,
@@ -766,7 +768,7 @@ func (e *Engine) executeSignalTrade(
 			return
 		}
 
-	case domain.DirectionClose:
+	case cdom.DirectionClose:
 		if useExecutionService {
 			trade, err = e.executeViaExecutionService(state, signal, effectiveTarget, price, date, execOpts, logger)
 		} else {
@@ -789,7 +791,7 @@ func (e *Engine) executeSignalTrade(
 		delete(state.TargetPositions, signal.Symbol)
 		return
 
-	case domain.DirectionHold:
+	case cdom.DirectionHold:
 		return
 	}
 
@@ -808,7 +810,7 @@ func (e *Engine) executeViaExecutionService(
 	date time.Time,
 	execOpts *OrderExecutionOpts,
 	logger zerolog.Logger,
-) (*domain.Trade, error) {
+) (*cdom.Trade, error) {
 	// P1-17 (ADR-020): read via ExecutionBridge.
 	execSvc := e.executionBridge.Get()
 
@@ -881,13 +883,13 @@ func (e *Engine) executeViaExecutionService(
 
 func (e *Engine) updateTargetPositionAfterTrade(
 	state *BacktestState,
-	trade *domain.Trade,
+	trade *cdom.Trade,
 	signal domain.Signal,
 	tp *domain.TargetPosition,
 	date time.Time,
 	logger zerolog.Logger,
 ) {
-	if signal.Direction == domain.DirectionLong || signal.Direction == domain.DirectionShort {
+	if signal.Direction == cdom.DirectionLong || signal.Direction == cdom.DirectionShort {
 		tp.ActualQty += trade.Quantity
 		tp.PendingQty = tp.TargetQty - tp.ActualQty
 		trade.PendingQty = tp.PendingQty
@@ -900,7 +902,7 @@ func (e *Engine) updateTargetPositionAfterTrade(
 				Time("date", date).
 				Msg("Partial fill: target vs actual gap recorded")
 		}
-	} else if signal.Direction == domain.DirectionClose {
+	} else if signal.Direction == cdom.DirectionClose {
 		tp.PendingQty = 0
 		tp.TargetQty = 0
 		tp.ActualQty = 0
@@ -970,7 +972,7 @@ func (e *Engine) processStopLosses(
 		}
 		_, err := state.Tracker.ExecuteTrade(
 			event.Symbol,
-			domain.DirectionClose,
+			cdom.DirectionClose,
 			event.Quantity,
 			event.Price,
 			date,

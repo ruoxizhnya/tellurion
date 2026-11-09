@@ -24,10 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // k18PaperProbe 批式探针：窗口首日（bar 数=1）发 TWAP 7 片 Long 信号；
 // 窗口第 4 日（bar 数=4，即日 3）发一条平仓信号 —— 制造「窗口中段外部
@@ -42,7 +44,7 @@ func (p *k18PaperProbe) GenerateSignals(_ context.Context, bars map[string][]dom
 	switch len(series) {
 	case 1:
 		return []strategy.Signal{{
-			Symbol: "000001.SZ", Action: "buy", Direction: domain.DirectionLong,
+			Symbol: "000001.SZ", Action: "buy", Direction: cdom.DirectionLong,
 			Strength: 1.0, Date: series[0].Date, ExecAlgo: "twap", ExecSlices: 7,
 		}}, nil
 	case 4:
@@ -94,7 +96,7 @@ func TestPaperExecAlgo_CancelOnExternalPositionChange(t *testing.T) {
 	})
 	var buysA int
 	for _, f := range fillsA {
-		if f.Side == domain.DirectionLong {
+		if f.Side == cdom.DirectionLong {
 			buysA++
 		}
 	}
@@ -111,12 +113,12 @@ func TestPaperExecAlgo_CancelOnExternalPositionChange(t *testing.T) {
 	var buyAfterClose int
 	for _, f := range fillsB {
 		switch f.Side {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			buys++
 			if f.Date.After(closeDay) {
 				buyAfterClose++
 			}
-		case domain.DirectionClose:
+		case cdom.DirectionClose:
 			sells++
 		}
 	}
@@ -124,7 +126,7 @@ func TestPaperExecAlgo_CancelOnExternalPositionChange(t *testing.T) {
 	// 判据 1：平仓后的子单不再报送。
 	assert.Less(t, buys, 7, "外部改仓后剩余子单必须中止（不应报满 7 片）")
 	for i, f := range fillsB {
-		if f.Side != domain.DirectionLong {
+		if f.Side != cdom.DirectionLong {
 			continue
 		}
 		assert.False(t, f.Date.After(closeDay),

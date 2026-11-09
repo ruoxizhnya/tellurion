@@ -28,9 +28,11 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // Provenance 是一条候选的来源留痕（审计「来源」）。
 //
@@ -57,8 +59,8 @@ func (p Provenance) Validate() error {
 		return fmt.Errorf("mining provenance: generator is required (audit trail requires 'who generated')")
 	}
 	switch p.SourceKind {
-	case domain.FactorSourceAI, domain.FactorSourceLiterature,
-		domain.FactorSourceSupplyChain, domain.FactorSourceAdHoc:
+	case cdom.FactorSourceAI, cdom.FactorSourceLiterature,
+		cdom.FactorSourceSupplyChain, cdom.FactorSourceAdHoc:
 	default:
 		return fmt.Errorf("mining provenance: unknown source_kind %q", p.SourceKind)
 	}
@@ -77,7 +79,7 @@ func (p Provenance) Validate() error {
 // 引擎现算，故可动态加载、即挖即测。InputFields 不在此声明——由公式的
 // identifier 集合派生（避免「声明了没用上」的死声明）。
 type Candidate struct {
-	Name          domain.FactorType    `json:"name"`
+	Name          cdom.FactorType      `json:"name"`
 	Formula       string               `json:"formula"`
 	Validity      string               `json:"validity,omitempty"`
 	Caliber       domain.FactorCaliber `json:"caliber,omitempty"`

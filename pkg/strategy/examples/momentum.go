@@ -7,9 +7,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // MomentumConfig holds configuration for the momentum strategy.
 type MomentumConfig struct {
@@ -218,21 +220,21 @@ func (s *momentumStrategy) GenerateSignals(ctx context.Context, bars map[string]
 	var signals []strategy.Signal
 	for i := 0; i < n; i++ {
 		m := results[i].momentum
-		var dir domain.Direction
+		var dir cdom.Direction
 		var strength float64
 		var action string
 
 		switch {
 		case m > longThresh:
-			dir = domain.DirectionLong
+			dir = cdom.DirectionLong
 			action = "buy"
 			strength = m
 		case m < shortThresh:
-			dir = domain.DirectionShort
+			dir = cdom.DirectionShort
 			action = "sell"
 			strength = -m
 		default:
-			dir = domain.DirectionHold
+			dir = cdom.DirectionHold
 			action = "hold"
 			strength = 0
 		}
@@ -253,7 +255,7 @@ func (s *momentumStrategy) GenerateSignals(ctx context.Context, bars map[string]
 }
 
 func (s *momentumStrategy) Weight(sig strategy.Signal, portfolioValue float64) float64 {
-	if sig.Direction == domain.DirectionHold {
+	if sig.Direction == cdom.DirectionHold {
 		return 0
 	}
 	return 0.2 // fixed 20% weight per position, max 5 positions = 100%

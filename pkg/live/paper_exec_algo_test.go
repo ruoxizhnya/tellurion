@@ -24,10 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // execAlgoPaperBars 造 20 个交易日的振荡 bar（close 10.00/10.02 交替，
 // Volume=1e6 作 ADV 代理）。
@@ -64,7 +66,7 @@ func (p *execAlgoPaperProbe) GenerateSignals(_ context.Context, bars map[string]
 		return nil, nil
 	}
 	return []strategy.Signal{{
-		Symbol: "000001.SZ", Action: "buy", Direction: domain.DirectionLong,
+		Symbol: "000001.SZ", Action: "buy", Direction: cdom.DirectionLong,
 		Strength: p.strength, Date: series[0].Date,
 		ExecAlgo: p.execAlgo, ExecSlices: p.slices, ExecProfile: p.profile,
 	}}, nil
@@ -104,7 +106,7 @@ func runPaperExecAlgo(t *testing.T, probe *execAlgoPaperProbe) ([]PaperFill, *by
 func paperImpact(fills []PaperFill) float64 {
 	var cost float64
 	for _, f := range fills {
-		if f.Side != domain.DirectionLong {
+		if f.Side != cdom.DirectionLong {
 			continue
 		}
 		ref := 10.00
@@ -140,7 +142,7 @@ func TestPaperExecAlgo_TWAP7Fills(t *testing.T) {
 	for i, f := range fillsB {
 		sum += f.Qty
 		assert.Positive(t, f.Qty, "第 %d 片为正手", i)
-		assert.Equal(t, domain.DirectionLong, f.Side)
+		assert.Equal(t, cdom.DirectionLong, f.Side)
 	}
 	assert.Equal(t, wholeQty, sum, "Σ 子单量 == 整单量")
 

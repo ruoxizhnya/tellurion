@@ -23,21 +23,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // fakeFactorStore — 测试用 FactorStore stub。
 type fakeFactorStore struct {
 	mu      sync.Mutex
-	entries map[domain.FactorType][]*domain.FactorCacheEntry
-	failOn  domain.FactorType
+	entries map[cdom.FactorType][]*domain.FactorCacheEntry
+	failOn  cdom.FactorType
 }
 
 func newFakeFactorStore() *fakeFactorStore {
-	return &fakeFactorStore{entries: make(map[domain.FactorType][]*domain.FactorCacheEntry)}
+	return &fakeFactorStore{entries: make(map[cdom.FactorType][]*domain.FactorCacheEntry)}
 }
 
-func (s *fakeFactorStore) GetFactorCacheRange(ctx context.Context, factor domain.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error) {
+func (s *fakeFactorStore) GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failOn == factor {
@@ -58,8 +60,8 @@ func TestFactorCache_NewIsEmpty(t *testing.T) {
 func TestFactorCache_LoadReplacesData(t *testing.T) {
 	f := newTestFactorCache()
 	d := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
-	data := map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {
+	data := map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {
 			d: {"600000.SH": 1.5},
 		},
 	}
@@ -74,30 +76,30 @@ func TestFactorCache_LoadReplacesData(t *testing.T) {
 func TestFactorCache_Get(t *testing.T) {
 	f := newTestFactorCache()
 	d := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
-	f.Load(map[domain.FactorType]map[time.Time]map[string]float64{
-		domain.FactorMomentum: {d: {"600000.SH": 1.5}},
+	f.Load(map[cdom.FactorType]map[time.Time]map[string]float64{
+		cdom.FactorMomentum: {d: {"600000.SH": 1.5}},
 	})
 
 	// Hit
-	z, ok := f.Get(domain.FactorMomentum, d, "600000.SH")
+	z, ok := f.Get(cdom.FactorMomentum, d, "600000.SH")
 	assert.True(t, ok)
 	assert.Equal(t, 1.5, z)
 
 	// Symbol miss
-	_, ok = f.Get(domain.FactorMomentum, d, "999999.SH")
+	_, ok = f.Get(cdom.FactorMomentum, d, "999999.SH")
 	assert.False(t, ok)
 
 	// Date miss
-	_, ok = f.Get(domain.FactorMomentum, d.AddDate(0, 0, 1), "600000.SH")
+	_, ok = f.Get(cdom.FactorMomentum, d.AddDate(0, 0, 1), "600000.SH")
 	assert.False(t, ok)
 
 	// Factor type miss
-	_, ok = f.Get(domain.FactorValue, d, "600000.SH")
+	_, ok = f.Get(cdom.FactorValue, d, "600000.SH")
 	assert.False(t, ok)
 
 	// Uninitialized
 	g := newTestFactorCache()
-	_, ok = g.Get(domain.FactorMomentum, d, "600000.SH")
+	_, ok = g.Get(cdom.FactorMomentum, d, "600000.SH")
 	assert.False(t, ok)
 }
 
@@ -113,12 +115,12 @@ func TestFactorCache_Warm_LoadsAvailableFactors(t *testing.T) {
 	f := newTestFactorCache()
 	store := newFakeFactorStore()
 	d := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
-	store.entries[domain.FactorMomentum] = []*domain.FactorCacheEntry{
-		{FactorName: domain.FactorMomentum, TradeDate: d, Symbol: "600000.SH", ZScore: 1.5},
-		{FactorName: domain.FactorMomentum, TradeDate: d, Symbol: "600001.SH", ZScore: -0.5},
+	store.entries[cdom.FactorMomentum] = []*domain.FactorCacheEntry{
+		{FactorName: cdom.FactorMomentum, TradeDate: d, Symbol: "600000.SH", ZScore: 1.5},
+		{FactorName: cdom.FactorMomentum, TradeDate: d, Symbol: "600001.SH", ZScore: -0.5},
 	}
-	store.entries[domain.FactorValue] = []*domain.FactorCacheEntry{
-		{FactorName: domain.FactorValue, TradeDate: d, Symbol: "600000.SH", ZScore: 0.2},
+	store.entries[cdom.FactorValue] = []*domain.FactorCacheEntry{
+		{FactorName: cdom.FactorValue, TradeDate: d, Symbol: "600000.SH", ZScore: 0.2},
 	}
 	// FactorQuality is empty (no entry in store.entries)
 
@@ -126,15 +128,15 @@ func TestFactorCache_Warm_LoadsAvailableFactors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, f.Len(), "should have momentum + value, skip quality")
 
-	z, ok := f.Get(domain.FactorMomentum, d, "600000.SH")
+	z, ok := f.Get(cdom.FactorMomentum, d, "600000.SH")
 	require.True(t, ok)
 	assert.Equal(t, 1.5, z)
 
-	z, ok = f.Get(domain.FactorValue, d, "600000.SH")
+	z, ok = f.Get(cdom.FactorValue, d, "600000.SH")
 	require.True(t, ok)
 	assert.Equal(t, 0.2, z)
 
-	_, ok = f.Get(domain.FactorQuality, d, "600000.SH")
+	_, ok = f.Get(cdom.FactorQuality, d, "600000.SH")
 	assert.False(t, ok, "Quality was empty in DB, must not be loaded")
 }
 
@@ -142,17 +144,17 @@ func TestFactorCache_Warm_SkipsFailingFactor(t *testing.T) {
 	f := newTestFactorCache()
 	store := newFakeFactorStore()
 	d := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
-	store.failOn = domain.FactorMomentum
-	store.entries[domain.FactorValue] = []*domain.FactorCacheEntry{
-		{FactorName: domain.FactorValue, TradeDate: d, Symbol: "600000.SH", ZScore: 0.2},
+	store.failOn = cdom.FactorMomentum
+	store.entries[cdom.FactorValue] = []*domain.FactorCacheEntry{
+		{FactorName: cdom.FactorValue, TradeDate: d, Symbol: "600000.SH", ZScore: 0.2},
 	}
 
 	err := f.Warm(context.Background(), d, d.AddDate(0, 0, 30), store)
 	require.NoError(t, err, "Warm must NOT return error when a single factor fetch fails")
 	assert.Equal(t, 1, f.Len(), "Momentum failed, only Value should be loaded")
-	_, ok := f.Get(domain.FactorMomentum, d, "600000.SH")
+	_, ok := f.Get(cdom.FactorMomentum, d, "600000.SH")
 	assert.False(t, ok)
-	_, ok = f.Get(domain.FactorValue, d, "600000.SH")
+	_, ok = f.Get(cdom.FactorValue, d, "600000.SH")
 	assert.True(t, ok)
 }
 
@@ -161,15 +163,15 @@ func TestFactorCache_Warm_SkipsNilEntries(t *testing.T) {
 	f := newTestFactorCache()
 	store := newFakeFactorStore()
 	d := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
-	store.entries[domain.FactorMomentum] = []*domain.FactorCacheEntry{
+	store.entries[cdom.FactorMomentum] = []*domain.FactorCacheEntry{
 		nil,
-		{FactorName: domain.FactorMomentum, TradeDate: d, Symbol: "600000.SH", ZScore: 1.0},
+		{FactorName: cdom.FactorMomentum, TradeDate: d, Symbol: "600000.SH", ZScore: 1.0},
 		nil,
 	}
 
 	err := f.Warm(context.Background(), d, d.AddDate(0, 0, 30), store)
 	require.NoError(t, err)
-	z, ok := f.Get(domain.FactorMomentum, d, "600000.SH")
+	z, ok := f.Get(cdom.FactorMomentum, d, "600000.SH")
 	require.True(t, ok)
 	assert.Equal(t, 1.0, z)
 }
@@ -182,8 +184,8 @@ func TestFactorCache_ConcurrentLoadGet(t *testing.T) {
 	done := make(chan struct{}, 2)
 	go func() {
 		for i := 0; i < 1000; i++ {
-			data := map[domain.FactorType]map[time.Time]map[string]float64{
-				domain.FactorMomentum: {d: {"600000.SH": float64(i)}},
+			data := map[cdom.FactorType]map[time.Time]map[string]float64{
+				cdom.FactorMomentum: {d: {"600000.SH": float64(i)}},
 			}
 			f.Load(data)
 		}
@@ -191,7 +193,7 @@ func TestFactorCache_ConcurrentLoadGet(t *testing.T) {
 	}()
 	go func() {
 		for i := 0; i < 1000; i++ {
-			_, _ = f.Get(domain.FactorMomentum, d, "600000.SH")
+			_, _ = f.Get(cdom.FactorMomentum, d, "600000.SH")
 			_ = f.Len()
 		}
 		done <- struct{}{}

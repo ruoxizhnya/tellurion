@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // ---- helpers -------------------------------------------------------------
 
@@ -175,8 +177,8 @@ func TestPositionManager_TotalsAndRemove(t *testing.T) {
 
 func TestPositionManager_UpdateFromTrade_BuyNew(t *testing.T) {
 	pm := NewPositionManager()
-	pm.UpdateFromTrade(domain.Trade{
-		Symbol: "X", Direction: domain.DirectionLong,
+	pm.UpdateFromTrade(cdom.Trade{
+		Symbol: "X", Direction: cdom.DirectionLong,
 		Price: 10, Quantity: 100,
 	})
 	pos, ok := pm.GetPosition("X")
@@ -187,15 +189,15 @@ func TestPositionManager_UpdateFromTrade_BuyNew(t *testing.T) {
 
 func TestPositionManager_UpdateFromTrade_BuyThenSell(t *testing.T) {
 	pm := NewPositionManager()
-	pm.UpdateFromTrade(domain.Trade{Symbol: "X", Direction: domain.DirectionLong, Price: 10, Quantity: 100})
-	pm.UpdateFromTrade(domain.Trade{Symbol: "X", Direction: domain.DirectionLong, Price: 12, Quantity: 100})
+	pm.UpdateFromTrade(cdom.Trade{Symbol: "X", Direction: cdom.DirectionLong, Price: 10, Quantity: 100})
+	pm.UpdateFromTrade(cdom.Trade{Symbol: "X", Direction: cdom.DirectionLong, Price: 12, Quantity: 100})
 
 	pos, _ := pm.GetPosition("X")
 	require.Equal(t, 200.0, pos.Quantity)
 	assert.InDelta(t, 11.0, pos.AvgCost, 1e-9, "weighted average cost basis")
 
 	// Sell 100 @ 15 → realized PnL = (15-11) * 100 = 400
-	pm.UpdateFromTrade(domain.Trade{Symbol: "X", Direction: domain.DirectionClose, Price: 15, Quantity: 100})
+	pm.UpdateFromTrade(cdom.Trade{Symbol: "X", Direction: cdom.DirectionClose, Price: 15, Quantity: 100})
 	pos, _ = pm.GetPosition("X")
 	assert.Equal(t, 100.0, pos.Quantity)
 	assert.InDelta(t, 400.0, pos.RealizedPnL, 1e-9)
@@ -203,8 +205,8 @@ func TestPositionManager_UpdateFromTrade_BuyThenSell(t *testing.T) {
 
 func TestPositionManager_UpdateFromTrade_SellToZero(t *testing.T) {
 	pm := NewPositionManager()
-	pm.UpdateFromTrade(domain.Trade{Symbol: "X", Direction: domain.DirectionLong, Price: 10, Quantity: 50})
-	pm.UpdateFromTrade(domain.Trade{Symbol: "X", Direction: domain.DirectionClose, Price: 12, Quantity: 50})
+	pm.UpdateFromTrade(cdom.Trade{Symbol: "X", Direction: cdom.DirectionLong, Price: 10, Quantity: 50})
+	pm.UpdateFromTrade(cdom.Trade{Symbol: "X", Direction: cdom.DirectionClose, Price: 12, Quantity: 50})
 	pos, ok := pm.GetPosition("X")
 	require.True(t, ok, "position is kept after sell-to-zero (Quantity==0)")
 	assert.Equal(t, 0.0, pos.Quantity)
@@ -218,7 +220,7 @@ func TestOrderManager_SubmitAndGet(t *testing.T) {
 	om := NewOrderManager(broker, defaultExecConfig())
 
 	id, err := om.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
@@ -231,7 +233,7 @@ func TestOrderManager_SubmitAndGet(t *testing.T) {
 func TestOrderManager_SubmitRejection(t *testing.T) {
 	om := NewOrderManager(failingBroker{}, defaultExecConfig())
 	id, err := om.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
 	})
 	require.Error(t, err)
 	assert.Empty(t, id)
@@ -247,7 +249,7 @@ func TestOrderManager_CancelOrder(t *testing.T) {
 	om := NewOrderManager(broker, defaultExecConfig())
 
 	id, err := om.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 5,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 5,
 	})
 	require.NoError(t, err)
 
@@ -273,7 +275,7 @@ func TestOrderManager_CancelBrokerError(t *testing.T) {
 	om := NewOrderManager(broker, defaultExecConfig())
 
 	id, err := om.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1,
 	})
 	require.NoError(t, err)
 
@@ -286,8 +288,8 @@ func TestOrderManager_GetPendingOrders(t *testing.T) {
 	broker := newInstrumentedBroker()
 	om := NewOrderManager(broker, defaultExecConfig())
 
-	id1, _ := om.SubmitOrder(domain.Order{Symbol: "A", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
-	id2, _ := om.SubmitOrder(domain.Order{Symbol: "B", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
+	id1, _ := om.SubmitOrder(domain.Order{Symbol: "A", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
+	id2, _ := om.SubmitOrder(domain.Order{Symbol: "B", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
 
 	pending := om.GetPendingOrders()
 	assert.Len(t, pending, 2)
@@ -301,8 +303,8 @@ func TestOrderManager_GetPendingOrders(t *testing.T) {
 
 func TestOrderManager_AddAndGetTrades(t *testing.T) {
 	om := NewOrderManager(newInstrumentedBroker(), defaultExecConfig())
-	om.AddTrade(domain.Trade{ID: "T1", Symbol: "X", Quantity: 10, Price: 5})
-	om.AddTrade(domain.Trade{ID: "T2", Symbol: "Y", Quantity: 3, Price: 7})
+	om.AddTrade(cdom.Trade{ID: "T1", Symbol: "X", Quantity: 10, Price: 5})
+	om.AddTrade(cdom.Trade{ID: "T2", Symbol: "Y", Quantity: 3, Price: 7})
 
 	trades := om.GetTrades()
 	require.Len(t, trades, 2)
@@ -312,8 +314,8 @@ func TestOrderManager_AddAndGetTrades(t *testing.T) {
 
 func TestOrderManager_GetOrders_Snapshot(t *testing.T) {
 	om := NewOrderManager(newInstrumentedBroker(), defaultExecConfig())
-	om.SubmitOrder(domain.Order{Symbol: "A", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
-	om.SubmitOrder(domain.Order{Symbol: "B", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
+	om.SubmitOrder(domain.Order{Symbol: "A", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
+	om.SubmitOrder(domain.Order{Symbol: "B", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1})
 	assert.Len(t, om.GetOrders(), 2)
 }
 
@@ -469,7 +471,7 @@ func TestLiveEngine_OrderAndTradeDelegation(t *testing.T) {
 	engine := NewLiveEngine(newInstrumentedBroker(), NewSimulatedDataFeed(), defaultExecConfig())
 
 	id, err := engine.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1,
 	})
 	require.NoError(t, err)
 	got, ok := engine.GetOrder(id)
@@ -497,10 +499,10 @@ func TestEngine_HandleQuote_FillsMarketOrder(t *testing.T) {
 	// Plain `int` triggers -race here (the callback runs on the
 	// engine's data-feed goroutine). CI gate requires 0 race.
 	var trades atomic.Int32
-	engine.SetCallbacks(nil, func(domain.Trade) { trades.Add(1) }, nil)
+	engine.SetCallbacks(nil, func(cdom.Trade) { trades.Add(1) }, nil)
 
 	id, err := engine.SubmitOrder(domain.Order{
-		Symbol: "X", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
+		Symbol: "X", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, id)

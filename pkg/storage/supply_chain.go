@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 )
 
 // ── 查询过滤器 ────────────────────────────────────────────────────────────

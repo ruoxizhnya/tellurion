@@ -21,10 +21,12 @@ import (
 	"math"
 	"sort"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	expr "tellurion/pkg/expression"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // defaultLookback is the default evaluator lookback window (trading days).
 const defaultLookback = 60
@@ -40,11 +42,11 @@ const defaultLookback = 60
 //   - Raw factor filter: "cs_rank(close)" → result is 0..1, MinStrength=0.8
 //     → passes where rank ≥ 0.8, Strength=rank (enables proportional sizing).
 type SignalConfig struct {
-	Expression  string           // DSL formula, e.g. "cs_rank(ts_delta(close, 5)) > 0.8"
-	Action      string           // "buy" or "sell"
-	Direction   domain.Direction // DirectionLong, DirectionShort, DirectionClose
-	MinStrength float64          // minimum value to emit a signal (default 0)
-	Lookback    int              // evaluator lookback window in trading days (default 60 if <= 0)
+	Expression  string         // DSL formula, e.g. "cs_rank(ts_delta(close, 5)) > 0.8"
+	Action      string         // "buy" or "sell"
+	Direction   cdom.Direction // DirectionLong, DirectionShort, DirectionClose
+	MinStrength float64        // minimum value to emit a signal (default 0)
+	Lookback    int            // evaluator lookback window in trading days (default 60 if <= 0)
 }
 
 // SignalGenerator turns a DSL expression into trading signals.
@@ -74,7 +76,7 @@ func NewSignalGenerator(cfg SignalConfig) (*SignalGenerator, error) {
 		return nil, fmt.Errorf("signal: action must be \"buy\" or \"sell\", got %q", cfg.Action)
 	}
 	if cfg.Direction == "" {
-		cfg.Direction = domain.DirectionLong
+		cfg.Direction = cdom.DirectionLong
 	}
 
 	p := expr.NewParser()

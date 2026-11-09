@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 )
+
+import "tellurion/pkg/domain"
 
 func TestOrderLog_RecordAndGetOrders(t *testing.T) {
 	log := &OrderLog{}
@@ -16,7 +18,7 @@ func TestOrderLog_RecordAndGetOrders(t *testing.T) {
 
 	o1 := domain.Order{
 		Symbol:    "600000.SH",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Quantity:  100,
 		FillPrice: 10.0,
 		Timestamp: time.Now(),
@@ -25,7 +27,7 @@ func TestOrderLog_RecordAndGetOrders(t *testing.T) {
 
 	o2 := domain.Order{
 		Symbol:    "600001.SH",
-		Direction: domain.DirectionClose,
+		Direction: cdom.DirectionClose,
 		Quantity:  200,
 		FillPrice: 20.0,
 		Timestamp: time.Now(),

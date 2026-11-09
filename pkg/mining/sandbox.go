@@ -6,9 +6,11 @@ import (
 	"math"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // ErrSandboxRejected 是沙箱拒收候选的哨兵：公式解析失败 / L1 闸门不过 /
 // 字段越界 / 有界求值失败——任何一条不通过都不得入库。
@@ -140,7 +142,7 @@ func (s *Sandbox) Validate(c Candidate, snap *Snapshot) (*Attestation, error) {
 // 因子**原始**序列（未做横截面标准化——标准化由产出侧 caliber 口径决定）。
 // 同一公式 + 同一快照两次调用逐点相等（可比性内环）。
 func EvaluateOnSnapshot(def domain.FactorDefinition, snap *Snapshot) (map[string][]float64, error) {
-	if _, ok := domain.ParseFactorType(string(def.Name)); !ok {
+	if _, ok := cdom.ParseFactorType(string(def.Name)); !ok {
 		return nil, fmt.Errorf("factor %q not in frozen registry", def.Name)
 	}
 	parsed, err := expression.NewParser().Parse(def.Formula)

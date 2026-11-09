@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 	"tellurion/pkg/strategy/sentiment"
 )

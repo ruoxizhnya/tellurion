@@ -1,7 +1,7 @@
 package tracker
 
 import (
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // OrderLog records all orders during a backtest run.

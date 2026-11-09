@@ -5,10 +5,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 func TestEngine_NewEngine_DefaultConfig(t *testing.T) {
 	logger := zerolog.Nop()
@@ -33,11 +35,11 @@ func TestEngine_Tracker_BuyAndSellCycle(t *testing.T) {
 	day2 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	// Buy
-	trade, err := tracker.ExecuteTrade(symbol, domain.DirectionLong, quantity, price, day1, nil)
+	trade, err := tracker.ExecuteTrade(symbol, cdom.DirectionLong, quantity, price, day1, nil)
 	require.NoError(t, err)
 	require.NotNil(t, trade)
 	assert.Equal(t, symbol, trade.Symbol)
-	assert.Equal(t, domain.DirectionLong, trade.Direction)
+	assert.Equal(t, cdom.DirectionLong, trade.Direction)
 	assert.True(t, trade.Quantity > 0)
 	assert.True(t, trade.Commission >= 5.0) // minimum commission
 
@@ -50,10 +52,10 @@ func TestEngine_Tracker_BuyAndSellCycle(t *testing.T) {
 	tracker.AdvanceDay(day2)
 
 	// Sell
-	sellTrade, err := tracker.ExecuteTrade(symbol, domain.DirectionClose, quantity, price*1.1, day2, nil)
+	sellTrade, err := tracker.ExecuteTrade(symbol, cdom.DirectionClose, quantity, price*1.1, day2, nil)
 	require.NoError(t, err)
 	require.NotNil(t, sellTrade)
-	assert.Equal(t, domain.DirectionClose, sellTrade.Direction)
+	assert.Equal(t, cdom.DirectionClose, sellTrade.Direction)
 
 	// Verify position closed
 	assert.False(t, tracker.HasPosition(symbol))
@@ -69,7 +71,7 @@ func TestEngine_Tracker_PortfolioValue(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Buy shares
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, quantity, price, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, quantity, price, day, nil)
 
 	// Calculate portfolio value at current prices
 	prices := map[string]float64{
@@ -99,7 +101,7 @@ func TestEngine_Tracker_RecordDailyValue(t *testing.T) {
 	assert.Equal(t, 1000000.0, pv1.Cash)
 
 	// Buy some shares
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 100, 10.0, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 100, 10.0, day1, nil)
 
 	// Record value after buy
 	prices[symbol] = 12.0
@@ -126,7 +128,7 @@ func TestEngine_Tracker_MultiplePositions(t *testing.T) {
 	// Buy multiple positions
 	for i, sym := range symbols {
 		price := float64(10 + i)
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionLong, 200, price, day1, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionLong, 200, price, day1, nil)
 		require.NoError(t, err)
 	}
 
@@ -143,7 +145,7 @@ func TestEngine_Tracker_MultiplePositions(t *testing.T) {
 	tracker.AdvanceDay(day2)
 	for _, sym := range symbols {
 		pos, _ := tracker.GetPosition(sym)
-		_, err := tracker.ExecuteTrade(sym, domain.DirectionClose, pos.Quantity, pos.AvgCost*1.05, day2, nil)
+		_, err := tracker.ExecuteTrade(sym, cdom.DirectionClose, pos.Quantity, pos.AvgCost*1.05, day2, nil)
 		require.NoError(t, err)
 	}
 
@@ -162,14 +164,14 @@ func TestEngine_Tracker_ClosePosition(t *testing.T) {
 	day2 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
 
 	// Open position
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, 15.0, day1, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, 15.0, day1, nil)
 	tracker.AdvanceDay(day2)
 
 	// Close using ClosePosition helper
 	trade, err := tracker.ClosePosition(symbol, 16.0, day2)
 	require.NoError(t, err)
 	require.NotNil(t, trade)
-	assert.Equal(t, domain.DirectionClose, trade.Direction)
+	assert.Equal(t, cdom.DirectionClose, trade.Direction)
 
 	assert.False(t, tracker.HasPosition(symbol))
 }
@@ -181,7 +183,7 @@ func TestEngine_Tracker_Reset(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Do some trades
-	tracker.ExecuteTrade("A.SH", domain.DirectionLong, 100, 10.0, day, nil)
+	tracker.ExecuteTrade("A.SH", cdom.DirectionLong, 100, 10.0, day, nil)
 	tracker.RecordDailyValue(day, map[string]float64{"A.SH": 11.0})
 
 	// Reset
@@ -201,7 +203,7 @@ func TestEngine_Tracker_InsufficientCash(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Try to buy more than we can afford
-	_, err := tracker.ExecuteTrade("EXPENSIVE.SH", domain.DirectionLong, 10000, 100.0, day, nil)
+	_, err := tracker.ExecuteTrade("EXPENSIVE.SH", cdom.DirectionLong, 10000, 100.0, day, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient cash")
 }
@@ -214,7 +216,7 @@ func TestEngine_Tracker_DividendProcessing(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Buy shares
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 1000, 10.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 1000, 10.0, day, nil)
 
 	// Process dividend (0.5 CNY per share)
 	dividend := domain.Dividend{
@@ -238,7 +240,7 @@ func TestEngine_Tracker_GetPortfolioSnapshot(t *testing.T) {
 	day := time.Date(2023, 1, 2, 0, 0, 0, 0, time.UTC)
 
 	// Buy shares
-	tracker.ExecuteTrade(symbol, domain.DirectionLong, 500, 20.0, day, nil)
+	tracker.ExecuteTrade(symbol, cdom.DirectionLong, 500, 20.0, day, nil)
 
 	// Get portfolio snapshot
 	prices := map[string]float64{symbol: 25.0}

@@ -4,9 +4,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/backtest/tracker"
 )
+
+import "tellurion/pkg/domain"
 
 // BacktestState holds the state of a backtest run.
 //
@@ -48,7 +50,7 @@ type BacktestState struct {
 
 	// Result is non-nil only after Status == "completed". Protected
 	// by mu.
-	Result *domain.BacktestResult
+	Result *cdom.BacktestResult
 
 	// Tracker has its own internal mutex. Calling its methods is safe
 	// from multiple goroutines; the BacktestState-level mu is not
@@ -87,7 +89,7 @@ func (s *BacktestState) SetStatus(status string) (prev string, ok bool) {
 }
 
 // SetResult atomically sets the result. No-op if frozen.
-func (s *BacktestState) SetResult(r *domain.BacktestResult) bool {
+func (s *BacktestState) SetResult(r *cdom.BacktestResult) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.frozen {
@@ -128,7 +130,7 @@ func (s *BacktestState) GetStatus() string {
 
 // GetResult safely reads the result pointer. May be nil if the
 // backtest is still running or failed.
-func (s *BacktestState) GetResult() *domain.BacktestResult {
+func (s *BacktestState) GetResult() *cdom.BacktestResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Result
@@ -182,7 +184,7 @@ type BacktestStateSnapshot struct {
 	ID          string
 	Status      string
 	Params      domain.BacktestParams
-	Result      *domain.BacktestResult
+	Result      *cdom.BacktestResult
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Error       error

@@ -17,7 +17,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // defaultLiquidityFactor 是未配置时的流动性系数：当日成交量的 10%。

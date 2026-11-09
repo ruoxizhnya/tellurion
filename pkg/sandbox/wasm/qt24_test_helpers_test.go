@@ -8,7 +8,7 @@ package wasm
 import (
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 var qt24Start = time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)

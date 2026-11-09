@@ -22,10 +22,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 const qt20ProbeName = "qt20-params-probe"
 
@@ -77,7 +79,7 @@ func (s *qt20Probe) GenerateSignals(_ context.Context, bars map[string][]domain.
 	return []strategy.Signal{{
 		Symbol:    "600000.SH",
 		Action:    "buy",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		Strength:  s.weight,
 		Date:      last.Date,
 	}}, nil
@@ -224,7 +226,7 @@ func TestRunBacktest_RunParamsEffectivePerConcurrentRun(t *testing.T) {
 		wantDate := provenanceTestStart.AddDate(0, 0, r.fire)
 		var buyDates []time.Time
 		for _, tr := range r.resp.Trades {
-			if tr.Direction == domain.DirectionLong {
+			if tr.Direction == cdom.DirectionLong {
 				buyDates = append(buyDates, tr.Timestamp)
 			}
 		}

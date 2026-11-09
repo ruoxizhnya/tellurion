@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // ─── 测试替身 ───────────────────────────────────────────────────────

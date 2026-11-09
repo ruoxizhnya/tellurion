@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/sandbox/wasm"
 	"tellurion/pkg/strategy"
 )

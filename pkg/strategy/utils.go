@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 func IsRebalanceDay(date time.Time, frequency string) bool {

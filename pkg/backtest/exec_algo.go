@@ -60,10 +60,12 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/execalgo"
 )
+
+import "tellurion/pkg/domain"
 
 // execAlgoParentID 派生父单号：纯函数 (日期, symbol, 方向)。
 //
@@ -71,7 +73,7 @@ import (
 // direction) 一天最多一条有效信号（策略按 symbol 产信号）；真出现重复，
 // Dispatcher.Attach 会 fail-loud（重复挂载 error），不会静默覆盖。
 // 禁时间戳/随机派生——那是 K17 验收 4 明令禁止的（破坏腿 ③）。
-func execAlgoParentID(date time.Time, symbol string, dir domain.Direction) string {
+func execAlgoParentID(date time.Time, symbol string, dir cdom.Direction) string {
 	return fmt.Sprintf("EA-%s-%s-%s", date.Format("20060102"), symbol, string(dir))
 }
 

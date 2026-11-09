@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	expr "tellurion/pkg/expression"
 )
+
+import "tellurion/pkg/domain"
 
 // mockFieldProvider implements expr.DataProvider for signal tests.
 // It returns per-symbol, per-field float64 slices so we can control
@@ -58,8 +60,8 @@ func TestNewSignalGenerator_HappyPath(t *testing.T) {
 	if g.cfg.Action != "buy" {
 		t.Errorf("default Action = %q, want %q", g.cfg.Action, "buy")
 	}
-	if g.cfg.Direction != domain.DirectionLong {
-		t.Errorf("default Direction = %q, want %q", g.cfg.Direction, domain.DirectionLong)
+	if g.cfg.Direction != cdom.DirectionLong {
+		t.Errorf("default Direction = %q, want %q", g.cfg.Direction, cdom.DirectionLong)
 	}
 	if g.lookback != defaultLookback {
 		t.Errorf("lookback = %d, want %d", g.lookback, defaultLookback)
@@ -189,7 +191,7 @@ func TestGenerate_SellAction_ShortDirection(t *testing.T) {
 	g, _ := NewSignalGenerator(SignalConfig{
 		Expression: "close > 10",
 		Action:     "sell",
-		Direction:  domain.DirectionShort,
+		Direction:  cdom.DirectionShort,
 	})
 	ev := expr.NewEvaluator(provider)
 	signals, err := g.Generate(bars, ev)
@@ -202,8 +204,8 @@ func TestGenerate_SellAction_ShortDirection(t *testing.T) {
 	if signals[0].Action != "sell" {
 		t.Errorf("Action = %q, want %q", signals[0].Action, "sell")
 	}
-	if signals[0].Direction != domain.DirectionShort {
-		t.Errorf("Direction = %q, want %q", signals[0].Direction, domain.DirectionShort)
+	if signals[0].Direction != cdom.DirectionShort {
+		t.Errorf("Direction = %q, want %q", signals[0].Direction, cdom.DirectionShort)
 	}
 }
 

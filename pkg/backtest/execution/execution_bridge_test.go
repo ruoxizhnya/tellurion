@@ -15,16 +15,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // fakeExecutionService — 测试用 ExecutionService stub，仅暴露 slippage model。
 type fakeExecutionService struct {
 	slippage string
 }
 
-func (s *fakeExecutionService) ExecuteOrder(order domain.Order, quote Quote) (domain.Trade, error) {
-	return domain.Trade{}, nil
+func (s *fakeExecutionService) ExecuteOrder(order domain.Order, quote Quote) (cdom.Trade, error) {
+	return cdom.Trade{}, nil
 }
 func (s *fakeExecutionService) GetSlippageModel() string      { return s.slippage }
 func (s *fakeExecutionService) SetSlippageModel(model string) { s.slippage = model }

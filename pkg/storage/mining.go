@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // 因子挖掘留痕（D8 ③2「审计留痕」——治理层的 DB 侧形态）。

@@ -34,7 +34,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/ruoxizhnya/tellurion-kit/logging"
@@ -43,6 +43,8 @@ import (
 	"tellurion/pkg/storage"
 	_ "tellurion/pkg/strategy/plugins" // 内置策略靠 init() 注册进 strategy.GlobalRegister
 )
+
+import "tellurion/pkg/domain"
 
 // 成本与随机性口径：两口径共用一台同参数的引擎，差异只可能来自成交时点。
 //
@@ -291,7 +293,7 @@ func qt02Measure(t *testing.T, eng *Engine, strategy, caliber string, universe [
 
 	for _, tr := range resp.Trades {
 		row.TurnoverSum += math.Abs(tr.Quantity * tr.Price)
-		if tr.Direction == domain.DirectionLong || tr.Direction == domain.DirectionShort {
+		if tr.Direction == cdom.DirectionLong || tr.Direction == cdom.DirectionShort {
 			row.OpeningFills++
 		}
 		row.Fills = append(row.Fills, qt02Fill{
@@ -508,7 +510,7 @@ func isLimitDayBar(bar qt02Bar) bool {
 // countUnattributed 给残差（对不上任何基准的成交）记两笔账：方向，以及是否发生在
 // close 贴在 high/low 上的日子。零值 bar（库里缺当日数据）不参与涨跌停判定。
 func (e *qt02Evidence) countUnattributed(f qt02Fill, bar qt02Bar, haveBar bool) {
-	if f.Side == string(domain.DirectionClose) {
+	if f.Side == string(cdom.DirectionClose) {
 		e.UnattrClose++
 	} else {
 		e.UnattrOpen++

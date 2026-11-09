@@ -33,7 +33,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 )
 
 // SignalStrategy 消费外部模型信号（Actor 侧）。

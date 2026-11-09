@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/marketdata"
 )
+
+import "tellurion/pkg/domain"
 
 // LiveEngine manages live trading execution
 type LiveEngine struct {
@@ -31,7 +33,7 @@ type LiveEngine struct {
 	stopCh  chan struct{}
 
 	onOrderUpdate func(order domain.Order)
-	onTrade       func(trade domain.Trade)
+	onTrade       func(trade cdom.Trade)
 	onError       func(err error)
 }
 
@@ -80,7 +82,7 @@ func NewLiveEngine(
 // SetCallbacks sets the event callbacks
 func (e *LiveEngine) SetCallbacks(
 	onOrderUpdate func(order domain.Order),
-	onTrade func(trade domain.Trade),
+	onTrade func(trade cdom.Trade),
 	onError func(err error),
 ) {
 	e.onOrderUpdate = onOrderUpdate
@@ -215,7 +217,7 @@ func (e *LiveEngine) CancelOrder(orderID string) error {
 }
 
 // GetTrades returns all executed trades
-func (e *LiveEngine) GetTrades() []domain.Trade {
+func (e *LiveEngine) GetTrades() []cdom.Trade {
 	return e.orderManager.GetTrades()
 }
 
@@ -288,7 +290,7 @@ func (e *LiveEngine) tryFillOrder(order *domain.Order, quote Quote) {
 
 	fillPrice := e.computeFillPrice(order, quote)
 
-	trade := domain.Trade{
+	trade := cdom.Trade{
 		ID:         generateID(),
 		Symbol:     order.Symbol,
 		Direction:  order.Direction,
@@ -329,9 +331,9 @@ func (e *LiveEngine) shouldFill(order *domain.Order, quote Quote) bool {
 			return false
 		}
 		switch order.Direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			return quote.Ask > 0 && quote.Ask <= order.LimitPrice
-		case domain.DirectionShort, domain.DirectionClose:
+		case cdom.DirectionShort, cdom.DirectionClose:
 			return quote.Bid > 0 && quote.Bid >= order.LimitPrice
 		}
 
@@ -340,10 +342,10 @@ func (e *LiveEngine) shouldFill(order *domain.Order, quote Quote) bool {
 			return false
 		}
 		switch order.Direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			// Stop buy: triggered when price breaks out upward.
 			return quote.Ask >= order.StopPrice
-		case domain.DirectionShort, domain.DirectionClose:
+		case cdom.DirectionShort, cdom.DirectionClose:
 			// Stop sell / protective stop: triggered when price breaks down.
 			return quote.Bid > 0 && quote.Bid <= order.StopPrice
 		}
@@ -354,10 +356,10 @@ func (e *LiveEngine) shouldFill(order *domain.Order, quote Quote) bool {
 			return false
 		}
 		switch order.Direction {
-		case domain.DirectionLong:
+		case cdom.DirectionLong:
 			// Defensive trailing-buy: only fill when ask is sane.
 			return quote.Ask > 0 && quote.Ask <= trigger
-		case domain.DirectionShort, domain.DirectionClose:
+		case cdom.DirectionShort, cdom.DirectionClose:
 			return quote.Bid > 0 && quote.Bid <= trigger
 		}
 	}
@@ -371,7 +373,7 @@ func (e *LiveEngine) computeFillPrice(order *domain.Order, quote Quote) float64 
 	// the taker would naturally hit.
 	if order.OrderType == domain.OrderTypeStop ||
 		order.OrderType == domain.OrderTypeTrailing {
-		if order.Direction == domain.DirectionLong {
+		if order.Direction == cdom.DirectionLong {
 			return quote.Ask
 		}
 		return quote.Bid
@@ -379,7 +381,7 @@ func (e *LiveEngine) computeFillPrice(order *domain.Order, quote Quote) float64 
 	if order.OrderType == domain.OrderTypeLimit {
 		// Limit fill at limit price or better — for a buy, "better" is lower,
 		// so we cap at the actual ask (conservative for the buyer).
-		if order.Direction == domain.DirectionLong {
+		if order.Direction == cdom.DirectionLong {
 			if quote.Ask > 0 && quote.Ask < order.LimitPrice {
 				return quote.Ask
 			}
@@ -389,7 +391,7 @@ func (e *LiveEngine) computeFillPrice(order *domain.Order, quote Quote) float64 
 		return order.LimitPrice
 	}
 	// Market
-	if order.Direction == domain.DirectionLong {
+	if order.Direction == cdom.DirectionLong {
 		return quote.Ask
 	}
 	return quote.Bid

@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -31,7 +33,7 @@ func sampleSnapshot(id string) BacktestStateSnapshot {
 		ID:          id,
 		Status:      "completed",
 		Params:      domain.BacktestParams{StrategyName: "momentum", InitialCapital: 100000},
-		Result:      &domain.BacktestResult{TotalReturn: 0.15, TotalTrades: 42},
+		Result:      &cdom.BacktestResult{TotalReturn: 0.15, TotalTrades: 42},
 		StartedAt:   time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC),
 		CompletedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
 		Frozen:      true,
@@ -87,7 +89,7 @@ func TestDiskStateStore_LoadedMatchesOriginal(t *testing.T) {
 	ctx := context.Background()
 
 	original := sampleSnapshot("bt-002")
-	original.Result = &domain.BacktestResult{
+	original.Result = &cdom.BacktestResult{
 		TotalReturn:  0.2345,
 		AnnualReturn: 0.5678,
 		SharpeRatio:  1.89,
@@ -96,10 +98,10 @@ func TestDiskStateStore_LoadedMatchesOriginal(t *testing.T) {
 		TotalTrades:  100,
 		WinTrades:    55,
 		LoseTrades:   45,
-		Trades: []domain.Trade{
+		Trades: []cdom.Trade{
 			{ID: "t1", Symbol: "AAPL", Direction: "long", Quantity: 100, Price: 150.25},
 		},
-		PortfolioValues: []domain.PortfolioValue{
+		PortfolioValues: []cdom.PortfolioValue{
 			{Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), TotalValue: 100000, Cash: 50000},
 		},
 	}

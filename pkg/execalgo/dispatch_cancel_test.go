@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/execalgo"
 )
+
+import "tellurion/pkg/domain"
 
 // TestDispatcher_CancelDropsRemainingKeepsFilled 是 K18 的派发器层核心判据：
 // 取消后剩余未报送子单不再产出，已成交进度保留不回滚，且不再进 Unfinished。
@@ -94,13 +96,13 @@ func TestDispatcher_CancelSymbolOnlyAffectsMatchingSymbol(t *testing.T) {
 	start := time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)
 	// 同 symbol 两个父单（long + close，模拟拆单 + 反向平仓单并发）。
 	_, err := d.Attach(context.Background(), execalgo.AttachSpec{
-		ParentID: "EA-20260105-000001.SZ-close", Symbol: "000001.SZ", Side: domain.DirectionClose,
+		ParentID: "EA-20260105-000001.SZ-close", Symbol: "000001.SZ", Side: cdom.DirectionClose,
 		Qty: 500, Style: "twap", Slices: 3, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 3),
 	})
 	require.NoError(t, err)
 	_, err = d.Attach(context.Background(), execalgo.AttachSpec{
-		ParentID: "EA-20260105-000001.SZ-long", Symbol: "000001.SZ", Side: domain.DirectionLong,
+		ParentID: "EA-20260105-000001.SZ-long", Symbol: "000001.SZ", Side: cdom.DirectionLong,
 		Qty: 1000, Style: "twap", Slices: 3, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 3),
 	})
@@ -135,7 +137,7 @@ func TestDispatcher_ActiveParentsSnapshot(t *testing.T) {
 	_, err := d.Attach(context.Background(), dispatchParent("PO-A1", "000001.SZ", 1000, start))
 	require.NoError(t, err)
 	_, err = d.Attach(context.Background(), execalgo.AttachSpec{
-		ParentID: "PO-A2", Symbol: "600000.SH", Side: domain.DirectionShort,
+		ParentID: "PO-A2", Symbol: "600000.SH", Side: cdom.DirectionShort,
 		Qty: 500, Style: "twap", Slices: 2, OrderType: domain.OrderTypeMarket,
 		StartAt: start, EndAt: start.AddDate(0, 0, 2),
 	})
@@ -144,9 +146,9 @@ func TestDispatcher_ActiveParentsSnapshot(t *testing.T) {
 	all := d.ActiveParents()
 	require.Len(t, all, 2)
 	assert.Equal(t, "PO-A1", all[0].ParentID)
-	assert.Equal(t, domain.DirectionLong, all[0].Side)
+	assert.Equal(t, cdom.DirectionLong, all[0].Side)
 	assert.Equal(t, "PO-A2", all[1].ParentID)
-	assert.Equal(t, domain.DirectionShort, all[1].Side)
+	assert.Equal(t, cdom.DirectionShort, all[1].Side)
 	assert.Empty(t, all[0].Reason, "未取消父单 Reason 为空")
 
 	_, _ = d.Cancel("PO-A1", "stop_loss")

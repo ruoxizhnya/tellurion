@@ -10,13 +10,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
 	_ "tellurion/pkg/strategy/plugins" // registers momentum strategy via init()
 )
+
+import "tellurion/pkg/domain"
 
 // fixtureData holds the loaded momentum-5stock-1yr.json fixture.
 type fixtureData struct {
@@ -184,7 +186,7 @@ func BenchmarkBacktest(b *testing.B) {
 	riskServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/risk/regime":
-			_ = json.NewEncoder(w).Encode(domain.MarketRegime{
+			_ = json.NewEncoder(w).Encode(cdom.MarketRegime{
 				Trend: "sideways", Volatility: "medium", Sentiment: 0.0, Timestamp: time.Now(),
 			})
 		case "/calculate_position":
@@ -271,7 +273,7 @@ func TestBenchmarkSmoke(t *testing.T) {
 	riskServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/risk/regime":
-			_ = json.NewEncoder(w).Encode(domain.MarketRegime{
+			_ = json.NewEncoder(w).Encode(cdom.MarketRegime{
 				Trend: "sideways", Volatility: "medium", Sentiment: 0.0, Timestamp: time.Now(),
 			})
 		case "/calculate_position":

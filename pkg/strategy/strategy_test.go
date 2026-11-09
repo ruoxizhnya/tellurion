@@ -5,10 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 func TestStrategy_InterfaceCompliance(t *testing.T) {
 	s := &mockStrategy{
@@ -53,8 +55,8 @@ func TestStrategy_GenerateSignals_EmptyBars(t *testing.T) {
 
 func TestStrategy_GenerateSignals_WithSignals(t *testing.T) {
 	expectedSignals := []Signal{
-		{Symbol: "600000.SH", Action: "buy", Strength: 0.8, Direction: domain.DirectionLong},
-		{Symbol: "000001.SZ", Action: "sell", Strength: 0.9, Direction: domain.DirectionClose},
+		{Symbol: "600000.SH", Action: "buy", Strength: 0.8, Direction: cdom.DirectionLong},
+		{Symbol: "000001.SZ", Action: "sell", Strength: 0.9, Direction: cdom.DirectionClose},
 	}
 	s := &mockStrategy{
 		name:    "signal_test",
@@ -69,7 +71,7 @@ func TestStrategy_GenerateSignals_WithSignals(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, signals, 2)
 	assert.Equal(t, "600000.SH", signals[0].Symbol)
-	assert.Equal(t, domain.DirectionLong, signals[0].Direction)
+	assert.Equal(t, cdom.DirectionLong, signals[0].Direction)
 }
 
 func TestStrategy_GenerateSignals_Error(t *testing.T) {
@@ -98,11 +100,11 @@ func TestSignal_DirectionMapping(t *testing.T) {
 	tests := []struct {
 		name     string
 		action   string
-		expected domain.Direction
+		expected cdom.Direction
 	}{
-		{"buy action", "buy", domain.DirectionLong},
-		{"sell action", "sell", domain.DirectionClose},
-		{"hold action", "hold", domain.DirectionHold},
+		{"buy action", "buy", cdom.DirectionLong},
+		{"sell action", "sell", cdom.DirectionClose},
+		{"hold action", "hold", cdom.DirectionHold},
 	}
 
 	for _, tc := range tests {
@@ -212,7 +214,7 @@ func TestStrategy_SignalWithMetadata(t *testing.T) {
 		Strength:  0.9,
 		Price:     15.50,
 		Date:      now,
-		Direction: domain.DirectionClose,
+		Direction: cdom.DirectionClose,
 		Metadata: map[string]interface{}{
 			"source":     "test",
 			"confidence": "high",
@@ -233,9 +235,9 @@ func TestStrategy_MultipleSignalsGeneration(t *testing.T) {
 	s := &mockStrategy{
 		name: "multi_signal",
 		signals: []Signal{
-			{Symbol: "600000.SH", Action: "buy", Strength: 0.8, Direction: domain.DirectionLong},
-			{Symbol: "600001.SH", Action: "hold", Strength: 0.3, Direction: domain.DirectionHold},
-			{Symbol: "000001.SZ", Action: "sell", Strength: 0.9, Direction: domain.DirectionClose},
+			{Symbol: "600000.SH", Action: "buy", Strength: 0.8, Direction: cdom.DirectionLong},
+			{Symbol: "600001.SH", Action: "hold", Strength: 0.3, Direction: cdom.DirectionHold},
+			{Symbol: "000001.SZ", Action: "sell", Strength: 0.9, Direction: cdom.DirectionClose},
 		},
 	}
 
@@ -248,11 +250,11 @@ func TestStrategy_MultipleSignalsGeneration(t *testing.T) {
 	assert.Len(t, signals, 3)
 
 	assert.Equal(t, "600000.SH", signals[0].Symbol)
-	assert.Equal(t, domain.DirectionLong, signals[0].Direction)
+	assert.Equal(t, cdom.DirectionLong, signals[0].Direction)
 	assert.Equal(t, "600001.SH", signals[1].Symbol)
-	assert.Equal(t, domain.DirectionHold, signals[1].Direction)
+	assert.Equal(t, cdom.DirectionHold, signals[1].Direction)
 	assert.Equal(t, "000001.SZ", signals[2].Symbol)
-	assert.Equal(t, domain.DirectionClose, signals[2].Direction)
+	assert.Equal(t, cdom.DirectionClose, signals[2].Direction)
 }
 
 func TestStrategy_Cleanup_NoPanic(t *testing.T) {

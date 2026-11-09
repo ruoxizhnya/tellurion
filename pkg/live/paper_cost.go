@@ -1,7 +1,7 @@
 package live
 
 import (
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	"tellurion/pkg/domain"
 	"tellurion/pkg/execution"
 )
 

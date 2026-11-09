@@ -32,11 +32,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
 )
+
+import "tellurion/pkg/domain"
 
 // k18Bars 造「窗口中段暴跌触发止损」的确定性 bar（20 个自然日交易日）。
 func k18Bars(symbol string, days int, start time.Time) []domain.OHLCV {
@@ -159,7 +161,7 @@ func TestExecAlgo_CancelOnStopLossMidWindow(t *testing.T) {
 	require.NotEmpty(t, respA.Trades)
 	var closedA bool
 	for _, tr := range respA.Trades {
-		if tr.Symbol == sym && tr.Direction == domain.DirectionClose && tr.Timestamp.Equal(stopDay) {
+		if tr.Symbol == sym && tr.Direction == cdom.DirectionClose && tr.Timestamp.Equal(stopDay) {
 			closedA = true
 		}
 	}
@@ -181,7 +183,7 @@ func TestExecAlgo_CancelOnStopLossMidWindow(t *testing.T) {
 
 	stopLossHappened := false
 	for _, tr := range respB.Trades {
-		if tr.Symbol == sym && tr.Direction == domain.DirectionClose && tr.Timestamp.Equal(stopDay) {
+		if tr.Symbol == sym && tr.Direction == cdom.DirectionClose && tr.Timestamp.Equal(stopDay) {
 			stopLossHappened = true
 		}
 	}
@@ -199,7 +201,7 @@ func TestExecAlgo_CancelOnStopLossMidWindow(t *testing.T) {
 	// 判据 2：止损后不再产生买入成交。
 	var buyAfterStop int
 	for _, tr := range respB.Trades {
-		if tr.Symbol == sym && tr.Direction == domain.DirectionLong && tr.Timestamp.After(stopDay) {
+		if tr.Symbol == sym && tr.Direction == cdom.DirectionLong && tr.Timestamp.After(stopDay) {
 			buyAfterStop++
 		}
 	}

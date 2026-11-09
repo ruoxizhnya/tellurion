@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/clock"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // ckptBaseDate 是测试序列的时间原点（UTC）。

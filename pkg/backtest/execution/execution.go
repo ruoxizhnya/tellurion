@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	costexec "tellurion/pkg/execution"
 )
+
+import "tellurion/pkg/domain"
 
 // ExecutionService handles order execution in backtests.
 // This abstraction allows the backtest engine to work with both
 // simulated and (eventually) live execution.
 type ExecutionService interface {
 	// ExecuteOrder processes an order and returns the resulting trade
-	ExecuteOrder(order domain.Order, quote Quote) (domain.Trade, error)
+	ExecuteOrder(order domain.Order, quote Quote) (cdom.Trade, error)
 
 	// GetSlippageModel returns the current slippage model name
 	GetSlippageModel() string
@@ -48,9 +50,9 @@ func NewBacktestExecutionService(config domain.ExecutionConfig) *BacktestExecuti
 }
 
 // ExecuteOrder executes an order against a quote
-func (s *BacktestExecutionService) ExecuteOrder(order domain.Order, quote Quote) (domain.Trade, error) {
+func (s *BacktestExecutionService) ExecuteOrder(order domain.Order, quote Quote) (cdom.Trade, error) {
 	if order.Quantity <= 0 {
-		return domain.Trade{}, fmt.Errorf("invalid order quantity: %f", order.Quantity)
+		return cdom.Trade{}, fmt.Errorf("invalid order quantity: %f", order.Quantity)
 	}
 
 	// Determine execution price based on order type and direction
@@ -61,30 +63,30 @@ func (s *BacktestExecutionService) ExecuteOrder(order domain.Order, quote Quote)
 		executionPrice = s.applySlippage(quote.Close, order.Direction, quote, order.Quantity)
 	case domain.OrderTypeLimit:
 		if order.LimitPrice <= 0 {
-			return domain.Trade{}, fmt.Errorf("invalid limit price: %f", order.LimitPrice)
+			return cdom.Trade{}, fmt.Errorf("invalid limit price: %f", order.LimitPrice)
 		}
 		// For buy orders, execute if limit price >= low
 		// For sell orders, execute if limit price <= high
-		if order.Direction == domain.DirectionLong && order.LimitPrice >= quote.Low {
+		if order.Direction == cdom.DirectionLong && order.LimitPrice >= quote.Low {
 			executionPrice = min(order.LimitPrice, quote.High)
-		} else if order.Direction == domain.DirectionShort && order.LimitPrice <= quote.High {
+		} else if order.Direction == cdom.DirectionShort && order.LimitPrice <= quote.High {
 			executionPrice = max(order.LimitPrice, quote.Low)
 		} else {
-			return domain.Trade{}, fmt.Errorf("limit price not reached")
+			return cdom.Trade{}, fmt.Errorf("limit price not reached")
 		}
 	default:
-		return domain.Trade{}, fmt.Errorf("unsupported order type: %s", order.OrderType)
+		return cdom.Trade{}, fmt.Errorf("unsupported order type: %s", order.OrderType)
 	}
 
 	if executionPrice <= 0 {
-		return domain.Trade{}, fmt.Errorf("invalid execution price: %f", executionPrice)
+		return cdom.Trade{}, fmt.Errorf("invalid execution price: %f", executionPrice)
 	}
 
 	// Calculate commission
 	amount := executionPrice * order.Quantity
 	commission := s.calculateCommission(amount)
 
-	trade := domain.Trade{
+	trade := cdom.Trade{
 		ID:         generateTradeID(),
 		Symbol:     order.Symbol,
 		Direction:  order.Direction,
@@ -128,7 +130,7 @@ func (s *BacktestExecutionService) SetSlippageModel(model string) {
 // 这里把可变的 s.slippageModel 覆盖进 config 再构造 core，以保留
 // SetSlippageModel 的既有语义（s.slippageModel 可能已不同于
 // config.SlippageModel）。数值行为逐位不变。
-func (s *BacktestExecutionService) applySlippage(price float64, direction domain.Direction, quote Quote, orderQty float64) float64 {
+func (s *BacktestExecutionService) applySlippage(price float64, direction cdom.Direction, quote Quote, orderQty float64) float64 {
 	cfg := s.config
 	cfg.SlippageModel = s.slippageModel
 	core := costexec.NewCostModel(cfg)

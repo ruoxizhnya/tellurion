@@ -31,24 +31,26 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/storage"
 )
+
+import "tellurion/pkg/domain"
 
 // FactorStore is the minimal interface FactorCacheAccessor needs from a
 // persistence layer. *storage.PostgresStore satisfies this.
 type FactorStore interface {
-	GetFactorCacheRange(ctx context.Context, factor domain.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error)
+	GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error)
 }
 
 // FactorCacheAccessor manages the L1 factor z-score cache.
 type FactorCacheAccessor struct {
 	mu    sync.RWMutex
-	cache map[domain.FactorType]map[time.Time]map[string]float64
+	cache map[cdom.FactorType]map[time.Time]map[string]float64
 	// quintileCache mirrors the structure of cache but stores the
 	// pre-computed quintile (1-5) derived from each z-score. Populated
 	// alongside cache in Load / Warm so that GetQuintile is a pure lookup.
-	quintileCache map[domain.FactorType]map[time.Time]map[string]int
+	quintileCache map[cdom.FactorType]map[time.Time]map[string]int
 
 	logger zerolog.Logger
 }
@@ -103,7 +105,7 @@ func (f *FactorCacheAccessor) GetQuintile(symbol string, date time.Time, factor 
 	if f.quintileCache == nil {
 		return 0, ErrQuintileNotFound
 	}
-	dateMap, ok := f.quintileCache[domain.FactorType(factor)]
+	dateMap, ok := f.quintileCache[cdom.FactorType(factor)]
 	if !ok {
 		return 0, ErrQuintileNotFound
 	}
@@ -128,7 +130,7 @@ func NewFactorCacheAccessor(logger zerolog.Logger) *FactorCacheAccessor {
 // Load 直接注入数据（典型用法：storage.GetFactorCacheRange 后的结果）。
 // 传 nil 清理缓存。Quintile 缓存从注入的 z-score 派生重建，保持与
 // z-score 缓存同步（P1-C）。
-func (f *FactorCacheAccessor) Load(data map[domain.FactorType]map[time.Time]map[string]float64) {
+func (f *FactorCacheAccessor) Load(data map[cdom.FactorType]map[time.Time]map[string]float64) {
 	f.mu.Lock()
 	f.cache = data
 	f.quintileCache = buildQuintileCache(data)
@@ -144,7 +146,7 @@ func (f *FactorCacheAccessor) Load(data map[domain.FactorType]map[time.Time]map[
 // 空缓存返回一个干净的访问器（不是 nil），调用方不必判空。
 func (f *FactorCacheAccessor) Copy() *FactorCacheAccessor {
 	f.mu.RLock()
-	seeded := make(map[domain.FactorType]map[time.Time]map[string]float64, len(f.cache))
+	seeded := make(map[cdom.FactorType]map[time.Time]map[string]float64, len(f.cache))
 	for factor, byDate := range f.cache {
 		cloneDate := make(map[time.Time]map[string]float64, len(byDate))
 		for date, bySymbol := range byDate {
@@ -167,11 +169,11 @@ func (f *FactorCacheAccessor) Copy() *FactorCacheAccessor {
 // buildQuintileCache derives a quintile cache from a z-score cache by
 // applying computeQuintile to every entry. Returns nil for nil/empty input
 // so that GetQuintile cleanly reports ErrQuintileNotFound.
-func buildQuintileCache(data map[domain.FactorType]map[time.Time]map[string]float64) map[domain.FactorType]map[time.Time]map[string]int {
+func buildQuintileCache(data map[cdom.FactorType]map[time.Time]map[string]float64) map[cdom.FactorType]map[time.Time]map[string]int {
 	if len(data) == 0 {
 		return nil
 	}
-	out := make(map[domain.FactorType]map[time.Time]map[string]int, len(data))
+	out := make(map[cdom.FactorType]map[time.Time]map[string]int, len(data))
 	for factor, dateMap := range data {
 		if len(dateMap) == 0 {
 			continue
@@ -195,7 +197,7 @@ func buildQuintileCache(data map[domain.FactorType]map[time.Time]map[string]floa
 // Get 返回 (z-score, exists)。无命中返回 (0, false)。
 // 读路径持 RLock（与 OHLCV cache 的 lock-free 不同，因为命中频率低
 // 且 map 体积通常远小于 OHLCV 缓存）。
-func (f *FactorCacheAccessor) Get(factor domain.FactorType, date time.Time, symbol string) (float64, bool) {
+func (f *FactorCacheAccessor) Get(factor cdom.FactorType, date time.Time, symbol string) (float64, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	if f.cache == nil {
@@ -226,8 +228,8 @@ func (f *FactorCacheAccessor) Warm(ctx context.Context, start, end time.Time, st
 		return nil
 	}
 
-	factors := []domain.FactorType{domain.FactorMomentum, domain.FactorValue, domain.FactorQuality}
-	combined := make(map[domain.FactorType]map[time.Time]map[string]float64)
+	factors := []cdom.FactorType{cdom.FactorMomentum, cdom.FactorValue, cdom.FactorQuality}
+	combined := make(map[cdom.FactorType]map[time.Time]map[string]float64)
 
 	for _, factor := range factors {
 		entries, err := store.GetFactorCacheRange(ctx, factor, start, end)

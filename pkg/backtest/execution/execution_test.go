@@ -4,10 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 func TestNewBacktestExecutionService(t *testing.T) {
 	config := domain.DefaultExecutionConfig()
@@ -33,7 +35,7 @@ func TestBacktestExecutionService_ExecuteOrder_Market(t *testing.T) {
 	t.Run("buy market order", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 		}
@@ -41,7 +43,7 @@ func TestBacktestExecutionService_ExecuteOrder_Market(t *testing.T) {
 		trade, err := service.ExecuteOrder(order, quote)
 		require.NoError(t, err)
 		assert.Equal(t, "000001.SZ", trade.Symbol)
-		assert.Equal(t, domain.DirectionLong, trade.Direction)
+		assert.Equal(t, cdom.DirectionLong, trade.Direction)
 		assert.Equal(t, 100.0, trade.Quantity)
 		assert.Greater(t, trade.Price, quote.Close) // Slippage applied
 		assert.Greater(t, trade.Commission, 0.0)
@@ -50,7 +52,7 @@ func TestBacktestExecutionService_ExecuteOrder_Market(t *testing.T) {
 	t.Run("sell market order", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionShort,
+			Direction: cdom.DirectionShort,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 		}
@@ -63,7 +65,7 @@ func TestBacktestExecutionService_ExecuteOrder_Market(t *testing.T) {
 	t.Run("invalid quantity", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  0,
 		}
@@ -90,7 +92,7 @@ func TestBacktestExecutionService_ExecuteOrder_Limit(t *testing.T) {
 	t.Run("buy limit order executed", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 10.5,
@@ -104,7 +106,7 @@ func TestBacktestExecutionService_ExecuteOrder_Limit(t *testing.T) {
 	t.Run("buy limit order not reached", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 8.0, // Below low
@@ -117,7 +119,7 @@ func TestBacktestExecutionService_ExecuteOrder_Limit(t *testing.T) {
 	t.Run("sell limit order executed", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionShort,
+			Direction:  cdom.DirectionShort,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 9.5,
@@ -131,7 +133,7 @@ func TestBacktestExecutionService_ExecuteOrder_Limit(t *testing.T) {
 	t.Run("sell limit order not reached", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionShort,
+			Direction:  cdom.DirectionShort,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 12.0, // Above high
@@ -144,7 +146,7 @@ func TestBacktestExecutionService_ExecuteOrder_Limit(t *testing.T) {
 	t.Run("invalid limit price", func(t *testing.T) {
 		order := domain.Order{
 			Symbol:     "000001.SZ",
-			Direction:  domain.DirectionLong,
+			Direction:  cdom.DirectionLong,
 			OrderType:  domain.OrderTypeLimit,
 			Quantity:   100,
 			LimitPrice: 0,
@@ -168,7 +170,7 @@ func TestBacktestExecutionService_SlippageModels(t *testing.T) {
 
 	order := domain.Order{
 		Symbol:    "000001.SZ",
-		Direction: domain.DirectionLong,
+		Direction: cdom.DirectionLong,
 		OrderType: domain.OrderTypeMarket,
 		Quantity:  100,
 	}
@@ -221,7 +223,7 @@ func TestBacktestExecutionService_Commission(t *testing.T) {
 
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  100,
 		}
@@ -247,7 +249,7 @@ func TestBacktestExecutionService_Commission(t *testing.T) {
 
 		order := domain.Order{
 			Symbol:    "000001.SZ",
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 			OrderType: domain.OrderTypeMarket,
 			Quantity:  10,
 		}

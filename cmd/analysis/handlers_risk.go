@@ -11,9 +11,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/risk"
 )
+
+import "tellurion/pkg/domain"
 
 // P1-15 (Sprint 6, ODR-021): risk service merged into analysis
 // service. The endpoints below are 1:1 byte-compatible with the
@@ -87,11 +89,11 @@ func (h *RiskHandler) RegisterRoutes(router *gin.Engine) {
 // shape. Signal / Portfolio / Regime / OHLCV are passed through
 // to risk.RiskManager.CalculatePosition unchanged.
 type calculatePositionRequest struct {
-	Signal       domain.Signal        `json:"signal"`
-	Portfolio    domain.Portfolio     `json:"portfolio"`
-	Regime       *domain.MarketRegime `json:"regime"`
-	CurrentPrice float64              `json:"current_price"`
-	OHLCV        []domain.OHLCV       `json:"ohlcv,omitempty"`
+	Signal       domain.Signal      `json:"signal"`
+	Portfolio    domain.Portfolio   `json:"portfolio"`
+	Regime       *cdom.MarketRegime `json:"regime"`
+	CurrentPrice float64            `json:"current_price"`
+	OHLCV        []domain.OHLCV     `json:"ohlcv,omitempty"`
 }
 
 type calculatePositionResponse struct {

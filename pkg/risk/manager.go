@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-kit/errors"
 )
+
+import "tellurion/pkg/domain"
 
 // RiskManagerConfig holds all configuration for the risk manager.
 type RiskManagerConfig struct {
@@ -83,7 +85,7 @@ func NewRiskManager(cfg RiskManagerConfig, logger zerolog.Logger) (*RiskManager,
 }
 
 // CalculatePosition calculates the appropriate position size for a signal.
-func (rm *RiskManager) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *domain.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
+func (rm *RiskManager) CalculatePosition(ctx context.Context, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, currentPrice float64, ohlcv []domain.OHLCV) (domain.PositionSize, error) {
 	rm.logger.Debug().
 		Str("symbol", signal.Symbol).
 		Str("direction", string(signal.Direction)).
@@ -99,7 +101,7 @@ func (rm *RiskManager) CalculatePosition(ctx context.Context, signal domain.Sign
 		return domain.PositionSize{}, errors.InvalidInput("portfolio must be non-nil with positive total value", "CalculatePosition")
 	}
 	if regime == nil {
-		regime = &domain.MarketRegime{
+		regime = &cdom.MarketRegime{
 			Trend:      "sideways",
 			Volatility: "medium",
 			Sentiment:  0.0,
@@ -189,7 +191,7 @@ func (rm *RiskManager) CalculatePositionsBatch(
 	ctx context.Context,
 	signals []domain.Signal,
 	portfolio *domain.Portfolio,
-	regime *domain.MarketRegime,
+	regime *cdom.MarketRegime,
 	currentPrices map[string]float64,
 	ohlcvData map[string][]domain.OHLCV,
 ) (map[string]domain.PositionSize, error) {
@@ -268,7 +270,7 @@ func (rm *RiskManager) CalculatePositionsBatch(
 }
 
 // calculateBaseWeightFromRegime calculates base weight based on market regime.
-func (rm *RiskManager) calculateBaseWeightFromRegime(regime *domain.MarketRegime) float64 {
+func (rm *RiskManager) calculateBaseWeightFromRegime(regime *cdom.MarketRegime) float64 {
 	base := rm.config.TargetVolatility // Start with target volatility as base
 
 	// Adjust based on volatility regime
@@ -296,7 +298,7 @@ func (rm *RiskManager) calculateBaseWeightFromRegime(regime *domain.MarketRegime
 }
 
 // DetectRegime detects the current market regime from OHLCV data.
-func (rm *RiskManager) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*domain.MarketRegime, error) {
+func (rm *RiskManager) DetectRegime(ctx context.Context, ohlcv []domain.OHLCV) (*cdom.MarketRegime, error) {
 	rm.logger.Debug().
 		Int("data_points", len(ohlcv)).
 		Msg("detecting market regime")
@@ -372,7 +374,7 @@ func (rm *RiskManager) CheckStopLoss(ctx context.Context, positions []domain.Pos
 }
 
 // InferRegimeFromMarket infers market regime from position performance.
-func InferRegimeFromMarket(positions []domain.Position, prices map[string]float64) *domain.MarketRegime {
+func InferRegimeFromMarket(positions []domain.Position, prices map[string]float64) *cdom.MarketRegime {
 	totalPnL := 0.0
 	count := 0
 
@@ -387,7 +389,7 @@ func InferRegimeFromMarket(positions []domain.Position, prices map[string]float6
 	}
 
 	if count == 0 {
-		return &domain.MarketRegime{
+		return &cdom.MarketRegime{
 			Trend:      "sideways",
 			Volatility: "medium",
 			Sentiment:  0.0,
@@ -410,7 +412,7 @@ func InferRegimeFromMarket(positions []domain.Position, prices map[string]float6
 		sentiment = 0.0
 	}
 
-	return &domain.MarketRegime{
+	return &cdom.MarketRegime{
 		Trend:      trend,
 		Volatility: "medium",
 		Sentiment:  sentiment,

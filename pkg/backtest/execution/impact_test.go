@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // fixedQuote 返回一个典型报价：收盘价 10，成交量 100000（作 ADV 代理）。
 func fixedQuote(volume float64) Quote {
@@ -44,7 +46,7 @@ func TestImpact_LargeOrderPaysMoreSlippage(t *testing.T) {
 	smallQty := 1000.0 // 1% of ADV
 	bigQty := 10000.0  // 10% of ADV（10:1）
 
-	small := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: smallQty}
+	small := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: smallQty}
 	big := small
 	big.Quantity = bigQty
 
@@ -70,7 +72,7 @@ func TestImpact_LargeOrderPaysMoreSlippage(t *testing.T) {
 func TestImpact_SellSide(t *testing.T) {
 	quote := fixedQuote(100000)
 	s := impactService(t, 0.02)
-	big := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionShort, OrderType: domain.OrderTypeMarket, Quantity: 10000}
+	big := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionShort, OrderType: domain.OrderTypeMarket, Quantity: 10000}
 	tr, err := s.ExecuteOrder(big, quote)
 	require.NoError(t, err)
 	assert.Less(t, tr.Price, quote.Close, "大额卖单成交价应低于参考价")
@@ -80,7 +82,7 @@ func TestImpact_SellSide(t *testing.T) {
 // 滑点（不静默为零冲击），数值等于 fixed 路径。
 func TestImpact_ZeroVolumeDegradesToFixed(t *testing.T) {
 	quote := fixedQuote(0) // 无成交量数据
-	order := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10000}
+	order := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 10000}
 
 	impactSvc := impactService(t, 0.02)
 	got, err := impactSvc.ExecuteOrder(order, quote)
@@ -100,7 +102,7 @@ func TestImpact_ZeroVolumeDegradesToFixed(t *testing.T) {
 func TestImpact_SigmaZeroNoImpact(t *testing.T) {
 	quote := fixedQuote(100000)
 	s := impactService(t, 0.0) // 未配置波动率
-	order := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100000}
+	order := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100000}
 	tr, err := s.ExecuteOrder(order, quote)
 	require.NoError(t, err)
 	assert.Equal(t, quote.Close, tr.Price, "Sigma=0 冲击为 0，成交价 == 参考价")
@@ -116,7 +118,7 @@ func TestImpact_LiquidityFactorZeroIsOne(t *testing.T) {
 	cfg.ImpactLiquidityFactor = 0 // 默认 1.0
 	s := NewBacktestExecutionService(cfg)
 
-	order := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1000}
+	order := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 1000}
 	tr, err := s.ExecuteOrder(order, quote)
 	require.NoError(t, err)
 	// impact = 0.02*sqrt(1000/100000)*1.0 = 0.002 → price = 10.002
@@ -132,7 +134,7 @@ func TestFixed_RegressionLeg(t *testing.T) {
 	s := NewBacktestExecutionService(cfg)
 
 	quote := fixedQuote(1000)
-	order := domain.Order{Symbol: "000001.SZ", Direction: domain.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100}
+	order := domain.Order{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100}
 
 	tr, err := s.ExecuteOrder(order, quote)
 	require.NoError(t, err)
@@ -141,7 +143,7 @@ func TestFixed_RegressionLeg(t *testing.T) {
 	assert.InDelta(t, wantBuy, tr.Price, 1e-12, "fixed 买入价必须 == Close*(1+FixedSlippageRate)")
 
 	sell := order
-	sell.Direction = domain.DirectionShort
+	sell.Direction = cdom.DirectionShort
 	trSell, err := s.ExecuteOrder(sell, quote)
 	require.NoError(t, err)
 	wantSell := quote.Close * (1 - fees.FixedSlippageRate)

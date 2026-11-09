@@ -222,6 +222,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── risk/                     # RiskPolicy 同步裁决（留 core，永不出仓）
 │   ├── compliance/ alert/        # 合规检测 + 告警编排（→ tellurion-risk，X3）
 │   ├── data/ marketdata/ sync/   # 数据管道（→ tellurion-data，X1）
+│   ├── domain/                   # CT-06-B（2026-11-10）迁回的 core-only 形状（52 根名）；`market` 与 ≥2 使用方形状仍在 tellurion-contracts:domain/
 │   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
 │   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**（SPEC-R-01 已收编全部模块表）
@@ -246,7 +247,8 @@ tellurion/                        # core —— 热路径全在这里，不出�
 | `pkg/validation/`（五维确定性校验器）、`pkg/tools/`（MCP 工具桥） | `tellurion-agent`（`pkg/ai/validation`、`pkg/ai/tools`） | 同上 |
 | `web/src/**`（Vue 3 前端） | `tellurion-ui`（`web/src/**`） | 2026-10-09 前端拆仓 |
 | Playwright E2E（`e2e/tests/*.spec.ts`） | `tellurion-ui` | 同上；本仓 `e2e/` 只剩 Go 守卫与集成测试 |
-| `pkg/domain/`（含 `pkg/domain/market/`）、`pkg/fees/`、`pkg/backtest/contracts/` | `tellurion-contracts`（`domain/`、`domain/market/`、`fees/`、`engine/`——**目录叫 engine、package 名仍叫 contracts**） | 2026-10-23 QT-05 ③-③/④（S1 契约落地，`require` 伪版本、**无 replace**）；`pkg/backtest/aliases.go` 留本仓当门面，调用点前缀 `contracts.X` / `domain.X` 一个字没改 |
+| `pkg/fees/`、`pkg/backtest/contracts/` | `tellurion-contracts`（`fees/`、`engine/`——**目录叫 engine、package 名仍叫 contracts**） | 2026-10-23 QT-05 ③-③/④（S1 契约落地，`require` 伪版本、**无 replace**）；`pkg/backtest/aliases.go` 留本仓当门面 |
+| `pkg/domain/`（**仅 `market` 子包与 ≥2 使用方的形状**） | `tellurion-contracts:domain/`（`domain/market/`、`FactorType` 词表、`BacktestResult`/`Direction`/`MarketRegime` 等） | 2026-10-23 QT-05 ③-③/④ 整包迁出；**2026-11-10 CT-06-B 补裁 #12 部分迁回**：只有 core 一个使用方的 52 个根名回 `pkg/domain`，契约仓只留 ≥2 使用方的形状（C4）。跨仓消费方仍 import `tellurion-contracts:domain`，不依赖本仓 |
 | ↑ 那两把**读 core 文档**的 SPEC 互锁守卫（`spec_drift_test.go`、`resultspec_test.go`） | 留在本仓，挪到 `e2e/guard/` | 契约本体走了、被比的 `docs/SPEC.md` 没走：守卫随包迁到 contracts 仓就会去读一个不存在的 SPEC.md。互锁因此跨仓——在 contracts 仓给 `OHLCV` / `BacktestResponse` 加字段，红的是本仓 CI |
 
 
@@ -361,7 +363,7 @@ docker compose down                     # Stop all services
 - 使用 `context.Context` 作为 I/O 函数的第一个参数
 - 错误处理：返回 error，生产代码中绝不 panic
 - 命名：导出符号用 PascalCase，未导出用 camelCase
-- 包结构：`tellurion-contracts:domain/`（契约，版本依赖）→ `pkg/data` → `pkg/strategy` → `pkg/backtest` → `pkg/storage`
+- 包结构：`pkg/domain`（core-only 形状，CT-06-B 2026-11-10）+ `tellurion-contracts:domain/`（≥2 使用方契约，版本依赖）→ `pkg/data` → `pkg/strategy` → `pkg/backtest` → `pkg/storage`
 - 使用 `logrus` 或标准 `log` 包记录日志（与现有代码一致）
 - **库侧测试用 `storage.NewPostgresStoreConnected`（连库 + ping，不迁移），不用 `NewPostgresStore`**。`migrate()` 只由 `NewPostgresStore` 承载，那是**启动 / 部署路径**（`cmd/data/setup.go`、`pkg/bootstrap/engine.go`、`cmd/dualrun`，以及 `//go:build integration` 下 dockertest 一次性容器套件）。DATA-09 的实测代价（2026-10-15）：默认构建的测试直连开发库调迁移入口，一条 `go test ./pkg/data/...` 就把 Migration 054 的整表 ×1000 真的作用在 3,926,510 行上，无授权无提示，且 `data_migrations` 哨兵置位后**不可重放**。双向护栏在 `internal/repoguard/store_migration_isolation_test.go`（测试不许调迁移入口 / 生产不许调不迁移入口 / 两个入口的函数体形状也钉住）。代价如实登记：库侧测试从此**预设库已迁移**，新库先起一次服务或跑一次 tagged 集成套件。
 

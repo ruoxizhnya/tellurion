@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // ErrSandboxNotRun：登记前必须有沙箱凭证。流水线的登记入口据此把关，
 // 「跳过沙箱直接入库」不可绕过（D8 ⑤3 破坏腿之一）。
@@ -215,6 +217,6 @@ func (p *Pipeline) admit(c Candidate, att *Attestation, at time.Time) (*domain.F
 
 // Effective 解析某因子名当前应命中的版本（「用一条」的接线点）：新引用取
 // 最新 active 版本，返回 (定义, 版本哈希, ok)。回滚语义继承 D4。
-func (p *Pipeline) Effective(name domain.FactorType) (domain.FactorDefinition, string, bool) {
+func (p *Pipeline) Effective(name cdom.FactorType) (domain.FactorDefinition, string, bool) {
 	return p.book.ResolveEffective(name)
 }

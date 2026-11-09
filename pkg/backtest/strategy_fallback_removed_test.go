@@ -21,8 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
+
+import "tellurion/pkg/domain"
 
 // reconcileProbeStrategy 是纯 bar 驱动的批式探针（QT-51 迁出 K5 对账 e2e 后
 // 留在这里的本地副本）：不读 portfolio，信号只由 bar 序列决定。
@@ -67,7 +69,7 @@ func (s *reconcileProbeStrategy) GenerateSignals(_ context.Context, bars map[str
 			Strength:  ret,
 			Price:     cur.Close,
 			Date:      cur.Date,
-			Direction: domain.DirectionLong,
+			Direction: cdom.DirectionLong,
 		})
 	}
 	return out, nil

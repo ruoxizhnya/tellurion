@@ -23,12 +23,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ruoxizhnya/tellurion-contracts/domain"
+	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/domain/market"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import "tellurion/pkg/domain"
 
 // specPath 相对本测试文件（e2e/guard/）的 SPEC 位置。
 const specPath = "../../docs/SPEC.md"
@@ -221,7 +223,7 @@ func TestSpecDriftFactorOutput(t *testing.T) {
 // TestSpecDriftMarketActivity 是 D5 新数据类的防漂移锚点：SPEC「规范层
 // Schema」节的市场活跃度字段表 ↔ domain.MarketActivity 反射双向比对。
 func TestSpecDriftMarketActivity(t *testing.T) {
-	assertNoDrift(t, "domain.MarketActivity", "activity", domain.MarketActivity{})
+	assertNoDrift(t, "domain.MarketActivity", "activity", cdom.MarketActivity{})
 }
 
 // TestSpecDriftIndexDaily 是 DATA-12 新数据类的防漂移锚点：SPEC「规范层
