@@ -48,6 +48,22 @@ func AttachLiveTrader(engine *backtest.Engine, trader live.LiveTrader) {
 	engine.SetLiveTrader(NewLiveTraderPort(trader))
 }
 
+// AttachExecutionPort 是 SVC-BROKER-G3 的装配选择：
+// `port` 非 nil（配置了 BROKER_URL）⇒ 引擎直接走 broker HTTP 通道；
+// `port` 为 nil ⇒ 回退旧的 live.LiveTrader 适配（默认路径，可回滚）。
+//
+// 两个实现都满足同一个 ExecutionPort，引擎侧零感知。
+func AttachExecutionPort(engine *backtest.Engine, port execution.ExecutionPort, fallback live.LiveTrader) {
+	if engine == nil {
+		return
+	}
+	if port != nil {
+		engine.SetLiveTrader(port)
+		return
+	}
+	AttachLiveTrader(engine, fallback)
+}
+
 func (p *liveTraderPort) SubmitOrder(ctx context.Context, req execution.OrderRequest) (*execution.OrderResult, error) {
 	if p.trader == nil {
 		return nil, fmt.Errorf("live trader port: no trader attached")

@@ -46,6 +46,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
+	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/kernel"
 	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
@@ -175,6 +176,11 @@ type StrategyRuntimeDeps struct {
 	// 由 cmd/analysis 经 NewMarketDataRouter 构造一次后传进来；main 的
 	// walk-forward 窗口工厂拿的是同一个实例（QT-64）。
 	Router *marketdata.Router
+
+	// BrokerPort 是 SVC-BROKER-G3 的第二实现（broker HTTP 通道）。
+	// 非 nil = 本部署切了 broker 通道；nil = 回退 ExecEngine.Trader（旧
+	// MockTrader，默认路径）。二者同属 execution.ExecutionPort。
+	BrokerPort execution.ExecutionPort
 }
 
 // StrategyRuntimeModule 持有回测引擎，并在 Init 时完成对前序模块产物的
@@ -227,7 +233,9 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	engine.SetDataAdapter(d.DataEngine.Adapter)
 	engine.SetRiskManager(d.RiskEngine.RiskManager)
 	// QT-51：live.LiveTrader → execution.ExecutionPort 的适配只在装配层做。
-	AttachLiveTrader(engine, d.ExecEngine.Trader)
+	// SVC-BROKER-G3：BrokerPort 非 nil 时引擎直接走 broker HTTP 通道，
+	// 否则回退旧实现（默认路径，可回滚）。
+	AttachExecutionPort(engine, d.BrokerPort, d.ExecEngine.Trader)
 	// D6：日内预热的取数通道（QT-64）。与 walk-forward 窗口工厂走
 	// 同一个装配函数；nil 时该函数显式 Warn，不留静默出口。
 	AttachMarketDataRouter(engine, d.Router, m.logger)

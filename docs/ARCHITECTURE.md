@@ -177,6 +177,14 @@ tellurion/
 > 结构与行为双锁：`internal/repoguard/backtest_live_isolation_test.go` +
 > `pkg/backtest/qt51_equivalence_test.go`。设计与取舍见
 > `docs/design/qt-decoupling/qt51-execution-port.md`。
+>
+> **第二实现（SVC-BROKER-G3，2026-11-10）**：`cmd/analysis/wiring/broker_http_port.go`
+> 提供 `ExecutionPort` 的 broker HTTP 实现（`POST/GET/DELETE /api/broker/orders*`，
+> wire 形状用 `tellurion-contracts/broker` 的契约类型）。装配层按 `BROKER_URL`
+> 选择：已配置 ⇒ 主引擎与 walk-forward 窗口统一走 broker 通道；未配置 ⇒ 回退
+> `live.LiveTrader` 适配（默认路径，可回滚）。`BROKER_URL` 非空时缺
+> `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID` 即装配失败（fail-closed）。
+> 持仓 / 结算 / 紧急清仓仍在 core 运行域，不进该端口。
 
 > **回测持久化端口边界（SVC-CORE-RUN-RETIRE ③，2026-11-10）**：`pkg/backtest`
 > **不 import `pkg/storage`**；因子缓存、基本面 PIT、复权基准、run 留痕四项

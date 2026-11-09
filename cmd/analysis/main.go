@@ -105,7 +105,9 @@ func main() {
 		eng.SetRiskManager(riskManager)
 		// QT-51：实盘通道经装配层适配成 execution.ExecutionPort 再注入；
 		// 回测包不再认识 pkg/live。
-		wiring.AttachLiveTrader(eng, executionTrader)
+		// SVC-BROKER-G3：主引擎用了哪条通道（broker HTTP 或旧 live 适配），
+		// 窗口引擎就用哪条 —— 同一进程内不允许两条执行通道并存。
+		wiring.AttachExecutionPort(eng, ak.Wiring.ExecutionPort, executionTrader)
 		eng.SetStore(store)
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
