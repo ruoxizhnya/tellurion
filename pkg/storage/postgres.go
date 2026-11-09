@@ -17,8 +17,7 @@ type PostgresStore struct {
 }
 
 // NewPostgresStore creates a new PostgresStore with the given connection string
-// and **applies the inline migrations** (migrationStatements()) plus the
-// builtin-factor hypothesis seed.
+// and **applies the inline migrations** (migrationStatements()).
 //
 // DATA-09 (2026-10-16): this is the only carrier of「应用迁移」, and it is meant
 // for the startup / deploy path — `cmd/data`, `pkg/bootstrap`, `cmd/dualrun`, and
@@ -42,11 +41,9 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// P2-3：把内置因子的假设来源写进库（只补没有的，不覆盖人写的）。
-	// 失败只记日志 —— 假设来源查不到会降级到代码里的内置表，不至于让服务起不来。
-	if _, err := store.SeedBuiltinFactorHypotheses(ctx); err != nil {
-		store.logger.Warn().Err(err).Msg("Failed to seed factor hypotheses — 查询会回退到代码里的内置表")
-	}
+	// SVC-CORE-AI-RETIRE（2026-11-10）：P2-3 的 factor_hypothesis 启动 seed
+	// 随该表退役。内置假设由 tellurion-agent 的 aistore 在 ai.factor_hypothesis
+	// 里播种（ON CONFLICT DO NOTHING），core 不再写这张表。
 
 	store.logger.Info().Msg("PostgreSQL/TimescaleDB connection established")
 	return store, nil
@@ -55,10 +52,10 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 // NewPostgresStoreConnected opens the pool and verifies it with a ping, but
 // runs **no migrations and no seed** — the database is taken as it is.
 //
-// Seeding is excluded for the same reason migrating is: it INSERTs rows into
+// Seeding is excluded for the same reason migrating is: it wrote rows into
 // factor_hypothesis, and a test run has no business writing to the shared
-// development database. No test reads that table today (实测：`factor_hypothesis`
-// 在 *_test.go 里零命中)；将来有用例需要它，应当自灌自清理，而不是把 seed 请回测试路径。
+// development database. That seed has since been retired together with the
+// table (SVC-CORE-AI-RETIRE, 2026-11-10); the entry still runs no migrations.
 //
 // This is the entry for DB-touching tests: the shared development database must
 // keep its migration state (and its rows) outside of `go test`. It presupposes
@@ -275,45 +272,10 @@ func migrationStatements() []string {
 			status_code INT NOT NULL,
 			timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		// Migration 021: docs/migrations/021_add_research_schema.sql (ADR-022 §2 类 E)
-		`CREATE SCHEMA IF NOT EXISTS research`,
-		`CREATE TABLE IF NOT EXISTS research.profile (
-			ticker VARCHAR(20) PRIMARY KEY,
-			name VARCHAR(100) NOT NULL,
-			schema_version INT NOT NULL DEFAULT 1,
-			source_file TEXT,
-			source_mtime TIMESTAMPTZ,
-			last_researched DATE,
-			needs_review BOOLEAN NOT NULL DEFAULT FALSE,
-			review_reason TEXT,
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS research.conclusion (
-			ticker VARCHAR(20) NOT NULL REFERENCES research.profile(ticker) ON DELETE CASCADE,
-			conclusion_id VARCHAR(16) NOT NULL,
-			title TEXT NOT NULL,
-			body TEXT,
-			as_of VARCHAR(16),
-			confidence VARCHAR(8),
-			status VARCHAR(16) NOT NULL DEFAULT 'active',
-			citations JSONB NOT NULL DEFAULT '[]',
-			evidence_pointer TEXT,
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			PRIMARY KEY (ticker, conclusion_id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS research.question (
-			ticker VARCHAR(20) NOT NULL REFERENCES research.profile(ticker) ON DELETE CASCADE,
-			question_id VARCHAR(16) NOT NULL,
-			text TEXT NOT NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'open',
-			raised_at VARCHAR(16),
-			PRIMARY KEY (ticker, question_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_ticker ON research.conclusion(ticker)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_status ON research.conclusion(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_question_ticker ON research.question(ticker)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_question_status ON research.question(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_profile_needs_review ON research.profile(needs_review) WHERE needs_review = TRUE`,
+		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 021 的 research schema 与
+		// research.profile / conclusion / question 三表（含 5 条索引）随 AI 实验域
+		// 退役——owner = tellurion-agent 的 ai.research_*。历史数据不删，本仓不再
+		// 建表、不再读（pkg/storage/research.go 同批删除）。
 		// Migration 022: docs/migrations/022_equitydeep_fundamentals.sql (契约 C1, EQD-P1-1)
 		// 逐字段行存 + ann_date PIT 对齐 + snapshot_uri 溯源。仅新增表，不改存量表。
 		`CREATE TABLE IF NOT EXISTS fundamentals_detail (
@@ -331,40 +293,10 @@ func migrationStatements() []string {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_fund_detail_lookup
 			ON fundamentals_detail (ts_code, field_code, end_date DESC)`,
-		// Migration 028: experiments (P1-1 / S1 通回路)
-		// AI 每次尝试落一行，回答五个问题：从哪开始(hypothesis) · 试了什么(params) ·
-		// 结果怎样(metrics) · 怎么走到这(seq + parent_id) · 用的哪份数据(dataset_split)。
-		// 失败也必须留行 —— 「试几次才撞出来」本身就是过拟合检测的证据
-		// （PRODUCT §验证器：试 5 次和试 500 次撞出来的，可信度差一个量级）。
-		// 因此 status 停在 running 的行不是垃圾数据，那是「跑到第几步被叫停」，
-		// 清理它就等于抹掉回路中断的位置。
-		// UNIQUE(run_id, seq)：一次 run 内第 n 次尝试只有一条，路径回放才不会歧义。
-		`CREATE TABLE IF NOT EXISTS experiments (
-			id            BIGSERIAL PRIMARY KEY,
-			run_id        VARCHAR(64)  NOT NULL,
-			seq           INT          NOT NULL,
-			parent_id     BIGINT       REFERENCES experiments(id) ON DELETE SET NULL,
-			hypothesis    TEXT,
-			params        JSONB        NOT NULL DEFAULT '{}',
-			dataset_split VARCHAR(16)  NOT NULL DEFAULT 'train',
-			strategy_name VARCHAR(100),
-			expression    TEXT,
-			status        VARCHAR(16)  NOT NULL DEFAULT 'running',
-			metrics       JSONB,
-			verdict       JSONB,
-			error_message TEXT,
-			created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-			finished_at   TIMESTAMPTZ,
-			UNIQUE (run_id, seq)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_experiments_run_seq ON experiments(run_id, seq)`,
-		// Migration 029: experiments.verdict (P2-9 接线 / A)
-		// 验证器链每次尝试后跑一遍，裁决（概率 + 质疑清单）写回那一行。
-		// 为什么要落库而不是只在内存里传给前端：runs 是进程内 map，一重启裁决
-		// 就没了，而「这次尝试当时被质疑了什么」是复盘时唯一能回答
-		// 「为什么当初没采纳它」的东西 —— 它和 metrics 一样是实验的证据。
-		// 加列带默认值即 metadata-only，幂等。
-		`ALTER TABLE experiments ADD COLUMN IF NOT EXISTS verdict JSONB`,
+		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 028 / 029 的 experiments 表
+		// （含 UNIQUE(run_id, seq)、索引与 verdict 加列）随 AI 实验日志退役——
+		// owner = tellurion-agent 的 ai.experiments。历史 30 行已于 QT-17 ④ 回填归档，
+		// 本仓不再建表、不再读写（pkg/storage/experiments.go 同批删除）。
 		// SVC-CORE-DATA-RETIRE（2026-11-08）：Migration 030（stocks.delist_date）
 		// 随 stocks 表退役；幸存者偏差的上市/摘牌日改由数据服务仓提供。
 		// Migration 031: stock_fundamentals.available_date (P1-4 / 语义债)
@@ -411,23 +343,10 @@ func migrationStatements() []string {
 		// 与成交额的整表单位换算）随 ohlcv_daily_qfq 退役——目标表已由数据服务仓
 		// owner，core 不再对市场表做变换型 DML。data_migrations 表保留，供后续
 		// 仍属本仓的一次性迁移复用（当前无使用者）。
-		// Migration 032: factor_hypothesis (P2-3 / 因子的因果来源)
-		//
-		// 因子的数值存在 factor_cache 里，但**它为什么该有效**此前没有地方记。
-		// 缺了这一条就没法区分「有经济学依据」和「数据挖掘挖出来的」—— 而
-		// 后者正是过拟合的主要来源：在数据上试出来的相关性，换个时间段就散。
-		//
-		// 为什么是独立的表而不是 factor_cache 的一列：假设是**因子级**元数据，
-		// 而 factor_cache 是 symbol × date × factor 的行级缓存 —— 存成列会让
-		// 同一个字符串重复几十万次，改一次要全表 UPDATE。
-		`CREATE TABLE IF NOT EXISTS factor_hypothesis (
-			factor_name  VARCHAR(32) PRIMARY KEY,
-			source_kind  VARCHAR(24) NOT NULL,
-			hypothesis   TEXT        NOT NULL,
-			reference    TEXT,
-			created_at   TIMESTAMPTZ DEFAULT NOW(),
-			updated_at   TIMESTAMPTZ DEFAULT NOW()
-		)`,
+		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 032 的 factor_hypothesis 表
+		// 随 AI 实验域退役——owner = tellurion-agent 的 ai.factor_hypothesis，
+		// 内置假设的播种也改由 agent 启动时完成（core 的启动 seed 与
+		// pkg/storage/factor_hypothesis.go 同批删除）。历史数据不删。
 		// 把「已经是普通列」的存量安装升级成生成列。
 		//
 		// ADD COLUMN IF NOT EXISTS 只管"列在不在"，不管"列是怎么算的"：
@@ -504,54 +423,10 @@ func migrationStatements() []string {
 		// hot_search / global_ohlcv）以及 Migration 044/045 的 sync_jobs /
 		// sync_schedules，已随数据面整体退役——owner = 数据服务仓，core 不再
 		// 持有这些表的 DDL、写点或同步队列。
-		// Migration 046: factor_genes (AI 因子基因池)
-		`CREATE TABLE IF NOT EXISTS factor_genes (
-			id          VARCHAR(50) PRIMARY KEY,
-			name        VARCHAR(100) NOT NULL,
-			category    VARCHAR(30) NOT NULL,
-			formula     TEXT NOT NULL,
-			description TEXT,
-			rationale   TEXT,
-			ic          DOUBLE PRECISION DEFAULT 0,
-			ir          DOUBLE PRECISION DEFAULT 0,
-			turnover    DOUBLE PRECISION DEFAULT 0,
-			sharpe      DOUBLE PRECISION DEFAULT 0,
-			fitness     DOUBLE PRECISION DEFAULT 0,
-			generation  INTEGER DEFAULT 0,
-			parent_ids  JSONB DEFAULT '[]',
-			status      VARCHAR(20) DEFAULT 'pending',
-			created_at  TIMESTAMPTZ DEFAULT NOW(),
-			updated_at  TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_factor_genes_category ON factor_genes(category)`,
-		`CREATE INDEX IF NOT EXISTS idx_factor_genes_status ON factor_genes(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_factor_genes_fitness ON factor_genes(fitness DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_factor_genes_cat_status ON factor_genes(category, status)`,
-
-		// Migration 047: strategy_genes (AI 策略基因池)
-		`CREATE TABLE IF NOT EXISTS strategy_genes (
-			id            VARCHAR(50) PRIMARY KEY,
-			name          VARCHAR(100) NOT NULL,
-			description   TEXT,
-			strategy_type VARCHAR(30) NOT NULL,
-			code          TEXT,
-			params        JSONB DEFAULT '{}',
-			factor_ids    JSONB DEFAULT '[]',
-			parent_ids    JSONB DEFAULT '[]',
-			total_return  DOUBLE PRECISION DEFAULT 0,
-			sharpe        DOUBLE PRECISION DEFAULT 0,
-			max_drawdown  DOUBLE PRECISION DEFAULT 0,
-			win_rate      DOUBLE PRECISION DEFAULT 0,
-			fitness       DOUBLE PRECISION DEFAULT 0,
-			generation    INTEGER DEFAULT 0,
-			status        VARCHAR(20) DEFAULT 'pending',
-			created_at    TIMESTAMPTZ DEFAULT NOW(),
-			updated_at    TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategy_genes_type ON strategy_genes(strategy_type)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategy_genes_status ON strategy_genes(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategy_genes_fitness ON strategy_genes(fitness DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_strategy_genes_type_status ON strategy_genes(strategy_type, status)`,
+		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 046 / 047 的 factor_genes /
+		// strategy_genes 两张 AI 基因池表（含 8 条索引）随 AI 实验域退役——
+		// owner = tellurion-agent 的 ai.factor_genes / ai.strategy_genes（QT-17 ⑤
+		// 已切读写）。core 侧从未有过读写方，本批只删 DDL；历史数据不删。
 
 		// Migration 051: factor_definitions (D3 公式化因子引擎——定义入库)
 		// 「库里公式」的库：定义（名字/公式/输入字段/版本哈希/生效日/口径/
@@ -809,12 +684,8 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_audit_endpoint ON audit_logs(endpoint, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_role ON users(role) WHERE disabled = FALSE`,
-		// Migration 021: research schema indexes (类 E 研究结构化投影)
-		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_ticker ON research.conclusion(ticker)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_conclusion_status ON research.conclusion(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_question_ticker ON research.question(ticker)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_question_status ON research.question(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_research_profile_needs_review ON research.profile(needs_review) WHERE needs_review = TRUE`,
+		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 021 的 5 条 research.* 索引
+		// 随 research schema 一并退役——owner = tellurion-agent 的 ai.research_*。
 	}
 
 	for _, idx := range indexes {

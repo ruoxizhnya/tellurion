@@ -13,9 +13,9 @@ import (
 // 第二段判据：**代码直接 SQL 引用的表**必须仍在内联 DDL 里声明。
 //
 // 数据面退役同时把 sync_jobs / sync_schedules 从清单里移除（同步队列随
-// cmd/data 一并删除）；factor_genes / strategy_genes / market.index_daily
-// 仍由本仓持有建表 DDL（前两张是 agent 仓的基因池，AI 线尚未拆走 DDL；
-// 后者是指数日线的 core owner，裁决 ⑰）。
+// cmd/data 一并删除）；market.index_daily 仍由本仓持有建表 DDL（core owner，
+// 裁决 ⑰）。factor_genes / strategy_genes 已随 SVC-CORE-AI-RETIRE（2026-11-10）
+// 交给 tellurion-agent 的 ai.* schema，本仓 DDL 与代码引用同批清零。
 //
 // DDL 的唯一真相是 postgres.go 里的 migrate() 数组，所以「被代码直接引用的表
 // ⊆ 内联 DDL」必须是一条断言，而不是一句约定 —— 约定没有执法者就必然漂移。
@@ -38,8 +38,6 @@ func TestCodeReferencedTablesDeclaredInInlineDDL(t *testing.T) {
 
 	// 代码直接 SQL 引用、但**不由 ETL 写入**的表。
 	codeReferenced := map[string]string{
-		"factor_genes":   "tellurion-agent:pkg/ai/gene_pool/factor_pool.go（因子基因池；AI 已拆仓，core 只保留建表 DDL）",
-		"strategy_genes": "tellurion-agent:pkg/ai/gene_pool/strategy_pool.go（策略基因池；同上）",
 		// DATA-12：指数日线表由 pkg/storage/index_daily.go 直接 SQL 读写
 		// （LatestIndexBars 已在 2026-11-08 随 ohlcv.go 退役，剩
 		// SaveIndexDailyBatch / GetIndexDailyRange）。
