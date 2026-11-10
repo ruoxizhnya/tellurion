@@ -84,6 +84,7 @@
 | SPEC-R-02 | 五张无主表的 owner 认领（L7 收尾） | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-02) |
 | SPEC-R-03 | 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-03) |
 | QT-82 | 数据面退役后 5 条 core 有库用例在「空库 + 官方迁移」上必红（`ohlcv_minute` / `market_activity` 已无 DDL） | 2026-11-10 | —（原文未记） | [原文](#QT-82) |
+| CORE-DATA-IMAGE-NAME-ALIGNMENT | data 镜像名跨仓口径未统一（⏸ → **撤销** 2026-11-11，未施工） | 2026-11-11 | `8483bca`（data 仓） | [撤销记录](#CORE-DATA-IMAGE-NAME-ALIGNMENT) |
 
 ---
 
@@ -2950,3 +2951,15 @@
   - **编号订正**：本单原登记为 `QT-80`，与 risk 侧既有 `QT-80`（`docs/TASKS.md:484/1582` 的指针）撞号；本次改用 **QT-82**，`QT-80` 那几处指针未动。
 
 ---
+
+## 十、台账撤销记录（2026-11-11）
+
+> 本节收录**登记后未经施工即撤销**的条目（与「已完成」区分）。原文按新台账的六字段体例保留，撤销依据与证据一并落账。
+
+### CORE-DATA-IMAGE-NAME-ALIGNMENT · data 镜像名跨仓口径未统一 [P2] — 撤销（2026-11-11，未施工）
+
+- **① 目标（原）**：把 data 镜像的正式名称与发布方钉死，避免部署清单指向一个没人产出的镜像。
+- **② 上下文（原）**：本仓 `docker-compose.yml` 与 `deploy/k8s/data-deployment.yaml` 都用 `tellurion/data`，构建上下文指向 `../tellurion-data`；而 `tellurion-data:deploy/compose.yaml` 本地用的是 `tellurion-data:dev`。本仓 Makefile 已无 data 构建目标（2026-11-11 删除 `build-data`），镜像发布归 data 仓。
+- **撤销依据**：`tellurion-data@8483bca`（2026-11-11，`chore(data): 统一镜像名并随 CT-06-ALIAS-EXIT 升 contracts pin 至 v0.9.0`）把 data 仓 `deploy/compose.yaml` 的镜像名改为 `tellurion/data:${DATA_IMAGE_TAG:-latest}`，与 core `docker-compose.yml:70` 完全同式；core `deploy/k8s/data-deployment.yaml` 的 `tellurion/data:latest` 正是该表达式的默认 tag（k8s 清单不做 shell 变量展开，故写死，2026-11-11 注释已更新）。
+- **结论**：镜像名分歧已消除，无剩余动作。原「未确认前不得单边改名」的约束随本条撤销失效。
+- **残余（不属本条）**：同一 commit 把 data 仓 contracts pin 从 v0.6.0 升到 v0.9.0，这是 `CT-06-ALIAS-EXIT` 删除前置的一步，与镜像名无耦合。

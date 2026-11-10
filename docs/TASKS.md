@@ -74,16 +74,6 @@ verified-by: 2026-11-10 data-service 部署面收口（compose 改跨仓镜像 +
 - **⑥ 边界**：运维/生产动作；schema 定义归 `tellurion-data`。
 - **重开条件**：生产变更窗口 + 本机重放证据复核（已有）。
 
-### CORE-DATA-IMAGE-NAME-ALIGNMENT · data 镜像名跨仓口径未统一 [P2] ⏸
-
-- **① 目标**：把 data 镜像的正式名称与发布方钉死，避免部署清单指向一个没人产出的镜像。
-- **② 上下文**：本仓 `docker-compose.yml` 与 `deploy/k8s/data-deployment.yaml` 都用 `tellurion/data`，构建上下文指向 `../tellurion-data`；而 `tellurion-data:deploy/compose.yaml` 本地用的是 `tellurion-data:dev`。本仓 Makefile 已无 data 构建目标（2026-11-11 删除 `build-data`），镜像发布归 data 仓。
-- **③ 要求**：由 data 仓确认 registry 名与 tag 策略，本仓两份部署资产同步；未确认前不得单边改名（会与 compose 的构建上下文脱钩）。
-- **④ 约束与非目标**：不改 data 仓；不引入第二套镜像名。
-- **⑤ 验收**：data 仓 CI 产出的镜像名与本仓 compose/k8s 完全一致，冷启动拉取成功。
-- **⑥ 边界**：镜像发布归 `tellurion-data`；清单引用归本仓部署域。
-- **重开条件**：data 仓提供正式镜像名或 CI 发布流程时。
-
 ## 二、跨仓指针（不在本仓，勿双写）
 
 | 事项 | 去哪 |
