@@ -68,7 +68,7 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **如实说明**：① market 簇**不重开**（裁决 ⑰：`market.index_daily` owner = core；五列以 K2 产物为准，本清单只留 22 个表名 roster + 材料 §2.3.1 指针）；② **动态拼表名不覆盖**——`realtime_quote` 等 9 张在 core 无字面 SQL，`W=0` 只是「字面 0」不是「不写」（清单 §8）；③ strategy 簇**两侧不同形状**（core 单表 + `is_active` vs strategy 定义 + 版本链）⇒ 行级对拍无意义，停写判据只能是「唯一写者」；④ 清单里的 `W`/`R` 沿材料 §2.3 的 2026-10-26 实测值，**本轮未重数**。
   - **未执行（如实）**：清单 §4 引用的 agent 5 件对拍基线只核到**文件与函数定义行**，**一条测试都没跑**（其中两条是 `TEST_DATABASE_DSN` 真库腿，本机 `127.0.0.1:5432` 无监听）；本单是只读清单、无代码改动，故无 build/vet/test 与破坏验证可写。
 
-### SVC-RETIRE-INDEX · 旧实现退役总单（🔶 2026-11-07：索引已落盘、判据已复跑；七条旧路径均未归零 ⇒ 按 ③ 不标 ✅）
+### SVC-RETIRE-INDEX · 旧实现退役总单（✅ 2026-11-10：七条执行单全部落定，终态复跑见索引 §3.1；代裁，待主任追认）
 
 - **① 目标**：为 data / run / strategy / risk / analytics / broker / ai 七条退役线给出机械判据，作为各仓 G3 的验收总索引。
 - **② 上下文**：B 组材料 §4 已给每条 grep 模式 + 今日基线 + 归零目标 + 反向护栏；审计 §五之二：3 条已有退役任务、4 条缺删除。
@@ -81,9 +81,9 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **判据来源**：逐字取材料 §4.1~§4.7，**未重新发明**；基线按材料 §7.4 要求**当场重跑取当前值**，差额逐条写进该文件 §3。
   - **复跑（真退出码）**：抽 2 条——data ① 写点 grep = **22 行，EXIT 0**；broker ① `tellurion/pkg/live` = **18 行 / 16 文件，EXIT 0**。其余五条同日复跑：data ②7/③1/④29 行 24 文件、run ①7②7③`*storage.PostgresStore` 30、strategy ①2②5③15、risk ①10②14③`config/analysis-service.yaml:122=false`、an 3、broker ②5、ai ①6②3③7。
   - **差额（如实，不硬凑）**：data ① 23→22（活写点少 1，未逐行核对）；strategy ③ 19→15（少 4，未逐行核对）；risk ① 11→10（`alert.enabled` 走 `GetBool`，不在原模式内）；broker ① 20 行 18 文件→18 行 16 文件（QT-51 已摘 `pkg/backtest` 的两处 `pkg/live` import，与 QT-51 记录一致）。零差额：data ②③④、run ①②、strategy ①②、risk ②、an、broker ②、ai ①②③。
-  - **2026-11-10 复跑（broker 线归零）**：`SVC-CORE-BROKER-RETIRE` 施工完成（步骤 A~D），本单第 6 行判据当场重跑 —— ① `tellurion/pkg/live` **0 行 / 0 文件**（`pkg/live` 目录不存在）；② `pkg/trading` 子包 **3**（`margin` / `reconciliation` / `stockstate`，`broker` 整目录已删；后三者因 broker HTTP 面无对应端点而保留，待主任追认）；③ `NewPostgresOrderStore` 生产调用 **0**。证据与基线对照见 [`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md) §3.1。
-  - **未标 ✅ 的理由**：③ 明写「旧路径零调用后才可标 ✅」——2026-11-07 七条判据全部非零（0/7）；2026-11-10 broker 线已归零（**1/7**），其余六条（data / run / strategy / risk / analytics / ai 的代码删除）仍未完成，故本单保持 🔶；它不会因「索引写完了」而结案，也不会因单条归零而结案。
-  - **未执行（如实）**：`DROP INDEX` 相关判据（材料 §3 P3 未裁）不在本单；七条退役的代码删除、各仓 G3 切读、`cmd/recon` 真库对拍均**未执行**（本单只给判据）；本单无代码改动，故无 build/vet/test 与破坏验证可写。
+  - **2026-11-10 复跑（七条终态）**：`SVC-CORE-BROKER-RETIRE` 与 `SVC-CORE-AI-RETIRE` 落定后，七条执行单全部 ✅，索引 §3.1 当场重跑：① data **0/0/0/0**；② run **0/0/0**（4 条 `_test.go` 的 storage import 属允许面）；③ strategy **0/0/0**；④ risk `alert.*` 阈值读点 **0**（剩 6 条运行参数）、`risk_manager.*` **0**、`resolve_enabled` **`true`**；⑤ analytics **恰好 3（冻结）**；⑥ broker **0 / 3 / 0**；⑦ ai **0/0/0**。全仓 `tellurion/pkg/live` 的 5 行命中全部是护栏本体（`legacy_live_import_test.go` 的判据字面量与注释），非 import。
+  - **✅ 判定**：③ 的「旧路径零调用后才可标 ✅」按 §4「各条 ✅ 判定在各自执行单」执行 —— 七条执行单均已 ✅ 且终态判据当场复跑通过，本索引的交付物（七行判据 + 双向指针 + 复跑证据）完整，故标 ✅。两条非零终态是**设计如此**：risk 是「配置不再当限额真相」、analytics 是「保留 + 冻结引用面」，不按归零计。
+  - **未执行（如实）**：`DROP INDEX` 相关判据（材料 §3 P3 未裁）不在本单；本单无代码改动，故无 build/vet/test 与破坏验证；七条各自的破坏验证记录在各自执行单，本单只做索引与复跑。
 
 ---
 

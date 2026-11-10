@@ -19,13 +19,13 @@ verified-by: SVC-RETIRE-INDEX 七条退役线总索引（2026-11-07：判据逐�
 
 | # | 退役线 | owner（执行单） | 删除对象 | 停写判据（当前 → 目标 0） | 回滚 |
 |---|---|---|---|---|---|
-| 1 | data | `SVC-CORE-DATA-RETIRE`（core，串行第 4） | core 版 21 张 market/ingest 表 DDL 与索引（`market.index_daily` 按裁决 ⑰ 除外）；`pkg/data`；`cmd/data` 同步腿；`pkg/storage/{bulk_insert,ohlcv,stocks,calendar,sector,cache,ingest_raw,sync_jobs,index_daily,market_activity}.go`；`Dockerfile.service` 的 `./cmd/data` 腿 | ① 写点 **22** ② `NewETLPipeline` **7** ③ `.BulkInsert(` **1** ④ `tellurion/pkg/data` **29 行 / 24 文件** | `git revert` 单笔 + 回滚 tag；DDL 只增不改 ⇒ 旧语句删掉不删旧库表，读方切回直连即可 |
-| 2 | run | `SVC-CORE-RUN-RETIRE`（core，串行第 5） | `backtest_jobs` / `walk_forward_reports` DDL + `pkg/storage/{backtest_jobs,cache}.go` job/WF 段 + `pkg/backtest/{job,walkforward}` 落库腿（`backtest_adjustment_anchors` 保留） | ① 写点 **7** ② 读点 **7** ③ `pkg/backtest/**` 的 `*storage.PostgresStore` **30** | 同上；`Engine.SetStore` 已存在 ⇒ 回滚 = 恢复 DB 注入 |
-| 3 | strategy | `SVC-CORE-STRAT-RETIRE`（core，串行第 6） | `strategies` 表 DDL + `pkg/storage/strategies.go` + `pkg/strategy/db.go` DB 腿（`quant.strategy_state` / `quant.external_signals` 保留） | ① 写点 **2** ② 读点 **5** ③ `SaveStrategyConfig` 等 4 符号 **15 行** | 同上；本地 registry 保留 ⇒ 回滚 = DB 腿改回 `pkg/storage` |
-| 4 | risk | `SVC-CORE-RISK-RETIRE`（core，串行第 7；**非表退役**） | `config/analysis-service.yaml` 的 `alert.*` / `risk_manager.*` 作为**限额真相**的那一半；检测器保留（U7） | ① `alert.*` 读取 **10** ② `risk_manager.*` 读取 **14** ③ `resolve_enabled` 仍为 `false`（`config/analysis-service.yaml:122`） | 无 DDL；回滚 = `risk_service.resolve_enabled` 改回 `false` + 配置兜底恢复为真相 |
-| 5 | analytics | `SVC-CORE-AN-RETIRE`（core，串行第 8；归属二选一） | 要么 `pkg/backtest/{metrics,reporting}` 两包，要么「保留 + 冻结引用面」 | `tellurion/pkg/backtest/(metrics\|reporting)` **3**（迁移 → 0；冻结 → 恰好 3 且新增即红） | 迁移结局 = revert 两包；冻结结局 = 清空 repoguard 允许清单 |
+| 1 | data | `SVC-CORE-DATA-RETIRE`（core，串行第 4）✅ 2026-11-08 | core 版 21 张 market/ingest 表 DDL 与索引（`market.index_daily` 按裁决 ⑰ 除外）；`pkg/data`；`cmd/data` 同步腿；`pkg/storage/{bulk_insert,ohlcv,stocks,calendar,sector,cache,ingest_raw,sync_jobs,index_daily,market_activity}.go`；`Dockerfile.service` 的 `./cmd/data` 腿 | ① 写点 **22** ② `NewETLPipeline` **7** ③ `.BulkInsert(` **1** ④ `tellurion/pkg/data` **29 行 / 24 文件** | `git revert` 单笔 + 回滚 tag；DDL 只增不改 ⇒ 旧语句删掉不删旧库表，读方切回直连即可 |
+| 2 | run | `SVC-CORE-RUN-RETIRE`（core，串行第 5）✅ 2026-11-10 | `backtest_jobs` / `walk_forward_reports` DDL + `pkg/storage/{backtest_jobs,cache}.go` job/WF 段 + `pkg/backtest/{job,walkforward}` 落库腿（`backtest_adjustment_anchors` 保留） | ① 写点 **7** ② 读点 **7** ③ `pkg/backtest/**` 的 `*storage.PostgresStore` **30** | 同上；`Engine.SetStore` 已存在 ⇒ 回滚 = 恢复 DB 注入 |
+| 3 | strategy | `SVC-CORE-STRAT-RETIRE`（core，串行第 6）✅ 2026-11-10 | `strategies` 表 DDL + `pkg/storage/strategies.go` + `pkg/strategy/db.go` DB 腿（`quant.strategy_state` / `quant.external_signals` 保留） | ① 写点 **2** ② 读点 **5** ③ `SaveStrategyConfig` 等 4 符号 **15 行** | 同上；本地 registry 保留 ⇒ 回滚 = DB 腿改回 `pkg/storage` |
+| 4 | risk | `SVC-CORE-RISK-RETIRE`（core，串行第 7；**非表退役**）✅ 2026-11-10 | `config/analysis-service.yaml` 的 `alert.*` / `risk_manager.*` 作为**限额真相**的那一半；检测器保留（U7） | ① `alert.*` 读取 **10** ② `risk_manager.*` 读取 **14** ③ `resolve_enabled` 仍为 `false`（`config/analysis-service.yaml:122`） | 无 DDL；回滚 = `risk_service.resolve_enabled` 改回 `false` + 配置兜底恢复为真相 |
+| 5 | analytics | `SVC-CORE-AN-RETIRE`（core，串行第 8；归属二选一 → **冻结**）✅ 2026-11-10 | 要么 `pkg/backtest/{metrics,reporting}` 两包，要么「保留 + 冻结引用面」 | `tellurion/pkg/backtest/(metrics\|reporting)` **3**（迁移 → 0；冻结 → 恰好 3 且新增即红） | 迁移结局 = revert 两包；冻结结局 = 清空 repoguard 允许清单 |
 | 6 | broker | `SVC-CORE-BROKER-RETIRE`（core，串行第 9；**表名为空**）✅ 2026-11-10 | `pkg/live` 的 MockTrader / `postgres_order_store.go` / `simulated_broker.go` / `broker/xtp` / `margin/` / `reconciliation/` / `stockstate/`（后三者随包改名为 `pkg/trading/*`，按「无对应 HTTP 面」不删） | ① `"tellurion/pkg/live"` **18 行 / 16 文件** ⇒ **0**（2026-11-10）② 子包 **5** ⇒ **3**（`margin` / `reconciliation` / `stockstate`）③ `NewPostgresOrderStore` 生产调用 **0** | revert + 恢复 port 注入；QT-51 的 `ExecutionPort` 在装配层，回滚不碰引擎；旧路径由 `internal/repoguard/legacy_live_import_test.go` 设禁（import 或目录复活即红） |
-| 7 | ai | `SVC-CORE-AI-RETIRE`（core，串行第 10；2026-11-10 迁入本节正文） | 7 张表 core DDL/索引 + `pkg/storage/{experiments,factor_hypothesis,research}.go` + `SeedBuiltinFactorHypotheses` 启动 seed + `pkg/mining` AI 落库腿（后者已随 `SVC-CORE-DATA-RETIRE` 消失） | ① 写点 **6** ② `SeedBuiltinFactorHypotheses` **3** ③ 7 表 `CREATE TABLE` **7**；2026-11-10 复跑 = **0 / 0 / 0** | revert + 重启即恢复 seed；agent 侧 `ai.*` 数据不回写 core；历史行未删，只删 DDL 与读写实现 |
+| 7 | ai | `SVC-CORE-AI-RETIRE`（core，串行第 10）✅ 2026-11-10 | 7 张表 core DDL/索引 + `pkg/storage/{experiments,factor_hypothesis,research}.go` + `SeedBuiltinFactorHypotheses` 启动 seed + `pkg/mining` AI 落库腿（后者已随 `SVC-CORE-DATA-RETIRE` 消失） | ① 写点 **6** ② `SeedBuiltinFactorHypotheses` **3** ③ 7 表 `CREATE TABLE` **7**；2026-11-10 复跑 = **0 / 0 / 0** | revert + 重启即恢复 seed；agent 侧 `ai.*` 数据不回写 core；历史行未删，只删 DDL 与读写实现 |
 
 > 反向护栏（每行的「改坏应红」）：1 → 新建 `internal/repoguard/storage_market_tables_retired_test.go`；2 → `pkg/backtest/**` 禁 import `tellurion/pkg/storage`；3 → `pkg/strategy/**` 禁出现 `strategies`；4 → 契约侧 `Bundle → ParseBundle` 固定向量（`tellurion-contracts:risk/snapshot_test.go`）；5 → 3 条 import 快照断言；6 → 全仓禁 `import "tellurion/pkg/live"`；7 → **core** `internal/repoguard/storage_ai_tables_retired_test.go`（七表零 DDL / 三文件不存在 / 零写点）+ **agent** `pkg/aistore/schema_core_drift_test.go` 的 core 缺表断言（原逐列对拍已随 core DDL 退役翻面，2026-11-10）。
 
@@ -70,15 +70,19 @@ verified-by: SVC-RETIRE-INDEX 七条退役线总索引（2026-11-07：判据逐�
 | broker | ② | 5 | **5** | 一致 |
 | ai | ①②③ | 6 / 3 / 7 | **6 / 3 / 7**（2026-11-07）；**2026-11-10 退役后复跑 = 0 / 0 / 0**（①写点 ②seed ③七表 DDL；`pkg/mining` 的 DB 语句与 `pkg/storage` import 亦为 0） | 一致；退役单施工见 core `docs/TASKS.md` §六之二 串行第 10 |
 
-### 3.1 broker 线归零复跑（2026-11-10，本机真实输出）
+### 3.1 七条终态复跑（2026-11-10，本机真实输出）
 
-`SVC-CORE-BROKER-RETIRE` 步骤 A~D 施工完成后按本索引判据复跑：
+七条退役执行单全部落定后，按本索引判据复跑（「终态」不是统一为 0：risk 是「配置不再当真相」、analytics 是「冻结引用面」）：
 
-| 指标 | 2026-11-07 基线 | 2026-11-10 | 命令 / 依据 |
-|---|---|---|---|
-| ① `tellurion/pkg/live` import | 18 行 / 16 文件 | **0** | `git grep -n 'tellurion/pkg/live' -- '*.go'` 无命中（EXIT=1，属正常）；`pkg/live` 目录不存在 |
-| ② `pkg/trading` 子包 | 5（`margin` / `reconciliation` / `stockstate` / `broker` / `broker/xtp`） | **3**（`margin` / `reconciliation` / `stockstate`） | `Get-ChildItem -Directory pkg\trading`；`broker` 整目录已删 |
-| ③ `NewPostgresOrderStore` 生产调用 | 0 | **0** | 全仓 `*.go` `Select-String` 计数 = 0 |
+| 线 | 判据 | 2026-11-07 基线 | 2026-11-10 终态 | 依据 |
+|---|---|---|---|---|
+| data | ①写点 ②`NewETLPipeline` ③`.BulkInsert(` ④`tellurion/pkg/data` | 22 / 7 / 1 / 29 行 24 文件 | **0 / 0 / 0 / 0**（全仓只剩 `package_wiring_test.go` 的 `retiredPackages` 文案 2 行） | 执行单 ⑤ 四条 grep 生产侧全 0；本次复核 `pkg/data` 目录不存在 |
+| run | ①写点 ②读点 ③`pkg/backtest/**` 的 `*storage.PostgresStore` | 7 / 7 / 30 | **0 / 0 / 0** | 执行单 ③ 接口注入（2026-11-10）；本次复核 DDL 0、非测试 import 0（4 条 `_test.go` import 属允许面，由 `backtest_storage_decoupling_test.go` 界定） |
+| strategy | ①写点 ②读点 ③`SaveStrategyConfig` 等 4 符号 | 2 / 5 / 15 | **0 / 0 / 0** | 执行单计数；本次复核 `CREATE TABLE ... strategies` = 0、`SaveStrategyConfig` = 0、`pkg/strategy/db.go` 不存在 |
+| risk | ①`alert.*` 阈值读点 ②`risk_manager.*` 读点 ③`resolve_enabled` | 10 / 14 / `false` | **0 / 0 / `true`**（`alert.*` 还剩 6 条**运行参数**读点：webhook / recorder / interval / history / enabled，不是限额） | 执行单计数；本次复核 `config/analysis-service.yaml:127,157` 均为 `true` |
+| analytics | `tellurion/pkg/backtest/(metrics\|reporting)` | 3 | **3（冻结）**：新增一条即红、少一条也红 | 执行单归属 = 保留并冻结；`analytics_impl_freeze_test.go` |
+| broker | ①`tellurion/pkg/live` ②子包 ③`NewPostgresOrderStore` | 18 行 / 16 文件 / 5 / 0 | **0 / 3 / 0** | §3.1 原表（步骤 A~D 施工记录） |
+| ai | ①写点 ②`SeedBuiltinFactorHypotheses` ③七表 `CREATE TABLE` | 6 / 3 / 7 | **0 / 0 / 0** | 执行单计数；本次复核 seed = 0、七表 DDL 仅剩护栏注释 1 行 |
 
 > 边界偏差（已登记、待主任追认）：broker HTTP 面没有融资融券 / 对账 / 证券状态端点，故 `margin` / `reconciliation` / `stockstate` **随包改名保留**，不删；删除对象以「通道实现」为界，不以「子包」为界。
 
