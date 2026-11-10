@@ -231,8 +231,9 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── compliance/ alert/        # 合规检测 + 告警编排（→ tellurion-risk，X3）
 │   ├── data/ marketdata/ sync/   # 数据管道（→ tellurion-data，X1）
 │   ├── domain/                   # CT-06-B（2026-11-10）迁回的 core-only 形状（52 根名）；`market` 与 ≥2 使用方形状仍在 tellurion-contracts:domain/
-│   ├── live/                     # 纸交易 / 实盘运行域（通道适配 → tellurion-broker，X6）
+│   ├── trading/                  # 纸交易 / 实盘运行域（原 pkg/live，2026-11-10 改名；通道客户端 = brokerhttp/）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
+│   ├── brokerhttp/               # broker HTTP 客户端：ExecutionPort + trading.LiveTrader（BROKER_URL 必填）
 │   ├── storage/                  # PG 存储：**DDL 唯一真相 = migrationStatements()**（SPEC-R-01 已收编全部模块表）
 │   ├── eventstore/ msgbus/       # 事件存储（audit schema）/ 消息总线（留 core，无出仓计划）
 │   ├── （已迁出）logging/ errors/ decimal/ clock/ httpclient/ statistics/ httpserver/   # → tellurion-kit（QT-73 一期 / QT-75 二期）

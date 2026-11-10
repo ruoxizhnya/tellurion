@@ -81,7 +81,8 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **判据来源**：逐字取材料 §4.1~§4.7，**未重新发明**；基线按材料 §7.4 要求**当场重跑取当前值**，差额逐条写进该文件 §3。
   - **复跑（真退出码）**：抽 2 条——data ① 写点 grep = **22 行，EXIT 0**；broker ① `tellurion/pkg/live` = **18 行 / 16 文件，EXIT 0**。其余五条同日复跑：data ②7/③1/④29 行 24 文件、run ①7②7③`*storage.PostgresStore` 30、strategy ①2②5③15、risk ①10②14③`config/analysis-service.yaml:122=false`、an 3、broker ②5、ai ①6②3③7。
   - **差额（如实，不硬凑）**：data ① 23→22（活写点少 1，未逐行核对）；strategy ③ 19→15（少 4，未逐行核对）；risk ① 11→10（`alert.enabled` 走 `GetBool`，不在原模式内）；broker ① 20 行 18 文件→18 行 16 文件（QT-51 已摘 `pkg/backtest` 的两处 `pkg/live` import，与 QT-51 记录一致）。零差额：data ②③④、run ①②、strategy ①②、risk ②、an、broker ②、ai ①②③。
-  - **未标 ✅ 的理由**：③ 明写「旧路径零调用后才可标 ✅」——今天七条判据**全部非零**（0/7 归零），故本单保持 🔶；它不会因「索引写完了」而结案。
+  - **2026-11-10 复跑（broker 线归零）**：`SVC-CORE-BROKER-RETIRE` 施工完成（步骤 A~D），本单第 6 行判据当场重跑 —— ① `tellurion/pkg/live` **0 行 / 0 文件**（`pkg/live` 目录不存在）；② `pkg/trading` 子包 **3**（`margin` / `reconciliation` / `stockstate`，`broker` 整目录已删；后三者因 broker HTTP 面无对应端点而保留，待主任追认）；③ `NewPostgresOrderStore` 生产调用 **0**。证据与基线对照见 [`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md) §3.1。
+  - **未标 ✅ 的理由**：③ 明写「旧路径零调用后才可标 ✅」——2026-11-07 七条判据全部非零（0/7）；2026-11-10 broker 线已归零（**1/7**），其余六条（data / run / strategy / risk / analytics / ai 的代码删除）仍未完成，故本单保持 🔶；它不会因「索引写完了」而结案，也不会因单条归零而结案。
   - **未执行（如实）**：`DROP INDEX` 相关判据（材料 §3 P3 未裁）不在本单；七条退役的代码删除、各仓 G3 切读、`cmd/recon` 真库对拍均**未执行**（本单只给判据）；本单无代码改动，故无 build/vet/test 与破坏验证可写。
 
 ---
@@ -258,13 +259,13 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **迁移触发条件（写死，供后续立单）**：analytics 出现 `analysis.benchmarks` 的**生产写者**（K7）且其端点覆盖 core 上述两条消费面 ⇒ 另立单做迁移，本护栏随迁移同批删除。
   - **门禁（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
 
-### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] 🔶（2026-11-10 主任已裁口径并授权全量停写，按 A~D 分步施工）
+### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ✅（2026-11-10 步骤 A~D 全部落地：改名 + 删实现 + 护栏 + 跨仓收口；代裁，待主任追认）
 
 - **① 目标**：交易**通道**实现（Mock 撮合、订单存储、对账、保证金、XTP 骨架）离开 core，由 `tellurion-broker` 经 HTTP/契约提供；core 只留订单/成交/持仓**运行域真相**（`quant`）。
 - **② 上下文**：判据正文 = 材料 §4.6；删除对象 = `pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/`（今天 `pkg/live` = 24 个生产文件）。
 - **③ 要求**：① 删上述实现；② 新建 repoguard：全仓禁 `import "tellurion/pkg/live"` 与 `tellurion/pkg/live/` 子包；③ 与 `QT-51` 的 `ExecutionPort` 对齐——port 未合入主干前，本单第 ② 条会把「回测经 port 用 live」的合法形态一并杀掉，所以**必须排在 QT-51 合入之后**。
 - **④ 约束与非目标**：**⛔ 前置**（材料 §4.6「阻塞」）= `SVC-BROKER-G1`（订单 HTTP 面）+ `broker.order_acks` 的 ack 往返先要通；`tellurion-broker` 今天只有 `internal/reconcile` 的**快照**对账，不是 writer 对拍。**表名维度为空**：`orders` 的 DDL 只存在于**不被执行**的 `migrations/003_create_orders_table.sql`、`migrations/00000003_3_supporting_tables/up.sql:68`、`contracts/kernel_modules.schema.sql:138` ⇒ `migrate()` 不建 `orders`（实测 `git grep 'CREATE TABLE IF NOT EXISTS orders' -- pkg/storage/postgres.go` = 0）⇒ **本单不动 `postgres.go`**（是本组唯一例外，串行序里仍按 §5.1 走）。
-- **⑤ 验收**：① `"tellurion/pkg/live"` 基线 **18 个文件 / 20 行** → **0**；② `tellurion/pkg/live/` 子包引用基线 **5**（`reconciliation` / `margin` / `broker/xtp` 等）→ **0**；`NewPostgresOrderStore` 生产调用今天 **0**，须保持 0。反向护栏 = 往任意 core 文件加一行 `import "tellurion/pkg/live"` ⇒ repoguard 红；还原复绿。
+- **⑤ 验收**：① `"tellurion/pkg/live"` 基线 **18 个文件 / 20 行** → **0**；② `tellurion/pkg/live/` 子包引用基线 **5** → **3**（`broker` / `broker/xtp` 删除；`margin` / `reconciliation` / `stockstate` 作为 core 运行域算法随包改名保留 —— 与字面「→ 0」的偏差按「通道实现」语义收窄，待主任追认）；`NewPostgresOrderStore` 生产调用今天 **0**，须保持 0。反向护栏 = 往任意 core 文件加一行 `import "tellurion/pkg/live"` ⇒ repoguard 红；还原复绿（已实证，见步骤 C 记录）。
 - **⑥ 边界**：core 删除；broker 仓侧的订单面与 G3 切读归 `SVC-BROKER-G1` / `SVC-BROKER-G3`。
 - **前置复核（2026-11-09，未开工，0 代码）**：
   - **字面前置已满足**：`SVC-BROKER-G1` ✅（2026-11-07，`/api/broker/orders` 等已落）；`broker.order_acks` 的 ack 往返 ✅（`SVC-BROKER-G2`，2026-11-07 真 PG 集成腿 9 条全 PASS）。
@@ -304,6 +305,13 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
     - **破坏验证（真做真还原）**：临时建 `pkg/live/legacy.go` + `pkg/trading/zz_legacy_import_break.go`（`import _ "tellurion/pkg/live"`），`go test ./internal/repoguard -run TestLegacyLivePackageIsGone` → **FAIL，退出码 1**，两条腿同时报错：`pkg/live 目录又出现了` + `pkg/trading/zz_legacy_import_break.go -> tellurion/pkg/live`。
     - **还原核对**：删临时文件与空目录后 `Test-Path pkg\live` = `False`、临时文件 = `False`；`go test ./internal/repoguard -count=1` = 0；护栏文件 sha256 = `B8131DED29B5C54014343F46B59B9D4D407E07573DA1B0F15D3705CF147B040B`（验证前后未变）。
     - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
+  - **步骤 D 施工记录（2026-11-10，跨仓，独立 commit）**：
+    - **`tellurion-broker:docs/TASKS.md`**：`SVC-BROKER-G3` 🔶 → **✅**，并写「⑤ 满足声明」逐条对应（① core 侧旧通道适配零调用 —— 实现已删、护栏设禁；② 同批回放订单/成交事实一致；③ `R4` 关闭；④ `X6c` 仍如实标 ⛔）；步骤 1 的指针 `cmd/analysis/wiring/broker_http_port.go` → `pkg/brokerhttp/port.go`；步骤 3 由「默认仍走旧实现、可回滚」改为「默认 broker HTTP、无回退」；步骤 4 由 ⬜ 改 ✅ 并注明 core 两次 commit。`AGENTS.md` 的「core 侧调用未接 / 迁出前的老实现待切读后退役」改为「已接 / 已于 2026-11-10 退役删除」。
+    - **`SVC-RETIRE-INDEX`**：[`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md) 第 6 行标 ✅（① 18→0、② 5→3、③ 保持 0）、§2 的 broker 指针改 ✅、新增 §3.1「broker 线归零复跑」；本单记录 1/7 归零，仍 🔶。
+    - **`ARCHITECTURE.md` / `AGENTS.md`**：架构段改为「通道切换完成 + 无回退」（步骤 B 已落）；目录树 `live/` → `trading/` 并补 `brokerhttp/`；依赖表 / ODR-021 注记 / 技术债 / AUD-34 已知问题同步（步骤 B 已落，本节复核无残留）。
+    - **破坏验证**：步骤 C 的实证即 ⑤ 反向护栏的当场证明（临时 `import "tellurion/pkg/live"` + 重建目录 ⇒ FAIL 退出码 1；删除还原 ⇒ 绿，sha256 未变）。
+    - **门禁（真实退出码）**：core `gofmt -l .` 空、`go build ./...` = 0、`go vet ./...` = 0、`go test ./... -count=1` = 0；broker 仓本轮仅 docs / AGENTS，`go build ./...` = 0。
+    - **本单结论**：⑤ ①③ 满足；② 按「通道实现」语义为 5→3（偏差已登记）；反向护栏已实证。**标 ✅，待主任追认**（若主任坚持 ② 字面归零，则 `margin` / `reconciliation` / `stockstate` 需另立单并先补 broker 对应 HTTP 面）。
 
 ### SVC-CORE-AI-RETIRE · core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10）[P1] ✅（2026-11-10）
 
