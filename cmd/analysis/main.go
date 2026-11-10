@@ -258,6 +258,10 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	// 另外前端在 dev 下只代理 /api（vite proxy），不挂这个别名前端也探不到。
 	router.GET("/api/health", healthHandler)
 
+	// 就绪探针：/health 只看进程活着，/readyz 还要看「库能连 + 启动建表到位」。
+	// 库断开时这里 503、/health 仍 200 —— 负载均衡摘流量，但不重启进程。
+	registerReadiness(router, deps.Store, deps.Logger)
+
 	// Sprint 6 P0-3: /metrics endpoint exposing the four ADR-017 §1
 	// core metrics + Go runtime collectors. Unauthenticated by
 	// design — the metrics scraper runs on the same network and

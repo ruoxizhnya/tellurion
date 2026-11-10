@@ -15,7 +15,7 @@ package main
 //   - 窄度腿（同上的 login 那条 + TestIsRateLimitExempt_IsExactMatchNotPrefix）：
 //     证明豁免是**窄的** —— 没有把 `/api/auth` 前缀整个放开（那会关掉口令
 //     爆破的第一道闸），也没有把逐字匹配改成前缀匹配。
-//   - 名单腿（TestRateLimitExemptPaths_AreExactlyTheDocumentedThree）：任何
+//   - 名单腿（TestRateLimitExemptPaths_AreExactlyTheDocumentedSet）：任何
 //     增删都必须是有意识的动作。
 
 import (
@@ -158,14 +158,16 @@ func TestIsRateLimitExempt_IsExactMatchNotPrefix(t *testing.T) {
 	}
 }
 
-// TestRateLimitExemptPaths_AreExactlyTheDocumentedThree 钉住名单本身。
+// TestRateLimitExemptPaths_AreExactlyTheDocumentedSet 钉住名单本身。
 //
 // 这不是同义反复：`want` 是硬编码的，所以**任何**增删都会变红。行为腿只能
 // 覆盖「在 router 上注册过的那几条」，这条覆盖所有改动 —— 价值最大的是挡住
 // 那种「顺手」：把 /api/auth/login 或 /api/auth/refresh 加进来，悄无声息地
 // 关掉口令爆破的第一道闸。
-func TestRateLimitExemptPaths_AreExactlyTheDocumentedThree(t *testing.T) {
-	want := []string{"/health", "/api/health", "/api/auth/status"}
+func TestRateLimitExemptPaths_AreExactlyTheDocumentedSet(t *testing.T) {
+	// 硬编码名单：任何增删都会变红。/readyz 与 /api/readyz 入选的理由是
+	// 「编排器把 429 读成不 ready」，见 pkg/bootstrap/server.go 的判据注释。
+	want := []string{"/health", "/api/health", "/readyz", "/api/readyz", "/api/auth/status"}
 	assert.Equal(t, want, rateLimitExemptPaths,
 		"限流豁免名单变了。加一条之前先回答：限流它会不会让一个正常客户端"+
 			"分不清 429 与 401？如果理由只是「这个端点很重要」，那不构成豁免。")

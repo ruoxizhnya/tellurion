@@ -249,6 +249,10 @@ var publicPaths = []string{
 	"/api/auth/bootstrap",
 	"/health",
 	"/api/health",
+	// 就绪探针必须免鉴权：k8s / systemd / 负载均衡不持有用户 token。它只返回
+	// 「库能否 ping + 关键表是否在」，不含业务数据。
+	"/readyz",
+	"/api/readyz",
 	"/metrics",
 }
 

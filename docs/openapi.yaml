@@ -90,6 +90,77 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
 
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe (database + startup DDL)
+      description: |
+        **就绪**语义，与 `/health` 的**存活**语义分开：这里实际校验数据库
+        连接（ping）与启动 DDL 的关键表（`public.users`、`audit.message_log`、
+        `run.backtest_results`、`quant.strategy_state`）。库断开或建表没跑到
+        返回 503，负载均衡据此摘流量；`/health` 同时仍是 200，不触发重启。
+        免鉴权、免限流（编排器不持有 token，且 429 会被读成「不 ready」）。
+      operationId: getReadyz
+      responses:
+        '200':
+          description: Ready to serve traffic
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+                  service:
+                    type: string
+                    example: analysis-service
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: ok
+                      schema:
+                        type: string
+                        example: ok
+                  timestamp:
+                    type: string
+        '503':
+          description: Not ready — database unreachable or a required relation is missing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not_ready
+                  service:
+                    type: string
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        description: Concrete failure reason (ping error or missing relation)
+                  timestamp:
+                    type: string
+
+  /api/readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe (API-namespaced alias of /readyz)
+      description: |
+        与 `GET /readyz` 同一 handler、同一响应（`/api/health` 对 `/health`
+        的同款别名口径）。前端 dev 只代理 `/api`，运维脚本也常按 `/api` 前缀写。
+      operationId: getAPIReadyz
+      responses:
+        '200':
+          description: Ready to serve traffic
+        '503':
+          description: Not ready — database unreachable or a required relation is missing
+
   /metrics:
     get:
       tags: [Health]

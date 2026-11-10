@@ -50,7 +50,10 @@ func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 // 入选判据不是「这个端点重不重要」，而是更窄的一条：
 // **限流它，会不会让一个正常客户端分不清 429 与 401？**
 //
-//   - `/health`、`/api/health` —— 就绪探针（一直是豁免的）。
+//   - `/health`、`/api/health` —— 存活探针（一直是豁免的）。
+//   - `/readyz`、`/api/readyz` —— 就绪探针。与 /health 同理，但更不能被限流：
+//     429 会让编排器把「限流」读成「实例没准备好」，反复摘流量 / 重启；
+//     就绪探针在库故障时**本来就**要连续失败（每周期一次），必须豁免。
 //   - `/api/auth/status` —— SPA 的「鉴权姿势探针」。前端必须在**手上没有任何
 //     凭据**时先问它「这个部署要不要凭据、首个管理员窗口还开着吗」，才决定
 //     显示登录页还是「创建首个管理员」页。
@@ -69,6 +72,8 @@ func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 var RateLimitExemptPaths = []string{
 	"/health",
 	"/api/health",
+	"/readyz",
+	"/api/readyz",
 	"/api/auth/status",
 }
 
