@@ -4,7 +4,10 @@
 #
 #   宿主机原生（由 tools/local-infra.sh 启停）
 #     PostgreSQL 17.5   127.0.0.1:5432   —— 无 TimescaleDB（只是 Warn，已实测可建表）
-#     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass
+#     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass；⚠️ 2026-11-10 起
+#                                          **本栈已无消费者**（data 面退役后
+#                                          REDIS_URL 全链路无读取点，已移除；
+#                                          接回缓存时连同检查器一起加回来）
 #
 #   Docker 容器（本文件）
 #     data-service     :8081   多源数据接入
@@ -97,7 +100,8 @@ services:
       # ai 都有 —— 缺这一项时 :8081 的写门在开鉴权的部署里仍是裸的。
       # 空值 = 不回环发布时的本地 open-access（端口映射都是 127.0.0.1:）。
       JWT_SECRET: ${JWT_SECRET:-}
-      REDIS_URL: redis://host.docker.internal:6379
+      # REDIS_URL 于 2026-11-10 移除：data 面退役后本仓已无 redis 读取点
+      # （见 deploy/k8s/configmap.yaml 的「Cache (Redis)」段）。
       # AUD-35：名字必须是 LOGGING_LEVEL。viper 的 AutomaticEnv +
       # SetEnvKeyReplacer(".", "_") 把 logging.level 映射成 LOGGING_LEVEL；
       # 此前这里写的 LOG_LEVEL 全仓无人读（死配置）。
@@ -176,7 +180,7 @@ services:
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
       DATABASE_DATABASE: tellurion
-      REDIS_URL: redis://host.docker.internal:6379
+      # REDIS_URL 于 2026-11-10 移除（同 data-service：本仓已无 redis 读取点）。
       DATA_SERVICE_URL: http://data-service:8081
       # STRATEGY_SERVICE_URL 已随 OBS-11（2026-10-09）删除：策略服务 standby
       # （ADR-012），per-day HTTP 信号 fallback 不复存在。
@@ -246,7 +250,7 @@ services:
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
       DATABASE_DATABASE: tellurion
-      REDIS_URL: redis://host.docker.internal:6379
+      # REDIS_URL 于 2026-11-10 移除（ai-service 的代码也不读 redis）。
       DATA_SERVICE_URL: http://data-service:8081
       # factor.compute / factor.evaluate / compute_factor_ic 三个工具经
       # HTTP 打 analysis 的 /api/factor/*（只在那里注册）。

@@ -46,26 +46,28 @@ data:
   DATABASE_PORT: "5432"
   DATABASE_USER: "postgres"
   DATABASE_DATABASE: "tellurion"
-  # ── Cache (Redis) ──────────────────────────────────────────────────
-  # AUD-39：同理，应用读的是 `redis.url` → **REDIS_URL**。此前写的是
-  # REDIS_HOST / REDIS_PORT，零读取者。
-  #
-  # 这里没有、也不该有 Redis 密码：本项目的 redis 是
-  # `redis-server --appendonly yes`，**没有 --requirepass**，它根本不
-  # 校验密码（docker-compose.yml 文件头有同样的说明）。此前
-  # redis-deployment.yaml 与 analysis-deployment.yaml 各注入了一个
-  # REDIS_PASSWORD，两处都零读取者 —— 只是让清单**看起来**有密码保护。
-  REDIS_URL: "redis://redis:6379"
+  # ── Cache (Redis)：2026-11-10 移除 REDIS_URL ──────────────────────
+  # SVC-CORE-DATA-RETIRE（2026-11-08）删掉 cmd/data 之后，本仓**没有任何运行时
+  # 读取点**再读 `redis.url`（`grep -i redis` 只剩 pkg/storage 的 NewCache 与
+  # pkg/marketdata 的 CachedProvider，两者都没有接线方）。按 AUD-39 的规矩
+  # 「要么接上读取方，要么删掉」，这里删掉；将来把缓存接回 analysis 时，要连同
+  # tools/check_deploy_consistency.py 的 INFRA_ENV_REQUIRED / APP_DB_ENV_KEYS
+  # 一起加回来 —— 只加 env 会在下一次检查里被当成死键抓住。
+  # 这里从来不该有 Redis 密码：本项目的 redis 是
+  # `redis-server --appendonly yes`，**没有 --requirepass**，它根本不校验密码。
   # Logging
   #
-  # AUD-35：键名必须是 LOGGING_LEVEL / LOGGING_FORMAT。这三个服务都用
-  # viper 的 AutomaticEnv + SetEnvKeyReplacer(".", "_")，它把配置键
-  # `logging.level` 映射成 env 名 **LOGGING_LEVEL**（不是 LOG_LEVEL）。
-  # 此前这里写的是 LOG_LEVEL / LOG_FORMAT —— 全仓零读取点，改了日志级别
-  # 没有任何效果（死配置，与已删的 GIN_MODE / ANALYSIS_PORT 同类）。
+  # AUD-35：键名必须是 LOGGING_LEVEL。服务用 viper 的 AutomaticEnv +
+  # SetEnvKeyReplacer(".", "_")，它把配置键 `logging.level` 映射成 env 名
+  # **LOGGING_LEVEL**（不是 LOG_LEVEL）。此前这里写的是 LOG_LEVEL / LOG_FORMAT
+  # —— 全仓零读取点，改了日志级别没有任何效果（死配置，与已删的 GIN_MODE /
+  # ANALYSIS_PORT 同类）。
+  #
+  # LOGGING_FORMAT 于 2026-11-10 一并删除：本仓只读 logging.level，
+  # `logging.format` 在 data 面退役后已无任何读取者（数据服务的读取点不在本仓，
+  # 见 data-deployment.yaml 里 TUSHARE_TOKEN 的跨仓说明）。
   # （strategy-service 已于 REV-16 删除，本 configmap 只服务 data/analysis。）
   LOGGING_LEVEL: "info"
-  LOGGING_FORMAT: "json"
   # Gin mode
   #
   # 这里**曾经**有 `GIN_MODE: "release"`，已移除（AUD-29）。原因不是它没用 ——

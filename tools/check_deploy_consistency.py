@@ -9,14 +9,16 @@
   1. 服务名 → 端口（公共服务必须一致）
   2. DATA_SERVICE_URL：compose 的 environment 与 k8s configmap 必须一致，
      且它指向的 host:port 要真的等于 data-service 的端口
-  3. 数据库/缓存必须来自**宿主机原生安装**，且容器**显式**指向它（AUD-13 改写）。
+  3. 数据库必须来自**宿主机原生安装**，且容器**显式**指向它（AUD-13 改写）。
      2026-09-25 之前这条是「compose 的 postgres / redis 服务端口只绑回环」——
      那两个服务已移出 compose（改由宿主机原生安装），端口映射这个**检查对象
      本身不存在了**。新的等价断言有两半：
        a) compose 里不得再出现 postgres / redis 服务（留着会与原生进程抢端口）；
-       b) 应用侧的 DATABASE_HOST / REDIS_URL 必须指向 host.docker.internal。
+       b) 应用侧的 DATABASE_HOST 必须指向 host.docker.internal。
      后半条接替了被移除的 `depends_on + service_healthy`：容器里的 localhost
      指容器自己，写成 localhost 语法完全合法、启动才失败。
+     2026-11-10：缓存侧（REDIS_URL）随 data 面退役一起失去**全部读取点**，
+     已从 configmap/compose 删除，本条不再断言之 —— 见 INFRA_ENV_REQUIRED 注。
      原生进程的 listen_addresses / bind 由 tools/local-infra.sh 在机器上断言 ——
      绑定的真身在仓外，静态脚本管不到它，写在这里只会变成假护栏。
   4. 部署配置里不得出现 GIN_MODE（AUD-29）。gin mode 的唯一来源是
@@ -29,9 +31,9 @@
      保证，保证是这一项给的。双向四条：开了 open-access 就不许有非回环映射；
      有非回环映射就必须有 JWT_SECRET；开了 open-access 必须有那个声明；
      同时给密钥与声明 → 报错（密钥优先，声明会误导读者）。
-  5. compose ↔ k8s 的数据库/缓存 env **口径**必须一致，且库名/用户名
+  5. compose ↔ k8s 的数据库 env **口径**必须一致，且库名/用户名
      不能与 config/*.yaml 漂移（AUD-39）。
-     2026-09-25 **放宽**：地址（DATABASE_HOST / REDIS_URL 的 host）不再比对 ——
+     2026-09-25 **放宽**：地址（DATABASE_HOST 的 host）不再比对 ——
      数据库移到宿主机后容器内必然是 host.docker.internal，而 k8s 里是 Service
      名 postgres，两者**必然不同**，比它只会逼出一个恒假的断言。仍然比对：
      库名、用户名、端口，以及密码取自同一个变量。config/*.yaml 的 host 现在是
@@ -59,6 +61,9 @@
   - 只查 k8s 的 analysis/data 两个 deployment（应用容器）。postgres / redis
     的 env 是**容器镜像自己的**约定（POSTGRES_*），不由本仓 Go 代码消费，
     因此不参与可达性检查，只参与「不许作为 configmap 键」的负向检查。
+  - 数据服务自 SVC-CORE-DATA-RETIRE（2026-11-08）起由 tellurion-data 仓发布，
+    它的读取点**不在本仓源码里**。这类跨仓键在 CROSS_REPO_ENV_READERS 里逐条
+    声明读取方（现在只有 TUSHARE_TOKEN）；未声明的仍按零读取点报错。
 
 只用标准库（这个环境没有 pyyaml），靠正则抓规整的 YAML 缩进块。
 """
@@ -109,8 +114,12 @@ CONTAINER_HOST_ALIAS = "host.docker.internal"
 # 容器服务一旦漏注入就会静默回落到 localhost 并连到容器自己；compose 语法合法、
 # 启动日志也只是一句连接失败。此前这层保证由 depends_on 提供，现在没有了。
 INFRA_ENV_REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
-    "data-service": (("DATABASE_HOST", "host"), ("REDIS_URL", "url")),
-    "analysis-service": (("DATABASE_HOST", "host"), ("REDIS_URL", "url")),
+    # 2026-11-10：REDIS_URL 条目移除 —— data 面退役（SVC-CORE-DATA-RETIRE）后
+    # 本仓没有任何运行时读取点再读 redis.url，configmap 与 compose 里的该键
+    # 同批删除。等缓存接线回来时，这里与 APP_DB_ENV_KEYS 一起加回（只加 env
+    # 不加这两处，检查 6 会把它当死键报出来）。
+    "data-service": (("DATABASE_HOST", "host"),),
+    "analysis-service": (("DATABASE_HOST", "host"),),
     # REV-16（2026-10-17）：strategy-service 已删除，条目随之移除 ——
     # 留在表里会成为一个永远查不到的死条目（与文件头 postgres/redis 的教训同型）。
 }
@@ -220,9 +229,11 @@ _GO_GETENV_CALL = re.compile(r'os\.Getenv\(\s*"([A-Z0-9_]+)"')
 # 正则抓不到 —— 把常量定义一起收进来，而不是维护一张手写清单。
 _GO_CONFIG_KEY_CONST = re.compile(r'ConfigKey[A-Za-z0-9_]*\s*=\s*"([a-z0-9_.]+)"')
 
-# 应用读的数据库/缓存 env 名（5a 用它断言「必备键都在」）。
+# 应用读的数据库 env 名（5a 用它断言「必备键都在」）。
 #
-# 注意 5b **不再**拿这个清单去逐一比值：DATABASE_HOST / REDIS_URL 在三处口径
+# 2026-11-10：REDIS_URL 从这里移除（data 面退役后本仓零读取点）。
+#
+# 注意 5b **不再**拿这个清单去逐一比值：DATABASE_HOST 在三处口径
 # 不同且都正确 —— config/*.yaml 是宿主机视角（localhost）、compose 是
 # host.docker.internal、k8s 是 Service 名 postgres。比值的清单见 5b 里那几个
 # 身份字段（库名 / 用户名 / 端口）。
@@ -231,11 +242,10 @@ APP_DB_ENV_KEYS = [
     "DATABASE_PORT",
     "DATABASE_USER",
     "DATABASE_DATABASE",
-    "REDIS_URL",
 ]
 
 # 5b 真正拿来比值的「身份」字段：连过去之后必须对得上的东西。
-# 刻意**不含** DATABASE_HOST / REDIS_URL 的 host —— 它们按环境各写一份是对的。
+# 刻意**不含** DATABASE_HOST 的 host —— 它按环境各写一份是对的。
 IDENTITY_ENV_KEYS = ["DATABASE_USER", "DATABASE_DATABASE", "DATABASE_PORT"]
 APP_ENV_SERVICES = ["analysis-service", "data-service", "ai-service"]
 
@@ -297,9 +307,22 @@ def derive_readable_env_names() -> tuple[set[str], set[str]]:
 # 空集合本身就是一条信息：现在没有任何例外。
 ENV_NAME_ALLOWLIST: dict[str, str] = {}
 
+# 由**本仓之外的镜像**读取的 env 名：值 = 读取方（哪个仓、哪段代码）。
+#
+# 为什么需要这一层：data-service 的镜像自 SVC-CORE-DATA-RETIRE（2026-11-08）
+# 起由 tellurion-data 仓发布，而本检查的推导基准是**本仓** Go 源码。跨仓读取
+# 点因此天然失明 —— 若不声明，只剩「删掉这个 env」一条路，那会让跨仓读方
+# 静默失去配置（比误报危险得多）。
+#
+# 约束：条目必须写清读取方；本仓一旦出现同名读取点，它就会自然变成可推导的，
+# 届时应把条目删掉（留着的死声明和死键同罪）。
+CROSS_REPO_ENV_READERS: dict[str, str] = {
+    "TUSHARE_TOKEN": "tellurion-data：数据服务的 Tushare 传输（X1c）读取本 env；本仓只负责注入",
+}
+
 
 def is_readable(name: str, names: set[str], prefixes: set[str]) -> bool:
-    if name in names or name in ENV_NAME_ALLOWLIST:
+    if name in names or name in ENV_NAME_ALLOWLIST or name in CROSS_REPO_ENV_READERS:
         return True
     return any(name.startswith(p) for p in prefixes)
 
@@ -406,16 +429,9 @@ def check_env_wiring(
                 errors.append(
                     f"{svc} 的 {key} 不一致 —— compose {c} vs k8s {k}（AUD-39）")
 
-    # 5b-2) REDIS_URL 只比**端口**，不比 host —— host 各自不同是预期的。
-    for svc in APP_ENV_SERVICES:
-        c_redis = compose_env.get(svc, {}).get("REDIS_URL", "")
-        k_redis = cm_keys.get("REDIS_URL", "")
-        c_port = re.search(r":(\d+)\s*$", c_redis)
-        k_port = re.search(r":(\d+)\s*$", k_redis)
-        if c_port and k_port and c_port.group(1) != k_port.group(1):
-            errors.append(
-                f"{svc} 的 REDIS_URL 端口不一致 —— compose {c_port.group(1)} vs "
-                f"k8s {k_port.group(1)}（host 部分各自不同是预期的，不参与比对）（AUD-39）")
+    # 5b-2) REDIS_URL 的端口比对于 2026-11-10 删除：该键已从 compose 与
+    # configmap 移除（data 面退役后零读取点），比对对象不存在了 —— 留着就是
+    # 空转的假护栏（与上文 LOOPBACK_ONLY 的教训同型）。
 
     # 5c) DB 身份不能与 config/*.yaml 漂移（库名/用户名对不上 = 连不到库）
     #
@@ -818,7 +834,8 @@ def main() -> int:
         return 1
 
     print("✓ 部署配置一致（compose ↔ k8s：服务端口 + DATA_SERVICE_URL）")
-    print("✓ 数据库/缓存已移出 compose，应用容器显式指向 host.docker.internal（AUD-13 改写）")
+    print("✓ 数据库已移出 compose，应用容器显式指向 host.docker.internal"
+          "（缓存 REDIS_URL 2026-11-10 起无消费者，已不再断言）（AUD-13 改写）")
     print("✓ open-access 与端口发布范围互相蕴含（AUTH_INSECURE ⟺ 所有映射回环；"
           "对外发布 ⟹ 有 JWT_SECRET）（AUD-52 / P0-4）")
     print("✓ gin mode 无 GIN_MODE 旁路（唯一来源 server.gin_mode）")

@@ -35,6 +35,11 @@ spec:
                 secretKeyRef:
                   name: postgres-credentials
                   key: password
+            # 数据源凭证。⚠️ 读取点**不在本仓**：data-service 的镜像由
+            # tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08），它的
+            # Tushare 传输（X1c）读这个 env。tools/check_deploy_consistency.py
+            # 只扫本仓 Go 源码，这类跨仓键因此在 CROSS_REPO_ENV_READERS 里逐条
+            # 声明，未声明的仍会按「零读取点」报错。
             - name: TUSHARE_TOKEN
               valueFrom:
                 secretKeyRef:
