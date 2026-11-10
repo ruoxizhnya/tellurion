@@ -82,18 +82,27 @@ git clone <tellurion-ui 仓地址> ../tellurion-ui
 | `DATABASE_PASSWORD` | PG 口令（`database.*` 逐字段拼装；给了 `DATABASE_URL` 则后者优先） | `invalid database configuration` |
 | `JWT_SECRET`（或 `AUTH_INSECURE=true` + `SERVER_HOST=127.0.0.1`） | 鉴权启动门 | 拒绝启动（open-access 只允许回环） |
 | `BROKER_URL` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID` | 执行引擎（进程内撮合已退役） | `kernel assembly failed` |
+| `BROKER_CHANNEL`（`mock` / `live`）+ `BROKER_ALLOW_MOCK=true`（仅 `mock` 需要） | 执行通道性质声明：`mock` = 内存网关，`live` = 真实柜台 | 缺失/非法/`mock` 未双键确认 → `kernel assembly failed` |
 | `RISK_SERVICE_RESOLVE_ENABLED=false`，或 risk 在线且库里有 approved 规则 | 14 个风控限额 | 取不到快照即拒绝启动 |
 
 ```bash
 # analysis-service（风险快照未接入时用内置限额；端口用 SERVER_PORT 覆盖）
 DATABASE_PASSWORD='<宿主 postgres 口令>' JWT_SECRET='<32+ 字节随机值>' \
 BROKER_URL=http://127.0.0.1:8091 BROKER_SERVICE_TOKEN='<网关凭证>' BROKER_ACCOUNT_ID=mock \
+BROKER_CHANNEL=mock BROKER_ALLOW_MOCK=true \
 RISK_SERVICE_RESOLVE_ENABLED=false SERVER_HOST=127.0.0.1 SERVER_PORT=18085 \
   go run ./cmd/analysis
 
 curl -sS http://127.0.0.1:18085/health   # 存活：不碰库，库抖也不重启
 curl -sS http://127.0.0.1:18085/readyz   # 就绪：DB ping + 启动 DDL 关键表
 ```
+
+⚠️ **`cmd/brokergateway` 是内存网关**（`tellurion-broker` 当前只有 Mock 通道，
+真实柜台适配仍受 X6c 阻塞）：订单不会到任何真实柜台。core 从 `BROKER_URL`
+**看不出**对端是内存还是真实柜台，所以通道性质必须显式声明——
+`BROKER_CHANNEL=mock` 还要求同时给 `BROKER_ALLOW_MOCK=true`，启动日志会有
+一条 `execution channel is MOCK ...` 的 WARN。少了任一键都**启动失败**，
+不会静默地对着内存撮合跑真钱；接真实柜台时改成 `BROKER_CHANNEL=live`。
 
 服务间地址**不需要逐个覆盖**：`config/analysis-service.yaml` 是宿主机视角，
 `data_service.url` / `ai_service.url` / `strategy_asset.resolve_url` /

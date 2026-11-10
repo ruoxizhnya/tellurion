@@ -470,6 +470,8 @@ func TestNewTraderFromEnvFailsLoudWithoutBrokerURL(t *testing.T) {
 
 	t.Setenv("BROKER_SERVICE_TOKEN", "tok")
 	t.Setenv("BROKER_ACCOUNT_ID", "acc")
+	t.Setenv("BROKER_CHANNEL", "mock")
+	t.Setenv("BROKER_ALLOW_MOCK", "true")
 	trader, err := NewTraderFromEnv(zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "broker_http", trader.Name())

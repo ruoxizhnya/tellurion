@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,15 +43,75 @@ func NewTrader(opts BrokerHTTPOptions) (*Trader, error) {
 	return &Trader{port: port}, nil
 }
 
+// 执行通道口径 —— 内存网关的边界声明。
+//
+// core 只拿到一个 `BROKER_URL`，**无法从 URL 判断对端是不是内存网关**
+// （tellurion-broker 的 `cmd/brokergateway` 目前只有 Mock 通道，没有任何
+// 生产可见的标记可供探测）。所以「这是什么通道」必须是启动期的显式输入，
+// 而不是靠部署时记得：
+//
+//	BROKER_CHANNEL=mock   内存 / 模拟网关，订单永远到不了真实柜台
+//	BROKER_CHANNEL=live   真实柜台通道
+//
+// 选 mock 还必须同时给 `BROKER_ALLOW_MOCK=true`（双键确认）：从开发环境
+// 复制一份 env 到生产时，少一个键就会**启动失败**，而不是静默地对着内存
+// 撮合跑真钱。
+const (
+	ChannelMock = "mock"
+	ChannelLive = "live"
+)
+
+// resolveChannel 校验并返回 BROKER_CHANNEL；不合规一律返回错误（fail-closed）。
+func resolveChannel(logger zerolog.Logger, baseURL string) (string, error) {
+	raw := strings.TrimSpace(os.Getenv("BROKER_CHANNEL"))
+	switch strings.ToLower(raw) {
+	case ChannelMock:
+		if !strings.EqualFold(strings.TrimSpace(os.Getenv("BROKER_ALLOW_MOCK")), "true") {
+			return "", fmt.Errorf("broker_http: BROKER_CHANNEL=mock is refused without BROKER_ALLOW_MOCK=true — the in-memory gateway never reaches a real counter; set BROKER_ALLOW_MOCK=true only for dev/test, or point BROKER_URL at a real broker gateway and use BROKER_CHANNEL=live")
+		}
+		logger.Warn().
+			Str("channel", ChannelMock).
+			Str("url", baseURL).
+			Msg("execution channel is MOCK (in-memory gateway) — orders never reach a real counter; real-money use is refused unless this is an explicit dev/test run")
+		return ChannelMock, nil
+	case ChannelLive:
+		if u, err := url.Parse(baseURL); err == nil && isLoopbackHost(u.Hostname()) {
+			logger.Warn().
+				Str("channel", ChannelLive).
+				Str("url", baseURL).
+				Msg("BROKER_CHANNEL=live but BROKER_URL is loopback — verify this is a real broker gateway, not the in-memory dev gateway on :8091")
+		}
+		return ChannelLive, nil
+	case "":
+		return "", fmt.Errorf("broker_http: BROKER_CHANNEL is required (mock|live) — core cannot tell from BROKER_URL whether the peer is the in-memory gateway; declare the channel explicitly")
+	default:
+		return "", fmt.Errorf("broker_http: BROKER_CHANNEL=%q is invalid (allowed: mock|live)", raw)
+	}
+}
+
+// isLoopbackHost 判断主机名是否回环（仅用于 live 通道的告警，不做拦截）。
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // NewTraderFromEnv 是 core 的默认装配入口。
 //
 // `BROKER_URL` 必填：SVC-CORE-BROKER-RETIRE 之后进程内撮合已删除，
 // 缺失即返回错误，由调用方 fail-loud。`BROKER_SERVICE_TOKEN` 与
-// `BROKER_ACCOUNT_ID` 同样必填。
+// `BROKER_ACCOUNT_ID` 同样必填。`BROKER_CHANNEL` 声明通道性质（见
+// resolveChannel），缺失或非法同样装配失败。
 func NewTraderFromEnv(logger zerolog.Logger) (*Trader, error) {
 	base := strings.TrimSpace(os.Getenv("BROKER_URL"))
 	if base == "" {
 		return nil, fmt.Errorf("broker_http: BROKER_URL is required — in-process matching was retired by SVC-CORE-BROKER-RETIRE; configure the broker HTTP gateway instead")
+	}
+	channel, err := resolveChannel(logger, base)
+	if err != nil {
+		return nil, err
 	}
 	trader, err := NewTrader(BrokerHTTPOptions{
 		BaseURL:      base,
@@ -61,6 +122,7 @@ func NewTraderFromEnv(logger zerolog.Logger) (*Trader, error) {
 		return nil, err
 	}
 	logger.Info().
+		Str("channel", channel).
 		Str("url", base).
 		Str("account_id", trader.port.accountID).
 		Msg("execution channel: broker HTTP gateway (SVC-CORE-BROKER-RETIRE)")

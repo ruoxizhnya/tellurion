@@ -187,6 +187,14 @@ tellurion/
 > 双实现选择：`BROKER_URL` 未配置即 **fail-loud**（进程内 MockTrader 已删除，
 > 没有回退路径）；配了 URL 但缺 `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID`
 > 同样装配失败（fail-closed）。持仓 / 结算 / 紧急清仓仍在 core 运行域。
+>
+> **内存网关边界（2026-11-11）**：`tellurion-broker` 的 `cmd/brokergateway`
+> 目前只有内存 Mock 通道，而 core 从 `BROKER_URL` 无法识别对端性质。通道
+> 因此是**启动期必填声明**：`BROKER_CHANNEL=mock|live`；选 `mock` 还必须
+> 同时给 `BROKER_ALLOW_MOCK=true`（双键确认），否则装配失败。`mock` 会打
+> 一条 WARN（订单永不触达真实柜台），`live` + 回环地址也会 WARN（提醒别把
+> dev 的 `:8091` 当成真实柜台）。实现在 `pkg/brokerhttp.trader.go` 的
+> `resolveChannel`。
 
 > **回测持久化端口边界（SVC-CORE-RUN-RETIRE ③，2026-11-10）**：`pkg/backtest`
 > **不 import `pkg/storage`**；因子缓存、基本面 PIT、复权基准、run 留痕四项

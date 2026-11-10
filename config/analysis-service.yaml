@@ -20,6 +20,15 @@ server:
   cors:
     allowed_origins: []
 
+# 执行通道（env-only，本文件不落键；pkg/brokerhttp 直接读 env）：
+#   BROKER_CHANNEL=mock|live  **必填**。core 无法从 BROKER_URL 判断对端是不是
+#     内存网关（tellurion-broker 的 cmd/brokergateway 目前只有 Mock 通道），
+#     所以通道性质必须在启动期显式声明；缺失/非法即装配失败。
+#   BROKER_ALLOW_MOCK=true    BROKER_CHANNEL=mock 时必须同时给（双键确认），
+#     否则装配失败。mock = 内存撮合，订单永远到不了真实柜台，只在 dev/test 用；
+#     启动日志会打一条 `execution channel is MOCK ...` 的 WARN。
+#   BROKER_URL / BROKER_SERVICE_TOKEN / BROKER_ACCOUNT_ID 仍为必填。
+
 # P0-4: 鉴权。**没有密钥服务拒绝启动**（此前是静默进入 open-access）。
 # 密钥只从 env 注入，不要写进这份入库的 YAML：
 #   JWT_SECRET（或 AUTH_JWT_SECRET）= openssl rand -hex 32
