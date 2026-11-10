@@ -472,6 +472,15 @@ func TestNewTraderFromEnvFailsLoudWithoutBrokerURL(t *testing.T) {
 	t.Setenv("BROKER_ACCOUNT_ID", "acc")
 	t.Setenv("BROKER_CHANNEL", "mock")
 	t.Setenv("BROKER_ALLOW_MOCK", "true")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			_, _ = w.Write([]byte(`{"service":"brokergateway","channel":"mock"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	t.Setenv("BROKER_URL", srv.URL)
 	trader, err := NewTraderFromEnv(zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "broker_http", trader.Name())

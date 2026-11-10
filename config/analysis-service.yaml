@@ -27,6 +27,8 @@ server:
 #   BROKER_ALLOW_MOCK=true    BROKER_CHANNEL=mock 时必须同时给（双键确认），
 #     否则装配失败。mock = 内存撮合，订单永远到不了真实柜台，只在 dev/test 用；
 #     启动日志会打一条 `execution channel is MOCK ...` 的 WARN。
+#   启动期还会读 `GET <BROKER_URL>/version` 的 `channel` 字段核对声明：
+#     live 对 mock / 端点不可达 / 非 2xx / 缺 channel → 拒绝启动（fail-closed）。
 #   BROKER_URL / BROKER_SERVICE_TOKEN / BROKER_ACCOUNT_ID 仍为必填。
 
 # P0-4: 鉴权。**没有密钥服务拒绝启动**（此前是静默进入 open-access）。

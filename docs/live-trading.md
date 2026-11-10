@@ -26,6 +26,8 @@ verified-by: SVC-CORE-BROKER-RETIRE 施工（2026-11-10）；实盘-ready 定位
 > core 无法从 `BROKER_URL` 识别对端性质。因此通道是启动期必填声明：
 > `BROKER_CHANNEL=mock|live`，`mock` 还需 `BROKER_ALLOW_MOCK=true`（双键确认），
 > 否则装配失败；`mock` 会在启动日志打 WARN（订单永不触达真实柜台）。
+> 声明还会与对端核对：core 读 `GET <BROKER_URL>/version` 的只读 `channel`，
+> `live` 对 `mock`、端点不可达/非 2xx/缺字段一律 fatal（fail-closed）。
 >
 > **实盘定位（2026-10-08 D1 更新）**：核心抽象（`Broker` / `DataFeed` / `LiveTrader`）**按实盘-ready 设计、保留冗余**——接口形状按真实券商设计（部分成交 / 撤单 / 订单状态机 / 断线重连），见 [ADR-023 §6](adr/adr-023-ai-experimenter-lab.md) 与 [design/kernel/target-architecture-modular-kernel.md](design/kernel/target-architecture-modular-kernel.md)。当前只实现 paper / 模拟撮合，**paper trading 作为回测-实盘同构验证手段**（同一份策略代码两跑）。**真实券商对接（XTP）与合规报送仍不在当前路线图内**，留作将来。本文档保留作接口参考，**不代表已实现**。
 

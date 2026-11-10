@@ -1,6 +1,8 @@
 package brokerhttp
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -54,6 +56,63 @@ func TestResolveChannelRefusesSilentMock(t *testing.T) {
 	})
 }
 
+// 对端自报的通道性质是 live 声明的唯一证据：不一致或无法验证都必须拒绝。
+func TestVerifyPeerChannelIsFailClosed(t *testing.T) {
+	logger := zerolog.Nop()
+	newPeer := func(t *testing.T, body string, status int) *httptest.Server {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/version" {
+				http.NotFound(w, r)
+				return
+			}
+			if status != http.StatusOK {
+				w.WriteHeader(status)
+				return
+			}
+			_, _ = w.Write([]byte(body))
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+
+	t.Run("match", func(t *testing.T) {
+		srv := newPeer(t, `{"service":"brokergateway","channel":"mock"}`, http.StatusOK)
+		require.NoError(t, verifyPeerChannel(logger, srv.URL, ChannelMock))
+	})
+
+	t.Run("live declared but peer is mock", func(t *testing.T) {
+		srv := newPeer(t, `{"service":"brokergateway","channel":"mock"}`, http.StatusOK)
+		err := verifyPeerChannel(logger, srv.URL, ChannelLive)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "channel mismatch")
+		assert.Contains(t, err.Error(), `peer reports "mock"`)
+	})
+
+	t.Run("peer does not expose version", func(t *testing.T) {
+		srv := newPeer(t, "", http.StatusNotFound)
+		err := verifyPeerChannel(logger, srv.URL, ChannelLive)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "HTTP 404")
+	})
+
+	t.Run("peer omits channel", func(t *testing.T) {
+		srv := newPeer(t, `{"service":"brokergateway"}`, http.StatusOK)
+		err := verifyPeerChannel(logger, srv.URL, ChannelMock)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not report")
+	})
+
+	t.Run("peer unreachable", func(t *testing.T) {
+		srv := newPeer(t, "", http.StatusOK)
+		addr := srv.URL
+		srv.Close()
+		err := verifyPeerChannel(logger, addr, ChannelMock)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot verify peer channel")
+	})
+}
+
 // 装配入口：缺 BROKER_CHANNEL 不得静默成功。
 func TestNewTraderFromEnvRequiresChannel(t *testing.T) {
 	t.Setenv("BROKER_URL", "http://127.0.0.1:8091")
@@ -66,6 +125,15 @@ func TestNewTraderFromEnvRequiresChannel(t *testing.T) {
 
 	t.Setenv("BROKER_CHANNEL", "mock")
 	t.Setenv("BROKER_ALLOW_MOCK", "true")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			_, _ = w.Write([]byte(`{"service":"brokergateway","channel":"mock"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	t.Setenv("BROKER_URL", srv.URL)
 	trader, err := NewTraderFromEnv(zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "broker_http", trader.Name())

@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	broker "github.com/ruoxizhnya/tellurion-contracts/broker"
@@ -98,6 +99,57 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// brokerVersionPath 是 broker 服务自报通道性质的只读端点（G0 面）。
+const brokerVersionPath = "/version"
+
+// peerChannelProbeTimeout 是一次启动期探测的上界；只探一次，不重试。
+const peerChannelProbeTimeout = 2 * time.Second
+
+// peerVersion 只取核对通道所需的字段。
+type peerVersion struct {
+	Service string `json:"service"`
+	Channel string `json:"channel"`
+}
+
+// verifyPeerChannel 读对端 `/version` 的 `channel`，并与本进程声明比对。
+//
+// 选择 **fail-closed**（不可达 / 非 2xx / 没带 channel / 不一致都拒绝启动）：
+// core 没有别的办法知道对端是不是内存网关，接受「无法验证」的对端等于把
+// `BROKER_CHANNEL=live` 重新变成空头承诺 —— 一个老版本或配错的网关会静默
+// 通过，正是要消除的隐患。唯一已知实现对端（tellurion-broker 的
+// `cmd/brokergateway`）与本次改动同批提供该字段；升级 core 必须先升级 broker，
+// 代价是启动期依赖 broker 可达（一次 2s 探测，不重试）。
+func verifyPeerChannel(logger zerolog.Logger, baseURL, declared string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), peerChannelProbeTimeout)
+	defer cancel()
+	endpoint := strings.TrimRight(baseURL, "/") + brokerVersionPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("broker_http: cannot build %s: %w", endpoint, err)
+	}
+	resp, err := (&http.Client{Timeout: peerChannelProbeTimeout}).Do(req)
+	if err != nil {
+		return fmt.Errorf("broker_http: cannot verify peer channel via %s: %w — fail-closed: core refuses to trade against a gateway it cannot identify", endpoint, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("broker_http: peer %s returned HTTP %d — the gateway must report its channel (mock|live); fail-closed", endpoint, resp.StatusCode)
+	}
+	var v peerVersion
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return fmt.Errorf("broker_http: decode peer version from %s: %w — fail-closed", endpoint, err)
+	}
+	peer := strings.ToLower(strings.TrimSpace(v.Channel))
+	if peer == "" {
+		return fmt.Errorf("broker_http: peer %s does not report \"channel\" — upgrade tellurion-broker to a build that declares mock|live (fail-closed)", endpoint)
+	}
+	if peer != declared {
+		return fmt.Errorf("broker_http: channel mismatch: BROKER_CHANNEL=%s but peer reports %q (%s) — refusing to start; set BROKER_CHANNEL=mock (plus BROKER_ALLOW_MOCK=true) for the in-memory gateway", declared, peer, endpoint)
+	}
+	logger.Info().Str("channel", peer).Str("endpoint", endpoint).Msg("broker peer channel verified")
+	return nil
+}
+
 // NewTraderFromEnv 是 core 的默认装配入口。
 //
 // `BROKER_URL` 必填：SVC-CORE-BROKER-RETIRE 之后进程内撮合已删除，
@@ -119,6 +171,10 @@ func NewTraderFromEnv(logger zerolog.Logger) (*Trader, error) {
 		AccountID:    os.Getenv("BROKER_ACCOUNT_ID"),
 	})
 	if err != nil {
+		return nil, err
+	}
+	// 声明只是声明：必须由对端自报的通道性质来核对（fail-closed）。
+	if err := verifyPeerChannel(logger, base, channel); err != nil {
 		return nil, err
 	}
 	logger.Info().

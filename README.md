@@ -104,6 +104,12 @@ curl -sS http://127.0.0.1:18085/readyz   # 就绪：DB ping + 启动 DDL 关键�
 一条 `execution channel is MOCK ...` 的 WARN。少了任一键都**启动失败**，
 不会静默地对着内存撮合跑真钱；接真实柜台时改成 `BROKER_CHANNEL=live`。
 
+声明之后还要**对得上对端**：core 启动期会读 `GET <BROKER_URL>/version` 的
+只读字段 `channel`。声明 `live` 而网关自报 `mock` → 直接拒绝启动；端点不可达、
+非 2xx 或没带 `channel` 同样拒绝（fail-closed——这是唯一的可验证来源，
+接受「无法验证」等于让 `live` 重新变成空头承诺）。因此升级 core 前先升级
+`tellurion-broker` 到带 `channel` 的版本。
+
 服务间地址**不需要逐个覆盖**：`config/analysis-service.yaml` 是宿主机视角，
 `data_service.url` / `ai_service.url` / `strategy_asset.resolve_url` /
 `risk_service.resolve_url` 默认都是 `http://localhost:<port>`；容器内由

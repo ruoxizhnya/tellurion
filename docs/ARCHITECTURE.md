@@ -193,8 +193,15 @@ tellurion/
 > 因此是**启动期必填声明**：`BROKER_CHANNEL=mock|live`；选 `mock` 还必须
 > 同时给 `BROKER_ALLOW_MOCK=true`（双键确认），否则装配失败。`mock` 会打
 > 一条 WARN（订单永不触达真实柜台），`live` + 回环地址也会 WARN（提醒别把
-> dev 的 `:8091` 当成真实柜台）。实现在 `pkg/brokerhttp.trader.go` 的
-> `resolveChannel`。
+> dev 的 `:8091` 当成真实柜台）。
+>
+> **声明必须可验证**：装配时还会 `GET <BROKER_URL>/version` 读网关自报的只读
+> `channel`，与声明比对；`live` 对 `mock`、对端不可达、非 2xx、缺 `channel`
+> 一律 **fatal 拒绝启动**（fail-closed）。理由是 core 没有第二个信息源，
+> 「无法验证」若降级为 WARN，一个老版本/配错的网关就能静默冒充真实柜台。
+> 实现：`pkg/brokerhttp.trader.go` 的 `resolveChannel`（声明）与
+> `verifyPeerChannel`（对端核对）；broker 侧字段在
+> `cmd/brokergateway/main.go` 的 `/version`。
 
 > **回测持久化端口边界（SVC-CORE-RUN-RETIRE ③，2026-11-10）**：`pkg/backtest`
 > **不 import `pkg/storage`**；因子缓存、基本面 PIT、复权基准、run 留痕四项
