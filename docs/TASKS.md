@@ -9,6 +9,8 @@ verified-by: 2026-11-10 data-service 部署面收口（compose 改跨仓镜像 +
 > **只放未完成项**，完成即标 ✅（附日期）并移入 `archive/`。
 > 历史代：[第 1 代 35 项](archive/TASKS-2026-10-14-archived.md)、[第 2 代 27 项](archive/TASKS-2026-10-16-gen2-archived.md)、[第 3 代 6 项](archive/TASKS-2026-10-20-archived.md)（DBT 系列前提核验与证伪台账在归档内，**写 DBT 单前先读那里**）。
 > 状态：`⬜ 待做` / `🔶 进行中` / `⛔ 阻塞（有未解除前置）` / `✅ 完成（附日期）`
+>
+> **台账终扫（2026-11-10）**：任务标题带 `⬜` / `🔶` / `⛔` 的 = **0 条**（`grep -E '^#{2,3} .*(⬜|🔶|⛔)'` 为空）；正文施工记录里的旧标记是当时状态，以标题与本单最新「收口 / 终结」块为准。**本仓无开放项**。挂起 / 外部依赖：① X6c 真钱通道（`tellurion-broker` `⏸`，重开条件见 broker `docs/adr/0003`）；② `public.data_migrations` 过渡保留（退出条件见 `SVC-CORE-DATA-RETIRE`）；③ 生产库 X1d 物理搬迁与 `visible_at` 回填属运维动作（data 仓已在本机实例重放通过，生产未动）。
 > 每张 task 六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../AGENTS.md)。
 
 > **第四轮·目的对齐审计（2026-10-26）**：审的是「做出来的部分有没有偏离原始目的」，不是进度。结论：**底座主线（契约冻结 W0 / 执行正确性 W1-W2 / agent 去 replace S3 / contracts+kit）没有跑歪**；**X 线服务拆分支线跑偏**——六仓已实装（合计 51k Go LOC）、core 一件没减（202k LOC 仍在原地）、今天只有 data 一条读链真被 core 消费、部署路径曾断（`Dockerfile.service` 曾 build 已删除的 `cmd/strategy`；**2026-10-26 已删该 build/COPY 行，见下**）、risk/analytics 有 k8s 清单但没有升格 ADR。另有 4 簇 DDL 双 owner（market / run / strategy / ai）+ risk 裁决权双真相。**审计只列证据，不代裁**；候选单见该文 §六，**未立单不得开工**。正文：`docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`。本文件不镜像正文。
