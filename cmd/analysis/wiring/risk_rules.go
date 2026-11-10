@@ -237,7 +237,7 @@ func LoadRiskPolicy(v *viper.Viper, logger zerolog.Logger) (risk.Policy, error) 
 	base := strings.TrimSpace(v.GetString("risk_service.resolve_url"))
 	if base == "" {
 		return risk.Policy{}, fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
-			"（tellurion-risk 的默认地址是 http://localhost:8086；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
+			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
 	}
 	timeout := v.GetDuration("risk_service.resolve_timeout")
 	if timeout <= 0 {
@@ -295,7 +295,7 @@ func AttachRiskRulesFromConfig(eng *backtest.Engine, v *viper.Viper, logger zero
 		// 回落到那里等于把「少配一项」变成「每个 run 都 404 → failed」，
 		// 且失败点推迟到提交时才出现。宁可装配期直接拒。
 		return fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
-			"（tellurion-risk 的默认地址是 http://localhost:8086；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
+			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
 	}
 	timeout := v.GetDuration("risk_service.resolve_timeout")
 	if timeout <= 0 {
