@@ -19,6 +19,11 @@ spec:
     spec:
       containers:
         - name: data
+          # 镜像由 tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08）：
+          # 本仓已无 data 构建目标（Makefile 的 build-data 于 2026-11-11 删除）。
+          # 名称与 docker-compose.yml 的 `tellurion/data` 同一约定，构建上下文
+          # 指向 `../tellurion-data`；data 仓本地 compose 用的是 `tellurion-data:dev`，
+          # 正式 registry 名尚未统一（见 docs/TASKS.md CORE-DATA-IMAGE-NAME-ALIGNMENT）。
           image: tellurion/data:latest
           imagePullPolicy: IfNotPresent
           ports:
