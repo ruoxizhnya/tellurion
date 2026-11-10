@@ -32,8 +32,8 @@ func TestExecutionHandler_OrdersCacheEvictsOldest(t *testing.T) {
 	postOrder := func() string {
 		body, _ := json.Marshal(map[string]interface{}{
 			"symbol": "000001.SZ", "side": "long", "type": "market",
-			// 1 股 × 10 元：1002 单占用 ~1 万现金，远低于 MockTrader 的
-			// 100 万初始资金——避免_cash 不足把测试变成下单失败测试。
+			// 1 股 × 10 元：1002 单占用 ~1 万现金，远低于测试替身的
+			// 100 万初始资金——避免现金不足把测试变成下单失败测试。
 			"quantity": 1, "price": 10.0,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/execution/orders", bytes.NewReader(body))

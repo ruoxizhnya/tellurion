@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,7 +27,7 @@ import (
 func TestPaperExecAlgo_UnknownStyleFailsLoud(t *testing.T) {
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	prov := execAlgoPaperBars(20, start)
-	trader := NewMockTrader(MockTraderConfig{InitialCash: 1_000_000}, zerolog.Nop())
+	trader := newFakePaperTrader(1_000_000)
 	s, err := NewPaperSession(PaperSessionConfig{
 		Provider: prov,
 		Clock:    clock.NewVirtualClock(start),

@@ -26,11 +26,10 @@ import "tellurion/pkg/domain"
 // `execution-service:8084/*`. Path prefix `/api` is added; the
 // rest of the surface is byte-compatible.
 //
-// The handler wraps a *trading.MockTrader (or any trading.LiveTrader
-// implementation) so the runtime path is zero-HOP — the same
-// in-memory instance that the backtest engine bridges to via
-// `WithLiveTrader` is also exposed over HTTP for operator-driven
-// paper trading.
+// The handler wraps a trading.LiveTrader (生产 = pkg/brokerhttp 的 broker
+// HTTP 通道；测试注入替身) so the HTTP layer stays a thin shim — the
+// same instance the backtest engine bridges to via `WithLiveTrader` is
+// also exposed over HTTP for operator-driven paper trading.
 
 type ExecutionHandler struct {
 	trader trading.LiveTrader
@@ -77,9 +76,10 @@ func WithExecutionAuth(svc *auth.Service) ExecutionHandlerOption {
 }
 
 // NewExecutionHandler constructs an ExecutionHandler. The trader is
-// typically a MockTrader; the same instance should also be passed
-// to the backtest engine via WithLiveTrader so HTTP-driven paper
-// orders are visible to backtest bridge (and vice versa).
+// the process's execution channel (生产 = broker HTTP); the same
+// instance should also be passed to the backtest engine via
+// WithLiveTrader so HTTP-driven paper orders are visible to backtest
+// bridge (and vice versa).
 //
 // emergencyToken is the bearer token required for the
 // emergency-flatten endpoint. Pass "" to disable the endpoint

@@ -18,9 +18,9 @@ import "tellurion/pkg/domain"
 
 // CurrentBarSource 是「能从当根 bar 定价」的 paper trader 可选实现。
 //
-// MockTrader 实现它；PaperSession 在 Run 前把「(当前日, symbol) → Quote」
-// 的闭包注入进去，于是 MockTrader 的市价单参考价取当根 bar 的 Close、
-// 成本核取当根 bar 的高低/量。真实券商不实现它（它有自己的行情），
+// paper 侧的撮合替身实现它；PaperSession 在 Run 前把「(当前日, symbol) → Quote」
+// 的闭包注入进去，于是市价单参考价取当根 bar 的 Close、成本核取当根 bar 的
+// 高低/量。真实通道（broker HTTP）不实现它（它有自己的行情），
 // PaperSession 检测不到就跳过 —— 这是「实盘-ready 边界」而不是缺陷。
 type CurrentBarSource interface {
 	SetCurrentBarProvider(func(symbol string) (Quote, bool))
@@ -46,7 +46,7 @@ type PaperSessionConfig struct {
 	// Clock 是回放时间源。必须注入（通常 NewVirtualClock(start)）——
 	// 它是「回放与回测同一时间观」的保证，缺省不得静默用墙钟。
 	Clock clock.Clock
-	// Trader 是撮合/代持通道（paper 下通常是 *MockTrader）。
+	// Trader 是撮合/代持通道（生产 = broker HTTP；paper 算法测试注入共享成本核的替身）。
 	Trader LiveTrader
 	// ExecutionConfig 是执行配置（成本模型参数来源）。
 	ExecutionConfig domain.ExecutionConfig
@@ -150,8 +150,8 @@ func NewPaperSession(cfg PaperSessionConfig) (*PaperSession, error) {
 //  2. 用 feed.Replay **一次**物化整段（内部只调一次 BulkLoadOHLCV），
 //     按 (交易日升序, symbol 字典序) 逐根推进 VirtualClock；这样就与回测
 //     吃**同一批** bar；
-//  3. 组合起点为该 trader 的 InitialCapital（由构造它的 MockTraderConfig
-//     决定），每日从 trader 快照出 portfolio；
+//  3. 组合起点为该 trader 的 InitialCapital（由注入的通道实现决定），
+//     每日从 trader 快照出 portfolio；
 //  4. 对每个交易日 d（升序）：窗口 = **只含 Date <= d 的 bars**（与
 //     strategy.Scope.MarketData 的累积语义一致，也是防前视的那条线）：
 //     - 流式策略（实现 strategy.BarHandler）→ 当日各 symbol 的 bar 按
@@ -286,7 +286,7 @@ func (s *PaperSession) Run(ctx context.Context, symbols []string, start, end tim
 		// SubmitAt = 信号当日，当日到点即发，与回测侧同序）。
 		fills = append(fills, s.dispatchExecAlgoChildren(ctx, d)...)
 
-		// T+1 结算滚动（MockTrader 实现 AdvanceDay）。
+		// T+1 结算滚动（paper 侧通道实现 AdvanceDay；broker HTTP 不实现即跳过）。
 		if adv, ok := s.trader.(interface{ AdvanceDay() }); ok {
 			adv.AdvanceDay()
 		}

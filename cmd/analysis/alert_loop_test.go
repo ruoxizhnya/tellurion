@@ -25,8 +25,7 @@ import "tellurion/pkg/domain"
 
 // stubLiveTrader is a minimal LiveTrader that returns canned
 // positions and account state. It satisfies pkg/trading.LiveTrader so
-// the alert loop can be exercised without spinning up the full
-// MockTrader or a real broker integration.
+// the alert loop can be exercised without a real broker integration.
 type stubLiveTrader struct {
 	mu        sync.Mutex
 	positions []trading.PositionInfo

@@ -6,7 +6,7 @@ package trading
 //  1. TWAP 拆 7 片的大单 → PaperSession 产出 **7 条** PaperFill（不是 1 条）；
 //  2. Σ 子单量 == 同策略无算法运行的整单量（signalQuantity 口径一致）；
 //  3. 时间片均匀：7 条成交落在 7 个不同交易日、相邻间隔恰为 1 自然日；
-//  4. 大单总冲击成本 < 同量整单（MockTrader 与回测同一份 pkg/execution
+//  4. 大单总冲击成本 < 同量整单（paper 侧替身与回测同一份 pkg/execution
 //     成本核，impact 分支按子单量定冲击 —— D5 正证据）。
 //
 // 回归腿：无 exec_algo 的同一策略 → 1 条 PaperFill（默认路径不变）。
@@ -80,12 +80,7 @@ func runPaperExecAlgo(t *testing.T, probe *execAlgoPaperProbe) ([]PaperFill, *by
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	prov := execAlgoPaperBars(20, start)
 	logSink := &bytes.Buffer{}
-	trader := NewMockTrader(MockTraderConfig{
-		InitialCash:           1_000_000,
-		SlippageModel:         "impact", // 与回测同一份 pkg/execution 成本核
-		ImpactSigma:           0.05,
-		ImpactLiquidityFactor: 1.0,
-	}, zerolog.Nop())
+	trader := newFakePaperTrader(1_000_000)
 	s, err := NewPaperSession(PaperSessionConfig{
 		Provider: prov,
 		Clock:    clock.NewVirtualClock(start),

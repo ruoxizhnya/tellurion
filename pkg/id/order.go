@@ -12,6 +12,9 @@
 //  3. 不一致：3 套订单号生成路径（trading.MockTrader、
 //     trading.persistentMockTrader、cmd/execution）独立调用，
 //     未来加 trace_id 时必须各自改。
+//     （2026-11-10：进程内撮合随 SVC-CORE-BROKER-RETIRE 删除，上述三套
+//     路径已消失；本包当前无生产调用者，保留为订单域重建的候选，见
+//     internal/repoguard/package_wiring_test.go 的白名单。）
 //
 // 解决
 // ----

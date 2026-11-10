@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,16 +53,74 @@ func newTestRiskHandler(t *testing.T) *RiskHandler {
 
 func newTestExecutionHandler(t *testing.T) *ExecutionHandler {
 	t.Helper()
-	trader := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:    1_000_000,
-		CommissionRate: 0.0003,
-		// AUD-06 (ODR-065): was 0.001 (the pre-2023-08 rate). Not
-		// asserted anywhere, but it is the value people copy from
-		// when writing new fixtures, so it must not be wrong.
-		StampTaxRate: 0.0005,
-		SlippageRate: 0.0001,
-	}, zerolog.New(nil))
-	return NewExecutionHandler(trader, zerolog.New(nil), "")
+	return NewExecutionHandler(newFakeExecutionTrader(), zerolog.New(nil), "")
+}
+
+// fakeExecutionTrader 是 handler 测试用的最小成交通道：下单即全额成交，
+// 支持按 ID 回查。SVC-CORE-BROKER-RETIRE 删除了进程内撮合，但 handler
+// 的行为契约仍需单测。
+type fakeExecutionTrader struct {
+	mu     sync.Mutex
+	seq    int
+	orders map[string]*trading.OrderResult
+}
+
+func newFakeExecutionTrader() *fakeExecutionTrader {
+	return &fakeExecutionTrader{orders: map[string]*trading.OrderResult{}}
+}
+
+func (f *fakeExecutionTrader) SubmitOrder(_ context.Context, symbol string, dir cdom.Direction,
+	orderType domain.OrderType, qty, price float64) (*trading.OrderResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seq++
+	if price <= 0 {
+		price = 10
+	}
+	res := &trading.OrderResult{
+		OrderID: fmt.Sprintf("fake-exec-%d", f.seq), Symbol: symbol, Direction: dir,
+		OrderType: orderType, Quantity: qty, FilledQty: qty, Price: price, FillPrice: price,
+		Status: "filled",
+	}
+	f.orders[res.OrderID] = res
+	cp := *res
+	return &cp, nil
+}
+
+func (f *fakeExecutionTrader) CancelOrder(_ context.Context, orderID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.orders[orderID]; !ok {
+		return fmt.Errorf("order %s not found", orderID)
+	}
+	return nil
+}
+
+func (f *fakeExecutionTrader) GetOrder(_ context.Context, orderID string) (*trading.OrderResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	res, ok := f.orders[orderID]
+	if !ok {
+		return nil, fmt.Errorf("order %s not found", orderID)
+	}
+	cp := *res
+	return &cp, nil
+}
+
+func (f *fakeExecutionTrader) GetPositions(context.Context) ([]trading.PositionInfo, error) {
+	return nil, nil
+}
+
+func (f *fakeExecutionTrader) GetAccount(context.Context) (*trading.AccountInfo, error) {
+	return &trading.AccountInfo{TotalAssets: 1_000_000, Cash: 1_000_000}, nil
+}
+
+func (f *fakeExecutionTrader) Name() string { return "fake_execution" }
+
+func (f *fakeExecutionTrader) HealthCheck(context.Context) error { return nil }
+
+func (f *fakeExecutionTrader) EmergencyFlatten(_ context.Context, reason string) (*trading.EmergencyFlattenResult, error) {
+	return &trading.EmergencyFlattenResult{Reason: reason}, nil
 }
 
 func setupRouter(rh *RiskHandler, eh *ExecutionHandler) *gin.Engine {
@@ -204,12 +264,9 @@ func TestExecutionHandler_CreateAndGetOrder(t *testing.T) {
 	eh := newTestExecutionHandler(t)
 	router := setupRouter(rh, eh)
 
-	// The MockTrader rejects a literal 0 price (it would divide
-	// by zero in commission math), so we send a nominal price of
-	// 10.0 even for a "market" order — the trader treats it as
-	// the execution price. This mirrors the original
-	// cmd/execution/main.go callers, which all supplied a price
-	// field.
+	// 显式给名义价 10.0：fakeExecutionTrader 对 price<=0 会补默认价，
+	// 这里仍按原 cmd/execution/main.go 调用方的形状（都带 price 字段）
+	// 发请求，保证的是 handler 的透传语义。
 	createBody := map[string]interface{}{
 		"symbol":   "000001.SZ",
 		"side":     "long",

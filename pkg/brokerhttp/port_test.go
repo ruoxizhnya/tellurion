@@ -1,16 +1,18 @@
-package wiring
+package brokerhttp
 
-// SVC-BROKER-G3 的验收测试：BrokerHTTPPort 的报文映射、错误码透传，以及
-// 与旧实现（trading.MockTrader）的**同批对拍**。
+// SVC-BROKER-G3 的验收测试：Port 的报文映射、错误码透传，以及 Trader
+// （core 运行域通道）的持仓 / 账户 / 紧急清仓映射。
 //
-// 对拍为什么默认用 wire-faithful double：
+// 为什么默认用 wire-faithful double：
 //   - core 与 tellurion-broker 是两个 Go module，没有 go.work，core **不能**
 //     import broker 的 internal/gateway；跨仓只能走 HTTP。
 //   - 单元测试里起真 broker 进程需要外部二进制 / 端口编排，不属于单仓门禁。
 //     故本文件的 double **按 docs/api-schema.md §1.5 与 broker Mock 的语义**
 //     实现携带 token 的 POST/GET/DELETE 与「受理 ≠ 成交」规则。
-//   - 真进程腿已经存在，但为 opt-in：TestBrokerHTTPPortParityAgainstRealBrokerProcess
-//     只在设置了 BROKER_PARITY_URL 时运行（起进程步骤见 broker:docs/TASKS.md）。
+//   - 真进程腿为 opt-in：BROKER_PARITY_URL 未设置时 skip。
+//
+// 与进程内撮合的对拍腿已随 SVC-CORE-BROKER-RETIRE 删除（被对拍对象已退役，
+// 结论见 core docs/TASKS.md 该单步骤 B 记录）。
 
 import (
 	"context"
@@ -31,7 +33,6 @@ import (
 
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/domain"
-	"tellurion/pkg/trading"
 )
 
 // ─── wire-faithful broker double ────────────────────────────────────
@@ -67,6 +68,9 @@ func newFakeBroker(t *testing.T, token string, prices map[string]float64) (*http
 	mux.HandleFunc("POST /api/broker/orders", f.handlePlace)
 	mux.HandleFunc("GET /api/broker/orders/{id}", f.handleQuery)
 	mux.HandleFunc("DELETE /api/broker/orders/{id}", f.handleCancel)
+	mux.HandleFunc("GET /api/broker/accounts/{accountID}/positions", f.handlePositions)
+	mux.HandleFunc("GET /api/broker/accounts/{accountID}/account", f.handleAccount)
+	mux.HandleFunc("POST /api/broker/emergency-flatten", f.handleFlatten)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, f
@@ -166,6 +170,51 @@ func (f *fakeBroker) handleCancel(w http.ResponseWriter, r *http.Request) {
 	state.LastUpdate = time.Now().UTC()
 	f.states[id] = state
 	writeFakeJSON(w, http.StatusOK, state)
+}
+
+func (f *fakeBroker) handlePositions(w http.ResponseWriter, _ *http.Request) {
+	writeFakeJSON(w, http.StatusOK, []broker.Position{
+		{AccountID: "acc-mock", Symbol: "000001", Quantity: 500, AvailableQuantity: 300, AvgCost: 10, MarketValue: 6250},
+		{AccountID: "acc-mock", Symbol: "600000", Quantity: 200, AvailableQuantity: 200, AvgCost: 9, MarketValue: 1640},
+	})
+}
+
+func (f *fakeBroker) handleAccount(w http.ResponseWriter, _ *http.Request) {
+	writeFakeJSON(w, http.StatusOK, broker.AccountSnapshot{
+		AccountID:   "acc-mock",
+		TotalAssets: 100_000,
+		Cash:        broker.Cash{Total: 92_110, Available: 91_110},
+		Positions: []broker.Position{
+			{AccountID: "acc-mock", Symbol: "000001", Quantity: 500, AvailableQuantity: 300, AvgCost: 10, MarketValue: 6250},
+			{AccountID: "acc-mock", Symbol: "600000", Quantity: 200, AvailableQuantity: 200, AvgCost: 9, MarketValue: 1640},
+		},
+	})
+}
+
+func (f *fakeBroker) handleFlatten(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "Bearer "+f.token {
+		writeFakeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid service token")
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeFakeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	at := time.Now().UTC()
+	writeFakeJSON(w, http.StatusOK, broker.EmergencyFlattenResult{
+		Sold: []broker.FlattenedPosition{
+			{AccountID: "acc-mock", Symbol: "000001", Quantity: 500, ClientOrderID: "flatten:000001:1:500",
+				AvgFillPrice: 12.5, FilledAt: at},
+		},
+		Skipped:     []broker.SkippedPosition{{AccountID: "acc-mock", Symbol: "600000", Quantity: 200, Reason: "not confirmed"}},
+		SoldTotal:   1,
+		StartedAt:   at,
+		CompletedAt: at,
+		Reason:      body.Reason,
+	})
 }
 
 func fakeFingerprint(req broker.OrderRequest) string {
@@ -405,167 +454,106 @@ func TestBrokerHTTPPortHealthCheck(t *testing.T) {
 	require.Error(t, downPort.HealthCheck(context.Background()))
 }
 
-func TestNewBrokerHTTPPortFromEnv(t *testing.T) {
+// ─── Trader（core 运行域通道）───────────────────────────────────────
+
+func TestNewTraderFromEnvFailsLoudWithoutBrokerURL(t *testing.T) {
 	t.Setenv("BROKER_URL", "")
-	port, err := NewBrokerHTTPPortFromEnv(zerolog.Nop())
-	require.NoError(t, err)
-	assert.Nil(t, port, "未配置 BROKER_URL = 不切通道（回退旧实现）")
+	_, err := NewTraderFromEnv(zerolog.Nop())
+	require.Error(t, err, "SVC-CORE-BROKER-RETIRE 之后无 BROKER_URL 必须装配失败")
+	assert.Contains(t, err.Error(), "BROKER_URL is required")
 
 	t.Setenv("BROKER_URL", "http://127.0.0.1:8091")
 	t.Setenv("BROKER_SERVICE_TOKEN", "")
 	t.Setenv("BROKER_ACCOUNT_ID", "")
-	_, err = NewBrokerHTTPPortFromEnv(zerolog.Nop())
-	require.Error(t, err, "配了 URL 却缺 token/账户必须装配失败（fail-closed）")
+	_, err = NewTraderFromEnv(zerolog.Nop())
+	require.Error(t, err, "缺 token/账户必须装配失败（fail-closed）")
 
 	t.Setenv("BROKER_SERVICE_TOKEN", "tok")
 	t.Setenv("BROKER_ACCOUNT_ID", "acc")
-	port, err = NewBrokerHTTPPortFromEnv(zerolog.Nop())
+	trader, err := NewTraderFromEnv(zerolog.Nop())
 	require.NoError(t, err)
-	require.NotNil(t, port)
-	assert.Equal(t, "broker_http", port.Name())
+	assert.Equal(t, "broker_http", trader.Name())
 
 	t.Setenv("BROKER_URL", "ftp://127.0.0.1:8091")
-	_, err = NewBrokerHTTPPortFromEnv(zerolog.Nop())
+	_, err = NewTraderFromEnv(zerolog.Nop())
 	require.Error(t, err, "非 http(s) 地址必须拒绝")
 }
 
-// ─── 同批对拍：旧 MockTrader vs broker HTTP ─────────────────────────
+func TestTraderPositionsAccountAndFlattenMapping(t *testing.T) {
+	srv, _ := newFakeBroker(t, "service-token", nil)
+	trader, err := NewTrader(BrokerHTTPOptions{
+		BaseURL: srv.URL, ServiceToken: "service-token", AccountID: "acc-mock",
+	})
+	require.NoError(t, err)
 
-// TestBrokerHTTPPortParityWithMockTrader 把同一批订单分别送进旧实现与新
-// 通道，逐笔比对**订单意图与成交事实**。
-//
-// 口径（与 docs/TASKS.md 登记一致）：
-//   - 一致项：symbol / direction / order_type / quantity / 状态（filled）/
-//     FilledQty，以及「成交价 = 通道参考价」—— broker Mock 按参考价成交。
-//   - 已知差异（wire 不携带，不是缺陷）：旧 MockTrader 在 core 内再叠加
-//     滑点与费用（FillPrice 带滑点、Fee > 0）；broker 报文只有
-//     `avg_fill_price`、没有费用字段。费用仍由 core 运行域自算。
-//   - 本对拍只覆盖市价买单：旧 MockTrader 的卖出受 T+1 约束、broker Mock
-//     不建模 T+1；限价单在 broker 侧是「受理 ≠ 成交」，旧实现是立即成交。
-//     这两类差异在 TASKS 里如实登记，不在此伪装成一致。
-func TestBrokerHTTPPortParityWithMockTrader(t *testing.T) {
-	prices := map[string]float64{
-		"000001": 12.5,
-		"600000": 8.2,
-		"002594": 30.1,
-	}
-	srv, _ := newFakeBroker(t, "service-token", prices)
-	port := newBrokerPortForTest(t, srv)
+	ctx := context.Background()
+	positions, err := trader.GetPositions(ctx)
+	require.NoError(t, err)
+	require.Len(t, positions, 2)
+	assert.Equal(t, "000001.SZ", positions[0].Symbol)
+	assert.InDelta(t, 500, positions[0].Quantity, 1e-9)
+	assert.InDelta(t, 300, positions[0].AvailableQty, 1e-9)
+	assert.InDelta(t, 200, positions[0].QuantityToday, 1e-9)
+	assert.InDelta(t, 300, positions[0].QuantityYesterday, 1e-9)
+	assert.InDelta(t, 12.5, positions[0].CurrentPrice, 1e-9)
+	assert.InDelta(t, 1250, positions[0].UnrealizedPnL, 1e-9)
+	assert.Equal(t, "600000.SH", positions[1].Symbol)
 
-	const slippage = 0.0005
-	mock := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:   1_000_000,
-		SlippageRate:  slippage,
-		PriceProvider: func(symbol string) float64 { return prices[brokerSymbolOrSelf(t, symbol)] },
-	}, zerolog.Nop())
+	account, err := trader.GetAccount(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, 100_000, account.TotalAssets, 1e-9)
+	assert.InDelta(t, 92_110, account.Cash, 1e-9)
+	assert.InDelta(t, 7_890, account.MarketValue, 1e-9)
+	assert.InDelta(t, 1_090, account.UnrealizedPnL, 1e-9)
+	assert.Zero(t, account.RealizedPnL, "柜台快照不含已实现盈亏，如实缺省")
 
-	batch := []execution.OrderRequest{
-		{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100},
-		{Symbol: "600000.SH", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 300},
-		{Symbol: "002594.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 200},
-	}
-	for _, req := range batch {
-		ref := prices[brokerSymbolOrSelf(t, req.Symbol)]
-
-		oldRes, err := mock.SubmitOrder(context.Background(), req.Symbol, req.Direction, req.OrderType, req.Quantity, req.Price)
-		require.NoError(t, err, "旧实现下单失败: %s", req.Symbol)
-
-		newRes, err := port.SubmitOrder(context.Background(), req)
-		require.NoError(t, err, "broker HTTP 下单失败: %s", req.Symbol)
-
-		// ① 订单意图逐字段一致。
-		assert.Equal(t, oldRes.Symbol, newRes.Symbol)
-		assert.Equal(t, oldRes.Direction, newRes.Direction)
-		assert.Equal(t, oldRes.OrderType, newRes.OrderType)
-		assert.Equal(t, oldRes.Quantity, newRes.Quantity)
-
-		// ② 成交事实一致。
-		assert.Equal(t, "filled", oldRes.Status)
-		assert.Equal(t, "filled", newRes.Status)
-		assert.Equal(t, oldRes.FilledQty, newRes.FilledQty)
-
-		// ③ 成交价：新通道 = 参考价；旧实现 = 参考价叠加滑点（已知差异，钉住口径）。
-		assert.InDelta(t, ref, newRes.FillPrice, 1e-9, "broker Mock 按参考价成交")
-		assert.InDelta(t, ref*(1+slippage), oldRes.FillPrice, 1e-9, "旧 MockTrader 叠加固定滑点")
-
-		// ④ 费用：wire 不带；旧实现有。登记为已知差异。
-		assert.Zero(t, newRes.Fee, "broker wire 无费用字段")
-		assert.Positive(t, oldRes.Fee, "旧实现自算费用")
-
-		t.Logf("parity %-10s qty=%.0f status=%s/%s fill=%.4f/%.4f fee=%.2f/0",
-			req.Symbol, req.Quantity, oldRes.Status, newRes.Status, oldRes.FillPrice, newRes.FillPrice, oldRes.Fee)
-	}
+	flat, err := trader.EmergencyFlatten(ctx, "drill")
+	require.NoError(t, err)
+	require.Len(t, flat.Sold, 1)
+	require.Len(t, flat.Skipped, 1)
+	assert.Equal(t, "000001.SZ", flat.Sold[0].Symbol)
+	assert.InDelta(t, 500, flat.Sold[0].Quantity, 1e-9)
+	assert.InDelta(t, 12.5, flat.Sold[0].FillPrice, 1e-9)
+	assert.InDelta(t, 6_250, flat.Sold[0].NetProceeds, 1e-9)
+	assert.True(t, flat.Sold[0].BypassedT1)
+	assert.InDelta(t, 6_250, flat.SoldTotal, 1e-9)
+	assert.Equal(t, "600000.SH", flat.Skipped[0].Symbol)
+	assert.Equal(t, "drill", flat.Reason)
 }
 
-// TestBrokerHTTPPortParityAgainstRealBrokerProcess 是上一条对拍的**真进程腿**：
-// 外部起一个真 broker 服务（MemoryAckStore + Mock，参考价经 -mock-prices 喂入），
-// 本用例经 HTTP 打真服务，再与旧 trading.MockTrader 逐笔比对，口径与 double 腿一致。
-//
-// opt-in：未设 BROKER_PARITY_URL 时 skip —— 单仓门禁不依赖外部进程/端口。
-// 起进程（broker 仓根目录，真实命令见 broker:docs/TASKS.md SVC-BROKER-G3）：
-//
-//	BROKER_SERVICE_TOKEN=service-token ./brokergateway \
-//	  -addr 127.0.0.1:18094 -account-id acc-mock \
-//	  -mock-prices "000001=12.5,600000=8.2,002594=30.1"
-func TestBrokerHTTPPortParityAgainstRealBrokerProcess(t *testing.T) {
+func TestTraderSubmitOrderMapsToLiveResult(t *testing.T) {
+	srv, _ := newFakeBroker(t, "service-token", map[string]float64{"000001": 12.5})
+	trader, err := NewTrader(BrokerHTTPOptions{
+		BaseURL: srv.URL, ServiceToken: "service-token", AccountID: "acc-mock",
+	})
+	require.NoError(t, err)
+
+	res, err := trader.SubmitOrder(context.Background(), "000001.SZ",
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "filled", res.Status)
+	assert.InDelta(t, 100, res.FilledQty, 1e-9)
+	assert.InDelta(t, 12.5, res.FillPrice, 1e-9)
+}
+
+// TestTraderAgainstRealBrokerProcess 是 opt-in 真进程腿：未设
+// BROKER_PARITY_URL 时 skip。起进程步骤见 broker:docs/TASKS.md。
+func TestTraderAgainstRealBrokerProcess(t *testing.T) {
 	baseURL := os.Getenv("BROKER_PARITY_URL")
 	if baseURL == "" {
-		t.Skip("BROKER_PARITY_URL 未设置：真 broker 进程对拍是 opt-in 腿")
+		t.Skip("BROKER_PARITY_URL 未设置：真 broker 进程腿是 opt-in")
 	}
-	port, err := NewBrokerHTTPPort(BrokerHTTPOptions{
+	trader, err := NewTrader(BrokerHTTPOptions{
 		BaseURL:      baseURL,
 		ServiceToken: os.Getenv("BROKER_PARITY_TOKEN"),
 		AccountID:    os.Getenv("BROKER_PARITY_ACCOUNT"),
 	})
 	require.NoError(t, err)
-	require.NoError(t, port.HealthCheck(context.Background()), "真 broker 进程 /healthz 必须可用")
+	require.NoError(t, trader.HealthCheck(context.Background()), "真 broker 进程 /healthz 必须可用")
 
-	prices := map[string]float64{
-		"000001": 12.5,
-		"600000": 8.2,
-		"002594": 30.1,
-	}
-	const slippage = 0.0005
-	mock := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:   1_000_000,
-		SlippageRate:  slippage,
-		PriceProvider: func(symbol string) float64 { return prices[brokerSymbolOrSelf(t, symbol)] },
-	}, zerolog.Nop())
-
-	batch := []execution.OrderRequest{
-		{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100},
-		{Symbol: "600000.SH", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 300},
-		{Symbol: "002594.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 200},
-	}
-	for _, req := range batch {
-		ref := prices[brokerSymbolOrSelf(t, req.Symbol)]
-
-		oldRes, err := mock.SubmitOrder(context.Background(), req.Symbol, req.Direction, req.OrderType, req.Quantity, req.Price)
-		require.NoError(t, err, "旧实现下单失败: %s", req.Symbol)
-
-		newRes, err := port.SubmitOrder(context.Background(), req)
-		require.NoError(t, err, "真 broker 进程下单失败: %s", req.Symbol)
-
-		assert.Equal(t, oldRes.Symbol, newRes.Symbol)
-		assert.Equal(t, oldRes.Direction, newRes.Direction)
-		assert.Equal(t, oldRes.OrderType, newRes.OrderType)
-		assert.Equal(t, oldRes.Quantity, newRes.Quantity)
-		assert.Equal(t, "filled", newRes.Status, "真进程腿要求 Mock 已配参考价并成交")
-		assert.Equal(t, oldRes.FilledQty, newRes.FilledQty)
-		assert.InDelta(t, ref, newRes.FillPrice, 1e-9)
-		assert.InDelta(t, ref*(1+slippage), oldRes.FillPrice, 1e-9)
-		assert.Zero(t, newRes.Fee, "broker wire 无费用字段")
-		assert.Positive(t, oldRes.Fee, "旧实现自算费用")
-
-		t.Logf("real-process parity %-10s qty=%.0f status=%s/%s fill=%.4f/%.4f",
-			req.Symbol, req.Quantity, oldRes.Status, newRes.Status, oldRes.FillPrice, newRes.FillPrice)
-	}
-}
-
-// brokerSymbolOrSelf 把 `000001.SZ` 归一成 double 的价格表键（测试辅助）。
-func brokerSymbolOrSelf(t *testing.T, symbol string) string {
-	t.Helper()
-	s, err := brokerSymbol(symbol)
+	res, err := trader.SubmitOrder(context.Background(), "000001.SZ",
+		cdom.DirectionLong, domain.OrderTypeMarket, 100, 0)
 	require.NoError(t, err)
-	return s
+	assert.Equal(t, "filled", res.Status, "真进程腿要求 Mock 已配参考价并成交")
+	assert.InDelta(t, 100, res.FilledQty, 1e-9)
 }

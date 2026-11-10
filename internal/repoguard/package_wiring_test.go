@@ -75,10 +75,13 @@ var unwiredPackages = map[string]string{
 	"tellurion/pkg/alert/systemalert": "系统级运维告警（数据同步停滞 / 回测失败 / 策略退化），待运维链路接线",
 	// 2026-10-24 (QT-26)：pkg/sandbox/wasm 从本表移除 —— pkg/backtest 的
 	// wasmSignalProvider 已把它接进真实回测（artifact → 逐 bar → 信号 → 成交）。
-	"tellurion/pkg/trading/margin":     "融资融券账户管理 / 可融券判定，待实盘链路接线",
-	"tellurion/pkg/strategy/options":   "期权策略（Black-Scholes / 二叉树），待策略层接线",
-	"tellurion/pkg/trading/broker/xtp": "中泰证券 XTP 券商适配，待实盘链路接线",
-	"tellurion/pkg/testutil":           "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
+	"tellurion/pkg/trading/margin":   "融资融券账户管理 / 可融券判定，待实盘链路接线",
+	"tellurion/pkg/strategy/options": "期权策略（Black-Scholes / 二叉树），待策略层接线",
+	"tellurion/pkg/testutil":         "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
+	// 2026-11-10（SVC-CORE-BROKER-RETIRE 步骤 B）：进程内订单存储删除后，
+	// pkg/id 的唯一消费者消失。broker 通道的 client_order_id 由
+	// pkg/brokerhttp 自己生成；ULID 生成器保留为订单域重建的候选。
+	"tellurion/pkg/id": "ULID 生成器；原消费者（进程内订单存储）已随 SVC-CORE-BROKER-RETIRE 删除，当前无调用者",
 	// AI 拆仓阶段 2：消费者随 pkg/ai 迁往 tellurion-agent 仓，core 侧
 	// 不再有导入者。包本体留在 core（通用基础设施），agent 经 module 依赖使用。
 	"tellurion/pkg/sandbox/runner":      "copilot build 沙箱 runner；消费者（cmd/ai 的 adapter）已随 AI 拆仓迁入 agent 仓",
@@ -122,6 +125,8 @@ var retiredPackages = map[string]string{
 	// 因子计算的唯一 owner 是数据服务仓；core 只经 HTTP 读。
 	"tellurion/pkg/data":        "数据面（connector / ETL / 因子计算）已退役，owner 迁至数据服务仓；core 不得再持有实现或 DDL/写点（SVC-CORE-DATA-RETIRE）",
 	"tellurion/pkg/data/source": "多源同步 / ETL 管线已退役，随 pkg/data 整目录删除（SVC-CORE-DATA-RETIRE）",
+	// 2026-11-10（SVC-CORE-BROKER-RETIRE 步骤 B）：交易通道实现整套退役。
+	"tellurion/pkg/trading/broker/xtp": "XTP 券商适配已删除；core 的唯一真实通道是 broker HTTP（pkg/brokerhttp），券商适配 owner 在 tellurion-broker 仓",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {

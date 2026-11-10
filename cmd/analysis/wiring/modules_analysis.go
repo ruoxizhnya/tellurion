@@ -11,10 +11,10 @@ package wiring
 //
 //	3. data-engine       ← marketdata 层：HTTP provider + DataAdapter（多源回退）
 //	4. portfolio         ← 【无实体，Noop】现有 portfolio 状态活在
-//	                       MockTrader / engine 内部，无独立可接线组件；
+//	                       trading 通道与 engine 内部，无独立可接线组件；
 //	                       蓝图「恢复持仓」语义待实盘线（D1）才有载体。
 //	5. risk-engine       ← risk.RiskManager
-//	6. exec-engine       ← trading.LiveTrader（本地为 MockTrader）
+//	6. exec-engine       ← trading.LiveTrader（broker HTTP 通道）
 //	7. strategy-runtime  ← backtest.Engine 构造 + Set*(全部依赖注入)
 //	8. indicators        ← 【无实体，Noop】K3 的 L2 有状态算子是
 //	                       per-run 实例化（SaveState/LoadState），
@@ -46,7 +46,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/kernel"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
@@ -127,8 +126,8 @@ func (m *RiskEngineModule) Stop(context.Context) error { return nil }
 
 // ─── exec-engine（BootOrder 第 6 位）────────────────────────────────
 
-// ExecEngineModule 持有执行端（本地为 MockTrader；实盘线 D1 时替换为
-// 真券商 adapter —— 这正是「回测-实盘同构」的换件点）。
+// ExecEngineModule 持有执行端（生产 = broker HTTP LiveTrader；
+// 测试可注入替身 —— 这正是「回测-实盘同构」的换件点）。
 type ExecEngineModule struct {
 	build func() (trading.LiveTrader, error)
 
@@ -153,7 +152,7 @@ func (m *ExecEngineModule) Init(context.Context) error {
 	return nil
 }
 
-// Start no-op：MockTrader 无外部连接（实盘线时此处连 broker）。
+// Start no-op：broker HTTP 通道无长连接（每个请求自带超时）。
 func (m *ExecEngineModule) Start(context.Context) error { return nil }
 
 // Stop no-op：同上。
@@ -176,11 +175,6 @@ type StrategyRuntimeDeps struct {
 	// 由 cmd/analysis 经 NewMarketDataRouter 构造一次后传进来；main 的
 	// walk-forward 窗口工厂拿的是同一个实例（QT-64）。
 	Router *marketdata.Router
-
-	// BrokerPort 是 SVC-BROKER-G3 的第二实现（broker HTTP 通道）。
-	// 非 nil = 本部署切了 broker 通道；nil = 回退 ExecEngine.Trader（旧
-	// MockTrader，默认路径）。二者同属 execution.ExecutionPort。
-	BrokerPort execution.ExecutionPort
 }
 
 // StrategyRuntimeModule 持有回测引擎，并在 Init 时完成对前序模块产物的
@@ -233,9 +227,9 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	engine.SetDataAdapter(d.DataEngine.Adapter)
 	engine.SetRiskManager(d.RiskEngine.RiskManager)
 	// QT-51：trading.LiveTrader → execution.ExecutionPort 的适配只在装配层做。
-	// SVC-BROKER-G3：BrokerPort 非 nil 时引擎直接走 broker HTTP 通道，
-	// 否则回退旧实现（默认路径，可回滚）。
-	AttachExecutionPort(engine, d.BrokerPort, d.ExecEngine.Trader)
+	// SVC-CORE-BROKER-RETIRE 之后 Trader 就是 broker HTTP 通道本身，
+	// 没有第二实现，也没有内存撮合回退。
+	AttachLiveTrader(engine, d.ExecEngine.Trader)
 	// D6：日内预热的取数通道（QT-64）。与 walk-forward 窗口工厂走
 	// 同一个装配函数；nil 时该函数显式 Warn，不留静默出口。
 	AttachMarketDataRouter(engine, d.Router, m.logger)

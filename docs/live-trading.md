@@ -1,20 +1,26 @@
 ---
 status: active
-last-verified: 2026-10-08
-verified-by: 代码审查（2026-09-16）；实盘-ready 定位更新（2026-10-08，D1）
+last-verified: 2026-11-10
+verified-by: SVC-CORE-BROKER-RETIRE 施工（2026-11-10）；实盘-ready 定位更新（2026-10-08，D1）
 ---
 
 # Live Trading Interface Specification
 
-> ⚠️ **实现状态警告（2026-09-16）——本文档描述的是目标接口，不是已实现功能**
+> ⚠️ **实现状态（2026-11-10 更新）**
 >
 > | 组件 | 实际状态 |
 > |---|---|
-> | `LiveTrader` 接口 | 仅接口定义，无真实实现 |
-> | `MockTrader` | ✅ 已实现（A 股规则、T+1、印花税、涨跌停） |
+> | `LiveTrader` 接口 | ✅ 接口定义（`pkg/trading/trader.go`） |
+> | broker HTTP 通道 | ✅ **生产唯一实现**（`pkg/brokerhttp`；`BROKER_URL` 缺失即装配失败） |
+> | `MockTrader` | ❌ **已删除**（SVC-CORE-BROKER-RETIRE，2026-11-10）——本文第 6 节仅作历史参考 |
 > | `AdvancedTrader` | 仅接口定义 |
-> | `OrderStore` | ✅ 已实现（PostgreSQL） |
-> | **XTP 券商适配** | ❌ **桩** — `pkg/live/broker/xtp/xtp.go:315,378,410,479` 四处 `TODO: When SDK is linked`，真实下单为空操作 |
+> | `OrderStore` | 接口保留；`RedisOrderStore` 在仓，PostgreSQL 实现已删除 |
+> | XTP 券商适配 | ❌ **已删除**（`pkg/trading/broker/xtp`）；券商适配 owner 在 `tellurion-broker` |
+>
+> **通道口径（2026-11-10）**：core 的执行通道 = `tellurion-broker` 的 HTTP 面
+> （`/api/broker/orders`、`/positions`、`/account`、`/emergency-flatten`）。
+> 进程内撮合、进程内订单存储、XTP 桩已从 core 移除；**费用 / 持仓仍留在 core
+> 运行域记账**（ADR-036 G3 口径）。历史段落保留，避免查旧文档的人以为漏了一节。
 >
 > **实盘定位（2026-10-08 D1 更新）**：核心抽象（`Broker` / `DataFeed` / `LiveTrader`）**按实盘-ready 设计、保留冗余**——接口形状按真实券商设计（部分成交 / 撤单 / 订单状态机 / 断线重连），见 [ADR-023 §6](adr/adr-023-ai-experimenter-lab.md) 与 [design/kernel/target-architecture-modular-kernel.md](design/kernel/target-architecture-modular-kernel.md)。当前只实现 paper / 模拟撮合，**paper trading 作为回测-实盘同构验证手段**（同一份策略代码两跑）。**真实券商对接（XTP）与合规报送仍不在当前路线图内**，留作将来。本文档保留作接口参考，**不代表已实现**。
 
@@ -62,6 +68,9 @@ verified-by: 代码审查（2026-09-16）；实盘-ready 定位更新（2026-10-
 │   Redis)        │    │                      │
 └─────────────────┘    └──────────────────────┘
 ```
+
+> **2026-11-10 注**：上图是接口分层示意。`MockTrader` 分支已删除；左分支现在
+> 对应 `pkg/brokerhttp`（HTTP 客户端），右分支对应 broker 仓里的券商网关。
 
 ## 3. 核心接口
 
@@ -192,9 +201,12 @@ type AdvancedTrader interface {
 - **最小变动单位**: 0.01元
 - **交易时间**: 9:30-11:30, 13:00-15:00
 
-## 6. MockTrader 实现
+## 6. ~~MockTrader 实现~~ —— 已删除（SVC-CORE-BROKER-RETIRE，2026-11-10）
 
-### 6.1 配置
+> 本节描述的是已删除的进程内撮合器，仅作历史参考。生产通道请见上方状态表与
+> `pkg/brokerhttp`；纸交易会话（`trading.PaperSession`）的撮合通道由调用方注入。
+
+### 6.1 配置（历史）
 
 ```go
 type MockTraderConfig struct {
@@ -207,7 +219,7 @@ type MockTraderConfig struct {
 }
 ```
 
-### 6.2 使用示例
+### 6.2 使用示例（历史）
 
 ```go
 // 创建模拟交易员
@@ -253,8 +265,8 @@ type OrderStore interface {
 ### 7.1 实现
 
 - **MemoryOrderStore**: 内存存储（测试用）
-- **PostgresOrderStore**: PostgreSQL 持久化
-- **RedisOrderStore**: Redis 缓存
+- **PostgresOrderStore**: ~~PostgreSQL 持久化~~ —— 已随 SVC-CORE-BROKER-RETIRE 删除
+- **RedisOrderStore**: Redis 缓存（在仓）
 
 ## 8. 真实券商接入规范
 
@@ -340,14 +352,14 @@ POST /api/quotes/unsubscribe  - 取消订阅
 ### 10.1 单元测试
 
 ```bash
-go test ./pkg/live/... -v
+go test ./pkg/trading/... -v
 ```
 
-### 10.2 模拟交易测试
+### 10.2 通道对拍测试
 
 ```bash
-# 运行 MockTrader 回测验证
-go test ./pkg/live/... -run TestMockTrader -v
+# broker HTTP 通道（httptest double；真实进程腿 opt-in：BROKER_PARITY_URL）
+go test ./pkg/brokerhttp/... -v
 ```
 
 ## 11. 注意事项

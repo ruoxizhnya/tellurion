@@ -5,7 +5,7 @@ package tracker
 //
 // 背景：ApplyTrade 曾原样采信 ExecutionService 只设了 Commission 的 trade，
 // TransferFee/StampTax 恒零 ⇒ 生产路径过户费、印花税全免，而 ExecuteTrade
-// 与 MockTrader 照常收——两条路径成本口径断裂，方向永远是回测高估收益。
+// 与纸交易路径照常收——两条路径成本口径断裂，方向永远是回测高估收益。
 // 修复：ApplyTrade 的 Long/Short 分支改用 portfolio.ComputeFees 重算并覆盖
 // trade 费用字段（与 Close 分支、ExecuteTrade 同构）。
 //

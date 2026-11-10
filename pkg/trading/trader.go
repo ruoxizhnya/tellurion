@@ -1,24 +1,23 @@
 // Package trading provides core trading run-domain types and paper/live
 // execution orchestration for the tellurion core process.
 // It abstracts broker-specific order management, position tracking, and account queries
-// behind the LiveTrader interface, enabling seamless switching between paper trading
-// (MockTrader) and real broker integrations.
+// behind the LiveTrader interface.
 //
-// Architecture (Sprint 6 P1-26, ODR-022 — consolidated from 5 to 2 entities):
+// 交易通道（SVC-CORE-BROKER-RETIRE，2026-11-10）：进程内撮合（MockTrader）、
+// 进程内订单存储与 XTP 适配已从 core 删除。core 的唯一真实通道是 broker HTTP
+// （pkg/brokerhttp.NewTraderFromEnv；`BROKER_URL` 缺失即装配失败，不静默回退）。
+// 本包保留的是**运行域**：订单/成交/持仓类型、paper 回放会话、价格笼子、
+// 对账 / 证券状态 / 融资融券算法。
+//
+// Architecture (Sprint 6 P1-26, ODR-022):
 //   - LiveTrader: Core interface for order submission, cancellation, and account queries
-//   - MockTrader: In-memory simulation with A-share trading rules (T+1, stamp tax, price limits).
-//     Supports optional OrderStore for persistence (replaces PersistentMockTrader).
 //   - LiveEngine: Real-time quote-driven execution orchestrator for paper/live trading
 //     (uses Broker + DataFeed interfaces, separate from LiveTrader)
-//
-// Previously-deleted entities (see ODR-022 for details):
-//   - PersistentMockTrader: merged into MockTrader via OrderStore config field
-//   - AdvancedMockTrader:   unused (no production callers) — deleted
-//   - AdvancedTrader:       unused interface (no production callers) — deleted
+//   - PaperSession: 回放式纸交易会话；撮合通道由调用方注入（生产 = broker HTTP）
 //
 // Usage:
 //
-//	trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1e6}, logger)
+//	trader, err := brokerhttp.NewTraderFromEnv(logger) // 需 BROKER_URL / BROKER_SERVICE_TOKEN / BROKER_ACCOUNT_ID
 //	result, err := trader.SubmitOrder(ctx, "000001.SZ", domain.DirectionLong, domain.OrderTypeMarket, 100, 0)
 //
 // A-Share Specifics:
@@ -155,7 +154,7 @@ type OrderResult struct {
 
 	// ─── K5 切片 1：成交明细（可选，omitempty 保证旧 JSON 不变） ───────
 	//
-	// 改动前 Price 装的是**下单参考价**（MockTrader 里是 execPrice），真实
+	// 改动前 Price 装的是**下单参考价**（进程内撮合时代是 execPrice），真实
 	// 成交价只进了日志。paper 回放要产出的成交流需要「实际成交价 + 费用」，
 	// 因此把这两个量显式带上：
 	//   - FillPrice：施加滑点/冲击后的实际成交价；

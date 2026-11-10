@@ -485,7 +485,7 @@ func TestLiveEngine_OrderAndTradeDelegation(t *testing.T) {
 	require.NoError(t, engine.CancelOrder(id))
 }
 
-// ---- SimulatedBroker / engine interactions (tryFillOrder) ----------------
+// ---- instrumentedBroker / engine interactions (tryFillOrder) -------------
 
 func TestEngine_HandleQuote_FillsMarketOrder(t *testing.T) {
 	broker := newInstrumentedBroker()

@@ -43,7 +43,7 @@ type OrderStore interface {
 }
 
 // convertToOrderResult converts a persistence OrderRecord to the in-memory
-// OrderResult type used by MockTrader and the HTTP API.
+// OrderResult type used by the HTTP API.
 //
 // Moved here from the now-deleted `persistent_mock_trader.go` (Sprint 6
 // P1-26, ODR-022) so both `order_store_test.go` and any future adapter

@@ -95,8 +95,8 @@ type ReconReport struct {
 //   - Broker：返回底层 broker 契约入口（回测 = 模拟撮合，实盘 = 券商适配）。
 //
 // ⚠️ 分寸（D1 拍板）：**真实券商对接留将来（D1）**。本契约是
-// 实盘-ready 的抽象——回测注入模拟撮合、paper 注入 MockTrader、
-// 未来注入真实 adapter，调用方一行不动；但 K0 不引入任何券商 SDK。
+// 实盘-ready 的抽象——回测注入模拟撮合、paper 注入成本核替身、
+// 生产注入 broker HTTP adapter，调用方一行不动；但 K0 不引入任何券商 SDK。
 type ExecEngine interface {
 	Submit(ctx context.Context, intent OrderIntent) (orderID string, err error)
 	Cancel(ctx context.Context, orderID string) error
@@ -139,20 +139,18 @@ func (r *StandardReconciler) Reconcile(ctx context.Context, asOf time.Time) (*Re
 
 // ─── 编译期合规检查 + 方法存在性守卫 ────────────────────────────────
 //
-// 前四行：把**既有**实现钉进契约（不改它们一行代码）：
-//   - *OrderManager（order_manager.go）满足 OrderLifecycle；
-//   - *SimulatedBroker（simulated_broker.go）满足 Broker。
+// 前两行：把**既有**实现钉进契约（不改它们一行代码）：
+//   - *OrderManager（order_manager.go）满足 OrderLifecycle。
 //
 // 任一既有 struct 被删方法，本包 go build 失败。
 //
-// 第五、六行：stub 漂移出接口时 go build 失败（切片 1 既有样板）。
+// 第三、四行：stub 漂移出接口时 go build 失败（切片 1 既有样板）。
 //
 // 方法表达式守卫（其后各行）：从 ExecEngine / Reconciler /
 // OrderLifecycle / Broker / OrderStore 删除任一方法，本包
 // go build 直接编译失败（防「删方法后测试仍绿」）。
 var (
 	_ OrderLifecycle = (*OrderManager)(nil)
-	_ Broker         = (*SimulatedBroker)(nil)
 
 	_ ExecEngine = (*StandardExecEngine)(nil)
 	_ Reconciler = (*StandardReconciler)(nil)

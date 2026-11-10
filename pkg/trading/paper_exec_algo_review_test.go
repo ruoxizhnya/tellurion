@@ -49,12 +49,7 @@ func (p *k17rv4PaperProbe) Weight(strategy.Signal, float64) float64 { return 1 }
 func runK17RV4Paper(t *testing.T, name string, cancelOnDay int) (float64, error) {
 	t.Helper()
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
-	trader := NewMockTrader(MockTraderConfig{
-		InitialCash:           1_000_000,
-		SlippageModel:         "impact",
-		ImpactSigma:           0.05,
-		ImpactLiquidityFactor: 1.0,
-	}, zerolog.Nop())
+	trader := newFakePaperTrader(1_000_000)
 	s, err := NewPaperSession(PaperSessionConfig{
 		Provider: execAlgoPaperBars(20, start),
 		Clock:    clock.NewVirtualClock(start),

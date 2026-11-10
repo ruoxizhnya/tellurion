@@ -235,10 +235,9 @@ func TestSignalReconcile_PaperVsBacktest(t *testing.T) {
 
 	// ── paper 侧：同一个 provider，同一批 symbols，同窗口 ──
 	paperStrat := newReconcileProbe("k5_reconcile_probe_paper") // 独立实例，无共享状态
-	trader := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:   1_000_000,
-		SlippageModel: "fixed",
-	}, zerolog.Nop())
+	// SVC-CORE-BROKER-RETIRE：进程内撮合已退役。本对账只比信号，
+	// 成交不是被测对象，故用最小 stub 让 PaperSession 能跑完即可。
+	trader := &signalOnlyTrader{}
 
 	start := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC)
@@ -305,7 +304,7 @@ func TestSignalReconcile_ClockDivergenceDetected(t *testing.T) {
 
 	// paper 侧故意把 end 提前一天 → 少喂最后一个交易日 → 信号必然缺失。
 	paperStrat := newReconcileProbe("k5_reconcile_probe_paper_b")
-	trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000, SlippageModel: "fixed"}, zerolog.Nop())
+	trader := &signalOnlyTrader{}
 	var paperSignals []domain.Signal
 	sess, err := trading.NewPaperSession(trading.PaperSessionConfig{
 		Provider: prov,
@@ -341,4 +340,38 @@ func diffStrings(diff []trading.SignalDiscrepancy) string {
 		s += d.String()
 	}
 	return s
+}
+
+// signalOnlyTrader 是只够跑通 PaperSession 的最小交易通道：本对账
+// 只比较信号，成交/持仓不参与断言。
+type signalOnlyTrader struct{}
+
+func (signalOnlyTrader) SubmitOrder(_ context.Context, symbol string, dir cdom.Direction,
+	orderType domain.OrderType, qty, price float64) (*trading.OrderResult, error) {
+	return &trading.OrderResult{
+		OrderID: "signal-only", Symbol: symbol, Direction: dir, OrderType: orderType,
+		Quantity: qty, FilledQty: qty, Price: price, FillPrice: price, Status: "filled",
+	}, nil
+}
+
+func (signalOnlyTrader) CancelOrder(context.Context, string) error { return nil }
+
+func (signalOnlyTrader) GetOrder(context.Context, string) (*trading.OrderResult, error) {
+	return nil, nil
+}
+
+func (signalOnlyTrader) GetPositions(context.Context) ([]trading.PositionInfo, error) {
+	return nil, nil
+}
+
+func (signalOnlyTrader) GetAccount(context.Context) (*trading.AccountInfo, error) {
+	return &trading.AccountInfo{}, nil
+}
+
+func (signalOnlyTrader) Name() string { return "signal_only" }
+
+func (signalOnlyTrader) HealthCheck(context.Context) error { return nil }
+
+func (signalOnlyTrader) EmergencyFlatten(context.Context, string) (*trading.EmergencyFlattenResult, error) {
+	return &trading.EmergencyFlattenResult{}, nil
 }

@@ -535,7 +535,7 @@ universe 解析层负责，不在本机制范围。
 
 **两条路径必须同构（REV-07）**：
 - 生产路径 = `ExecutionService.ExecuteOrder → Tracker.ApplyTrade`；
-- 内存路径 = `Tracker.ExecuteTrade`（MockTrader 同公式）。
+- 内存路径 = `Tracker.ExecuteTrade`（纸交易同公式）。
 两侧都经 `ComputeFees` 计价；**`ApplyTrade` 重算并覆盖 `trade` 的费用字段**
 （执行服务只产价格，费用不在服务里定死）。历史缺陷（REV-07 修复）：`ApplyTrade`
 原样采信执行服务只设了 Commission 的 trade，过户费/印花税恒零 ⇒ 生产路径
@@ -551,7 +551,7 @@ universe 解析层负责，不在本机制范围。
 |---|---|---|
 | 生产路径（`ExecutionService` → `ApplyTrade`） | **0.001（0.1%）** | `fees.FixedSlippageRate`（`ExecutionConfig.SlippageRate` 零值回落） |
 | tracker 内存路径（`ExecuteTrade`） | **0.0001（0.01%）** | `backtest.DefaultSlippageRate` |
-| paper（`MockTrader`） | 0.0001（0.01%） | `MockTrader` 默认 |
+| paper（回放会话注入的替身） | 0.0001（0.01%） | 原进程内撮合默认，保留作对照 |
 
 **接线语义**：`backtest.slippage_rate` 只在**显式配置**时透传给执行服务
 （`NewEngine` 抓的是「默认值覆盖之前」的原始值）；未配置时执行服务保持
@@ -2687,12 +2687,12 @@ GET  /risk_metrics                  - legacy alias
 
 > **Source**: `cmd/analysis/handlers_risk.go` — `RiskHandler.RegisterRoutes`
 
-### 4. Execution API (in-process, /api/execution/* on :8085) ✅ *Implemented — P1-15 (ODR-021)*
-> **Status**: LiveTrader interface defined, MockTrader implemented with A-share rules, AdvancedTrader with batch operations and quote streaming. Real broker integration planned for Phase 4. Merged from standalone execution-service(8084) per ODR-021 (P1-15, 2026-06-12).
+### 4. Execution API (/api/execution/* on :8085) ✅ *Implemented — P1-15 (ODR-021)*
+> **Status**: LiveTrader interface defined. **2026-11-10（SVC-CORE-BROKER-RETIRE）**：进程内 MockTrader / 订单存储 / XTP 适配已删除，`/api/execution/*` 的执行面是 broker HTTP（`pkg/brokerhttp`，`BROKER_URL` 缺失即装配失败）。券商适配 owner 在 `tellurion-broker`。Merged from standalone execution-service(8084) per ODR-021 (P1-15, 2026-06-12).
 
 **Responsibilities**:
 - Order management (submit, cancel, query)
-- Simulated order execution with A-share trading rules
+- Simulated order execution with A-share trading rules (成本/结算口径在 core 运行域；报单经 broker HTTP)
 - Position tracking with T+1 settlement
 - Account summary and PnL tracking
 - Batch order submission
@@ -2711,7 +2711,7 @@ type LiveTrader interface {
 }
 ```
 
-**A-Share Trading Rules** (enforced by MockTrader):
+**A-Share Trading Rules** (core 运行域的成本/结算口径；真实报单与交易所规则归 broker 仓):
 - T+1 settlement: shares bought today cannot be sold today
 - Stamp tax: 0.1% on sell trades only
 - Commission: 0.03% with minimum 5 CNY per trade
@@ -2761,8 +2761,8 @@ GET  /account                        - legacy alias
   两者都随消费方消失而删除。
 
 **仍然有效的部分**：下面这些是 `pkg/trading` 的订单类型与校验规则。`LiveEngine` /
-`OrderManager` 仍在仓库中（当前**无生产接线** —— `/api/execution/*` 走的是
-`MockTrader`）。文档保留，免得下次需要时无从查起。
+`OrderManager` 仍在仓库中（当前**无生产接线** —— `/api/execution/*` 走 broker HTTP
+通道）。文档保留，免得下次需要时无从查起。
 
 **Order types (P1-3 / ODR-016)** — `pkg/trading/engine.go:tryFillOrder`:
 - `market` — 立即按 Ask/Bid 成交
@@ -3432,7 +3432,7 @@ The backtest engine supports seamless transition from simulation to live/paper t
 
 ```go
 // Attach a LiveTrader to the engine (adapter lives in cmd/analysis/wiring)
-trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1e6}, logger)
+trader, err := brokerhttp.NewTraderFromEnv(logger) // broker HTTP；BROKER_URL 必填
 engine.SetLiveTrader(wiring.NewLiveTraderPort(trader))
 
 // Execute a single signal through the execution port
@@ -3464,7 +3464,7 @@ err := engine.HealthCheckLiveTrader(ctx)
 
 When an execution port is attached, the engine can run in "paper trading" mode where signals are executed through the port while still tracking performance internally. This enables:
 - **Backtest → Paper Trading**: Same strategy code, different execution backend
-- **Paper Trading → Live Trading**: Swap MockTrader for real broker implementation
+- **Paper Trading → Live Trading**: broker HTTP 通道的后端由 mock 网关换成真实券商实现，core 一行不动
 - **Hybrid Mode**: Backtest with live execution for validation
 
 #### 价格笼子（Price Cage）状态：**未接线** — 实盘接入的前置条件（REV-25 冻结）
@@ -3475,12 +3475,13 @@ When an execution port is attached, the engine can run in "paper trading" mode w
 | 项 | 实况 |
 |---|---|
 | `SetPriceCageValidator` 的生产调用方 | **0**（只有 `pkg/trading` 包内与测试调用） |
-| MockTrader 的限价单是否做笼子校验 | **否**——笼子只有在被显式接线后才生效 |
+| core 侧限价单是否做笼子校验 | **否**——笼子只有在被显式接线后才生效；真实通道的限价单校验归 broker 仓 |
 | `SetCurrentBarProvider`（对照项） | 已接（`paper_session.go`），说明「同类接线」有先例 |
 
-**为什么冻结（主任裁决 2026-10-16）**：本项目定位不上实盘（D1 未接券商），笼子
-校验没有消费场景；给 MockTrader 加一条它模拟不出来的交易所规则，只会让「模拟盘
-通过」与「实盘能报单」的差距更难看清。冻结无回退成本：接实时只需在装配处接一行。
+**为什么冻结（主任裁决 2026-10-16；2026-11-10 通道迁移后仍成立）**：core 不承担
+真实报单的交易所规则（撮合与规则由 broker 仓负责），笼子校验在 core 侧没有消费
+场景；给 paper 侧替身加一条它模拟不出来的交易所规则，只会让「模拟盘通过」与
+「实盘能报单」的差距更难看清。冻结无回退成本：接实时只需在装配处接一行。
 
 **实盘 broker 接入的前置条件**（清单与 `pkg/trading/price_cage.go` 文件头一致，
 两处同步改——ODR-067）：

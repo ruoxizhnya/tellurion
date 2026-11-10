@@ -134,7 +134,7 @@ func (m *CostModel) SlippagePrice(price float64, direction cdom.Direction, order
 //
 // 与 pkg/backtest/execution 的 calculateCommission 逐字一致。注意：
 // 这只是**执行佣金**；A 股另有印花税与过户费（pkg/fees / portfolio.ComputeFees
-// 里的完整口径），paper 侧 MockTrader 会在此基础上补足，回测撮合服务
+// 里的完整口径），paper 侧通道替身会在此基础上补足，回测撮合服务
 // 不建模这两项 —— 这是两侧**共同已知**的口径边界，不是公式漂移。
 func (m *CostModel) Commission(notional float64) float64 {
 	commission := notional * m.config.CommissionRate

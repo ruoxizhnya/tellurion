@@ -17,7 +17,7 @@ package main
 //     3. data-engine       真模块（provider + DataAdapter）
 //     4. portfolio         Noop（无实体组件，理由见 modules_analysis.go）
 //     5. risk-engine       真模块（RiskManager）
-//     6. exec-engine       真模块（MockTrader）
+//     6. exec-engine       真模块（broker HTTP LiveTrader）
 //     7. strategy-runtime  真模块（Engine 构造 + Set* 全部注入）
 //     8. indicators        Noop（L2 算子 per-run 实例化）
 //     9. exec-algo         Noop（K4 执行算法 per-run 挂点）
@@ -72,9 +72,9 @@ type AnalysisWiring struct {
 
 	RiskManager     *risk.RiskManager
 	ExecutionTrader trading.LiveTrader
-	// ExecutionPort 是引擎实际使用的出站执行端口（SVC-BROKER-G3）：
-	// 配置了 BROKER_URL 时是 broker HTTP 适配器，否则是 live 适配器。
-	// walk-forward 窗口工厂用它保证与主引擎走同一条执行通道。
+	// ExecutionPort 是引擎实际使用的出站执行端口：由 ExecutionTrader
+	// （broker HTTP 通道）经装配层适配，walk-forward 窗口工厂用它保证
+	// 与主引擎走同一条执行通道。
 	ExecutionPort execution.ExecutionPort
 }
 
@@ -124,18 +124,12 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		return bootstrap.BuildRiskManager(policy.Config, logger), nil
 	})
 
-	// exec-engine（第 6 位）。
+	// exec-engine（第 6 位）。SVC-CORE-BROKER-RETIRE 之后 core 只有
+	// broker HTTP 一条交易通道：BROKER_URL 缺失即装配失败（fail-loud），
+	// 不再回退进程内撮合。
 	execMod := wiring.NewExecEngineModule(func() (trading.LiveTrader, error) {
-		return bootstrap.BuildExecutionTrader(v, logger), nil
+		return bootstrap.BuildExecutionTrader(logger)
 	})
-
-	// SVC-BROKER-G3：执行通道的第二实现（broker HTTP）。BROKER_URL 未配
-	// ⇒ nil，装配层回退 exec-engine 的 MockTrader（默认路径，可回滚）；
-	// 配了但缺 token/账户 ⇒ 装配期 fail-closed，不带病起服务。
-	brokerPort, err := wiring.NewBrokerHTTPPortFromEnv(logger)
-	if err != nil {
-		return nil, fmt.Errorf("kernel: broker HTTP 执行端口装配失败: %w", err)
-	}
 
 	// D6 日内预热的取数通道（QT-64）：进程内构造一次 Router（复用 store
 	// 的连接池，不新开池）；主引擎经 deps.Router、walk-forward 窗口引擎经
@@ -153,7 +147,6 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		RiskEngine: riskMod,
 		ExecEngine: execMod,
 		Router:     mdRouter,
-		BrokerPort: brokerPort,
 	})
 
 	// 三个 Noop 槽位（4/8/9）—— 理由见 cmd/analysis/wiring/modules_analysis.go 头部
@@ -196,12 +189,9 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	}
 
 	// 产物检索：各模块的导出字段 → wiring（字段与接管前 main 的局部变量
-	// 一一对应）。执行端口与模块 Init 里注入引擎的是同一个实现：
-	// broker 已切则用 brokerPort，否则用 live 适配器（SVC-BROKER-G3）。
-	var execPort execution.ExecutionPort = wiring.NewLiveTraderPort(execMod.Trader)
-	if brokerPort != nil {
-		execPort = brokerPort
-	}
+	// 一一对应）。执行端口由 broker HTTP 通道经装配层适配得到
+	// （SVC-CORE-BROKER-RETIRE：只剩这一条通道）。
+	execPort := wiring.NewLiveTraderPort(execMod.Trader)
 	artifacts := &AnalysisWiring{
 		Engine:          strategyMod.Engine,
 		Provider:        dataMod.Provider,

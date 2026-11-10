@@ -6,7 +6,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/domain"
+	"tellurion/pkg/brokerhttp"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
@@ -47,24 +47,13 @@ func BuildRiskManager(cfg risk.RiskManagerConfig, logger zerolog.Logger) *risk.R
 	return rm
 }
 
-// BuildExecutionTrader 构造进程内 MockTrader（P1-15, ODR-021）。
-// analysis 与 ai 共享同一构造 —— 两边跑出来的回测必须逐项一致。
-func BuildExecutionTrader(v *viper.Viper, logger zerolog.Logger) trading.LiveTrader {
-	execConfig := domain.ExecutionConfig{
-		OrderType:      domain.OrderTypeMarket,
-		SlippageModel:  "fixed",
-		CommissionRate: v.GetFloat64("backtest.commission_rate"),
-		MinCommission:  v.GetFloat64("trading.min_commission"),
-		InitialCapital: v.GetFloat64("backtest.initial_capital"),
-	}
-	trader := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:    execConfig.InitialCapital,
-		CommissionRate: execConfig.CommissionRate,
-		StampTaxRate:   v.GetFloat64("trading.stamp_tax_rate"),
-		SlippageRate:   v.GetFloat64("backtest.slippage_rate"),
-	}, logger)
-	logger.Info().Msg("execution trader attached to backtest engine in-process (P1-15)")
-	return trader
+// BuildExecutionTrader 构造 core 唯一的真实交易通道：broker HTTP 网关
+// （SVC-CORE-BROKER-RETIRE 步骤 B）。
+//
+// 进程内撮合（MockTrader）已删除：`BROKER_URL` 缺失即返回装配错误，
+// 由调用方 fail-loud；不再有静默回退到内存撮合的分支。
+func BuildExecutionTrader(logger zerolog.Logger) (trading.LiveTrader, error) {
+	return brokerhttp.NewTraderFromEnv(logger)
 }
 
 // InitStore 构造 Postgres store（DSN 组装与连接失败均 fail-loud）。

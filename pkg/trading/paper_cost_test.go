@@ -1,18 +1,15 @@
 package trading_test
 
 import (
-	"context"
 	"math"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/fees"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/backtest/execution"
-	"tellurion/pkg/marketdata"
 	"tellurion/pkg/trading"
 )
 
@@ -100,78 +97,3 @@ func TestCostIsomorphism_Impact(t *testing.T) {
 	wantFill := isoRefPrice * (1 + impact)
 	assert.InDelta(t, wantFill, pc.FillPrice, 1e-12, "impact 买单成交价 == refPrice*(1+sigma*sqrt(qty/adv))")
 }
-
-// TestMockTrader_FillPriceIsSharedCore 证明**生产路径**（MockTrader）真正
-// 走的是共享成本核：配置 SlippageModel="impact" + 当根 bar 后，它回填到
-// OrderResult.FillPrice 的成交价与回测对同一输入给出的成交价逐位相等。
-func TestMockTrader_FillPriceIsSharedCore(t *testing.T) {
-	cfg := domain.DefaultExecutionConfig()
-	cfg.SlippageModel = "impact"
-	cfg.ImpactSigma = 0.02
-
-	mt := trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:           1e8,
-		CommissionRate:        cfg.CommissionRate,
-		MinCommission:         cfg.MinCommission,
-		SlippageModel:         "impact",
-		ImpactSigma:           0.02,
-		ImpactLiquidityFactor: 0,
-	}, zerolog.Nop())
-
-	bar := marketdata.Quote{
-		Symbol: isoSymbol, Open: 10, High: isoHigh, Low: isoLow, Close: isoRefPrice,
-		Volume: int64(isoADV), Timestamp: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC),
-	}
-	mt.SetCurrentBarProvider(func(symbol string) (marketdata.Quote, bool) {
-		if symbol == isoSymbol {
-			return bar, true
-		}
-		return marketdata.Quote{}, false
-	})
-
-	res, err := mt.SubmitOrder(context.Background(), isoSymbol, cdom.DirectionLong, domain.OrderTypeMarket, isoQty, 0)
-	require.NoError(t, err)
-
-	// 回测侧同一输入。
-	back := execution.NewBacktestExecutionService(cfg)
-	tr, err := back.ExecuteOrder(
-		domain.Order{Symbol: isoSymbol, Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: isoQty},
-		execution.Quote{Symbol: isoSymbol, Open: 10, High: isoHigh, Low: isoLow, Close: isoRefPrice, Volume: isoADV, Date: bar.Timestamp},
-	)
-	require.NoError(t, err)
-
-	t.Logf("MockTrader.FillPrice=%.10f  回测.Price=%.10f", res.FillPrice, tr.Price)
-	assert.InDelta(t, tr.Price, res.FillPrice, 1e-9,
-		"MockTrader 生产路径的成交价必须等于回测同构价")
-
-	// 现金一致性旁证：买入后现金 = 初始 - (qty*fillPrice + 总费用)。
-	expectedCash := 1e8 - (isoQty*res.FillPrice + res.Fee)
-	assert.InDelta(t, expectedCash, mt.GetCash(), 1e-6)
-
-	// 费用是同构佣金 + A 股过户费（买入无印花税）。佣金分量与回测一致。
-	fb := liveFeeBreakdown(isoQty*res.FillPrice, false)
-	assert.InDelta(t, tr.Commission, fb.Commission, 1e-9, "佣金分量与回测同构")
-	assert.InDelta(t, fb.Total(), res.Fee, 1e-9, "回填的 Fee 等于该笔完整费用")
-}
-
-// liveFeeBreakdown 用默认 A 股费率复算 MockTrader 的完整费用口径（测试侧
-// 独立复算，避免直接读 MockTrader 未导出的内部量）。
-func liveFeeBreakdown(tradeValue float64, isSell bool) feeTotals {
-	f := fees.DefaultAShareFees()
-	commission := tradeValue * f.CommissionRate
-	if commission < f.MinCommission {
-		commission = f.MinCommission
-	}
-	transfer := tradeValue * f.TransferFeeRate
-	var stamp float64
-	if isSell {
-		stamp = tradeValue * f.StampTaxRate
-	}
-	return feeTotals{Commission: commission, TransferFee: transfer, StampTax: stamp}
-}
-
-type feeTotals struct {
-	Commission, TransferFee, StampTax float64
-}
-
-func (f feeTotals) Total() float64 { return f.Commission + f.TransferFee + f.StampTax }

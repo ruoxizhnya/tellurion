@@ -66,12 +66,7 @@ func runK18Paper(t *testing.T, probe *k18PaperProbe) ([]PaperFill, *bytes.Buffer
 	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
 	prov := execAlgoPaperBars(20, start)
 	logSink := &bytes.Buffer{}
-	trader := NewMockTrader(MockTraderConfig{
-		InitialCash:           1_000_000,
-		SlippageModel:         "impact",
-		ImpactSigma:           0.05,
-		ImpactLiquidityFactor: 1.0,
-	}, zerolog.Nop())
+	trader := newFakePaperTrader(1_000_000)
 	s, err := NewPaperSession(PaperSessionConfig{
 		Provider: prov,
 		Clock:    clock.NewVirtualClock(start),

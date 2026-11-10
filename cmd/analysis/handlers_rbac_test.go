@@ -35,12 +35,7 @@ import (
 // ── helpers ──────────────────────────────────────────────────────────
 
 func newRBACTestTrader() trading.LiveTrader {
-	return trading.NewMockTrader(trading.MockTraderConfig{
-		InitialCash:    1_000_000,
-		CommissionRate: 0.0003,
-		StampTaxRate:   0.0005,
-		SlippageRate:   0.0001,
-	}, zerolog.New(nil))
+	return newFakeExecutionTrader()
 }
 
 // rbacTestRouter builds a router with auth enabled and the execution

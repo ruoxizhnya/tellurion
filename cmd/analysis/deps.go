@@ -65,7 +65,7 @@ type ServerDeps struct {
 	// RiskManager — in-process risk manager (P1-15, /api/risk/*).
 	RiskManager *risk.RiskManager
 
-	// ExecutionTrader — in-process MockTrader (P1-15, /api/execution/*).
+	// ExecutionTrader — broker HTTP 通道（P1-15, /api/execution/*）。
 	ExecutionTrader trading.LiveTrader
 
 	// EmergencyToken — bearer token for the kill-switch endpoint

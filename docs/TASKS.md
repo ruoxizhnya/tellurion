@@ -287,6 +287,16 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
     - **文档同笔**：`AGENTS.md`（依赖表 / ODR-021 段 / 风险登记）、`docs/SPEC.md`（LiveTrader / 订单类型 / QT-51 / 价格笼子四节）、`docs/ARCHITECTURE.md`（QT-51 边界段 + 更新日期行）中的路径与类型名改指 `pkg/trading`。历史归档与设计审计文档保持原样（当时事实）。
     - **计数（当场实测）**：Go 文件里 `tellurion/pkg/live` = **0 行**；`tellurion/pkg/trading` = **44 行**；`pkg/live` 目录不存在。
     - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（`ok` 含 `pkg/trading` 五个包与 `pkg/backtest` / `internal/repoguard`）。
+  - **步骤 B 施工记录（2026-11-10，本机实跑，独立 commit）**：
+    - **删除**：`pkg/trading/{mock_trader.go,mock_trader_test.go,simulated_broker.go,simulated_broker_test.go,postgres_order_store.go}`、`pkg/trading/broker/xtp/`（整目录）；`paper_cost_test.go` 里依赖 MockTrader 的 `TestMockTrader_FillPriceIsSharedCore` 腿删除，其余两条保留。
+    - **通道统一到 `pkg/brokerhttp`**：`cmd/analysis/wiring/broker_http_port.go` → `pkg/brokerhttp/port.go`（package 改 `brokerhttp`，`BrokerHTTPPort` 仍实现 `execution.ExecutionPort`），新增 `pkg/brokerhttp/trader.go`（`Trader` 实现 `trading.LiveTrader` 八方法，含 `GetPositions` / `GetAccount` / `EmergencyFlatten`）。两者共用地址、Bearer、`X-Broker-Client-Order-Id` 幂等键与会员错误映射；`GetPositions` 由 broker 的 `AvailableQuantity` / `MarketValue` 还原 `QuantityToday` / `CurrentPrice` / `UnrealizedPnL`，`coreSymbol()` 还原 `.SH/.SZ/.BJ` 后缀。
+    - **装配改 fail-loud**：`pkg/bootstrap/engine.go` 的 `BuildExecutionTrader(logger) (trading.LiveTrader, error)` 改调 `brokerhttp.NewTraderFromEnv`；`BROKER_URL` 为空返回错误（文案含 `BROKER_URL is required`），token / account 缺失由 `NewBrokerHTTPPort` fail-closed。`cmd/analysis/kernel_wiring.go` 的 exec-engine 闭包改调它；`wiring.AttachLiveTrader` 取代 `AttachExecutionPort`（旧函数删除），`StrategyRuntimeDeps.BrokerPort` 字段删除 —— 双实现选择路径消失。
+    - **测试替身（生产撮合删除后仍保留行为契约）**：新建 `pkg/trading/paper_fake_test.go` 的 `fakePaperTrader`（走共享 `ComputePaperCost`，卖单按 `available` 部分成交，T+1 由 `AdvanceDay` 推进）；`cmd/analysis` 的 `fakeExecutionTrader`（下单即全额成交、按 ID 回查）；`e2e/backtest_live` 的 `signalOnlyTrader`；`stubLiveTrader` 补持仓/账户。paper 算法测试与 handler 测试全部改注入替身，无 `zerolog` 残留。
+    - **对拍 / 夹具腿留档后删除**：`TestBrokerHTTPPortParityWithMockTrader`、`TestNewBrokerHTTPPortFromEnv` 随旧实现删除；新通道的对拍面改为 `pkg/brokerhttp` 的 httptest double 腿 + opt-in 真进程腿 `TestTraderAgainstRealBrokerProcess`（env `BROKER_PARITY_URL/TOKEN/ACCOUNT`，默认 SKIP）。
+    - **护栏**：`package_wiring_test.go` 的 `unwiredPackages` 删 `pkg/trading/broker/xtp`、增 `tellurion/pkg/id`（原消费者 = 进程内订单存储，已删；ULID 生成器保留为订单域重建候选）；`retiredPackages` 增 `tellurion/pkg/trading/broker/xtp`（复活即红）。
+    - **文档同笔**：`README.md` 执行层、`AGENTS.md` 依赖表 / ODR-021 注记 / 技术债 / AUD-34 已知问题、`docs/SPEC.md`（费用同构 / 滑点表 / Execution API / 价格笼子）、`docs/ARCHITECTURE.md`（切读段改为「通道切换完成 + 无回退」）、`docs/live-trading.md`（状态表 + 第 6/7/10 节标历史）、`docs/openapi.yaml` 下单描述、`config/analysis-service.yaml` 对账自检注释，全部改指 broker HTTP。历史归档与设计审计文档保持当时事实。
+    - **计数（当场实测）**：`NewPostgresOrderStore` 在 `*.go` = **0**；`pkg/trading/broker/xtp` 目录**不存在**；`tellurion/pkg/brokerhttp` 的导入者 = **1**（`pkg/bootstrap/engine.go`，`cmd/analysis` 经它间接使用）。
+    - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（含 `pkg/brokerhttp`、`pkg/trading` 五个包、`cmd/analysis`、`internal/repoguard`）。
 
 ### SVC-CORE-AI-RETIRE · core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10）[P1] ✅（2026-11-10）
 

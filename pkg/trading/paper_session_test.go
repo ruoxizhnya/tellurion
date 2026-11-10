@@ -161,12 +161,9 @@ func testProvider() *fakeProvider {
 	return p
 }
 
-func newPaperTrader(t *testing.T) *MockTrader {
+func newPaperTrader(t *testing.T) LiveTrader {
 	t.Helper()
-	return NewMockTrader(MockTraderConfig{
-		InitialCash:   1_000_000,
-		SlippageModel: "fixed", // 走共享成本核
-	}, zerolog.Nop())
+	return newFakePaperTrader(1_000_000)
 }
 
 func newSession(t *testing.T, prov marketdata.Provider, trader LiveTrader) *PaperSession {

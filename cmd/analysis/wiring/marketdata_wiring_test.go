@@ -109,7 +109,7 @@ func TestStrategyRuntimeModule_AttachesRouter(t *testing.T) {
 		return risk.NewRiskManager(risk.RiskManagerConfig{}, logger)
 	})
 	exec := NewExecEngineModule(func() (trading.LiveTrader, error) {
-		return trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
+		return &fakeTrader{name: "exec"}, nil
 	})
 	strat := NewStrategyRuntimeModule(viper.New(), logger, &StrategyRuntimeDeps{
 		Store:      &storage.PostgresStore{},

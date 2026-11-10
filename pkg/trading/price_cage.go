@@ -3,14 +3,17 @@
 // ⚠️ **未接线（REV-25 冻结，2026-10-17）— 实盘接入前必须接**
 //
 // 本文件实现的 ±2% 价格笼子**当前没有任何生产调用方**：`SetPriceCageValidator`
-// 只在 live 包内与测试里被调用（`paper_session.go` 接了 `SetCurrentBarProvider`，
-// 但没接笼子）。也就是说——**MockTrader 的限价单不做笼子校验**，它只在被显式
-// 接线后才会生效。
+// 只在包内与测试里被调用（`paper_session.go` 接了 `SetCurrentBarProvider`，
+// 但没接笼子）。也就是说——**core 侧发出的限价单不做笼子校验**，它只在被显式
+// 接线后才会生效。交易通道已切到 broker HTTP（SVC-CORE-BROKER-RETIRE），
+// 真实通道的限价单校验归属 broker 仓；本实现保留给 `LiveEngine` / `OrderManager`
+// 的装配路径，接线决策不随通道迁移自动改变。
 //
-// 为什么冻结而不是接线：本项目**定位不上实盘**（D1 未接券商），笼子校验没有
-// 消费场景；给 MockTrader 加一条它模拟不出来的交易所规则，只会让「模拟盘通过」
-// 与「实盘能报单」之间的差距更难看清。冻结没有回退成本：真要接实时，在
-// `OrderManager` 的构造路径上接一行 `SetPriceCageValidator` 即可。
+// 为什么冻结而不是接线：core 不承担真实报单的交易所规则（撮合与规则由 broker 仓
+// 负责），笼子校验在 core 侧没有消费场景；给 paper 侧替身加一条它模拟不出来的
+// 交易所规则，只会让「模拟盘通过」与「实盘能报单」之间的差距更难看清。冻结没有
+// 回退成本：真要接实时，在 `OrderManager` 的构造路径上接一行
+// `SetPriceCageValidator` 即可。
 //
 // **实盘接入的前置条件（不满足就不要开实盘）**：
 //  1. 接 `SetPriceCageValidator`（`LiveEngine` 或 order_manager 装配处），

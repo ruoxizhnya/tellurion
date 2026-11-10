@@ -1,19 +1,24 @@
-package wiring
+// Package brokerhttp 是 core → tellurion-broker 的唯一 HTTP 客户端。
+//
+// 它同时提供两个形状：
+//   - Port：回测引擎的出站执行端口（`execution.ExecutionPort`，五方法）；
+//   - Trader：core 运行域的 `trading.LiveTrader`（下单 / 撤单 / 查单 /
+//     持仓 / 账户 / 健康 / 紧急清仓）。
+//
+// 两者共用同一套地址、鉴权、client_order_id 与报文映射，避免两份实现漂移。
+//
+// 边界：
+//   - wire 形状的唯一 owner 是 `tellurion-contracts/broker`（CT-05）：
+//     本包只做 core DTO ⇄ 契约类型的映射，不复制报文结构。
+//   - 订单真相仍在本仓；broker 只做通道适配与幂等映射。
+package brokerhttp
 
 // SVC-BROKER-G3（ADR-036 G3）：执行端口的第二实现 —— 直接调
 // tellurion-broker 的 G1 HTTP 面（`/api/broker/orders`）。
 //
-// 边界：
-//   - 只实现 `execution.ExecutionPort` 的五个方法（下单 / 撤单 / 查单 /
-//     身份 / 健康）。持仓、结算、紧急清仓仍归 core 运行域与本进程的
-//     `trading.LiveTrader`（运维面），不进回测引擎的出站端口。
-//   - wire 形状的唯一 owner 是 `tellurion-contracts/broker`（CT-05）：
-//     本文件只做 `execution` DTO ⇄ 契约类型的映射，不复制报文结构。
-//   - 订单真相仍在本仓；broker 只做通道适配与幂等映射。
-//
-// 开关：`BROKER_URL` 为空 ⇒ 返回 nil（装配层回退旧的 `trading.LiveTrader`，
-// 可回滚）；非空则 `BROKER_SERVICE_TOKEN` 与 `BROKER_ACCOUNT_ID` 均必填，
-// 缺一即装配错误（fail-closed，不猜默认账户）。
+// 开关（SVC-CORE-BROKER-RETIRE 之后）：`BROKER_URL` 必填，缺失即装配
+// 错误（fail-loud），不再有「回退进程内撮合」的分支。`BROKER_SERVICE_TOKEN`
+// 与 `BROKER_ACCOUNT_ID` 同样必填，缺一即装配错误（不猜默认账户）。
 
 import (
 	"bytes"
@@ -26,12 +31,10 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
 	broker "github.com/ruoxizhnya/tellurion-contracts/broker"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 
@@ -137,29 +140,8 @@ func NewBrokerHTTPPort(opts BrokerHTTPOptions) (*BrokerHTTPPort, error) {
 	}, nil
 }
 
-// NewBrokerHTTPPortFromEnv 按环境变量构造端口。
-//
-// `BROKER_URL` 未配置 = 本部署没切 broker 通道，返回 (nil, nil)，装配层
-// 回退旧实现（默认路径，可回滚）。其余两键在 URL 已配置时必填。
-func NewBrokerHTTPPortFromEnv(logger zerolog.Logger) (*BrokerHTTPPort, error) {
-	base := strings.TrimSpace(os.Getenv("BROKER_URL"))
-	if base == "" {
-		return nil, nil
-	}
-	port, err := NewBrokerHTTPPort(BrokerHTTPOptions{
-		BaseURL:      base,
-		ServiceToken: os.Getenv("BROKER_SERVICE_TOKEN"),
-		AccountID:    os.Getenv("BROKER_ACCOUNT_ID"),
-	})
-	if err != nil {
-		return nil, err
-	}
-	logger.Info().
-		Str("url", base).
-		Str("account_id", port.accountID).
-		Msg("execution port switched to broker HTTP gateway (SVC-BROKER-G3)")
-	return port, nil
-}
+// NewBrokerHTTPPortFromEnv 已随 SVC-CORE-BROKER-RETIRE 删除：`BROKER_URL`
+// 缺失不再表示「回退进程内撮合」，而是装配错误（见 NewTraderFromEnv）。
 
 // Name 返回实现名。
 func (p *BrokerHTTPPort) Name() string { return "broker_http" }

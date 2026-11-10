@@ -229,8 +229,8 @@ alert:
 # alert.* 共用通道集）。
 #
 # enabled: false = worker 不启动（默认；/api/reconciliation 路由返回 503）。
-# 自检形态（当前）：broker 侧视图 = 同一 MockTrader 状态，账实差异恒零；
-# 真实券商适配器（D1）落地后只替换 broker 侧实现，此配置不变。
+# 自检形态（当前）：broker 侧视图 = 同一执行通道（broker HTTP）的账户视图，
+# 账实差异恒零；真实券商适配器落地后只替换 broker 侧实现，此配置不变。
 reconciliation:
   enabled: false
   account_id: "default"

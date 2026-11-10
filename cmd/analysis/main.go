@@ -105,9 +105,9 @@ func main() {
 		eng.SetRiskManager(riskManager)
 		// QT-51：实盘通道经装配层适配成 execution.ExecutionPort 再注入；
 		// 回测包不再认识 pkg/trading。
-		// SVC-BROKER-G3：主引擎用了哪条通道（broker HTTP 或旧 live 适配），
-		// 窗口引擎就用哪条 —— 同一进程内不允许两条执行通道并存。
-		wiring.AttachExecutionPort(eng, ak.Wiring.ExecutionPort, executionTrader)
+		// SVC-CORE-BROKER-RETIRE：core 只有 broker HTTP 一条通道，主引擎与
+		// 窗口引擎共用同一个 Trader 适配结果。
+		wiring.AttachLiveTrader(eng, executionTrader)
 		eng.SetStore(store)
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
@@ -351,9 +351,8 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 
 	// P1-15 (Sprint 6, ODR-021): risk + execution endpoints
 	// absorbed from cmd/risk/main.go + cmd/execution/main.go.
-	// Both backends are in-process (risk.RiskManager and
-	// trading.MockTrader) so the HTTP layer is a thin shim — no
-	// service-to-service hop.
+	// Risk 仍是进程内 risk.RiskManager；执行通道是 broker HTTP
+	// （SVC-CORE-BROKER-RETIRE，2026-11-10），HTTP 层仍是 thin shim。
 	// QT-70：detect_regime 的粗粒度形状（symbol + 日期区间）需要服务端取数。
 	// SVC-CORE-DATA-RETIRE（2026-11-08）：ohlcv 明细已随数据面退役，core 不再
 	// 直查；未注入取数端口 ⇒ 该形状请求 503，内联 data 形状不受影响。

@@ -44,7 +44,7 @@ func newWiringModules(order *[]string) (data *DataEngineModule, riskM *RiskEngin
 	})
 	exec = NewExecEngineModule(func() (trading.LiveTrader, error) {
 		*order = append(*order, "exec-engine")
-		return trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
+		return &fakeTrader{name: "exec"}, nil
 	})
 	strategy = NewStrategyRuntimeModule(viper.New(), logger, &StrategyRuntimeDeps{
 		// 零值 store：SetStore 只存指针，构造期不触库（真 Boot 走

@@ -17,13 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/trading"
 	"tellurion/pkg/trading/reconciliation"
 )
-
-import "tellurion/pkg/domain"
 
 // reconCaptureChannel 捕获派发进告警通道的每条 alert。
 type reconCaptureChannel struct {
@@ -65,13 +62,17 @@ func (d *driftedBrokerView) QuerySettlement(ctx context.Context, accountID strin
 	return snap, nil
 }
 
-// newReconTestTrader 构造一个有持仓的 MockTrader（本地侧视图）。
-func newReconTestTrader(t *testing.T) *trading.MockTrader {
+// newReconTestTrader 构造一个有持仓的本地侧视图（stub，不再是已退役的
+// 进程内撮合）。
+func newReconTestTrader(t *testing.T) trading.LiveTrader {
 	t.Helper()
-	trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, zerolog.Nop())
-	_, err := trader.SubmitOrder(context.Background(), "600000.SH", cdom.DirectionLong, domain.OrderTypeMarket, 200, 10)
-	require.NoError(t, err)
-	return trader
+	return &stubLiveTrader{
+		positions: []trading.PositionInfo{{
+			Symbol: "600000.SH", Quantity: 200, AvailableQty: 200,
+			AvgCost: 10, CurrentPrice: 10, MarketValue: 2000,
+		}},
+		account: trading.AccountInfo{TotalAssets: 1_000_000, Cash: 998_000, MarketValue: 2_000},
+	}
 }
 
 // TestReconciliation_InjectedDiscrepancyFiresNamedAlert 是 K16 ⑤ 的验收

@@ -240,7 +240,7 @@ type ReconciliationReport struct {
 // uses to fetch the broker's authoritative view of the account.
 //
 // Implementations:
-//   - mock: returns the same MockTrader's internal state (self-check)
+//   - self-check：返回本进程执行通道自己的账户视图（cmd/analysis 的自检装配）
 //   - ctp / 恒生 / 金证: 走券商提供的 query_settlement / QryAccount
 //     接口, 用 settlement_id 反查 (T+1 settlement 是 A 股标准做法)
 type BrokerQuerier interface {

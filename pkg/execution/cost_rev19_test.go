@@ -4,7 +4,7 @@ package execution
 //
 // 旧行为：`case "fixed": slippage := fees.FixedSlippageRate` 硬编码 —— 用户在
 // `backtest.slippage_rate` 里配什么数字，对**生产路径**（ExecutionService →
-// ApplyTrade）的成交价都没有任何影响。paper 侧 MockTrader 默认 0.01%、
+// ApplyTrade）的成交价都没有任何影响。paper 侧默认 0.01%、
 // 生产侧硬编码 0.1%，差 10 倍且没人知道。
 
 import (

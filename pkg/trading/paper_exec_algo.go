@@ -11,7 +11,7 @@ package trading
 // K17 的改法：信号若指定了 exec_algo（domain.Signal.ExecAlgo 非空），
 // 不当场整单报送，而是把父单挂到本会话的 execalgo.Dispatcher（Schedule
 // 拆单）；随后每个交易日由 dispatchExecAlgoChildren 把「当日到点」的子单
-// 逐笔经**同一个** LiveTrader 报送（MockTrader 的同一成本核，含 impact
+// 逐笔经**同一个** LiveTrader 报送（paper 侧替身走同一成本核，含 impact
 // ——大单拆细后单笔冲击下降，即 D5「模拟真实大单」的正证据），OnFill
 // 回填父单进度。未指定 exec_algo 的信号走原路径，逐字节不变。
 //
@@ -23,12 +23,12 @@ package trading
 // backtest → live，反向即循环）。两侧靠「同一算法包 pkg/execalgo +
 // 同一裁决注释」保持一致，靠 e2e 测试钉住数值。
 //
-// ─── LiveTrader / MockTrader 签名不动（边界）────────────────────────
+// ─── LiveTrader 签名不动（边界）────────────────────────────────────
 //
 // 子单只是「更小的委托」：SubmitOrder(ctx, symbol, direction, orderType,
 // quantity, price) 原样调用，qty 取子单量。子单号（(父单号, 片序号)
 // 纯函数）只活在派发器与 OnFill 回填里——PaperFill 刻意不含 OrderID
-// （成交流确定性契约，见 paper_session.go），MockTrader 内部为每笔子单
+// （成交流确定性契约，见 paper_session.go），通道实现为每笔子单
 // 生成自己的 broker 侧 ID（非确定，但不进成交流，故不回放结果仍确定）。
 //
 // ─── 会话结束裁决（K17 要求 3：显式裁决）────────────────────────────
@@ -225,7 +225,7 @@ func (s *PaperSession) cancelExecAlgoParentsForSymbol(symbol, reason string) {
 
 // submitExecAlgoChild 报送一笔到点子单，产出 PaperFill 并回填父单进度。
 //
-// 价格口径与 executeSignal 一致：市价单 price=0（MockTrader 经
+// 价格口径与 executeSignal 一致：市价单 price=0（paper 侧通道经
 // CurrentBarSource 取当根 bar Close）；限价单缺价时退回当根 Close。
 func (s *PaperSession) submitExecAlgoChild(ctx context.Context, d time.Time, dc execalgo.DueChild) *PaperFill {
 	price := 0.0

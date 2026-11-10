@@ -4,7 +4,7 @@ package repoguard
 //
 // 为什么需要它：`pkg/trading/price_cage.go` 实现了 A 股申报价格笼子（沪深主板
 // ±2%），但 `SetPriceCageValidator` 在生产路径上**零调用方**——`paper_session`
-// 接了 `SetCurrentBarProvider`，却没接笼子。于是「MockTrader 的限价单做过笼子
+// 接了 `SetCurrentBarProvider`，却没接笼子。于是「core 侧限价单做过笼子
 // 校验」是一个很容易被读出来的错误结论：代码在、测试绿、实现正确，只是没接。
 //
 // 本仓对这类状态的一贯处理是「显式冻结 + 机械执法」（先例：package_wiring_test

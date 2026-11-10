@@ -9,10 +9,9 @@ package main
 // ← alert.ReconciliationDispatcher ← AlertManager（log + webhook 通道，
 // 与风控告警同通道集）。
 //
-// 券商侧视图的裁决（D1 未接真实券商）：QuerySettlement 目前返回**同一
-// MockTrader 状态的自检视图**——这是 pkg/trading/reconciliation 包注释里
-// 列名的合法实现（"mock: returns the same MockTrader's internal state
-// (self-check)"）。真实券商接入（D1）后**只换 broker 侧**一个适配器，
+// 券商侧视图的裁决：QuerySettlement 目前返回**同一执行通道状态的自检
+// 视图**——这是 pkg/trading/reconciliation 包注释里列名的合法实现
+// （self-check）。通道换成 broker HTTP 后**只换 broker 侧**一个适配器，
 // worker / 告警链路一行不动。
 //
 // 已知缺口（如实记录，不静默）：LiveTrader 接口不暴露费用台账，
@@ -37,7 +36,7 @@ import (
 // 的验收走测试侧的 driftedBrokerView（见 setup_reconciliation_test.go）。
 type traderAccountView struct {
 	trader    trading.LiveTrader
-	accountID string // 单账户视图：MockTrader 只有一个账户
+	accountID string // 单账户视图：执行通道只暴露一个账户
 }
 
 // compile-time assertions: 双接口同体（自检形态）。
@@ -99,7 +98,7 @@ func (v *traderAccountView) snapshot(ctx context.Context, asOf time.Time) (*reco
 		AsOf:      asOf,
 		Cash: reconciliation.CashSnap{
 			TotalCNY:  acct.Cash,
-			Available: acct.Cash, // MockTrader 无冻结金概念：可用 = 全部
+			Available: acct.Cash, // 通道接口不暴露冻结金：可用 = 全部
 		},
 		Positions: snaps,
 		// Fees 恒零：LiveTrader 接口不暴露费用流水（见文件头「已知缺口」）。

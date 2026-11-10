@@ -91,7 +91,7 @@ bash tools/local-stack.sh           # 起/停本地栈并断言端口
 | **选股器** | 多条件筛选（PE/PB/市值/换手等）；结果为空可能是数据缺口而非故障 | ✅ |
 | **策略实验室** | 策略 CRUD + 参数；对比分析与调优仍是半成品 | 🔄 |
 | **Copilot / AI 研究** | **handler 已迁 ai-service（:8086）**，analysis 只做反代 | ✅（依赖 ai-service） |
-| **执行层** | `MockTrader` 模拟盘 + 订单生命周期 + 费用/印花税；**真实券商未接** | ✅ 模拟 / 🔲 实盘 |
+| **执行层** | `pkg/brokerhttp` 通道（broker HTTP；无 `BROKER_URL` 即装配失败）+ 订单生命周期；费用/印花税在 core 运行域记账；券商适配归 `tellurion-broker` | ✅ 通道 / 🔲 真实券商 |
 | **风控 / 合规 / 对账** | 仓位计算、regime、止损；合规报告；资金对账 worker | ✅ |
 
 ## 文档索引
