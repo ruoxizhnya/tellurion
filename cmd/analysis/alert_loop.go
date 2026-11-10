@@ -8,8 +8,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"tellurion/pkg/alert"
-	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
+	"tellurion/pkg/trading"
 )
 
 // PeriodicAlertConfig controls how often the PeriodicAlertLoop
@@ -196,7 +196,7 @@ func (h *AlertHistory) DrainAndReset() []alert.Alert {
 type PeriodicAlertLoop struct {
 	cfg     PeriodicAlertConfig
 	am      *alert.AlertManager
-	trader  live.LiveTrader
+	trader  trading.LiveTrader
 	riskMgr *risk.RiskManager
 	history *AlertHistory
 	logger  zerolog.Logger
@@ -208,7 +208,7 @@ type PeriodicAlertLoop struct {
 func NewPeriodicAlertLoop(
 	cfg PeriodicAlertConfig,
 	am *alert.AlertManager,
-	trader live.LiveTrader,
+	trader trading.LiveTrader,
 	riskMgr *risk.RiskManager,
 	history *AlertHistory,
 	logger zerolog.Logger,
@@ -320,7 +320,7 @@ func (l *PeriodicAlertLoop) TriggerOnce(ctx context.Context) (int, error) {
 // risk manager falls back to an empty metrics map so the detectors
 // that don't depend on it still run.
 //
-// Note: PositionInfo in pkg/live does not yet expose a Sector
+// Note: PositionInfo in pkg/trading does not yet expose a Sector
 // field, so the SectorConcentrationDetector will bucket every
 // position into "uncategorized" until that field is added (P2-3
 // or later). This is acceptable: the operator can still set a
@@ -347,7 +347,7 @@ func (l *PeriodicAlertLoop) buildSnapshot(ctx context.Context) (alert.PortfolioS
 				CurrentPrice:  p.CurrentPrice,
 				MarketValue:   p.MarketValue,
 				UnrealizedPnL: p.UnrealizedPnL,
-				// Sector intentionally empty until pkg/live.PositionInfo
+				// Sector intentionally empty until pkg/trading.PositionInfo
 				// gains a Sector field.
 			})
 		}

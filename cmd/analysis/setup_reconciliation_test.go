@@ -19,8 +19,8 @@ import (
 
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/live"
-	"tellurion/pkg/live/reconciliation"
+	"tellurion/pkg/trading"
+	"tellurion/pkg/trading/reconciliation"
 )
 
 import "tellurion/pkg/domain"
@@ -66,9 +66,9 @@ func (d *driftedBrokerView) QuerySettlement(ctx context.Context, accountID strin
 }
 
 // newReconTestTrader 构造一个有持仓的 MockTrader（本地侧视图）。
-func newReconTestTrader(t *testing.T) *live.MockTrader {
+func newReconTestTrader(t *testing.T) *trading.MockTrader {
 	t.Helper()
-	trader := live.NewMockTrader(live.MockTraderConfig{InitialCash: 1_000_000}, zerolog.Nop())
+	trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, zerolog.Nop())
 	_, err := trader.SubmitOrder(context.Background(), "600000.SH", cdom.DirectionLong, domain.OrderTypeMarket, 200, 10)
 	require.NoError(t, err)
 	return trader

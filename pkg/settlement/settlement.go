@@ -1,7 +1,7 @@
 // Package settlement — S7-P1-1 (ODR-043 D1)
 //
 // A 股 T+1 交收规则共享原语。tracker.go (pkg/backtest) 和
-// mock_trader.go (pkg/live) 之前各自重复实现 T+1 交收逻辑（3 处
+// mock_trader.go (pkg/trading) 之前各自重复实现 T+1 交收逻辑（3 处
 // RollOver + 3 处卖空限制 + 6+ 处 IsFlat 检查），S7-P0-17 修复的
 // ghost zero-quantity position bug 正是因为两个执行器的 IsFlat
 // 阈值和清理逻辑不一致。

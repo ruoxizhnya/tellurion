@@ -20,10 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
+	"tellurion/pkg/trading"
 )
 
 // lockedBuffer 让 zerolog 的并发写入（worker / 日循环）在测试下不竞态。
@@ -108,8 +108,8 @@ func TestStrategyRuntimeModule_AttachesRouter(t *testing.T) {
 	riskM := NewRiskEngineModule(func() (*risk.RiskManager, error) {
 		return risk.NewRiskManager(risk.RiskManagerConfig{}, logger)
 	})
-	exec := NewExecEngineModule(func() (live.LiveTrader, error) {
-		return live.NewMockTrader(live.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
+	exec := NewExecEngineModule(func() (trading.LiveTrader, error) {
+		return trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
 	})
 	strat := NewStrategyRuntimeModule(viper.New(), logger, &StrategyRuntimeDeps{
 		Store:      &storage.PostgresStore{},

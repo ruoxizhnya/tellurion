@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/live/stockstate"
+	"tellurion/pkg/trading/stockstate"
 )
 
 // P2-13 (Sprint 6 ODR-030): Stock state / 退市 handler.
@@ -28,7 +28,7 @@ import (
 //
 // The handler is intentionally a thin layer over the registry/liquidator;
 // all business rules (legal transitions / delisting window) live in
-// pkg/live/stock_state.go (P2-13) and are unit-tested there.
+// pkg/trading/stock_state.go (P2-13) and are unit-tested there.
 type StockStateHandler struct {
 	registry   *stockstate.StockStateRegistry
 	liquidator *stockstate.ForcedLiquidator

@@ -17,35 +17,35 @@ import (
 
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
 
 // stubLiveTrader is a minimal LiveTrader that returns canned
-// positions and account state. It satisfies pkg/live.LiveTrader so
+// positions and account state. It satisfies pkg/trading.LiveTrader so
 // the alert loop can be exercised without spinning up the full
 // MockTrader or a real broker integration.
 type stubLiveTrader struct {
 	mu        sync.Mutex
-	positions []live.PositionInfo
-	account   live.AccountInfo
+	positions []trading.PositionInfo
+	account   trading.AccountInfo
 	getErr    error
 }
 
-func (s *stubLiveTrader) GetPositions(_ context.Context) ([]live.PositionInfo, error) {
+func (s *stubLiveTrader) GetPositions(_ context.Context) ([]trading.PositionInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
-	out := make([]live.PositionInfo, len(s.positions))
+	out := make([]trading.PositionInfo, len(s.positions))
 	copy(out, s.positions)
 	return out, nil
 }
 
-func (s *stubLiveTrader) GetAccount(_ context.Context) (*live.AccountInfo, error) {
+func (s *stubLiveTrader) GetAccount(_ context.Context) (*trading.AccountInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.getErr != nil {
@@ -55,13 +55,13 @@ func (s *stubLiveTrader) GetAccount(_ context.Context) (*live.AccountInfo, error
 	return &cp, nil
 }
 
-func (s *stubLiveTrader) setPositions(p []live.PositionInfo) {
+func (s *stubLiveTrader) setPositions(p []trading.PositionInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.positions = p
 }
 
-func (s *stubLiveTrader) setAccount(a live.AccountInfo) {
+func (s *stubLiveTrader) setAccount(a trading.AccountInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.account = a
@@ -70,21 +70,21 @@ func (s *stubLiveTrader) setAccount(a live.AccountInfo) {
 // The remaining LiveTrader methods are unused by the alert loop;
 // embed a no-op helper to satisfy the interface. Tests do not call
 // them, so panic-on-call is acceptable to surface accidental use.
-func (s *stubLiveTrader) SubmitOrder(context.Context, string, cdom.Direction, domain.OrderType, float64, float64) (*live.OrderResult, error) {
+func (s *stubLiveTrader) SubmitOrder(context.Context, string, cdom.Direction, domain.OrderType, float64, float64) (*trading.OrderResult, error) {
 	panic("stubLiveTrader.SubmitOrder should not be called from alert loop tests")
 }
 func (s *stubLiveTrader) CancelOrder(context.Context, string) error {
 	panic("stubLiveTrader.CancelOrder should not be called from alert loop tests")
 }
-func (s *stubLiveTrader) GetOrder(context.Context, string) (*live.OrderResult, error) {
+func (s *stubLiveTrader) GetOrder(context.Context, string) (*trading.OrderResult, error) {
 	panic("stubLiveTrader.GetOrder should not be called from alert loop tests")
 }
 func (s *stubLiveTrader) Name() string                      { return "stub" }
 func (s *stubLiveTrader) HealthCheck(context.Context) error { return nil }
-func (s *stubLiveTrader) EmergencyFlatten(_ context.Context, reason string) (*live.EmergencyFlattenResult, error) {
+func (s *stubLiveTrader) EmergencyFlatten(_ context.Context, reason string) (*trading.EmergencyFlattenResult, error) {
 	// Alert loop does not exercise emergency flatten; return an
 	// empty result so the interface stays satisfied.
-	return &live.EmergencyFlattenResult{Reason: reason}, nil
+	return &trading.EmergencyFlattenResult{Reason: reason}, nil
 }
 
 // stubRiskManager is a minimal risk.RiskManager facade. The full
@@ -206,8 +206,8 @@ func TestAlertHistory_DrainAndReset(t *testing.T) {
 
 func TestPeriodicAlertLoop_TriggerOnce_DispatchesAndRecords(t *testing.T) {
 	trader := &stubLiveTrader{
-		account: live.AccountInfo{TotalAssets: 100_000, Cash: 50_000, UnrealizedPnL: 0},
-		positions: []live.PositionInfo{
+		account: trading.AccountInfo{TotalAssets: 100_000, Cash: 50_000, UnrealizedPnL: 0},
+		positions: []trading.PositionInfo{
 			{Symbol: "BIG", Quantity: 100, AvgCost: 100, CurrentPrice: 300, MarketValue: 30_000}, // 30% > 20% limit
 		},
 	}
@@ -236,8 +236,8 @@ func TestPeriodicAlertLoop_TriggerOnce_DispatchesAndRecords(t *testing.T) {
 
 func TestPeriodicAlertLoop_TriggerOnce_NoFireWhenUnderLimits(t *testing.T) {
 	trader := &stubLiveTrader{
-		account: live.AccountInfo{TotalAssets: 100_000, Cash: 80_000},
-		positions: []live.PositionInfo{
+		account: trading.AccountInfo{TotalAssets: 100_000, Cash: 80_000},
+		positions: []trading.PositionInfo{
 			{Symbol: "X", MarketValue: 20_000}, // 20% = exactly at limit
 		},
 	}
@@ -262,7 +262,7 @@ func TestPeriodicAlertLoop_TriggerOnce_TraderErrorPropagates(t *testing.T) {
 
 func TestPeriodicAlertLoop_Start_StopsOnContextCancel(t *testing.T) {
 	trader := &stubLiveTrader{
-		account: live.AccountInfo{TotalAssets: 100_000},
+		account: trading.AccountInfo{TotalAssets: 100_000},
 	}
 	cfg := PeriodicAlertConfig{Interval: 50 * time.Millisecond, HistoryLimit: 10, Enabled: true}
 	loop, _, _ := newTestLoop(t, cfg, trader, alert.AlertManagerConfig{})
@@ -374,8 +374,8 @@ func TestAlertsHistoryHandler_FilterBySeverity(t *testing.T) {
 
 func TestAlertsForceCheckHandler_TriggersEvaluation(t *testing.T) {
 	trader := &stubLiveTrader{
-		account: live.AccountInfo{TotalAssets: 100_000, Cash: 50_000},
-		positions: []live.PositionInfo{
+		account: trading.AccountInfo{TotalAssets: 100_000, Cash: 50_000},
+		positions: []trading.PositionInfo{
 			{Symbol: "BIG", MarketValue: 30_000},
 		},
 	}
@@ -394,7 +394,7 @@ func TestAlertsForceCheckHandler_TriggersEvaluation(t *testing.T) {
 
 func TestAlertsStatsHandler_ReportsState(t *testing.T) {
 	trader := &stubLiveTrader{
-		account: live.AccountInfo{TotalAssets: 100_000},
+		account: trading.AccountInfo{TotalAssets: 100_000},
 	}
 	loop, history, _ := newTestLoop(t, PeriodicAlertConfig{HistoryLimit: 10}, trader, alert.AlertManagerConfig{})
 

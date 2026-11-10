@@ -2,10 +2,10 @@ package wiring
 
 // QT-51（BE-02）：实盘/paper 通道 → 回测引擎执行端口的适配层。
 //
-// 这是本仓**唯一**同时认识 `live.LiveTrader` 与
+// 这是本仓**唯一**同时认识 `trading.LiveTrader` 与
 // `pkg/backtest/execution.ExecutionPort` 的位置：
-//   - `pkg/backtest` 侧结构护栏禁止 import `pkg/live`；
-//   - `pkg/live` 是 QT-45 通道网关域，不改实现语义；
+//   - `pkg/backtest` 侧结构护栏禁止 import `pkg/trading`；
+//   - `pkg/trading` 是 QT-45 通道网关域，不改实现语义；
 //   - 装配层（本包）负责把两者接上。
 //
 // 结构护栏：`internal/repoguard/backtest_live_isolation_test.go`。
@@ -16,21 +16,21 @@ import (
 
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/execution"
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
-// liveTraderPort 把 live.LiveTrader 适配成 execution.ExecutionPort。
+// liveTraderPort 把 trading.LiveTrader 适配成 execution.ExecutionPort。
 //
 // 只转译测到的方法集：下单 / 撤单 / 成交回报 / 身份 / 健康。
 // 仓位、账户、紧急平仓不在回测引擎的出站端口内（运维面直接消费
-// live.LiveTrader）。
+// trading.LiveTrader）。
 type liveTraderPort struct {
-	trader live.LiveTrader
+	trader trading.LiveTrader
 }
 
-// NewLiveTraderPort 包装一个 live.LiveTrader；trader 为 nil 时返回 nil port
+// NewLiveTraderPort 包装一个 trading.LiveTrader；trader 为 nil 时返回 nil port
 // （引擎侧语义 = 关闭出站路径，走纯模拟）。
-func NewLiveTraderPort(trader live.LiveTrader) execution.ExecutionPort {
+func NewLiveTraderPort(trader trading.LiveTrader) execution.ExecutionPort {
 	if trader == nil {
 		return nil
 	}
@@ -41,7 +41,7 @@ func NewLiveTraderPort(trader live.LiveTrader) execution.ExecutionPort {
 // 先适配成 ExecutionPort，再交给 Engine.SetLiveTrader。
 //
 // 引擎为 nil 时静默返回（装配错误由上游 fail-fast 负责）。
-func AttachLiveTrader(engine *backtest.Engine, trader live.LiveTrader) {
+func AttachLiveTrader(engine *backtest.Engine, trader trading.LiveTrader) {
 	if engine == nil {
 		return
 	}
@@ -50,10 +50,10 @@ func AttachLiveTrader(engine *backtest.Engine, trader live.LiveTrader) {
 
 // AttachExecutionPort 是 SVC-BROKER-G3 的装配选择：
 // `port` 非 nil（配置了 BROKER_URL）⇒ 引擎直接走 broker HTTP 通道；
-// `port` 为 nil ⇒ 回退旧的 live.LiveTrader 适配（默认路径，可回滚）。
+// `port` 为 nil ⇒ 回退旧的 trading.LiveTrader 适配（默认路径，可回滚）。
 //
 // 两个实现都满足同一个 ExecutionPort，引擎侧零感知。
-func AttachExecutionPort(engine *backtest.Engine, port execution.ExecutionPort, fallback live.LiveTrader) {
+func AttachExecutionPort(engine *backtest.Engine, port execution.ExecutionPort, fallback trading.LiveTrader) {
 	if engine == nil {
 		return
 	}
@@ -109,7 +109,7 @@ func (p *liveTraderPort) HealthCheck(ctx context.Context) error {
 
 // fromLiveOrderResult 把实盘结果值对象转成回测域 DTO。
 // nil 进 nil 出（实盘实现可能返回 (nil, nil)）。
-func fromLiveOrderResult(res *live.OrderResult) *execution.OrderResult {
+func fromLiveOrderResult(res *trading.OrderResult) *execution.OrderResult {
 	if res == nil {
 		return nil
 	}

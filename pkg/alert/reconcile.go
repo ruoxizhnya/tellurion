@@ -6,7 +6,7 @@
 // AlertDispatcher 生产实现——差异经 AlertManager.Fire 走与风控告警
 // 同一套通道（log + webhook），不再各写各的旁路。
 //
-// 依赖方向：pkg/alert → pkg/live（SignalDiscrepancy）/ pkg/live/reconciliation
+// 依赖方向：pkg/alert → pkg/trading（SignalDiscrepancy）/ pkg/trading/reconciliation
 // （Discrepancy）是安全的——这两个包都不 import pkg/alert（AlertDispatcher
 // 是消费方定义的窄接口，reconciliation 只声明它），与 K16 ② 的
 // nautilus.RunObserver 同一裁决模式。
@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"time"
 
-	"tellurion/pkg/live"
-	"tellurion/pkg/live/reconciliation"
+	"tellurion/pkg/trading"
+	"tellurion/pkg/trading/reconciliation"
 )
 
 // Rule 命名约定：外部告警的 rule 一律带来源前缀（recon.* / signal_recon.*），
@@ -100,7 +100,7 @@ func NewSignalDispatcher(mgr *AlertManager) *SignalDispatcher {
 // DispatchSignalDiscrepancies 发一批信号对账差异。判据（signal_reconcile.go）：
 // 「信号一致是硬门禁」，任何超出浮点噪声的差异都是 critical——故这里
 // 不做 severity 分级，全部 critical。一条差异一条告警，点名 (date,symbol)。
-func (d *SignalDispatcher) DispatchSignalDiscrepancies(ctx context.Context, discrepancies []live.SignalDiscrepancy) {
+func (d *SignalDispatcher) DispatchSignalDiscrepancies(ctx context.Context, discrepancies []trading.SignalDiscrepancy) {
 	if d == nil || d.mgr == nil {
 		return
 	}

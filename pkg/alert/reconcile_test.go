@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tellurion/pkg/live"
-	"tellurion/pkg/live/reconciliation"
+	"tellurion/pkg/trading"
+	"tellurion/pkg/trading/reconciliation"
 )
 
 // captureChannel 复用 manager_test.go 的既有定义（同包，snapshot() 读法一致）。
@@ -74,10 +74,10 @@ func TestSignalDispatcher_FiresCriticalPerDiscrepancy(t *testing.T) {
 	mgr, cap := newReconTestManager(t)
 	disp := NewSignalDispatcher(mgr)
 
-	disp.DispatchSignalDiscrepancies(context.Background(), []live.SignalDiscrepancy{
+	disp.DispatchSignalDiscrepancies(context.Background(), []trading.SignalDiscrepancy{
 		{
 			Date: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), Symbol: "000001.SZ",
-			Kind: live.KindSignalDirection, PaperVal: "long", BacktestVal: "close",
+			Kind: trading.KindSignalDirection, PaperVal: "long", BacktestVal: "close",
 			Note: "方向漂移",
 		},
 	})

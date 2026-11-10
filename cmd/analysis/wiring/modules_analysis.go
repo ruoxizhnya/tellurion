@@ -14,7 +14,7 @@ package wiring
 //	                       MockTrader / engine 内部，无独立可接线组件；
 //	                       蓝图「恢复持仓」语义待实盘线（D1）才有载体。
 //	5. risk-engine       ← risk.RiskManager
-//	6. exec-engine       ← live.LiveTrader（本地为 MockTrader）
+//	6. exec-engine       ← trading.LiveTrader（本地为 MockTrader）
 //	7. strategy-runtime  ← backtest.Engine 构造 + Set*(全部依赖注入)
 //	8. indicators        ← 【无实体，Noop】K3 的 L2 有状态算子是
 //	                       per-run 实例化（SaveState/LoadState），
@@ -48,10 +48,10 @@ import (
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/kernel"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
+	"tellurion/pkg/trading"
 )
 
 // ─── data-engine（BootOrder 第 3 位）────────────────────────────────
@@ -130,13 +130,13 @@ func (m *RiskEngineModule) Stop(context.Context) error { return nil }
 // ExecEngineModule 持有执行端（本地为 MockTrader；实盘线 D1 时替换为
 // 真券商 adapter —— 这正是「回测-实盘同构」的换件点）。
 type ExecEngineModule struct {
-	build func() (live.LiveTrader, error)
+	build func() (trading.LiveTrader, error)
 
-	Trader live.LiveTrader
+	Trader trading.LiveTrader
 }
 
 // NewExecEngineModule 构造 exec-engine 模块。
-func NewExecEngineModule(build func() (live.LiveTrader, error)) *ExecEngineModule {
+func NewExecEngineModule(build func() (trading.LiveTrader, error)) *ExecEngineModule {
 	return &ExecEngineModule{build: build}
 }
 
@@ -232,7 +232,7 @@ func (m *StrategyRuntimeModule) Init(context.Context) error {
 	engine.SetStore(d.Store)
 	engine.SetDataAdapter(d.DataEngine.Adapter)
 	engine.SetRiskManager(d.RiskEngine.RiskManager)
-	// QT-51：live.LiveTrader → execution.ExecutionPort 的适配只在装配层做。
+	// QT-51：trading.LiveTrader → execution.ExecutionPort 的适配只在装配层做。
 	// SVC-BROKER-G3：BrokerPort 非 nil 时引擎直接走 broker HTTP 通道，
 	// 否则回退旧实现（默认路径，可回滚）。
 	AttachExecutionPort(engine, d.BrokerPort, d.ExecEngine.Trader)

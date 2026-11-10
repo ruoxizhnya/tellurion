@@ -126,7 +126,7 @@ func (s *BacktestExecutionService) SetSlippageModel(model string) {
 // "none" branches ignore it and are byte-for-byte unchanged.
 //
 // K5 切片 1：函数体改为委托 pkg/execution 的**共享成本核**——paper 侧
-// （pkg/live）走的是同一段代码，回测与 paper 的滑点公式从此不可能漂移。
+// （pkg/trading）走的是同一段代码，回测与 paper 的滑点公式从此不可能漂移。
 // 这里把可变的 s.slippageModel 覆盖进 config 再构造 core，以保留
 // SetSlippageModel 的既有语义（s.slippageModel 可能已不同于
 // config.SlippageModel）。数值行为逐位不变。

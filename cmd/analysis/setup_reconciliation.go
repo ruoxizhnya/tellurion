@@ -2,7 +2,7 @@ package main
 
 // K16 ⑤ · 资金对账 worker 的**首个生产构造点**。
 //
-// 背景（台账 K16 ⑤ / K5 遗留）：pkg/live/reconciliation 的
+// 背景（台账 K16 ⑤ / K5 遗留）：pkg/trading/reconciliation 的
 // ReconciliationWorker / AlertDispatcher 一直是「算法侧交付、零生产构造点」
 // ——handler 写好了（handlers_reconciliation.go）但装配从没接上，差异没有
 // 告警出口。本文件补齐装配：worker ← traderAccountView（本地/券商双视图）
@@ -10,7 +10,7 @@ package main
 // 与风控告警同通道集）。
 //
 // 券商侧视图的裁决（D1 未接真实券商）：QuerySettlement 目前返回**同一
-// MockTrader 状态的自检视图**——这是 pkg/live/reconciliation 包注释里
+// MockTrader 状态的自检视图**——这是 pkg/trading/reconciliation 包注释里
 // 列名的合法实现（"mock: returns the same MockTrader's internal state
 // (self-check)"）。真实券商接入（D1）后**只换 broker 侧**一个适配器，
 // worker / 告警链路一行不动。
@@ -27,16 +27,16 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"tellurion/pkg/alert"
-	"tellurion/pkg/live"
-	"tellurion/pkg/live/reconciliation"
+	"tellurion/pkg/trading"
+	"tellurion/pkg/trading/reconciliation"
 )
 
-// traderAccountView 把 live.LiveTrader 的账户视图适配成对账两侧的快照
+// traderAccountView 把 trading.LiveTrader 的账户视图适配成对账两侧的快照
 // 接口。本地侧（LocalSnapshotter）与券商自检侧（BrokerQuerier）共用这
 // 一个类型：自检语义 = 两侧同源，账实差异恒零（健康基线）；人为注入差异
 // 的验收走测试侧的 driftedBrokerView（见 setup_reconciliation_test.go）。
 type traderAccountView struct {
-	trader    live.LiveTrader
+	trader    trading.LiveTrader
 	accountID string // 单账户视图：MockTrader 只有一个账户
 }
 
@@ -114,7 +114,7 @@ func errReconAccountMismatch(accountID, known string) error {
 	return fmt.Errorf("reconciliation: unknown account %q (this view serves %q)", accountID, known)
 }
 
-func buildReconciliation(v *viper.Viper, mgr *alert.AlertManager, trader live.LiveTrader, logger zerolog.Logger) *reconciliation.ReconciliationWorker {
+func buildReconciliation(v *viper.Viper, mgr *alert.AlertManager, trader trading.LiveTrader, logger zerolog.Logger) *reconciliation.ReconciliationWorker {
 	if !v.GetBool("reconciliation.enabled") {
 		// 未配置 = 不启动（fail-safe：自检对账是合规基线，配置后才开）。
 		logger.Info().Msg("reconciliation worker not enabled (set reconciliation.enabled: true to start)")

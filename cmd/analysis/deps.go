@@ -16,11 +16,11 @@ import (
 	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/live"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/trading"
 )
 
 type ServerDeps struct {
@@ -66,7 +66,7 @@ type ServerDeps struct {
 	RiskManager *risk.RiskManager
 
 	// ExecutionTrader — in-process MockTrader (P1-15, /api/execution/*).
-	ExecutionTrader live.LiveTrader
+	ExecutionTrader trading.LiveTrader
 
 	// EmergencyToken — bearer token for the kill-switch endpoint
 	// (POST /api/execution/emergency-flatten). Empty disables the endpoint.

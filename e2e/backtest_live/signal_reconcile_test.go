@@ -3,8 +3,8 @@ package backtest_live
 // QT-51（BE-02）：K5 切片 2 的信号对账端到端正证据。
 //
 // 该测试原本住在 `pkg/backtest/signal_reconcile_e2e_test.go`。QT-51 要求
-// `pkg/backtest` 对 `pkg/live` 的 import 为 0，而对账的**被测对象**恰恰是
-// 「paper（pkg/live.PaperSession）vs 回测（pkg/backtest.Engine）」这一对，
+// `pkg/backtest` 对 `pkg/trading` 的 import 为 0，而对账的**被测对象**恰恰是
+// 「paper（pkg/trading.PaperSession）vs 回测（pkg/backtest.Engine）」这一对，
 // 天然要同时认识两侧。因此把它迁到 e2e 层：这是跨域证据，不是引擎包单测。
 //
 // 读法 A 的最后一环：同一策略、同一批 bar、同一窗口语义，paper 回放与回测
@@ -35,10 +35,10 @@ import (
 	"github.com/ruoxizhnya/tellurion-kit/logging"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
@@ -235,7 +235,7 @@ func TestSignalReconcile_PaperVsBacktest(t *testing.T) {
 
 	// ── paper 侧：同一个 provider，同一批 symbols，同窗口 ──
 	paperStrat := newReconcileProbe("k5_reconcile_probe_paper") // 独立实例，无共享状态
-	trader := live.NewMockTrader(live.MockTraderConfig{
+	trader := trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:   1_000_000,
 		SlippageModel: "fixed",
 	}, zerolog.Nop())
@@ -244,7 +244,7 @@ func TestSignalReconcile_PaperVsBacktest(t *testing.T) {
 	end := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC)
 
 	var paperSignals []domain.Signal
-	sess, err := live.NewPaperSession(live.PaperSessionConfig{
+	sess, err := trading.NewPaperSession(trading.PaperSessionConfig{
 		Provider: prov,
 		Clock:    clock.NewVirtualClock(start),
 		Trader:   trader,
@@ -268,7 +268,7 @@ func TestSignalReconcile_PaperVsBacktest(t *testing.T) {
 		t.Fatal("paper 侧未产出信号，对账断言无意义")
 	}
 
-	diff := live.ReconcileSignals(paperSignals, backtestSignals, live.DefaultSignalReconcileConfig())
+	diff := trading.ReconcileSignals(paperSignals, backtestSignals, trading.DefaultSignalReconcileConfig())
 	if len(diff) != 0 {
 		t.Fatalf("paper 与回测信号不一致（%d 条差异）：\n%s",
 			len(diff), diffStrings(diff))
@@ -305,9 +305,9 @@ func TestSignalReconcile_ClockDivergenceDetected(t *testing.T) {
 
 	// paper 侧故意把 end 提前一天 → 少喂最后一个交易日 → 信号必然缺失。
 	paperStrat := newReconcileProbe("k5_reconcile_probe_paper_b")
-	trader := live.NewMockTrader(live.MockTraderConfig{InitialCash: 1_000_000, SlippageModel: "fixed"}, zerolog.Nop())
+	trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000, SlippageModel: "fixed"}, zerolog.Nop())
 	var paperSignals []domain.Signal
-	sess, err := live.NewPaperSession(live.PaperSessionConfig{
+	sess, err := trading.NewPaperSession(trading.PaperSessionConfig{
 		Provider: prov,
 		Clock:    clock.NewVirtualClock(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)),
 		Trader:   trader,
@@ -325,14 +325,14 @@ func TestSignalReconcile_ClockDivergenceDetected(t *testing.T) {
 		t.Fatalf("paper 回放失败：%v", err)
 	}
 
-	diff := live.ReconcileSignals(paperSignals, backtestSignals, live.DefaultSignalReconcileConfig())
+	diff := trading.ReconcileSignals(paperSignals, backtestSignals, trading.DefaultSignalReconcileConfig())
 	if len(diff) == 0 {
 		t.Fatal("paper 截断窗口后信号应与回测不同，但 ReconcileSignals 报零差异 —— 对账器失效")
 	}
 	t.Logf("破坏验证通过：截断窗口导致 %d 条信号差异被对账器点名", len(diff))
 }
 
-func diffStrings(diff []live.SignalDiscrepancy) string {
+func diffStrings(diff []trading.SignalDiscrepancy) string {
 	s := ""
 	for i, d := range diff {
 		if i > 0 {

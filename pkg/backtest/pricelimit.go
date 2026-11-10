@@ -169,7 +169,7 @@ func resolvePriceLimit(in PriceLimitInput, cfg PriceLimitConfigValues) float64 {
 //
 // AUD-22 (ODR-065): the implementation MOVED to pkg/marketdata (leaf)
 // because the order path needs it and pkg/backtest is a parent package —
-// pkg/live and pkg/risk cannot import it without a reverse dependency.
+// pkg/trading and pkg/risk cannot import it without a reverse dependency.
 // This wrapper is kept so the existing call sites in this package
 // (resolvePriceLimit, hasSTPrefix) do not churn, and so the price-limit
 // code keeps reading as "ask the board question here".

@@ -2698,7 +2698,7 @@ GET  /risk_metrics                  - legacy alias
 - Batch order submission
 - Quote subscription (mock streaming)
 
-**LiveTrader Interface** (`pkg/live/trader.go`):
+**LiveTrader Interface** (`pkg/trading/trader.go`):
 ```go
 type LiveTrader interface {
     SubmitOrder(ctx context.Context, symbol string, direction domain.Direction, orderType domain.OrderType, quantity float64, price float64) (*OrderResult, error)
@@ -2760,11 +2760,11 @@ GET  /account                        - legacy alias
   （字段从构造后从未被写入，AUD-31），且无锁返回内部指针（AUD-23）。
   两者都随消费方消失而删除。
 
-**仍然有效的部分**：下面这些是 `pkg/live` 的订单类型与校验规则。`LiveEngine` /
+**仍然有效的部分**：下面这些是 `pkg/trading` 的订单类型与校验规则。`LiveEngine` /
 `OrderManager` 仍在仓库中（当前**无生产接线** —— `/api/execution/*` 走的是
 `MockTrader`）。文档保留，免得下次需要时无从查起。
 
-**Order types (P1-3 / ODR-016)** — `pkg/live/engine.go:tryFillOrder`:
+**Order types (P1-3 / ODR-016)** — `pkg/trading/engine.go:tryFillOrder`:
 - `market` — 立即按 Ask/Bid 成交
 - `limit` — 限价单: `Buy: Ask <= LimitPrice` 时成交, `Sell: Bid >= LimitPrice` 时成交; 成交价为限价或更优
 - `stop` — 止损单: `Buy: Ask >= StopPrice` 触发后转市价; `Sell: Bid <= StopPrice` 触发后转市价
@@ -3428,11 +3428,11 @@ invalid；计数按 `execAlgoRunDiag` 同款模式落 `fillRunDiag`（末轮
 
 ### Live Trading Bridge
 
-The backtest engine supports seamless transition from simulation to live/paper trading via the `execution.ExecutionPort` contract (QT-51 / BE-02). The engine itself does **not** import `pkg/live`; the `live.LiveTrader` adapter lives in the composition layer:
+The backtest engine supports seamless transition from simulation to live/paper trading via the `execution.ExecutionPort` contract (QT-51 / BE-02). The engine itself does **not** import `pkg/trading`; the `trading.LiveTrader` adapter lives in the composition layer:
 
 ```go
 // Attach a LiveTrader to the engine (adapter lives in cmd/analysis/wiring)
-trader := live.NewMockTrader(live.MockTraderConfig{InitialCash: 1e6}, logger)
+trader := trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1e6}, logger)
 engine.SetLiveTrader(wiring.NewLiveTraderPort(trader))
 
 // Execute a single signal through the execution port
@@ -3456,10 +3456,10 @@ err := engine.HealthCheckLiveTrader(ctx)
 
 > **QT-51 (BE-02) verification** — `ExecutionPort` is defined in
 > `pkg/backtest/execution/port.go`（下单 / 撤单 / 成交回报 / 身份 / 健康）;
-> `live.LiveTrader` → `ExecutionPort` 的适配只允许住在
+> `trading.LiveTrader` → `ExecutionPort` 的适配只允许住在
 > `cmd/analysis/wiring/live_trader_port.go`。结构护栏
 > `internal/repoguard/backtest_live_isolation_test.go` 断言 `pkg/backtest`
-> 全树不 import `pkg/live`；行为锁 `pkg/backtest/qt51_equivalence_test.go`
+> 全树不 import `pkg/trading`；行为锁 `pkg/backtest/qt51_equivalence_test.go`
 > 断言挂不挂 port 回测结果逐位相同。
 
 When an execution port is attached, the engine can run in "paper trading" mode where signals are executed through the port while still tracking performance internally. This enables:
@@ -3469,12 +3469,12 @@ When an execution port is attached, the engine can run in "paper trading" mode w
 
 #### 价格笼子（Price Cage）状态：**未接线** — 实盘接入的前置条件（REV-25 冻结）
 
-`pkg/live/price_cage.go` 实现了 A 股申报价格笼子（沪深主板 ±2%，涨停/跌停价不适用；
+`pkg/trading/price_cage.go` 实现了 A 股申报价格笼子（沪深主板 ±2%，涨停/跌停价不适用；
 创业板 / 科创板 / 北交所只有日涨跌幅、无 2% 笼子）。**实现正确，但没有接线**：
 
 | 项 | 实况 |
 |---|---|
-| `SetPriceCageValidator` 的生产调用方 | **0**（只有 `pkg/live` 包内与测试调用） |
+| `SetPriceCageValidator` 的生产调用方 | **0**（只有 `pkg/trading` 包内与测试调用） |
 | MockTrader 的限价单是否做笼子校验 | **否**——笼子只有在被显式接线后才生效 |
 | `SetCurrentBarProvider`（对照项） | 已接（`paper_session.go`），说明「同类接线」有先例 |
 
@@ -3482,7 +3482,7 @@ When an execution port is attached, the engine can run in "paper trading" mode w
 校验没有消费场景；给 MockTrader 加一条它模拟不出来的交易所规则，只会让「模拟盘
 通过」与「实盘能报单」的差距更难看清。冻结无回退成本：接实时只需在装配处接一行。
 
-**实盘 broker 接入的前置条件**（清单与 `pkg/live/price_cage.go` 文件头一致，
+**实盘 broker 接入的前置条件**（清单与 `pkg/trading/price_cage.go` 文件头一致，
 两处同步改——ODR-067）：
 
 1. 在 `LiveEngine` / `OrderManager` 装配路径接 `SetPriceCageValidator`，并提供

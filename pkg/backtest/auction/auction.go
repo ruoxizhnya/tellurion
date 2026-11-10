@@ -381,7 +381,7 @@ func allocateFills(buys, sells []CallAuctionOrder, price float64, matched float6
 	return fills
 }
 
-// round4 rounds to 4 decimal places (same helper as pkg/live).
+// round4 rounds to 4 decimal places (same helper as pkg/trading).
 func auctionRound4(x float64) float64 {
 	return math.Round(x*1e4) / 1e4
 }

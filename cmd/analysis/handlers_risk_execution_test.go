@@ -14,8 +14,8 @@ import (
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/live"
 	"tellurion/pkg/risk"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
@@ -51,7 +51,7 @@ func newTestRiskHandler(t *testing.T) *RiskHandler {
 
 func newTestExecutionHandler(t *testing.T) *ExecutionHandler {
 	t.Helper()
-	trader := live.NewMockTrader(live.MockTraderConfig{
+	trader := trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:    1_000_000,
 		CommissionRate: 0.0003,
 		// AUD-06 (ODR-065): was 0.001 (the pre-2023-08 rate). Not
@@ -224,7 +224,7 @@ func TestExecutionHandler_CreateAndGetOrder(t *testing.T) {
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusCreated, w.Code, "body: %s", w.Body.String())
 
-	var created live.OrderResult
+	var created trading.OrderResult
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
 	require.NotEmpty(t, created.OrderID)
 
@@ -265,8 +265,8 @@ func TestExecutionHandler_ListOrders_EmptyAndNonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var resp struct {
-		Orders []*live.OrderResult `json:"orders"`
-		Count  int                 `json:"count"`
+		Orders []*trading.OrderResult `json:"orders"`
+		Count  int                    `json:"count"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, 0, resp.Count)

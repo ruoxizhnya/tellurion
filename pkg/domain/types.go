@@ -121,7 +121,7 @@ type Order struct {
 	// 三个字段全部**可选**，零值 = 未指定 ⇒ 整单直下，默认路径行为与
 	// 数值逐字节不变（K17 硬约束，回归腿钉住）。指定后由 `tellurion:pkg/execalgo`
 	// 的 TWAP/VWAP 在「送撮合前」拆单：回测侧 `tellurion:pkg/backtest/exec_algo.go`、
-	// paper 侧 `tellurion:pkg/live/paper_exec_algo.go`。子单走同一 CostModel（含
+	// paper 侧 `tellurion:pkg/trading/paper_exec_algo.go`。子单走同一 CostModel（含
 	// impact）——大单拆细后单笔冲击下降，即 D5「模拟真实大单」的效果。
 	//
 	// ExecAlgo 仅接受 "twap" / "vwap"（未知值 fail-loud）；真实券商

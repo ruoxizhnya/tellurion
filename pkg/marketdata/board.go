@@ -1,11 +1,11 @@
 // Package marketdata — A-share board classification.
 //
 // S7-P1-2 (ODR-043): Board type, constants, and ClassifySymbol previously
-// lived in pkg/live and were imported by pkg/compliance (appropriateness.go),
+// lived in pkg/trading and were imported by pkg/compliance (appropriateness.go),
 // creating a reverse dependency (compliance → live). Board classification is
 // a market-structure concept that belongs in the marketdata layer; both
-// pkg/live (price cage validation) and pkg/compliance (investor suitability)
-// consume it. pkg/live re-exports the symbols via aliases for backward
+// pkg/trading (price cage validation) and pkg/compliance (investor suitability)
+// consume it. pkg/trading re-exports the symbols via aliases for backward
 // compatibility.
 //
 // 分类规则参考:

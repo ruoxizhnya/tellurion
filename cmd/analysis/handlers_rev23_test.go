@@ -33,8 +33,8 @@ import (
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/alert"
 	"tellurion/pkg/backtest"
-	"tellurion/pkg/live"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
@@ -52,30 +52,30 @@ type rev23FailingTrader struct {
 	mu sync.Mutex
 }
 
-func (t *rev23FailingTrader) SubmitOrder(_ context.Context, _ string, _ cdom.Direction, _ domain.OrderType, _ float64, _ float64) (*live.OrderResult, error) {
+func (t *rev23FailingTrader) SubmitOrder(_ context.Context, _ string, _ cdom.Direction, _ domain.OrderType, _ float64, _ float64) (*trading.OrderResult, error) {
 	panic("rev23FailingTrader: SubmitOrder not expected in these tests")
 }
 func (t *rev23FailingTrader) CancelOrder(_ context.Context, _ string) error {
 	panic("rev23FailingTrader: CancelOrder not expected in these tests")
 }
-func (t *rev23FailingTrader) GetOrder(_ context.Context, _ string) (*live.OrderResult, error) {
+func (t *rev23FailingTrader) GetOrder(_ context.Context, _ string) (*trading.OrderResult, error) {
 	panic("rev23FailingTrader: GetOrder not expected in these tests")
 }
-func (t *rev23FailingTrader) GetPositions(_ context.Context) ([]live.PositionInfo, error) {
+func (t *rev23FailingTrader) GetPositions(_ context.Context) ([]trading.PositionInfo, error) {
 	return nil, errors.New(rev23LeakMarker)
 }
-func (t *rev23FailingTrader) GetAccount(_ context.Context) (*live.AccountInfo, error) {
+func (t *rev23FailingTrader) GetAccount(_ context.Context) (*trading.AccountInfo, error) {
 	panic("rev23FailingTrader: GetAccount not expected in these tests")
 }
 func (t *rev23FailingTrader) Name() string { return "rev23_failing" }
 func (t *rev23FailingTrader) HealthCheck(_ context.Context) error {
 	return errors.New(rev23LeakMarker)
 }
-func (t *rev23FailingTrader) EmergencyFlatten(_ context.Context, _ string) (*live.EmergencyFlattenResult, error) {
+func (t *rev23FailingTrader) EmergencyFlatten(_ context.Context, _ string) (*trading.EmergencyFlattenResult, error) {
 	return nil, errors.New(rev23LeakMarker)
 }
 
-var _ live.LiveTrader = (*rev23FailingTrader)(nil)
+var _ trading.LiveTrader = (*rev23FailingTrader)(nil)
 
 // TestEmergencyFlatten_5xxBodyHasNoInternalError 钉住 (1a)：kill-switch
 // 失败时响应体只有静态文案，trader 的内部错误原文不进 body。

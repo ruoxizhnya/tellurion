@@ -26,12 +26,12 @@ import (
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/nautilus"
 	"tellurion/pkg/bootstrap"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/trading"
 )
 
 // ─── 委托 shim（共享 builder 已上收 internal/bootstrap）────────────────
@@ -122,7 +122,7 @@ const (
 // store 是 QT-42 X3c 的告警发件箱落点（`quant.alert_outbox`）。返回 error 只
 // 来自这条接线（显式启用但配置/依赖不合法）：调用方（main.go）据此 fail-fast，
 // 不让「risk 侧 alerts 恒空集」成为一次坏配置的静默后果。
-func buildAlertSystem(v *viper.Viper, store *storage.PostgresStore, executionTrader live.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
+func buildAlertSystem(v *viper.Viper, store *storage.PostgresStore, executionTrader trading.LiveTrader, riskManager *risk.RiskManager, logger zerolog.Logger) (*alert.AlertManager, *PeriodicAlertLoop, error) {
 	alertCfg := alert.AlertManagerConfig{
 		MaxPositionWeight: alertMaxPositionWeight,
 		MaxSectorWeight:   alertMaxSectorWeight,

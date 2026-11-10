@@ -172,8 +172,8 @@ type Engine struct {
 	listing map[string]ListingWindow
 
 	// liveBridge 桥接 backtest 信号到出站执行通道 (P1-17 ADR-020 / QT-51)。
-	// 持有的是 execution.ExecutionPort（不是 live.LiveTrader）——回测包
-	// 不 import pkg/live；实盘/paper 的适配由装配层注入。
+	// 持有的是 execution.ExecutionPort（不是 trading.LiveTrader）——回测包
+	// 不 import pkg/trading；实盘/paper 的适配由装配层注入。
 	// 旧 SetLiveTrader / GetLiveTrader / ExecuteSignalViaLiveTrader 等方法名
 	// 保留为 shim 委托到 bridge；QT-51 起参数/返回类型是 ExecutionPort。
 	liveBridge *LiveBridge
@@ -2292,9 +2292,9 @@ func hasSTPrefix(name string) bool {
 // trading → live trading.
 // Pass nil to disable the outbound channel and use pure simulation.
 //
-// QT-51（BE-02）：参数类型是 execution.ExecutionPort，不再是 live.LiveTrader。
-// 实盘/paper 的 live.LiveTrader 先经装配层适配（cmd/analysis/wiring 的
-// AttachLiveTrader）再注入；回测包与 pkg/live 的实现彻底解耦。
+// QT-51（BE-02）：参数类型是 execution.ExecutionPort，不再是 trading.LiveTrader。
+// 实盘/paper 的 trading.LiveTrader 先经装配层适配（cmd/analysis/wiring 的
+// AttachLiveTrader）再注入；回测包与 pkg/trading 的实现彻底解耦。
 //
 // P1-17 (ADR-020): thin shim to liveBridge.Set(). Retained for
 // backward compatibility (6 months); new code should use

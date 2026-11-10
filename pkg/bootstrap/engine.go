@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/domain"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
+	"tellurion/pkg/trading"
 )
 
 // BuildBacktestEngine 构造回测引擎与 HTTP 行情 provider。HTTP provider
@@ -49,7 +49,7 @@ func BuildRiskManager(cfg risk.RiskManagerConfig, logger zerolog.Logger) *risk.R
 
 // BuildExecutionTrader 构造进程内 MockTrader（P1-15, ODR-021）。
 // analysis 与 ai 共享同一构造 —— 两边跑出来的回测必须逐项一致。
-func BuildExecutionTrader(v *viper.Viper, logger zerolog.Logger) live.LiveTrader {
+func BuildExecutionTrader(v *viper.Viper, logger zerolog.Logger) trading.LiveTrader {
 	execConfig := domain.ExecutionConfig{
 		OrderType:      domain.OrderTypeMarket,
 		SlippageModel:  "fixed",
@@ -57,7 +57,7 @@ func BuildExecutionTrader(v *viper.Viper, logger zerolog.Logger) live.LiveTrader
 		MinCommission:  v.GetFloat64("trading.min_commission"),
 		InitialCapital: v.GetFloat64("backtest.initial_capital"),
 	}
-	trader := live.NewMockTrader(live.MockTraderConfig{
+	trader := trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:    execConfig.InitialCapital,
 		CommissionRate: execConfig.CommissionRate,
 		StampTaxRate:   v.GetFloat64("trading.stamp_tax_rate"),

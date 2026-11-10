@@ -126,8 +126,8 @@ func WithRiskRulesProvider(p RiskRulesProvider) EngineOption {
 
 // WithLiveTrader 注入执行通道（QT-51：execution.ExecutionPort）。
 //
-// 实盘 / paper 的 live.LiveTrader 需由装配层先适配成 ExecutionPort
-// （见 cmd/analysis/wiring 的 AttachLiveTrader）；回测包不再 import pkg/live。
+// 实盘 / paper 的 trading.LiveTrader 需由装配层先适配成 ExecutionPort
+// （见 cmd/analysis/wiring 的 AttachLiveTrader）；回测包不再 import pkg/trading。
 // 等价于 SetLiveTrader。
 func WithLiveTrader(port ExecutionPort) EngineOption {
 	return func(e *Engine) {

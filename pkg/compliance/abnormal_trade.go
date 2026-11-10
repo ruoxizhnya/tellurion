@@ -125,7 +125,7 @@ type Detector interface {
 }
 
 // OrderRecord is the input shape detectors operate on. It mirrors
-// pkg/live.OrderRecord (which we re-declare as a value-only copy
+// pkg/trading.OrderRecord (which we re-declare as a value-only copy
 // to keep the compliance package decoupled from the live package
 // — see ODR-021 service-merge decision; the compliance module is
 // deliberately a leaf package with no transitive dependencies on

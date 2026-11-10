@@ -31,7 +31,7 @@ import (
 //
 // ExecutionService 是 backtest 包内定义的接口 (见 execution.go)，
 // 涵盖 order → trade 的执行流程（slippage、commission、限价撮合）。
-// 该接口与 live.LiveTrader 不同：ExecutionService 作用于"回测上下文"
+// 该接口与 trading.LiveTrader 不同：ExecutionService 作用于"回测上下文"
 // （给定一根 bar 一笔委托，返回一笔成交），而 LiveTrader 作用于
 // "实盘上下文"（异步、broker API）。
 //

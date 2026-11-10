@@ -75,10 +75,10 @@ var unwiredPackages = map[string]string{
 	"tellurion/pkg/alert/systemalert": "系统级运维告警（数据同步停滞 / 回测失败 / 策略退化），待运维链路接线",
 	// 2026-10-24 (QT-26)：pkg/sandbox/wasm 从本表移除 —— pkg/backtest 的
 	// wasmSignalProvider 已把它接进真实回测（artifact → 逐 bar → 信号 → 成交）。
-	"tellurion/pkg/live/margin":      "融资融券账户管理 / 可融券判定，待实盘链路接线",
-	"tellurion/pkg/strategy/options": "期权策略（Black-Scholes / 二叉树），待策略层接线",
-	"tellurion/pkg/live/broker/xtp":  "中泰证券 XTP 券商适配，待实盘链路接线",
-	"tellurion/pkg/testutil":         "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
+	"tellurion/pkg/trading/margin":     "融资融券账户管理 / 可融券判定，待实盘链路接线",
+	"tellurion/pkg/strategy/options":   "期权策略（Black-Scholes / 二叉树），待策略层接线",
+	"tellurion/pkg/trading/broker/xtp": "中泰证券 XTP 券商适配，待实盘链路接线",
+	"tellurion/pkg/testutil":           "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
 	// AI 拆仓阶段 2：消费者随 pkg/ai 迁往 tellurion-agent 仓，core 侧
 	// 不再有导入者。包本体留在 core（通用基础设施），agent 经 module 依赖使用。
 	"tellurion/pkg/sandbox/runner":      "copilot build 沙箱 runner；消费者（cmd/ai 的 adapter）已随 AI 拆仓迁入 agent 仓",

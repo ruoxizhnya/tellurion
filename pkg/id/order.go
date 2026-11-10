@@ -1,7 +1,7 @@
 // Package id — Sprint 6 P1-23 (ODR-013, ADR-018)
 //
 // ID 生成统一包。0 此包前 9 处调用 `uuid.New().String()`
-// 散落在 pkg/live / pkg/backtest / pkg/sync / pkg/strategy
+// 散落在 pkg/trading / pkg/backtest / pkg/sync / pkg/strategy
 // / pkg/ai/pipeline / cmd/execution 等模块，且全部使用
 // UUID v4（随机）。问题：
 //
@@ -9,8 +9,8 @@
 //     订单量大时 insert tps 退化。
 //  2. 不可推断顺序：运维查 "上午 10:00 下的单" 只能 SELECT
 //     ORDER BY created_at，无法按主键。
-//  3. 不一致：3 套订单号生成路径（live.MockTrader、
-//     live.persistentMockTrader、cmd/execution）独立调用，
+//  3. 不一致：3 套订单号生成路径（trading.MockTrader、
+//     trading.persistentMockTrader、cmd/execution）独立调用，
 //     未来加 trace_id 时必须各自改。
 //
 // 解决

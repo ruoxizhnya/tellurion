@@ -24,7 +24,7 @@ import "tellurion/pkg/domain"
 
 // OrderIntent 是订单意图——策略 / 执行算法产出、报送前的「待裁决」订单。
 // 它是 risk-engine 的输入契约，也是 exec-engine.Submit 的输入契约
-// （pkg/live 以别名引用本类型，单一事实源）。
+// （pkg/trading 以别名引用本类型，单一事实源）。
 //
 // 字段与 domain.Order 对齐但更窄：不含成交结果（FilledQty / FillPrice /
 // Status）——意图是「想做什么」，结果是「做成了什么」，后者归 exec-engine。

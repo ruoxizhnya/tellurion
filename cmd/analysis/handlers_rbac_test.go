@@ -29,13 +29,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-func newRBACTestTrader() live.LiveTrader {
-	return live.NewMockTrader(live.MockTraderConfig{
+func newRBACTestTrader() trading.LiveTrader {
+	return trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:    1_000_000,
 		CommissionRate: 0.0003,
 		StampTaxRate:   0.0005,

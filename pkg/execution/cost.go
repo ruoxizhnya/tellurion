@@ -6,13 +6,13 @@
 // （时钟/broker/成本）⇒ 对账才可归因。若 paper 与回测各写一份滑点/费用
 // 公式，那么「差出来的那部分 P&L」既可能是执行机制不同，也可能是两份
 // 公式在某个边界上不一致 —— 归因就断了。所以成本公式**只有一份**，
-// 住在 pkg/execution，被 pkg/backtest/execution 与 pkg/live 共同调用。
+// 住在 pkg/execution，被 pkg/backtest/execution 与 pkg/trading 共同调用。
 //
 // ─── 落点裁决 ─────────────────────────────────────────────────────
 //
-// 任务给了两个候选：pkg/live/paper_cost.go 或与 pkg/backtest/execution
+// 任务给了两个候选：pkg/trading/paper_cost.go 或与 pkg/backtest/execution
 // 共享的新包。选**新顶层包 pkg/execution**，理由：
-//   - 若放 pkg/live，pkg/backtest/execution 就要反向依赖 pkg/live，把
+//   - 若放 pkg/trading，pkg/backtest/execution 就要反向依赖 pkg/trading，把
 //     「成本模型」塞进「实盘」的语义里（backtest → live 的依赖方向本身
 //     就错，虽然 live_bridge.go 已开了这个口子，但不该再扩大）；
 //   - pkg/execution 是平级共享域，与 pkg/fees / pkg/marketimpact /

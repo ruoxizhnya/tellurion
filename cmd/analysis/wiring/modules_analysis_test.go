@@ -21,10 +21,10 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
+	"tellurion/pkg/trading"
 )
 
 // newWiringModules 按装配处的真实方式构造四个业务模块，闭包把调用顺序
@@ -42,9 +42,9 @@ func newWiringModules(order *[]string) (data *DataEngineModule, riskM *RiskEngin
 		*order = append(*order, "risk-engine")
 		return risk.NewRiskManager(risk.RiskManagerConfig{}, logger)
 	})
-	exec = NewExecEngineModule(func() (live.LiveTrader, error) {
+	exec = NewExecEngineModule(func() (trading.LiveTrader, error) {
 		*order = append(*order, "exec-engine")
-		return live.NewMockTrader(live.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
+		return trading.NewMockTrader(trading.MockTraderConfig{InitialCash: 1_000_000}, logger), nil
 	})
 	strategy = NewStrategyRuntimeModule(viper.New(), logger, &StrategyRuntimeDeps{
 		// 零值 store：SetStore 只存指针，构造期不触库（真 Boot 走

@@ -280,6 +280,13 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
     - **步骤 C（护栏与计数）**：`internal/repoguard` 新增「全仓禁 `tellurion/pkg/live`」；订正 `backtest_live_isolation_test` / `package_wiring_test` 的旧路径白名单；实测 ⑤ 两条基线归零。
     - **步骤 D（跨仓收口）**：`tellurion-broker:docs/TASKS.md` `SVC-BROKER-G3` ⑤ 记「core 零调用」；`SVC-RETIRE-INDEX` 与 ARCHITECTURE / AGENTS 同步。
     - **如实登记的两处边界**：① broker 仍无 writer 级对拍（只有快照对账），本单只保证「core 不再写旧通道」，writer 对拍另单；② broker 无融资融券 / 对账 / 证券状态 HTTP 面，故 `margin` / `reconciliation` / `stockstate` 作为 core 运行域算法随包迁移，**不删**（与材料 §4.6 的字面删除清单有偏差，按「通道实现」语义收窄，待主任追认）。
+  - **步骤 A 施工记录（2026-11-10，本机实跑，独立 commit）**：
+    - **搬迁**：`git mv pkg/live pkg/trading`（45 个文件全为 Git 重命名记录，含 `broker/xtp/`、`margin/`、`reconciliation/`、`stockstate/` 四个子包）；`package live` → `package trading`、`package live_test` → `package trading_test`；全仓 102 个 `.go` 文件的 import / 限定名 / 路径注释同批改写（`tellurion/pkg/live` → `tellurion/pkg/trading`、`live.X` → `trading.X`）。行为零改动。
+    - **两处硬编码路径**（拆成 `filepath.Join("pkg", "live", …)` 的形态，机械替换漏网，逐个手工订正）：`pkg/backtest/exec_algo_review_test.go:133`、`internal/repoguard/price_cage_wiring_test.go:104`。
+    - **护栏语义同步**：`internal/repoguard/backtest_live_isolation_test.go` 的 `isLiveImport` 判据与反向用例（`pkg/tradingevil` / `pkg/tradingx/margin`）改指新包；该护栏仍然是「`pkg/backtest` 全树不得 import `pkg/trading`」，不是本单 ③ 要求的全仓禁令（后者属步骤 C）。
+    - **文档同笔**：`AGENTS.md`（依赖表 / ODR-021 段 / 风险登记）、`docs/SPEC.md`（LiveTrader / 订单类型 / QT-51 / 价格笼子四节）、`docs/ARCHITECTURE.md`（QT-51 边界段 + 更新日期行）中的路径与类型名改指 `pkg/trading`。历史归档与设计审计文档保持原样（当时事实）。
+    - **计数（当场实测）**：Go 文件里 `tellurion/pkg/live` = **0 行**；`tellurion/pkg/trading` = **44 行**；`pkg/live` 目录不存在。
+    - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（`ok` 含 `pkg/trading` 五个包与 `pkg/backtest` / `internal/repoguard`）。
 
 ### SVC-CORE-AI-RETIRE · core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10）[P1] ✅（2026-11-10）
 

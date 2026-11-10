@@ -2,7 +2,7 @@ package kernel_test
 
 // QT-50 ①/⑥ 护栏：kernel 是**纯装配机制**，非测试 import 里不许出现业务族。
 //
-// 为什么需要它：QT-50 施工前 `pkg/kernel` 直接 import `pkg/backtest` / `pkg/live` /
+// 为什么需要它：QT-50 施工前 `pkg/kernel` 直接 import `pkg/backtest` / `pkg/trading` /
 // `pkg/risk` / `pkg/marketdata` / `pkg/storage`（modules_analysis.go 与
 // marketdata_wiring.go）——于是「内核」等于把整个业务面拖进了框架包，别的应用
 // 复用 kernel 就得同时拖上回测引擎。装配属应用层（`cmd/*/wiring`），框架包只留
@@ -37,7 +37,7 @@ var businessFamilyPrefixes = []string{
 	"tellurion/pkg/execution",
 	"tellurion/pkg/expression",
 	"tellurion/pkg/indicator",
-	"tellurion/pkg/live",
+	"tellurion/pkg/trading",
 	"tellurion/pkg/marketdata",
 	"tellurion/pkg/marketimpact",
 	"tellurion/pkg/mining",

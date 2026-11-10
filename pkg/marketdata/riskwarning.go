@@ -7,7 +7,7 @@ package marketdata
 // AUD-22 (ODR-065)。这两个事实原先都住在 pkg/backtest：
 // IsRiskWarningName 在 pkg/backtest/pricelimit.go，而「当日累计买入上限」
 // 干脆没有任何实现。问题是买入上限必须作用在**下单路径**上，而
-// pkg/backtest 是父包 —— pkg/live、pkg/risk 都不能 import 它（会形成
+// pkg/backtest 是父包 —— pkg/trading、pkg/risk 都不能 import 它（会形成
 // 反向依赖，S7-P2-1 的 leaf 抽取就是为了破这个环）。
 //
 // pkg/marketdata 是叶子包，且本来就是「市场结构事实」的家：Board、

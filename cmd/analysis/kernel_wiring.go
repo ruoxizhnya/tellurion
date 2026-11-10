@@ -48,11 +48,11 @@ import (
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/eventstore"
 	"tellurion/pkg/kernel"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
 	"tellurion/pkg/msgbus"
 	"tellurion/pkg/risk"
 	"tellurion/pkg/storage"
+	"tellurion/pkg/trading"
 )
 
 // kernelPublisher 是内核写入 audit.message_log 的 publisher 标识（继承
@@ -71,7 +71,7 @@ type AnalysisWiring struct {
 	Router *marketdata.Router
 
 	RiskManager     *risk.RiskManager
-	ExecutionTrader live.LiveTrader
+	ExecutionTrader trading.LiveTrader
 	// ExecutionPort 是引擎实际使用的出站执行端口（SVC-BROKER-G3）：
 	// 配置了 BROKER_URL 时是 broker HTTP 适配器，否则是 live 适配器。
 	// walk-forward 窗口工厂用它保证与主引擎走同一条执行通道。
@@ -125,7 +125,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	})
 
 	// exec-engine（第 6 位）。
-	execMod := wiring.NewExecEngineModule(func() (live.LiveTrader, error) {
+	execMod := wiring.NewExecEngineModule(func() (trading.LiveTrader, error) {
 		return bootstrap.BuildExecutionTrader(v, logger), nil
 	})
 

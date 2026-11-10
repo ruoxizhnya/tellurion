@@ -3,7 +3,7 @@ package execution
 // QT-51（BE-02）执行语义边界：
 //
 // ExecutionPort 是**回测引擎的出站执行契约**。引擎只认识这个接口，
-// 不 import 任何实盘实现（`pkg/live`）。实盘/paper 的 `live.LiveTrader`
+// 不 import 任何实盘实现（`pkg/trading`）。实盘/paper 的 `trading.LiveTrader`
 // 由装配层（`cmd/analysis/wiring/live_trader_port.go`）适配后注入；
 // 回测主循环自己的撮合仍走 `ExecutionService` + `tracker`，不经过本 port
 // （port 为 nil = 纯模拟，行为与切 port 之前逐位一致）。
@@ -23,7 +23,7 @@ import "tellurion/pkg/domain"
 //
 // 方法集刻意最小：下单 / 撤单 / 成交回报 / 身份 / 健康。
 // 仓位、账户、紧急平仓不进本接口 —— 它们是运维面（HTTP handler 直接
-// 消费 live.LiveTrader），引擎运行期一个都不调用。
+// 消费 trading.LiveTrader），引擎运行期一个都不调用。
 type ExecutionPort interface {
 	// SubmitOrder 提交一笔订单。
 	// 市价单 Price 必须为 0；限价单 Price 为限价。
@@ -54,7 +54,7 @@ type OrderRequest struct {
 	Direction cdom.Direction
 	OrderType domain.OrderType
 	Quantity  float64
-	// Price：限价单为限价；市价单必须为 0（与 live.LiveTrader 约定一致）。
+	// Price：限价单为限价；市价单必须为 0（与 trading.LiveTrader 约定一致）。
 	Price float64
 }
 

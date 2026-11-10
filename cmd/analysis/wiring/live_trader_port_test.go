@@ -3,10 +3,10 @@ package wiring
 // QT-51：实盘适配层测试。
 //
 // 守住三件事：
-//  1. live.OrderResult → execution.OrderResult 字段不丢（含 FillPrice/Fee）；
+//  1. trading.OrderResult → execution.OrderResult 字段不丢（含 FillPrice/Fee）；
 //  2. 请求参数原样下发（symbol/direction/orderType/qty/price）；
 //  3. AttachLiveTrader 注入后，引擎经 ExecuteSignalViaLiveTrader 能打到
-//     真实 live.LiveTrader（适配层不是摆设）。
+//     真实 trading.LiveTrader（适配层不是摆设）。
 
 import (
 	"context"
@@ -19,8 +19,8 @@ import (
 
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/execution"
-	"tellurion/pkg/live"
 	"tellurion/pkg/marketdata"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
@@ -34,10 +34,10 @@ type fakeTrader struct {
 	submitErr     error
 	healthErr     error
 	name          string
-	order         *live.OrderResult
+	order         *trading.OrderResult
 }
 
-func (f *fakeTrader) SubmitOrder(ctx context.Context, symbol string, dir cdom.Direction, orderType domain.OrderType, qty, price float64) (*live.OrderResult, error) {
+func (f *fakeTrader) SubmitOrder(ctx context.Context, symbol string, dir cdom.Direction, orderType domain.OrderType, qty, price float64) (*trading.OrderResult, error) {
 	f.lastSymbol, f.lastDirection, f.lastOrderType = symbol, dir, orderType
 	f.lastQty, f.lastPrice = qty, price
 	if f.submitErr != nil {
@@ -46,25 +46,27 @@ func (f *fakeTrader) SubmitOrder(ctx context.Context, symbol string, dir cdom.Di
 	if f.order != nil {
 		return f.order, nil
 	}
-	return &live.OrderResult{
+	return &trading.OrderResult{
 		OrderID: "LIVE-1", Symbol: symbol, Direction: dir, OrderType: orderType,
 		Quantity: qty, FilledQty: qty, Price: price, Status: "filled",
 		FillPrice: price * 1.001, Fee: 5,
 	}, nil
 }
 func (f *fakeTrader) CancelOrder(ctx context.Context, orderID string) error { return nil }
-func (f *fakeTrader) GetOrder(ctx context.Context, orderID string) (*live.OrderResult, error) {
+func (f *fakeTrader) GetOrder(ctx context.Context, orderID string) (*trading.OrderResult, error) {
 	return f.order, nil
 }
-func (f *fakeTrader) GetPositions(ctx context.Context) ([]live.PositionInfo, error) { return nil, nil }
-func (f *fakeTrader) GetAccount(ctx context.Context) (*live.AccountInfo, error)     { return nil, nil }
-func (f *fakeTrader) Name() string                                                  { return f.name }
-func (f *fakeTrader) HealthCheck(ctx context.Context) error                         { return f.healthErr }
-func (f *fakeTrader) EmergencyFlatten(ctx context.Context, reason string) (*live.EmergencyFlattenResult, error) {
-	return &live.EmergencyFlattenResult{Reason: reason}, nil
+func (f *fakeTrader) GetPositions(ctx context.Context) ([]trading.PositionInfo, error) {
+	return nil, nil
+}
+func (f *fakeTrader) GetAccount(ctx context.Context) (*trading.AccountInfo, error) { return nil, nil }
+func (f *fakeTrader) Name() string                                                 { return f.name }
+func (f *fakeTrader) HealthCheck(ctx context.Context) error                        { return f.healthErr }
+func (f *fakeTrader) EmergencyFlatten(ctx context.Context, reason string) (*trading.EmergencyFlattenResult, error) {
+	return &trading.EmergencyFlattenResult{Reason: reason}, nil
 }
 
-var _ live.LiveTrader = (*fakeTrader)(nil)
+var _ trading.LiveTrader = (*fakeTrader)(nil)
 
 func TestNewLiveTraderPort_NilTraderReturnsNilPort(t *testing.T) {
 	assert.Nil(t, NewLiveTraderPort(nil), "nil trader 必须映射成 nil port（引擎侧 = 关闭出站路径）")
@@ -129,7 +131,7 @@ func TestAttachLiveTrader_InjectsWorkingPortIntoEngine(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
-	assert.Equal(t, "600000.SH", trader.lastSymbol, "引擎信号必须经适配层打到 live.LiveTrader")
+	assert.Equal(t, "600000.SH", trader.lastSymbol, "引擎信号必须经适配层打到 trading.LiveTrader")
 	assert.Equal(t, 0.0, trader.lastPrice, "市价单 price 必须为 0")
 	assert.Equal(t, 500.0, trader.lastQty, "quantity 口径必须与旧实现一致")
 }

@@ -3,7 +3,7 @@ package backtest
 // QT-51（BE-02）行为锁：**挂不挂实盘通道，回测结果逐位相同**。
 //
 // 结构护栏（internal/repoguard/backtest_live_isolation_test.go）保证
-// `pkg/backtest` 不再 import `pkg/live`；本文件补行为腿：
+// `pkg/backtest` 不再 import `pkg/trading`；本文件补行为腿：
 //
 //  1. 同一策略、同一输入跑两遍——一遍不挂 port，一遍挂一个
 //     「任何方法被调用就计数并报错」的 port；

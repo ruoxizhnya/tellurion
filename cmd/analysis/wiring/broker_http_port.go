@@ -6,12 +6,12 @@ package wiring
 // 边界：
 //   - 只实现 `execution.ExecutionPort` 的五个方法（下单 / 撤单 / 查单 /
 //     身份 / 健康）。持仓、结算、紧急清仓仍归 core 运行域与本进程的
-//     `live.LiveTrader`（运维面），不进回测引擎的出站端口。
+//     `trading.LiveTrader`（运维面），不进回测引擎的出站端口。
 //   - wire 形状的唯一 owner 是 `tellurion-contracts/broker`（CT-05）：
 //     本文件只做 `execution` DTO ⇄ 契约类型的映射，不复制报文结构。
 //   - 订单真相仍在本仓；broker 只做通道适配与幂等映射。
 //
-// 开关：`BROKER_URL` 为空 ⇒ 返回 nil（装配层回退旧的 `live.LiveTrader`，
+// 开关：`BROKER_URL` 为空 ⇒ 返回 nil（装配层回退旧的 `trading.LiveTrader`，
 // 可回滚）；非空则 `BROKER_SERVICE_TOKEN` 与 `BROKER_ACCOUNT_ID` 均必填，
 // 缺一即装配错误（fail-closed，不猜默认账户）。
 

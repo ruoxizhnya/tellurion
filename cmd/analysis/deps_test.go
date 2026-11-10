@@ -74,7 +74,7 @@ func TestServerDeps_HasExpectedFields(t *testing.T) {
 
 // TestServerDeps_FieldsAreTyped guards that the field types match the
 // services they carry. This catches subtle mistakes like typing
-// ExecutionTrader as a concrete *MockTrader instead of the live.LiveTrader
+// ExecutionTrader as a concrete *MockTrader instead of the trading.LiveTrader
 // interface (which would break the nil-substitution that tests rely on).
 func TestServerDeps_FieldsAreTyped(t *testing.T) {
 	t.Parallel()

@@ -130,7 +130,7 @@ func TestCallers_NeverDropOnBarDueChildren(t *testing.T) {
 
 	for _, rel := range []string{
 		filepath.Join("pkg", "backtest", "exec_algo.go"),
-		filepath.Join("pkg", "live", "paper_exec_algo.go"),
+		filepath.Join("pkg", "trading", "paper_exec_algo.go"),
 	} {
 		path := filepath.Join(repoRoot, rel)
 		t.Run(rel, func(t *testing.T) {

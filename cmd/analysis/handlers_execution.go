@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"tellurion/pkg/auth"
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
 import "tellurion/pkg/domain"
@@ -26,14 +26,14 @@ import "tellurion/pkg/domain"
 // `execution-service:8084/*`. Path prefix `/api` is added; the
 // rest of the surface is byte-compatible.
 //
-// The handler wraps a *live.MockTrader (or any live.LiveTrader
+// The handler wraps a *trading.MockTrader (or any trading.LiveTrader
 // implementation) so the runtime path is zero-HOP — the same
 // in-memory instance that the backtest engine bridges to via
 // `WithLiveTrader` is also exposed over HTTP for operator-driven
 // paper trading.
 
 type ExecutionHandler struct {
-	trader live.LiveTrader
+	trader trading.LiveTrader
 	logger zerolog.Logger
 
 	// emergencyToken is the bearer token required to invoke
@@ -51,7 +51,7 @@ type ExecutionHandler struct {
 	authSvc *auth.Service
 
 	mu     sync.RWMutex
-	orders map[string]*live.OrderResult
+	orders map[string]*trading.OrderResult
 	// orderQueue 维护 orders 的插入顺序（REV-23(2)）：封顶驱逐时按它
 	// 弹最旧。与 orders 同一把 mu 保护。
 	orderQueue []string
@@ -85,12 +85,12 @@ func WithExecutionAuth(svc *auth.Service) ExecutionHandlerOption {
 // emergency-flatten endpoint. Pass "" to disable the endpoint
 // entirely (returns 404). Tokens are compared using
 // crypto/subtle.ConstantTimeCompare to prevent timing attacks.
-func NewExecutionHandler(trader live.LiveTrader, logger zerolog.Logger, emergencyToken string, opts ...ExecutionHandlerOption) *ExecutionHandler {
+func NewExecutionHandler(trader trading.LiveTrader, logger zerolog.Logger, emergencyToken string, opts ...ExecutionHandlerOption) *ExecutionHandler {
 	h := &ExecutionHandler{
 		trader:         trader,
 		logger:         logger.With().Str("component", "execution_handler").Logger(),
 		emergencyToken: emergencyToken,
-		orders:         make(map[string]*live.OrderResult),
+		orders:         make(map[string]*trading.OrderResult),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -201,7 +201,7 @@ func (h *ExecutionHandler) createOrder(c *gin.Context) {
 
 	h.mu.Lock()
 	// REV-23(2)：orders 缓存此前只增不消——服务进程存活期内的每一笔订单
-	// 永久滞留（每单一个 *live.OrderResult），是慢速内存泄漏。容量封顶：
+	// 永久滞留（每单一个 *trading.OrderResult），是慢速内存泄漏。容量封顶：
 	// 超限按插入顺序逐出最旧的一单（FIFO）。这里的缓存只服务 listOrders /
 	// getOrder 的只读查询，被逐出的单仍在 trader 侧可查（getOrder 未命中
 	// 会回落到 h.trader.GetOrder），丢缓存不丢账。
@@ -221,7 +221,7 @@ func (h *ExecutionHandler) createOrder(c *gin.Context) {
 
 func (h *ExecutionHandler) listOrders(c *gin.Context) {
 	h.mu.RLock()
-	orders := make([]*live.OrderResult, 0, len(h.orders))
+	orders := make([]*trading.OrderResult, 0, len(h.orders))
 	for _, o := range h.orders {
 		orders = append(orders, o)
 	}
@@ -315,16 +315,16 @@ type emergencyFlattenRequest struct {
 	ConfirmationToken string `json:"confirmation_token" binding:"required"`
 }
 
-// emergencyFlattenResponse mirrors live.EmergencyFlattenResult with
+// emergencyFlattenResponse mirrors trading.EmergencyFlattenResult with
 // the audit fields added.
 type emergencyFlattenResponse struct {
-	Sold        []live.EmergencyFlattenOrder `json:"sold"`
-	Skipped     []live.EmergencyFlattenSkip  `json:"skipped"`
-	SoldTotal   float64                      `json:"sold_total"`
-	StartedAt   time.Time                    `json:"started_at"`
-	CompletedAt time.Time                    `json:"completed_at"`
-	Reason      string                       `json:"reason"`
-	LatencyMS   int64                        `json:"latency_ms"`
+	Sold        []trading.EmergencyFlattenOrder `json:"sold"`
+	Skipped     []trading.EmergencyFlattenSkip  `json:"skipped"`
+	SoldTotal   float64                         `json:"sold_total"`
+	StartedAt   time.Time                       `json:"started_at"`
+	CompletedAt time.Time                       `json:"completed_at"`
+	Reason      string                          `json:"reason"`
+	LatencyMS   int64                           `json:"latency_ms"`
 }
 
 // emergencyFlattenHandler implements the kill-switch endpoint

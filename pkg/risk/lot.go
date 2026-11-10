@@ -111,7 +111,7 @@ func NormalizeOrderQuantity(shares float64, symbol string) float64 {
 // boundary needs the latter — silently resizing an order at the last hop
 // would hide a sizing bug instead of surfacing it.
 //
-// AUD-21 (ODR-065): pkg/live/broker/xtp used to enforce a blanket
+// AUD-21 (ODR-065): pkg/trading/broker/xtp used to enforce a blanket
 // `int(quantity)%100 != 0`. That is the MAIN-BOARD / ChiNext rule only,
 // so it rejected legal STAR (>=200, 1-share increments) and BSE (>=100,
 // 1-share increments) orders — including orders this package's own

@@ -1,7 +1,7 @@
 package wiring
 
 // SVC-BROKER-G3 的验收测试：BrokerHTTPPort 的报文映射、错误码透传，以及
-// 与旧实现（live.MockTrader）的**同批对拍**。
+// 与旧实现（trading.MockTrader）的**同批对拍**。
 //
 // 对拍为什么默认用 wire-faithful double：
 //   - core 与 tellurion-broker 是两个 Go module，没有 go.work，core **不能**
@@ -31,7 +31,7 @@ import (
 
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/domain"
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
 // ─── wire-faithful broker double ────────────────────────────────────
@@ -453,7 +453,7 @@ func TestBrokerHTTPPortParityWithMockTrader(t *testing.T) {
 	port := newBrokerPortForTest(t, srv)
 
 	const slippage = 0.0005
-	mock := live.NewMockTrader(live.MockTraderConfig{
+	mock := trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:   1_000_000,
 		SlippageRate:  slippage,
 		PriceProvider: func(symbol string) float64 { return prices[brokerSymbolOrSelf(t, symbol)] },
@@ -499,7 +499,7 @@ func TestBrokerHTTPPortParityWithMockTrader(t *testing.T) {
 
 // TestBrokerHTTPPortParityAgainstRealBrokerProcess 是上一条对拍的**真进程腿**：
 // 外部起一个真 broker 服务（MemoryAckStore + Mock，参考价经 -mock-prices 喂入），
-// 本用例经 HTTP 打真服务，再与旧 live.MockTrader 逐笔比对，口径与 double 腿一致。
+// 本用例经 HTTP 打真服务，再与旧 trading.MockTrader 逐笔比对，口径与 double 腿一致。
 //
 // opt-in：未设 BROKER_PARITY_URL 时 skip —— 单仓门禁不依赖外部进程/端口。
 // 起进程（broker 仓根目录，真实命令见 broker:docs/TASKS.md SVC-BROKER-G3）：
@@ -526,7 +526,7 @@ func TestBrokerHTTPPortParityAgainstRealBrokerProcess(t *testing.T) {
 		"002594": 30.1,
 	}
 	const slippage = 0.0005
-	mock := live.NewMockTrader(live.MockTraderConfig{
+	mock := trading.NewMockTrader(trading.MockTraderConfig{
 		InitialCash:   1_000_000,
 		SlippageRate:  slippage,
 		PriceProvider: func(symbol string) float64 { return prices[brokerSymbolOrSelf(t, symbol)] },

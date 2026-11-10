@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
-	"tellurion/pkg/live/reconciliation"
+	"tellurion/pkg/trading/reconciliation"
 )
 
 // P2-8 (Sprint 6 ODR-030): Reconciliation handler.

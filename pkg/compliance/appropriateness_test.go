@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
 // ============================================================
@@ -38,14 +38,14 @@ func profileFor(t *testing.T) SuitabilityProfile {
 
 func TestLookupRequirement_Defaults(t *testing.T) {
 	// 三个板级要求 (创业板 / 科创板 / 北交所) 必须在默认注册表中
-	for _, b := range []live.Board{live.BoardChiNext, live.BoardSTAR, live.BoardBSE} {
+	for _, b := range []trading.Board{trading.BoardChiNext, trading.BoardSTAR, trading.BoardBSE} {
 		req := LookupRequirement(b)
 		if req == nil {
 			t.Fatalf("board %s missing from default registry", b)
 		}
 	}
 	// 主板不在适当性范围内
-	if got := LookupRequirement(live.BoardMainBoardSH); got != nil {
+	if got := LookupRequirement(trading.BoardMainBoardSH); got != nil {
 		t.Fatalf("main board should not require suitability, got %+v", got)
 	}
 }
@@ -54,8 +54,8 @@ func TestSetRequirement_Override(t *testing.T) {
 	ResetRegistry()
 	t.Cleanup(ResetRegistry)
 	// 紧阈值注入: ChiNext 改成 50 万 / 36 个月 / C4
-	err := SetRequirement(live.BoardChiNext, &BoardRequirement{
-		Board:             live.BoardChiNext,
+	err := SetRequirement(trading.BoardChiNext, &BoardRequirement{
+		Board:             trading.BoardChiNext,
 		AssetThresholdCNY: 500_000,
 		ExperienceMonths:  36,
 		RiskLevel:         RiskLevelAggressive,
@@ -64,7 +64,7 @@ func TestSetRequirement_Override(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	got := LookupRequirement(live.BoardChiNext)
+	got := LookupRequirement(trading.BoardChiNext)
 	if got == nil {
 		t.Fatal("expected registered")
 	}
@@ -76,10 +76,10 @@ func TestSetRequirement_Override(t *testing.T) {
 func TestSetRequirement_NilRemoves(t *testing.T) {
 	ResetRegistry()
 	t.Cleanup(ResetRegistry)
-	if err := SetRequirement(live.BoardChiNext, nil); err != nil {
+	if err := SetRequirement(trading.BoardChiNext, nil); err != nil {
 		t.Fatalf("set nil: %v", err)
 	}
-	if got := LookupRequirement(live.BoardChiNext); got != nil {
+	if got := LookupRequirement(trading.BoardChiNext); got != nil {
 		t.Fatal("expected removal")
 	}
 }
@@ -87,8 +87,8 @@ func TestSetRequirement_NilRemoves(t *testing.T) {
 func TestSetRequirement_RejectsNegative(t *testing.T) {
 	ResetRegistry()
 	t.Cleanup(ResetRegistry)
-	err := SetRequirement(live.BoardChiNext, &BoardRequirement{
-		Board:             live.BoardChiNext,
+	err := SetRequirement(trading.BoardChiNext, &BoardRequirement{
+		Board:             trading.BoardChiNext,
 		AssetThresholdCNY: -1,
 	})
 	if err == nil {
@@ -99,8 +99,8 @@ func TestSetRequirement_RejectsNegative(t *testing.T) {
 func TestSetRequirement_RejectsBadRiskLevel(t *testing.T) {
 	ResetRegistry()
 	t.Cleanup(ResetRegistry)
-	err := SetRequirement(live.BoardChiNext, &BoardRequirement{
-		Board:     live.BoardChiNext,
+	err := SetRequirement(trading.BoardChiNext, &BoardRequirement{
+		Board:     trading.BoardChiNext,
 		RiskLevel: RiskLevel(99),
 	})
 	if err == nil {
@@ -161,17 +161,17 @@ func TestExperienceMonths_Zero(t *testing.T) {
 
 func TestIsBoardEnabled_EmptyWhitelistMeansAll(t *testing.T) {
 	p := SuitabilityProfile{BoardsEnabled: nil}
-	if !p.IsBoardEnabled(live.BoardChiNext) {
+	if !p.IsBoardEnabled(trading.BoardChiNext) {
 		t.Fatal("nil whitelist should mean all boards enabled")
 	}
 }
 
 func TestIsBoardEnabled_WhitelistMatch(t *testing.T) {
 	p := SuitabilityProfile{BoardsEnabled: []string{"chinext", "star"}}
-	if !p.IsBoardEnabled(live.BoardChiNext) {
+	if !p.IsBoardEnabled(trading.BoardChiNext) {
 		t.Fatal("chinext should be enabled")
 	}
-	if p.IsBoardEnabled(live.BoardBSE) {
+	if p.IsBoardEnabled(trading.BoardBSE) {
 		t.Fatal("bse should not be enabled")
 	}
 }
@@ -180,7 +180,7 @@ func TestCheck_AllGatesPass(t *testing.T) {
 	ResetRegistry()
 	t.Cleanup(ResetRegistry)
 	p := profileFor(t)
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if !res.Allowed {
 		t.Fatalf("expected allowed, got reasons %v", res.Reasons)
 	}
@@ -192,7 +192,7 @@ func TestCheck_AllGatesPass(t *testing.T) {
 func TestCheck_FailsRiskLevel(t *testing.T) {
 	p := profileFor(t)
 	p.RiskLevel = RiskLevelCautious // C2 < C3
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected")
 	}
@@ -210,7 +210,7 @@ func TestCheck_FailsRiskLevel(t *testing.T) {
 func TestCheck_FailsAsset(t *testing.T) {
 	p := profileFor(t)
 	p.AssetDailyAvgCNY = 50_000 // < 100k
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected")
 	}
@@ -228,7 +228,7 @@ func TestCheck_FailsAsset(t *testing.T) {
 func TestCheck_FailsExperience(t *testing.T) {
 	p := profileFor(t)
 	p.FirstTradeAt = time.Now().AddDate(0, -12, 0) // 12 < 24
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected")
 	}
@@ -246,7 +246,7 @@ func TestCheck_FailsExperience(t *testing.T) {
 func TestCheck_FailsRiskTestExpired(t *testing.T) {
 	p := profileFor(t)
 	p.RiskTestExpiredAt = time.Now().Add(-24 * time.Hour) // 昨天到期
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected (expired test)")
 	}
@@ -264,7 +264,7 @@ func TestCheck_FailsRiskTestExpired(t *testing.T) {
 func TestCheck_FailsWhitelist(t *testing.T) {
 	p := profileFor(t)
 	p.BoardsEnabled = []string{"star"} // 不含 chinext
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected (whitelist)")
 	}
@@ -283,7 +283,7 @@ func TestCheck_MainBoardIsImplicitAllow(t *testing.T) {
 	p := profileFor(t)
 	p.RiskLevel = RiskLevelUnset // 没做测评
 	p.AssetDailyAvgCNY = 0
-	res := p.Check(live.BoardMainBoardSH, time.Now())
+	res := p.Check(trading.BoardMainBoardSH, time.Now())
 	if !res.Allowed {
 		t.Fatalf("main board should be implicit-allow, got %v", res.Reasons)
 	}
@@ -302,7 +302,7 @@ func TestCheck_ReasonOrder(t *testing.T) {
 		RiskTestExpiredAt: time.Now().Add(-1 * time.Hour), // 过期
 		BoardsEnabled:     []string{"star"},               // 白名单不含 chinext
 	}
-	res := p.Check(live.BoardChiNext, time.Now())
+	res := p.Check(trading.BoardChiNext, time.Now())
 	if res.Allowed {
 		t.Fatal("expected rejected")
 	}
@@ -316,17 +316,17 @@ func TestCheckSymbol_ClassifiesAndChecks(t *testing.T) {
 	p := profileFor(t)
 	// ChiNext 符号
 	res := p.CheckSymbol("300750.SZ", time.Now())
-	if res.Board != live.BoardChiNext {
+	if res.Board != trading.BoardChiNext {
 		t.Fatalf("expected chinext, got %s", res.Board)
 	}
 	// STAR 符号
 	res2 := p.CheckSymbol("688001.SH", time.Now())
-	if res2.Board != live.BoardSTAR {
+	if res2.Board != trading.BoardSTAR {
 		t.Fatalf("expected star, got %s", res2.Board)
 	}
 	// Main board 符号
 	res3 := p.CheckSymbol("000001.SZ", time.Now())
-	if res3.Board != live.BoardMainBoardSZ {
+	if res3.Board != trading.BoardMainBoardSZ {
 		t.Fatalf("expected main_sz, got %s", res3.Board)
 	}
 	if !res3.Allowed {
@@ -336,7 +336,7 @@ func TestCheckSymbol_ClassifiesAndChecks(t *testing.T) {
 
 func TestIsAllowed_AliasForCheck(t *testing.T) {
 	p := profileFor(t)
-	res := p.IsAllowed(live.BoardChiNext, time.Now())
+	res := p.IsAllowed(trading.BoardChiNext, time.Now())
 	if !res.Allowed {
 		t.Fatal("expected allowed")
 	}
@@ -353,14 +353,14 @@ func TestSetRequirement_ConcurrentWithLookup(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				_ = LookupRequirement(live.BoardChiNext)
+				_ = LookupRequirement(trading.BoardChiNext)
 			}
 		}()
 		go func(i int) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				_ = SetRequirement(live.BoardChiNext, &BoardRequirement{
-					Board:             live.BoardChiNext,
+				_ = SetRequirement(trading.BoardChiNext, &BoardRequirement{
+					Board:             trading.BoardChiNext,
 					AssetThresholdCNY: float64(i*1000 + j),
 					ExperienceMonths:  24,
 					RiskLevel:         RiskLevelSteady,

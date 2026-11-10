@@ -4,7 +4,7 @@
 // 「算法本身已交付、全仓零生产引用」。K17 把它接进两条下单主路径：
 //
 //   - 回测侧 pkg/backtest/exec_algo.go（BacktestExecutionService 撮合前拆单）；
-//   - paper 侧 pkg/live/paper_exec_algo.go（LiveTrader 报送前拆单）。
+//   - paper 侧 pkg/trading/paper_exec_algo.go（LiveTrader 报送前拆单）。
 //
 // 本文件是两条路径**共享**的运行时：父单生命周期 + 子单路由 + 进度账。
 //
@@ -466,7 +466,7 @@ func (d *Dispatcher) CancelSymbol(symbol, reason string) []ParentProgress {
 // ActiveParents 返回全部**活跃**（未取消）父单的进度快照，按父单号升序。
 //
 // 用途：paper 侧「外部仓位变动」对账——把父单累计成交量与 trader 实际
-// 持仓比对，检出被外部削减的敞口（见 pkg/live/paper_exec_algo.go）。
+// 持仓比对，检出被外部削减的敞口（见 pkg/trading/paper_exec_algo.go）。
 func (d *Dispatcher) ActiveParents() []ParentProgress {
 	d.mu.Lock()
 	defer d.mu.Unlock()

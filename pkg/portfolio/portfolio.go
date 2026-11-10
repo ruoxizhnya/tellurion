@@ -1,7 +1,7 @@
 // Package portfolio — S7-P1-1 (ODR-043 D1)
 //
 // 共享仓位/费率计算原语。tracker.go (pkg/backtest) 和 mock_trader.go
-// (pkg/live) 之前各自重复实现相同的费率公式和均价计算逻辑（8 处费率
+// (pkg/trading) 之前各自重复实现相同的费率公式和均价计算逻辑（8 处费率
 // 公式 + 3 处均价计算），改费率公式要扫两个文件，遗漏一处即回测 P&L
 // 与实盘差 bp。
 //

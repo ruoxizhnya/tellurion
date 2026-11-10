@@ -10,15 +10,15 @@ package execution
 //   - 通过 ExecuteSignal / ExecuteSignals 把策略信号翻译成订单请求
 //   - 暴露 HealthCheck 供运维 / `/health` 端点调用
 //
-// QT-51 起本文件**不再 import `pkg/live`**：引擎只认识本包定义的
-// `ExecutionPort`。`live.LiveTrader` → `ExecutionPort` 的适配住在
+// QT-51 起本文件**不再 import `pkg/trading`**：引擎只认识本包定义的
+// `ExecutionPort`。`trading.LiveTrader` → `ExecutionPort` 的适配住在
 // 装配层（`cmd/analysis/wiring/live_trader_port.go`），是本仓唯一
 // 同时认识两侧类型的位置（结构护栏见
 // `internal/repoguard/backtest_live_isolation_test.go`）。
 //
 // 引擎层仍保留 Engine.SetLiveTrader / Engine.ExecuteSignalViaLiveTrader
 // 这些方法名（per ADR-020 §2 的 shim 阶段）；QT-51 把参数/返回类型从
-// live.LiveTrader 换成 execution.ExecutionPort，shim 仍只做
+// trading.LiveTrader 换成 execution.ExecutionPort，shim 仍只做
 // "取 bridge → 调 method"的薄封装。
 //
 // 线程安全：

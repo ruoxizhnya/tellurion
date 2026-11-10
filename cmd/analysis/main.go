@@ -14,9 +14,9 @@ import (
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/compliance"
 	"tellurion/pkg/domain"
-	"tellurion/pkg/live/reconciliation"
 	"tellurion/pkg/observability"
 	"tellurion/pkg/strategy"
+	"tellurion/pkg/trading/reconciliation"
 	// 注册内置表达式策略 expression_template。agent 侧 HTTP 化后无法再在
 	// 自己进程里注册策略（QT-17 S3-c-3），只能提交 strategy=expression_template
 	// + strategy_params；不导入本包时该名字在注册表里不存在，请求必然
@@ -104,7 +104,7 @@ func main() {
 		}
 		eng.SetRiskManager(riskManager)
 		// QT-51：实盘通道经装配层适配成 execution.ExecutionPort 再注入；
-		// 回测包不再认识 pkg/live。
+		// 回测包不再认识 pkg/trading。
 		// SVC-BROKER-G3：主引擎用了哪条通道（broker HTTP 或旧 live 适配），
 		// 窗口引擎就用哪条 —— 同一进程内不允许两条执行通道并存。
 		wiring.AttachExecutionPort(eng, ak.Wiring.ExecutionPort, executionTrader)
@@ -352,7 +352,7 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	// P1-15 (Sprint 6, ODR-021): risk + execution endpoints
 	// absorbed from cmd/risk/main.go + cmd/execution/main.go.
 	// Both backends are in-process (risk.RiskManager and
-	// live.MockTrader) so the HTTP layer is a thin shim — no
+	// trading.MockTrader) so the HTTP layer is a thin shim — no
 	// service-to-service hop.
 	// QT-70：detect_regime 的粗粒度形状（symbol + 日期区间）需要服务端取数。
 	// SVC-CORE-DATA-RETIRE（2026-11-08）：ohlcv 明细已随数据面退役，core 不再

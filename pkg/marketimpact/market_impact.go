@@ -5,7 +5,7 @@
 //
 //   - K4 之前它只被 pkg/backtest/execution 的 "impact" 滑点分支消费，住在
 //     backtest 下尚可自圆其说；
-//   - K5 起 paper 侧（pkg/live 的 MockTrader）也要用它，与回测**同构**地
+//   - K5 起 paper 侧（pkg/trading 的 MockTrader）也要用它，与回测**同构**地
 //     给大单算冲击成本。若仍留在 pkg/backtest 下，paper 就要反向依赖回测，
 //     依赖方向错乱（成本模型是两者的**共同前置**，不是回测的下游）。
 //

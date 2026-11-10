@@ -124,7 +124,7 @@ func TestVerdictFailClosed(t *testing.T) {
 }
 
 // TestOrderIntentFields 冻结 OrderIntent 的字段集合（它是 risk-engine
-// 与 exec-engine 共用的输入契约，pkg/live 以别名引用同一类型）。
+// 与 exec-engine 共用的输入契约，pkg/trading 以别名引用同一类型）。
 func TestOrderIntentFields(t *testing.T) {
 	typ := reflect.TypeOf(risk.OrderIntent{})
 	want := map[string]bool{

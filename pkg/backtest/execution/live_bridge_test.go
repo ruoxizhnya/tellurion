@@ -3,8 +3,8 @@ package execution
 // P1-17 (Sprint 6, ODR-013 CQ-001, ADR-020) / QT-51 (BE-02):
 // LiveBridge 独立单元测试 — 不依赖 Engine 全栈构造。
 //
-// QT-51 起 LiveBridge 面向 execution.ExecutionPort（不再 import pkg/live），
-// 因此本文件的替身是 port 实现而不是 live.LiveTrader。
+// QT-51 起 LiveBridge 面向 execution.ExecutionPort（不再 import pkg/trading），
+// 因此本文件的替身是 port 实现而不是 trading.LiveTrader。
 //
 // 验证点：
 //   1. Set / Get round-trip

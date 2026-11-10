@@ -51,7 +51,7 @@ package backtest
 // 否则会把刚被风控平掉的仓位重新买回。接线点：engine.go 日循环（退市
 // 强平 / 拆股改仓后）+ processStopLosses 的成交分支，统一走本文件的
 // cancelExecAlgoParentsForSymbol。paper 侧同一语义见
-// pkg/live/paper_exec_algo.go。
+// pkg/trading/paper_exec_algo.go。
 import (
 	"context"
 	"fmt"
@@ -166,7 +166,7 @@ func (e *Engine) processExecAlgoChildren(
 		// 取消 = 「尽快停」，当日 bar 已真实发生、片已到点即照发；下一交易日的
 		// 日循环顶部（engine.go 的 ctx.Done 检查）才中止。**不要**把它当缺陷
 		// 重报而改成「取消即零成交」——那会让「已到点成交」消失。paper 侧同
-		// 口径（见 pkg/live/paper_exec_algo.go 同名注释），两侧必须一致。
+		// 口径（见 pkg/trading/paper_exec_algo.go 同名注释），两侧必须一致。
 		// K17-RV1 · OnBar 契约：错误时**已取子单照常交还调用方处置**。因此
 		// err != nil 只降级为诊断信号，**不丢** due——否则派发器已按 submitted
 		// 计账而实际未报，父单进度账与报送事实再次分叉（R2-R1 要治的病，
@@ -274,7 +274,7 @@ func (e *Engine) executeExecAlgoChild(
 // finalizeExecAlgo 回测结束时的显式裁决：**撤销**所有未报完父单的剩余
 // 子单（K17 要求 3）。裁决理由见文件头注释——「撤销」而非「强制撮完」：
 // 没有更多 bar 时强撮等于虚构成交；撤销停在部分成交，既有簿记已建模。
-// paper 侧（pkg/live/paper_exec_algo.go）取同一裁决，两侧语义一致。
+// paper 侧（pkg/trading/paper_exec_algo.go）取同一裁决，两侧语义一致。
 func finalizeExecAlgo(d *execalgo.Dispatcher, logger zerolog.Logger) {
 	for _, p := range d.Unfinished() {
 		logger.Warn().

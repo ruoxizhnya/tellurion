@@ -448,7 +448,7 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 }
 
 // sortedSymbols 返回 map 的键，按字典序排好（喂序确定性）。generic 小助手
-// 各包一份是既有惯例（pkg/backtest、pkg/backtest/tracker、pkg/live 同名同形）。
+// 各包一份是既有惯例（pkg/backtest、pkg/backtest/tracker、pkg/trading 同名同形）。
 func sortedSymbols[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

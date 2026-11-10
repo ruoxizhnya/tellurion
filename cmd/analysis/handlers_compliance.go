@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"tellurion/pkg/compliance"
-	"tellurion/pkg/live"
+	"tellurion/pkg/trading"
 )
 
 // P2-4 (ODR-028): compliance / investor-suitability endpoints.
@@ -175,7 +175,7 @@ func (h *ComplianceHandler) check(c *gin.Context) {
 		profile.RiskTestExpiredAt = *req.RiskTestExpiredAt
 	}
 
-	board := live.ClassifySymbol(req.Symbol)
+	board := trading.ClassifySymbol(req.Symbol)
 	result := profile.Check(board, h.now())
 
 	resp := checkResponse{
