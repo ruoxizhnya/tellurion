@@ -80,24 +80,41 @@ database:
   database: "tellurion"
   sslmode: "disable"
 
-# 地址口径（2026-09-25 定，见 docker-compose.yml 文件头）：
-# **这份 yaml 是「在宿主机上直接跑」的视角 —— 数据库/缓存在 localhost。**
-# 容器内的视角由 docker-compose.yml / deploy/k8s 的 environment 覆盖
-# （容器里用 host.docker.internal，k8s 里用 postgres）。上面 database.host
-# 已经是 localhost，与 data-service.yaml 口径一致；redis 这里对齐。
+# ── 地址口径（2026-11-11 统一）：本文件是**宿主机直跑视角** ──────────
+# DB / Redis / 所有服务地址默认都指向本机（localhost:<port>）。容器内一律
+# 由 docker-compose.yml / deploy/k8s 的 environment 覆盖成服务名 ——
+# compose 服务名（data-service / ai-service / strategy）只在容器网络内可解析，
+# 宿主机上解析不到。
+#
+#   key                          env 覆盖名                   宿主机默认
+#   data_service.url             DATA_SERVICE_URL             http://localhost:8081
+#   ai_service.url               AI_SERVICE_URL               http://localhost:8086
+#   strategy_asset.resolve_url   STRATEGY_ASSET_RESOLVE_URL   http://localhost:8090
+#   risk_service.resolve_url     RISK_SERVICE_RESOLVE_URL     http://localhost:8089
+#   risk_service.events_url      RISK_SERVICE_EVENTS_URL      （启用时必填，无默认）
+#
+# 启动期逐项解析主机名（pkg/bootstrap.ValidateServiceEndpoint）：宿主机上留着
+# 容器 DNS 会在**启动时**报错并点名该注入哪个 env，而不是等第一条业务请求在
+# 远处 connection refused / no such host。
+#
+# Redis：本仓已无运行时读取点（2026-11-10 起 compose 的 REDIS_URL 移除，
+# 见 deploy/k8s/configmap.yaml）。键保留只为与 data-service.yaml 的历史口径
+# 一致；本地 redis 不校验密码，这里也不放密码。
 redis:
   url: "redis://localhost:6379"
 
-# 服务间地址**保持容器视角**（compose 服务名），与上面 DB/Redis 的口径不同。
-# 理由：本轮改造只把数据库/缓存移出容器，服务仍然全部跑在容器里 ——
-# 这一跳没有变。宿主机的 localhost:8081 上没有 data-service，改成 localhost
-# 反而会打断容器间的调用。compose 与 k8s 都会用同名 env 覆盖这两项。
 data_service:
-  url: "http://data-service:8081"
+  url: "http://localhost:8081"
   # 裁-15：tellurion-data 已上鉴权闸（`/datasets/*` 要 viewer 角色）。
   # 配了 secret 的部署必须在这里给服务间凭证，否则 core 取数全线 401。
   # token 只从 env 注入（DATA_SERVICE_TOKEN），本文件不放真值。
   token: ""
+
+# AI 拆仓后 analysis 对四族 AI 路由做纯反代（cmd/analysis/handlers_ai_proxy.go）。
+# 宿主机默认指向本机 8086；容器里由 compose 的 AI_SERVICE_URL 覆盖成
+# http://ai-service:8086（漏配的后果是四族全 503，而 ai-service 自己健康）。
+ai_service:
+  url: "http://localhost:8086"
 
 # QT-78：run 级分析产物（portfolio-snapshot / factor-exposures）的默认基准。
 # worker 在 run 终态时为 Brinson 归因算基准分行业权重/收益；单条 run 可用
@@ -125,8 +142,9 @@ benchmark:
 # 注意：analysis 与 worker 读同一份文件，两个进程都必须看到同一组值。
 strategy_asset:
   resolve_enabled: true
-  # tellurion-strategy 资产服务的容器视角地址（仓内默认 :8090）。
-  resolve_url: "http://strategy:8090"
+  # tellurion-strategy 资产服务的地址。宿主机直跑默认本机 :8090；容器里由
+  # compose 的 STRATEGY_ASSET_RESOLVE_URL 覆盖成宿主网关（该服务不在本栈内）。
+  resolve_url: "http://localhost:8090"
   # 读面今天端口隔离、不校验凭证；预留以便网关统一鉴权（只从 env 注入）。
   resolve_token: ""
   resolve_timeout: 10s

@@ -163,6 +163,10 @@ services:
       # 四族全部 503「ai-service unreachable」，而 ai-service 自己健康得很。
       # 2026-10-14 拉起本地栈时实测到这条，补上。
       AI_SERVICE_URL: http://ai-service:8086
+      # 资产服务（tellurion-strategy，默认 :8090）不在本 compose 栈内。
+      # yaml 默认是宿主机视角 http://localhost:8090；容器里 localhost 是它
+      # 自己，必须显式指向宿主网关（与 DATABASE_HOST 同一约定）。
+      STRATEGY_ASSET_RESOLVE_URL: ${STRATEGY_ASSET_RESOLVE_URL:-http://host.docker.internal:8090}
       # P1-15 (Sprint 6, ODR-021): risk + execution merged into
       # analysis. RISK_SERVICE_URL kept as a legacy fallback only
       # — the engine prefers the in-process risk manager
@@ -268,6 +272,10 @@ services:
       # 全量 R5（SVC-ORCH-G1）后编排面的每条路由都要 service 凭证；
       # 只给发送方注入，仓库里只有空占位（签法见 docs/SPEC.md#服务间凭证）。
       ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
+      # worker 的行情通道与 analysis 同源（bootstrap.BuildBacktestEngine 读
+      # data_service.url）。yaml 默认是宿主机视角 localhost:8081；容器里必须
+      # 显式指向 compose 服务名，否则取数会打到 worker 自己容器上。
+      DATA_SERVICE_URL: http://data-service:8081
       JWT_SECRET: ${JWT_SECRET:-}
       LOGGING_LEVEL: info
     restart: "no"

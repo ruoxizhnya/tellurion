@@ -91,11 +91,22 @@ BROKER_URL=http://127.0.0.1:8091 BROKER_SERVICE_TOKEN='<网关凭证>' BROKER_AC
 RISK_SERVICE_RESOLVE_ENABLED=false SERVER_HOST=127.0.0.1 SERVER_PORT=18085 \
   go run ./cmd/analysis
 
-curl -sS http://127.0.0.1:18085/health   # analysis 只有 /health 与 /api/health
+curl -sS http://127.0.0.1:18085/health   # 存活：不碰库，库抖也不重启
+curl -sS http://127.0.0.1:18085/readyz   # 就绪：DB ping + 启动 DDL 关键表
 ```
 
+服务间地址**不需要逐个覆盖**：`config/analysis-service.yaml` 是宿主机视角，
+`data_service.url` / `ai_service.url` / `strategy_asset.resolve_url` /
+`risk_service.resolve_url` 默认都是 `http://localhost:<port>`；容器内由
+compose / k8s 的 env 覆盖成服务名。启动期会解析这些主机名（
+`pkg/bootstrap.ValidateServiceEndpoint`）：宿主机上误留容器 DNS（例如
+`http://data-service:8081`）会**启动即报错**并点名该注入 `DATA_SERVICE_URL`，
+不会拖到第一条业务请求才 `no such host`。完整键 ↔ env ↔ 默认值映射见 yaml
+的「地址口径」注释块。
+
 ai-service（`tellurion-agent` 仓）同样只从 env 取 `DATABASE_PASSWORD` 与
-`JWT_SECRET`，探针是 `/health`；启动口径见该仓 README。
+`JWT_SECRET`，探针是 `/health`（存活）与 `/readyz`（就绪，校验 `ai.*` 迁移）；
+服务地址口径与 core 一致，见该仓 README。
 
 测试与本地栈：
 

@@ -44,6 +44,10 @@ func main() {
 	m := initMetrics(logger)
 	v := loadConfig(logger)
 
+	// 出站地址启动期体检：宿主机上若还留着容器 DNS（data-service 等），
+	// 在这里点名该注入的 env 并退出，而不是等第一条业务请求远处报错。
+	validateOutboundEndpoints(v, logger)
+
 	// store 在 Boot 前构造：eventstore 模块复用它的 pool（一个进程一个池）。
 	store := initStore(v, logger)
 
