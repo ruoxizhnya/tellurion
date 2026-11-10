@@ -35,6 +35,14 @@ spec:
                 secretKeyRef:
                   name: postgres-credentials
                   key: password
+            # data-service（tellurion-data 仓）只读 DSN，不读 core 旧的那五个
+            # DATABASE_* 键。DSN 由上面 configmap 的四个身份字段 + 本条的
+            # Secret 密码拼出：k8s 的 $(VAR) 展开只会用**同一容器里先前定义**
+            # 的 env，所以这一项必须排在 DATABASE_PASSWORD 之后。
+            # 此前这里根本没有 DATABASE_URL —— 镜像起来后没有任何连接串，
+            # 数据服务实际拿不到库。schema 落点见 configmap 的 DATA_MARKET_SCHEMA。
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_DATABASE)?sslmode=disable"
             # 数据源凭证。⚠️ 读取点**不在本仓**：data-service 的镜像由
             # tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08），它的
             # Tushare 传输（X1c）读这个 env。tools/check_deploy_consistency.py

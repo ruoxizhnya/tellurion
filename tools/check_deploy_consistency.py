@@ -38,6 +38,10 @@
      名 postgres，两者**必然不同**，比它只会逼出一个恒假的断言。仍然比对：
      库名、用户名、端口，以及密码取自同一个变量。config/*.yaml 的 host 现在是
      宿主机视角（localhost），同样不参与比对。
+     2026-11-10：data-service 的 env 口径不再是这五个键，而是一个 DATABASE_URL
+     （+ DATA_MARKET_SCHEMA），因此它移出 5a/5b/5c 的逐服务循环，改由 5e 守：
+     compose 的 DSN 必须引用 ${DATABASE_PASSWORD}、k8s 的 DSN 必须由五个
+     `$(...)` 字段拼出、两边的 DATA_MARKET_SCHEMA 必须同值且非空。
   6. 注入到应用容器的每个 env 名都必须有读取点（AUD-39）。读取点从 Go 源码
      的 Get*/UnmarshalKey/BindEnv/Sub 调用点推导，不是维护一张手写清单。
   7. config/*.yaml 里不得出现 ${...}（AUD-39）。本仓没有 env 展开器，占位符
@@ -63,7 +67,8 @@
     因此不参与可达性检查，只参与「不许作为 configmap 键」的负向检查。
   - 数据服务自 SVC-CORE-DATA-RETIRE（2026-11-08）起由 tellurion-data 仓发布，
     它的读取点**不在本仓源码里**。这类跨仓键在 CROSS_REPO_ENV_READERS 里逐条
-    声明读取方（现在只有 TUSHARE_TOKEN）；未声明的仍按零读取点报错。
+    声明读取方（TUSHARE_TOKEN / DATABASE_URL / DATA_MARKET_SCHEMA）；未声明的
+    仍按零读取点报错。
 
 只用标准库（这个环境没有 pyyaml），靠正则抓规整的 YAML 缩进块。
 """
@@ -118,7 +123,12 @@ INFRA_ENV_REQUIRED: dict[str, tuple[tuple[str, str], ...]] = {
     # 本仓没有任何运行时读取点再读 redis.url，configmap 与 compose 里的该键
     # 同批删除。等缓存接线回来时，这里与 APP_DB_ENV_KEYS 一起加回（只加 env
     # 不加这两处，检查 6 会把它当死键报出来）。
-    "data-service": (("DATABASE_HOST", "host"),),
+    # 2026-11-10：data-service 的条目从 DATABASE_HOST 改成 DATABASE_URL —— 它的
+    # 镜像自 SVC-CORE-DATA-RETIRE（2026-11-08）起由 tellurion-data 仓发布，只读
+    # 一个 DSN，不再读 core 的 DATABASE_HOST/PORT/USER/DATABASE 四键。缺 DSN 时
+    # 它起得来但**连不到库**，而 compose 语法完全合法 —— 用 "url" 断言地址段必须
+    # 指向宿主机（不能是 localhost）。
+    "data-service": (("DATABASE_URL", "url"),),
     "analysis-service": (("DATABASE_HOST", "host"),),
     # REV-16（2026-10-17）：strategy-service 已删除，条目随之移除 ——
     # 留在表里会成为一个永远查不到的死条目（与文件头 postgres/redis 的教训同型）。
@@ -247,7 +257,10 @@ APP_DB_ENV_KEYS = [
 # 5b 真正拿来比值的「身份」字段：连过去之后必须对得上的东西。
 # 刻意**不含** DATABASE_HOST 的 host —— 它按环境各写一份是对的。
 IDENTITY_ENV_KEYS = ["DATABASE_USER", "DATABASE_DATABASE", "DATABASE_PORT"]
-APP_ENV_SERVICES = ["analysis-service", "data-service", "ai-service"]
+# 2026-11-10：data-service 移出本清单 —— 它的 env 口径已不是 core 的五个
+# DATABASE_* 键，而是一个 DATABASE_URL（+ DATA_MARKET_SCHEMA）。5a/5b/5c 拿
+# 这组键去要求它会逼它把已删的键加回来；它的口径由 5e 单独守，地址段由 3b 守。
+APP_ENV_SERVICES = ["analysis-service", "ai-service"]
 
 # 在部署配置里**不许出现**的 env 名 —— 每一条都是「曾经存在过的死键」。
 BANNED_ENV_NAMES = {
@@ -318,6 +331,8 @@ ENV_NAME_ALLOWLIST: dict[str, str] = {}
 # 届时应把条目删掉（留着的死声明和死键同罪）。
 CROSS_REPO_ENV_READERS: dict[str, str] = {
     "TUSHARE_TOKEN": "tellurion-data：数据服务的 Tushare 传输（X1c）读取本 env；本仓只负责注入",
+    "DATABASE_URL": "tellurion-data：cmd/dataservice/main.go 读这一个 DSN 建连接池（不再读 DATABASE_HOST/PORT/USER/DATABASE）",
+    "DATA_MARKET_SCHEMA": "tellurion-data：cmd/dataservice/main.go 传给 store.Options.MarketSchema（X1d 方向，出厂 market）",
 }
 
 
@@ -369,6 +384,29 @@ def parse_deployment_env_names(path: Path) -> set[str]:
         re.findall(r"^\s*- name: ([A-Z][A-Z0-9_]*)\s*$",
                    path.read_text(encoding="utf-8"), re.M)
     )
+
+
+def parse_deployment_env_values(path: Path) -> dict[str, str]:
+    """抓 deployment 里 `- name: KEY` 紧跟着的**字面量** `value: "..."`。
+
+    走 valueFrom / secretKeyRef 的条目不进返回值 —— 它们没有静态值可查。
+    """
+    values: dict[str, str] = {}
+    current: str | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\s*- name: ([A-Z][A-Z0-9_]*)\s*$", line)
+        if m:
+            current = m.group(1)
+            continue
+        if current is None:
+            continue
+        if re.match(r"^\s*valueFrom:", line):
+            current = None
+            continue
+        m = re.match(r'^\s*value:\s*"(.*)"\s*$', line)
+        if m:
+            values[current] = m.group(1)
+    return values
 
 
 def parse_configmap_key_refs(path: Path) -> set[str]:
@@ -459,13 +497,62 @@ def check_env_wiring(
     #
     # k8s 侧不在此列：configmap 里本来就没有密码（它在 Secret 里），由
     # postgres-statefulset 与两个 deployment 各自 configMapKeyRef/secretKeyRef 取。
-    for svc in ("analysis-service", "data-service"):
+    for svc in ("analysis-service",):
         value = compose_env.get(svc, {}).get("DATABASE_PASSWORD", "")
         if "DATABASE_PASSWORD" not in value:
             errors.append(
                 f"docker-compose.yml 的 {svc} 的 DATABASE_PASSWORD 取的是 "
                 f"{value or '(缺失)'} —— 必须引用同一个变量 DATABASE_PASSWORD，"
                 f"否则改密码时各处不一致（AUD-39）")
+    # data-service 不在这条循环里：它没有 DATABASE_PASSWORD 这个 env 键，密码在
+    # DATABASE_URL 的插值里 —— 由 5e 断言那一段引用的仍是 ${DATABASE_PASSWORD}。
+
+    # 5e) data-service 的 DSN 口径（2026-11-10）
+    #
+    # 数据服务只读一个 DATABASE_URL（+ 一个 DATA_MARKET_SCHEMA），而这两个值在
+    # compose 与 k8s 里是**两种形态**：compose 是环境变量插值，k8s 是
+    # `$(VAR)` 拼串。两边都能起得来，所以漏一半是静默失败 —— 这个检查把它们
+    # 各自的形式钉住：
+    #   - compose 的 DSN 密码段必须来自 ${DATABASE_PASSWORD}（地址段由 3b 断言
+    #     必须是 host.docker.internal）；
+    #   - k8s 的 DSN 必须由五个身份/凭据字段拼出（缺一项就拼出一个连不上的库，
+    #     而 YAML 语法完全合法）；
+    #   - DATA_MARKET_SCHEMA 两边同值且非空（空值回落到 public，与 market.* 全错开）。
+    data_env = compose_env.get("data-service", {})
+    compose_dsn = data_env.get("DATABASE_URL", "")
+    if compose_dsn and "${DATABASE_PASSWORD" not in compose_dsn:
+        errors.append(
+            "docker-compose.yml 的 data-service 的 DATABASE_URL 没有引用 "
+            "${DATABASE_PASSWORD} —— 密码必须只有一个变量，否则改密码时这一处"
+            "静默失配（AUD-39）")
+
+    compose_schema = data_env.get("DATA_MARKET_SCHEMA", "")
+    k8s_schema = cm_keys.get("DATA_MARKET_SCHEMA", "")
+    if not compose_schema or not k8s_schema:
+        errors.append(
+            f"DATA_MARKET_SCHEMA 缺失 —— compose {compose_schema or '(缺失)'} vs "
+            f"k8s {k8s_schema or '(缺失)'}；数据服务回落 public 后与 market.* 的表"
+            f"全部错开，症状是「表不存在」而不是配置错误")
+    elif compose_schema != k8s_schema:
+        errors.append(
+            f"DATA_MARKET_SCHEMA 不一致 —— compose {compose_schema} vs k8s {k8s_schema}")
+
+    k8s_dsn = parse_deployment_env_values(K8S_DIR / "data-deployment.yaml").get(
+        "DATABASE_URL", "")
+    if not k8s_dsn:
+        errors.append(
+            "deploy/k8s/data-deployment.yaml 缺字面量 DATABASE_URL —— 数据服务的镜像"
+            "只读这一个 DSN，没有它起来后连不到库（configmap 的 DATABASE_* 是给 "
+            "analysis / ai 用的，不是给它的）")
+    else:
+        for placeholder in ("$(DATABASE_USER)", "$(DATABASE_PASSWORD)",
+                            "$(DATABASE_HOST)", "$(DATABASE_PORT)",
+                            "$(DATABASE_DATABASE)"):
+            if placeholder not in k8s_dsn:
+                errors.append(
+                    f"deploy/k8s/data-deployment.yaml 的 DATABASE_URL 缺 "
+                    f"{placeholder} —— DSN 必须由 configmap/Secret 的身份字段拼出，"
+                    f"写死值会在改密码/换库时静默失配")
 
     # 6) env 可达性：注入的每个 env 名都要有读取点
     names, prefixes = derive_readable_env_names()

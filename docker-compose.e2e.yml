@@ -29,6 +29,6 @@ services:
     environment:
       RATE_LIMIT_PER_MINUTE: "100000"
 
-  data-service:
-    environment:
-      RATE_LIMIT_PER_MINUTE: "100000"
+  # data-service 已不在本覆盖层：它的镜像由 tellurion-data 仓发布，限流是数据仓
+  # 内的固定档（50 rps / 突发 200），不读 RATE_LIMIT_PER_MINUTE。此前这里那行是
+  # 死配置（零读取者），2026-11-10 随 data-service 的 DSN 改造一并删除。

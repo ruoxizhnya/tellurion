@@ -53,66 +53,37 @@
 # tools/check_deploy_consistency.py 的检查 3 已随之改写为「宿主机监听地址」的
 # 等价断言 + 破坏验证。
 #
-# 启动顺序：应用连不上 PG/Redis 会直接 Fatal 退出、**没有重试**
-# （cmd/data/setup.go:137 / :146）。此前靠 `depends_on + service_healthy` 保证；
-# 那两个服务不再是 compose 成员后，保证改由镜像内的 deploy/wait-for-deps.sh
-# 承担 —— **是替换不是删除**，而且现在等的是宿主机上的真实端口。
+# 启动顺序：analysis-service 连不上 PG 会直接 Fatal 退出、**没有重试**；此前靠
+# `depends_on + service_healthy` 保证，postgres 不再是 compose 成员后改由镜像内的
+# deploy/wait-for-deps.sh 承担 —— **是替换不是删除**，等的是宿主机真实端口。
+# data-service 不用这个脚本：它的连接池是惰性的（store.Open 不拨号，DDL 失败后台
+# 重试），且镜像由数据仓发布、不含本仓的 wait-for-deps.sh。
 #
 # (ai-service 已删除：2026-09-18，TASKS P2-5。它零调用方且建在待废弃的
 # pkg/ai/agents 上；AI 能力现在走 cmd/analysis 的 MCP 工具层。)
 
 services:
   data-service:
+    # 镜像由 tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08）。本地开发
+    # 用 --build 现建，部署侧（k8s）拉同一个 image；本仓 Dockerfile.service 已不再
+    # 产出 /app/data-service，不能再拿它当 data-service 的构建源。
+    image: tellurion/data:${DATA_IMAGE_TAG:-latest}
     build:
-      context: .
-      dockerfile: Dockerfile.service
-    # 等宿主机 PG / Redis 可达再起 —— 替换掉被移除的 depends_on 保证。
-    # 等什么由脚本从 DATABASE_HOST / REDIS_URL 推导，这里**不重复列一遍**
-    # （曾经写成传参 "postgres:5432 redis:6379"，那是已不存在的旧服务名，
-    #  实测导致容器空转 + unhealthy）。
-    entrypoint: ["/bin/sh", "/app/wait-for-deps.sh"]
-    command: ["/app/data-service"]
+      context: ../tellurion-data
+      dockerfile: Dockerfile
     ports:
-      # 只发布到宿主机回环（见文件头「端口绑定约定」）—— 本机开发/测试够用，
-      # 且是 analysis 能以 open-access 运行的前提。要给局域网设备访问时，
-      # 必须同时给 analysis 配 JWT_SECRET（检查 3c 会拦住只改这一半的做法）。
+      # 只发布到宿主机回环（见文件头「端口绑定约定」）
       - "127.0.0.1:8081:8081"
     environment:
-      # AUD-39：DATABASE_HOST/PORT/USER/DATABASE 四项此前**没给** data-service
-      # （只给了密码），它靠 config/data-service.yaml 里的 host/port/user/
-      # database 兜底 —— 值恰好与这里相同，所以「碰巧能用」（P1-8 同型）。
-      #
-      # 现在那份 yaml 的口径是**宿主机视角**（localhost），容器必须显式注入
-      # 自己的视角，否则会去连容器自己的 5432 且必然失败 —— 也就是说
-      # 这四项从「碰巧能用」变成了**必需**。
-      #
-      # DB_PASSWORD 是死键：viper 的键是 database.password，推导出的 env 名
-      # 是 DATABASE_PASSWORD；DB_PASSWORD 零读取者（与 k8s 侧
-      # POSTGRES_PASSWORD 是同一类死键，AUD-39）。
-      DATABASE_HOST: host.docker.internal
-      DATABASE_PORT: 5432
-      DATABASE_USER: postgres
-      DATABASE_DATABASE: tellurion
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # 数据服务只读 DSN（不是 core 旧 viper 的 DATABASE_HOST/PORT/USER/DATABASE 四键）。
+      # 容器内视角：宿主机 PG 走 host.docker.internal（容器里的 localhost 是容器自己）。
+      DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      # 目标 schema（X1d 方向，出厂即 market）：数据仓据此定 DDL 落点与读表前缀。
+      DATA_MARKET_SCHEMA: market
       TUSHARE_TOKEN: ${TUSHARE_TOKEN}
-      # QT-71 / 裁-17：data-service 也是 service token 的验证方（analytics
-      # 调 GET /datasets/*）。此前本服务**没有** JWT_SECRET，而 analysis 与
-      # ai 都有 —— 缺这一项时 :8081 的写门在开鉴权的部署里仍是裸的。
-      # 空值 = 不回环发布时的本地 open-access（端口映射都是 127.0.0.1:）。
+      # QT-71 / 裁-17：data-service 也是 service token 的验证方（analytics 调
+      # GET /datasets/*）。空值 = 回环发布下的本地 open-access。
       JWT_SECRET: ${JWT_SECRET:-}
-      # REDIS_URL 于 2026-11-10 移除：data 面退役后本仓已无 redis 读取点
-      # （见 deploy/k8s/configmap.yaml 的「Cache (Redis)」段）。
-      # AUD-35：名字必须是 LOGGING_LEVEL。viper 的 AutomaticEnv +
-      # SetEnvKeyReplacer(".", "_") 把 logging.level 映射成 LOGGING_LEVEL；
-      # 此前这里写的 LOG_LEVEL 全仓无人读（死配置）。
-      LOGGING_LEVEL: info
-      # AUD-58：网关限流（每 ClientIP / 每分钟）。这里的缺省 100 与
-      # config/data-service.yaml 的 rate_limit.per_minute 一致 —— **本地开发的
-      # 默认保留真实限额**，别在这里调高。
-      # 整套 playwright 需要更高额度（它从 127.0.0.1 **一个 IP** 出量，API 密集
-      # 的几段必然越过 100/min，于是拿到一批与被测代码无关的 429），走显式覆盖层
-      # `docker-compose.e2e.yml`：(ODR-013 的「e2e/压测调高」就是这个旋钮)
-      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
       interval: 10s

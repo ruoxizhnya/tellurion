@@ -46,6 +46,13 @@ data:
   DATABASE_PORT: "5432"
   DATABASE_USER: "postgres"
   DATABASE_DATABASE: "tellurion"
+  # ── data-service（tellurion-data 仓发布）的 schema 落点 ───────────────
+  # 数据服务不读上面那四个 DATABASE_*，它只读一个 DATABASE_URL（由
+  # data-deployment.yaml 用这四个键 + Secret 里的密码拼出来，见那里的注释）。
+  # 这一项是它的第二个输入：DDL 落点与读表前缀。X1d 方向是「出厂即 market」，
+  # 留空会回落到 public —— 与 market.* 的表全部错开，表现为「表不存在」而不是
+  # 配置错误。compose 侧同名键必须与这里同值，由检查器 5e 守。
+  DATA_MARKET_SCHEMA: "market"
   # ── Cache (Redis)：2026-11-10 移除 REDIS_URL ──────────────────────
   # SVC-CORE-DATA-RETIRE（2026-11-08）删掉 cmd/data 之后，本仓**没有任何运行时
   # 读取点**再读 `redis.url`（`grep -i redis` 只剩 pkg/storage 的 NewCache 与
