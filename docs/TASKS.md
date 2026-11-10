@@ -212,6 +212,7 @@ verified-by: 2026-11-10 data-service 部署面收口（compose 改跨仓镜像 +
 - **⑤ 验收**：① `(INSERT INTO\|UPDATE\|DELETE FROM)[[:space:]]+strategies\b` 基线 **2** → **0**；② `FROM[[:space:]]+strategies\b` 基线 **5** → **0**；③ `SaveStrategyConfig|ListStrategyConfigs|DeleteStrategyConfig|SeedStrategies` 基线 **19 行**（`pkg/storage/strategies.go` 5 方法定义 + 5 doc 注释 + 9 处调用：`pkg/strategy/db.go:47/:52/:57/:62/:72/:145`、`pkg/storage/strategies.go:155`、`cmd/analysis/setup.go:336`、`pkg/strategy/db.go:98` 注释）→ **0**。反向护栏破坏验证：给 `pkg/strategy` 加一行含 `strategies` 的 SQL ⇒ 红；还原复绿。
 - **⑥ 边界**：core 删除；strategy 仓侧的切读与注册表退役归 `SVC-STRAT-G3`。
   - **二选一裁决（已定死并写入 `docs/SPEC.md` §Strategy Management）**：DB 腿改走**本地 registry**，不改 HTTP。证据：strategy 服务无 list-all 端点（只有 per-id 的 versions/resolve/build）；其定义 schema（`carrier` / `version_hash` / `active_version_hash`）与 core 的 `params` JSONB 语义不同（K5 §1.1「语义不同（不迁移）」）；strategy 仓侧切读归 `SVC-STRAT-G3`。
+  - **2026-11-10 与 `SVC-STRAT-G3` 收口对齐（主任裁决 A）**：G3 按本裁决重写为「内置策略走本地 registry 不联网；非空 `strategy_ref` 走 strategy resolve + 审批闸门；promote 由 agent/操作者直连 strategy；core 无 `/promote` 路由、只读校验；旧 DB 注册表已删」。本单删除结论不变，K11 生产接线见 `QT-32`；成文 `tellurion-strategy:docs/adr/0004-core消费边界与promote归属.md`。
   - **已删**：`pkg/storage/postgres.go` 的 Migration 011 `strategies` 建表与 `idx_strategies_type` / `idx_strategies_active` 两条索引；`pkg/storage/strategies.go`（Save/Get/List/Delete/Seed 5 方法）；`pkg/strategy/db.go`（`StrategyDB` 与全部 DB 方法）；`pkg/strategy/registry.go` 的零调用 `ReloadFromDB` / `ReloadAllFromDB`；`cmd/analysis` 的 `POST` / `PUT` / `DELETE /api/strategies` 三条写端点与 `route_policy.go` 对应条目；`cmd/analysis/setup.go` 的 `SeedStrategies` 调用。
   - **保留**：运行时 `pkg/strategy`（registry / 引擎 / WASM host / 内置策略 / 插件）；`GET /api/strategies`（agent 动作 `fetch_strategy_definitions`）与 `GET /api/strategies/:id` 改读 `DefaultRegistry`（按 name 稳定排序）；`quant.strategy_state` / `quant.external_signals` 两条状态腿（U3）。
   - **计数（实测）**：① **2 → 0**；② **5 → 0**；③ 生产侧 **15 行 → 0**（基线写 19 行含行号归并差异；实测 = `pkg/storage/strategies.go` 9 行 + `pkg/strategy/db.go` 5 行 + `cmd/analysis/setup.go` 1 行），测试侧 13 行随用例删除 → 0。
@@ -258,6 +259,7 @@ verified-by: 2026-11-10 data-service 部署面收口（compose 改跨仓镜像 +
   - **破坏验证（真做真还原）**：新建临时文件 `internal/repoguard/zz_probe_tmp.go` 加 `import _ "tellurion/pkg/backtest/metrics"` ⇒ 红（报错原文含 `import 了 [metrics]`）；删除探针后复绿。
   - **计数（实测）**：生产侧（非 `_test.go`）`tellurion/pkg/backtest/(metrics|reporting)` = **3**（与材料基线一致，恰为冻结集合）；含测试文件全量 = 5（多出 `cmd/analysis/handlers_compare_test.go` / `handlers_export_test.go`，测试侧不在冻结口径内，与「生产侧归零/冻结」的既有计数约定一致）。
   - **迁移触发条件（写死，供后续立单）**：analytics 出现 `analysis.benchmarks` 的**生产写者**（K7）且其端点覆盖 core 上述两条消费面 ⇒ 另立单做迁移，本护栏随迁移同批删除。
+  - **2026-11-10 主任裁决 A（analytics ADR-0005）**：analytics 定位为**独立只读分析服务 / 参考实现**，`SVC-AN-G3` 关闭、K7 挂起；本单「保留并冻结」结论不变，上条「迁移触发条件」保留为未来立项条件（须新立 ADR，不直接解冻）。
   - **门禁（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
 
 ### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ✅（2026-11-10 步骤 A~D 全部落地：改名 + 删实现 + 护栏 + 跨仓收口；代裁，待主任追认）
@@ -1434,6 +1436,7 @@ verified-by: 2026-11-10 data-service 部署面收口（compose 改跨仓镜像 +
 > **代价**：③-② 要求的「闸门记录进审计，审批人/时间/结论留痕」**只落三分之一**（今天只有「结论」的一部分）⇒ AI 产物的生产责任链断在「谁批的」这一环，日后无法追责。
 
 > **🔁 2026-10-26 订正（上面「不可施工」的前提已解除；⑭ 已被 ⑫ 取代）**：⑫ 已裁（面 B1：promote 走 **core 网关 + `X-Actor`**；strategy **只对 promote/internal 三端点**引 kit service-token 校验，端口仅集群内可达），且 kit **`v0.1.4` 已发版并 push**（service token 的非数字 subject 不再 401；risk/data/analytics 三仓已升 pin）。⑭「审批人取 JWT `sub`」因此**没有承载体**（strategy 无用户态登录），实现口径以 ⑫ 为准。
+> **2026-11-10 口径（主任裁决 A）**：⑫ 的「core 网关」按**部署入口**解释（集群 ingress / 端口隔离），不是 core 代码级 promote 转发路由；core **无 `/promote` 路由**，promote 由 agent/操作者直连 strategy，core 只读校验 `status=promoted` + 审计行。若将来要求代码级网关，另立单。成文 `tellurion-strategy:docs/adr/0004-core消费边界与promote归属.md`。
 > ⇒ **⑤ 拆成两半**：**strategy 侧**（引 kit + 三端点鉴权 + 审批人留痕）= 第三批 **K8**；**core 执行侧拒绝腿**（未 promote 的产物被回测路径 fail-closed）= **K11**（前置 K8 + K10 合入）。
 > 本单整体仍记 **⬜**——⑤ 的两半都还没做，不因「前提解除」而改状态。分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md)。
 
