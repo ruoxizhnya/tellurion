@@ -1433,7 +1433,7 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
 > - **拒绝断言（两条真实路径）**：pin 到只到 `validated` 的 v2 **版本** hash → 服务在 resolve 阶段就答 `version ... has no promoted artifact`，闸门映射 **404 `strategy_not_found`**；pin 到 v2 的 **artifact** hash → resolve 如实回 `status=validated`，闸门在状态位处 **409 `strategy_not_promoted`**。两条都 fail-closed，且后者证明 409 主判据在真服务上可达。
 > - **实测（原文）**：`ASSET_SERVICE_URL=http://127.0.0.1:18090 go test ./cmd/analysis/wiring -run TestStrategyAssetGate_LiveAssetService -count=1 -v` → `--- PASS: TestStrategyAssetGate_LiveAssetService (0.01s)`；未设 env 时 `--- SKIP`（包内其余用例 `ok tellurion/cmd/analysis/wiring 0.423s`）。
 > - **破坏验证（真做真还原）**：把 `strategy_asset.go` 的 `resolved.Status != strategyAssetPromotedStatus` 临时改成 `... && false` ⇒ 用例红（`validated-only artifact = 409/strategy_promotion_audit_missing, want 409/strategy_not_promoted`，说明两道闸都在线上）；按事前备份覆盖还原，`sha256= E2CBBAC6…712DFF4A` 与备份前一致，复跑绿。
-> - **仍欠（不虚标）**：上一笔 ② 的 **dsl 载体 promote 裁决**未做——本单整体维持 🔶，不因这一条转 ✅。另：本轮资产服务是「内存 Store + 回环开放」的本地进程，**PG 持久化腿与被网关鉴权的那条路径未在本用例覆盖**。
+> - **仍欠（不虚标）**：~~上一笔 ② 的 **dsl 载体 promote 裁决**未做——本单整体维持 🔶，不因这一条转 ✅。~~（**已结清，见下方 2026-11-10 收口块**）另：本轮资产服务是「内存 Store + 回环开放」的本地进程，**PG 持久化腿与被网关鉴权的那条路径未在本用例覆盖**。
 
 > **✅ 2026-11-10 收口：dsl 载体 promote 代裁 B（待主任追认）**
 > - **裁决**：**不开放无 artifact 载体（builtin / dsl / external）的版本级 promote**，保留 `active_version_hash`/`active_artifact_hash` 双空约束与「审批态是产物级状态机」的既有语义。三条依据：① 本单 ② 已定 AI 产物走 **QT-41b → wasm**（TinyGo 产物即 `artifact_hash`），闭环不依赖 dsl 放行；② core 执行面只消费 wasm/so 字节（`WithWASMArtifacts`），版本级放行只能让 `resolve` 回空 `artifact_hash`，等于造「已批准但拿不到资产」的假绿灯；③ 放开会推翻 `SVC-STRAT-G3-B` ④ 冻结的约束（改 CHECK + 改 `pickArtifact` 前置），代价大于收益。
