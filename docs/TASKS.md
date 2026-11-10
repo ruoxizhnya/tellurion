@@ -258,7 +258,7 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **迁移触发条件（写死，供后续立单）**：analytics 出现 `analysis.benchmarks` 的**生产写者**（K7）且其端点覆盖 core 上述两条消费面 ⇒ 另立单做迁移，本护栏随迁移同批删除。
   - **门禁（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
 
-### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] ⛔（2026-11-09 复核：字面前置已满足，但真实前置 `SVC-BROKER-G3` 仍 ⛔「无消费面」）
+### SVC-CORE-BROKER-RETIRE · core 券商与模拟撮合实现退役（ADR-036 G3 / R4）[P1] 🔶（2026-11-10 主任已裁口径并授权全量停写，按 A~D 分步施工）
 
 - **① 目标**：交易**通道**实现（Mock 撮合、订单存储、对账、保证金、XTP 骨架）离开 core，由 `tellurion-broker` 经 HTTP/契约提供；core 只留订单/成交/持仓**运行域真相**（`quant`）。
 - **② 上下文**：判据正文 = 材料 §4.6；删除对象 = `pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/`（今天 `pkg/live` = 24 个生产文件）。
@@ -274,6 +274,12 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
   - **解除判据**：`SVC-BROKER-G3` 的 core 切读落地（core 有一份经 HTTP 调用 broker 的 `LiveTrader` 实现，且 `ExecutionPort` 路径同批对齐），并能提供「同批回放的订单/成交/持仓与旧实现一致」的对拍报告。在此之前**不得开工**，也不做「删一半」的中间态（半删会让 core 无法装配执行面）。
   - **2026-11-10 复核（切读面已落，但判据未满足 ⇒ 仍 ⛔）**：core 侧第二实现已落 —— `cmd/analysis/wiring/broker_http_port.go` 的 `BrokerHTTPPort`（`execution.ExecutionPort` 的 broker HTTP 适配器，5 方法、`client_order_id` 幂等键、wire 形状用 `tellurion-contracts/broker` 契约类型），装配按 `BROKER_URL` 选择且默认回退旧实现（`cmd/analysis/kernel_wiring.go` + `wiring.AttachExecutionPort`）。对拍实测（`TestBrokerHTTPPortParityWithMockTrader`，3 笔市价买单）：订单意图与成交事实（symbol / direction / order_type / quantity / status / FilledQty）逐项一致；但 **⑤ 的「成交/持仓与旧实现一致」只成立一半** —— ① broker wire 无费用字段（旧 FillPrice 12.5062/8.2041/30.1151 含滑点、Fee 5.01/5.02/5.06；新通道按参考价 12.5000/8.2000/30.1000、Fee 0）；② 限价单在 broker 是「受理 ≠ 成交」，旧实现立即成交；③ `ExecutionPort` 无持仓方法，持仓增量不在本端口口径内。⇒ 是否接受「意图 + 成交事实一致、费用/持仓留在 core」的口径**待主任裁决**；本单保持 ⛔，旧 `pkg/live` 一行未删（不做「删一半」）。
   - **2026-11-10 补真进程腿（同口径，不改变上述裁决点）**：对拍不再只有 httptest double —— `TestBrokerHTTPPortParityAgainstRealBrokerProcess`（opt-in，`BROKER_PARITY_URL`）指向本机真 broker 进程（MemoryAckStore + Mock，broker 仓新增 `-mock-prices`），同批 3 笔实测 `filled/filled`、FilledQty 一致，与 double 腿同结论；反向对照（进程未起 ⇒ `/healthz` 连接拒绝、`TEST_EXIT=1`）与默认 SKIP 均实测。证据与启动命令见 `tellurion-broker:docs/TASKS.md` `SVC-BROKER-G3` 施工记录 ⑦。
+  - **2026-11-10 主任裁决（代裁执行，待主任追认）：接受口径并授权全量停写** —— 口径 = 「意图 + 成交事实一致、费用/持仓留在 core 运行域」（三点差异按此收口：① broker wire 无费用字段，费用由 core 侧 `pkg/execution` / `pkg/settlement` 记；② 限价单在 broker 是「受理 ≠ 成交」，core 不再假设立即成交；③ 持仓增量不进 `ExecutionPort`，由 core 运行域自持）。**默认通道切到 broker HTTP**：无 `BROKER_URL` 时执行面装配 fail-loud（不再静默回退内存撮合）。**分步计划（每步独立可编译、独立 commit）**：
+    - **步骤 A（纯搬迁，行为不变）**：`pkg/live` 整包改名 `pkg/trading`（含 `reconciliation/` / `stockstate/` / `margin/` 子包）——这些是 core 运行域算法，不是通道实现；同批更新全部 import（生产 16 文件 + 测试），`gofmt`/`build`/`test` 全绿。
+    - **步骤 B（删通道实现）**：删 `mock_trader.go`、`simulated_broker.go`、`postgres_order_store.go`、`broker/xtp/` 及配套测试；`pkg/bootstrap/engine.go` 的 `BuildExecutionTrader` 改为构造 broker HTTP 版 `LiveTrader`（复用 `cmd/analysis/wiring/live_trader_port.go`），无 broker 配置则返回明确错误；依赖 `MockTrader` 的对拍 / 夹具腿按其历史结论留档后删除。
+    - **步骤 C（护栏与计数）**：`internal/repoguard` 新增「全仓禁 `tellurion/pkg/live`」；订正 `backtest_live_isolation_test` / `package_wiring_test` 的旧路径白名单；实测 ⑤ 两条基线归零。
+    - **步骤 D（跨仓收口）**：`tellurion-broker:docs/TASKS.md` `SVC-BROKER-G3` ⑤ 记「core 零调用」；`SVC-RETIRE-INDEX` 与 ARCHITECTURE / AGENTS 同步。
+    - **如实登记的两处边界**：① broker 仍无 writer 级对拍（只有快照对账），本单只保证「core 不再写旧通道」，writer 对拍另单；② broker 无融资融券 / 对账 / 证券状态 HTTP 面，故 `margin` / `reconciliation` / `stockstate` 作为 core 运行域算法随包迁移，**不删**（与材料 §4.6 的字面删除清单有偏差，按「通道实现」语义收窄，待主任追认）。
 
 ### SVC-CORE-AI-RETIRE · core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10）[P1] ✅（2026-11-10）
 
