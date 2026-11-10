@@ -26,15 +26,10 @@ build-analysis:
 		-t ${REGISTRY}/tellurion-analysis:latest \
 		-f cmd/analysis/Dockerfile .
 
-build-data:
-	@echo "🔨 Building data-service:${VERSION}..."
-	docker build \
-		--build-arg BUILD_VERSION=${VERSION} \
-		--build-arg BUILD_COMMIT=${COMMIT} \
-		--build-arg BUILD_TIME=${BUILD_TIME} \
-		-t ${REGISTRY}/tellurion-data:${VERSION} \
-		-t ${REGISTRY}/tellurion-data:latest \
-		-f cmd/data/Dockerfile .
+# build-data 于 2026-11-11 删除：数据面退役（SVC-CORE-DATA-RETIRE，2026-11-08）
+# 时删掉了 cmd/data，却漏了这个目标 —— 它指向不存在的 cmd/data/Dockerfile，
+# 让 `make build` 必然失败。data-service 镜像由 tellurion-data 仓发布，本仓不再
+# 构建它（部署侧见 docker-compose.yml 的 data-service.build.context）。
 
 # Build all services
 #
@@ -44,7 +39,7 @@ build-data:
 # 留着死目标比删掉更糟：它看起来还能用，只在动手时才炸。
 # build-ai 同样于 2026-09-18 移除（cmd/ai 已删，见 TASKS P2-5）。
 # build-strategy 于 REV-16（2026-10-17）移除：cmd/strategy 服务按 ADR-012 关闭裁决删除。
-build: build-analysis build-data
+build: build-analysis
 	@echo ""
 	@echo "✅ All services built successfully!"
 	@echo "   Version: ${VERSION}"
@@ -57,11 +52,7 @@ push-analysis: build-analysis
 	docker push ${REGISTRY}/tellurion-analysis:${VERSION}
 	docker push ${REGISTRY}/tellurion-analysis:latest
 
-push-data: build-data
-	docker push ${REGISTRY}/tellurion-data:${VERSION}
-	docker push ${REGISTRY}/tellurion-data:latest
-
-push: push-analysis push-data
+push: push-analysis
 
 # ============================================================
 # Docker Compose targets
@@ -161,12 +152,11 @@ help:
 	@echo "Build Targets:"
 	@echo "  build              Build all services"
 	@echo "  build-analysis     Build analysis service only"
-	@echo "  build-data         Build data service only"
 	@echo ""
 	@echo "Push Targets:"
-	@echo "  push               Push all services to registry"
+	@echo "  push               Push analysis service to registry"
 	@echo "  push-analysis      Push analysis service only"
-	@echo "  (and so on for each service)"
+	@echo "  (data image is built and published by tellurion-data, not this repo)"
 	@echo ""
 	@echo "Docker Compose:"
 	@echo "  up                 Start all services with docker-compose"
