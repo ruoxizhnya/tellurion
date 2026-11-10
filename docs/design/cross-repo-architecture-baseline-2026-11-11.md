@@ -111,6 +111,7 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 | G-07 | `config/analysis-service.yaml:171` 保留 `risk_service.url: http://localhost:8085`（legacy fallback，指向自身）；文档未说明其与 `resolve_url:8089` 的关系 | **文档缺口** | B2 核实该键是否仍被读取；无读取点则标注 legacy |
 | G-08 | core `cmd/worker` 无 `ORCHESTRATION_URL` 即拒绝启动，但 core 文档未把该部署前置写成约束 | **文档缺口** | B4/B5 写入 dataflow 与部署说明 |
 | G-09 | core `docs/TASKS.md` 已记 `SVC-CORE-DATA-RETIRE` 收口，但同仓 `ARCHITECTURE.md` 仍把 data 面列为本仓组件 | **同仓自相矛盾** | B5 一次修净 |
+| G-10 | QT-67 的 `GET /api/v1/trading-calendar` / `POST /api/v1/listing-windows` 已于 2026-11-08 随 `SVC-CORE-DATA-RETIRE` 删除（`cmd/analysis/main.go:340-342` 不注册、`agent_actions.go:78-80` 条目已移、`coarseActionCount=7`），但 core `docs/SPEC.md` 仍按「已落地」描述，agent `pkg/ai/client/reference_data_client.go` 仍调用旧路径、其 `openapi_contract_test.go:114` 又要求 core openapi 登记这两条路径 | **core 文档过期 + agent 客户端漂移（两个过错方）** | 2026-11-11 core 侧：`docs/SPEC.md` §Reference Data 改为「已退役 + 真身指向」、`docs/openapi.yaml` 五个 orphan schema 加退役注释且明确不加 path（ghost-endpoint 护栏会拦）；agent 侧 repoint 进移交清单，不越仓改 |
 
 ## §6 仅文档声称、未代码核实（不计为已验证）
 

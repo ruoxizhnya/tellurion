@@ -4999,8 +4999,14 @@ components:
             type: integer
 
     # ============================================================
-    # Reference data (QT-67) — shapes are pinned to the handler's
-    # json tags by reference_data_wire_test.go (both directions).
+    # Reference data (QT-67) — RETIRED 2026-11-08 (SVC-CORE-DATA-RETIRE).
+    # /api/v1/trading-calendar and /api/v1/listing-windows are NOT served by
+    # this process anymore (see docs/SPEC.md §Reference Data). These five
+    # schemas deliberately have no `paths` entries: they are kept only so the
+    # agent client (pkg/ai/client, which still pins its DTO json keys against
+    # them) has a documented shape origin. Do NOT add path entries for them —
+    # cmd/analysis/routes_contract_rev13_test.go rejects spec paths with no
+    # real route (ghost endpoints).
     # ============================================================
     TradingCalendarEntry:
       type: object

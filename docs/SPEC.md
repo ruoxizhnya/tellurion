@@ -2977,16 +2977,18 @@ agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不
 | `query_market_data` | `POST /api/v1/ohlcv/bulk` | 已认证（readonly-post） | 多 symbol × 区间一次取回 |
 | `fetch_strategy_definitions` | `GET /api/strategies` | 已认证（GET） | 运行时注册表清单/详情（定义真相源在 `tellurion-strategy`）；执行与逐 bar 信号留在 core |
 | `register_factor` | `POST /api/factor/registrations` | admin | 一版定义一次登记（治理账本，非行情写） |
-| `query_trading_calendar` | `GET /api/v1/trading-calendar` | 已认证（GET） | 整个 `[start, end]` 区间一次返回 |
-| `query_listing_windows` | `POST /api/v1/listing-windows` | 已认证（readonly-post） | 整批 symbol 一次取回；不是 per-symbol 端点 |
+| ~~`query_trading_calendar`~~ | ~~`GET /api/v1/trading-calendar`~~ | — | **已退役（`SVC-CORE-DATA-RETIRE`，2026-11-08）**：core 不再持有 `trading_calendar`；读面改由 data 仓 `GET /api/v1/trading/calendar` 提供（路径与响应形状不同，见 §Reference Data） |
+| ~~`query_listing_windows`~~ | ~~`POST /api/v1/listing-windows`~~ | — | **已退役（同上）**：data 仓今天没有等价的清单/退市窗口端点，见 §Reference Data 的移交说明 |
 | `submit_walkforward` | `POST /api/walkforward` | trader | 整段 walk-forward 一次提交，窗口切分与逐窗派生在 core 内 |
 | `query_market_regime` | `POST /api/risk/detect_regime` | 已认证（readonly-post） | 整段区间一次识别（纯函数、不落库），不按交易日逐次调用 |
 
 **硬否决**：任何 per-bar / per-symbol / per-order 远程调用；策略执行、风控裁决、
 撮合永远在 core 进程内。护栏（`TestAgentCoarseActions_AreCoarseGrain`）拒绝通配
 路由，并拒绝路径里出现 `{bar}` / `{symbol}` / `{order_id}` 这类 per-item 参数。
-**第 7 类**（交易日历 / 上市窗口查询）已落地（QT-67）——它解锁 agent 侧删除
-最后一处 `tellurion/pkg/storage` 生产 import（消费与删 import 归 QT-17 ③）。
+**第 7 类**（交易日历 / 上市窗口查询）**已于 2026-11-08 退役**（`SVC-CORE-DATA-RETIRE`，
+D24 条目数 10 → 7）。当年它解锁了 agent 侧删除最后一处 `tellurion/pkg/storage`
+生产 import（QT-17 ③，已完成且不随端点退役回退）；两条端点本身不再存在于本进程，
+读面归属见下节。
 **第 8 类**（作业提交与裁决查询，2026-10-25 裁-12）已落地：`POST /api/walkforward`
 把「窗口切分 + 逐窗派生」收在一次请求内（agent 不自己切窗、不逐窗发请求）；
 `POST /api/risk/detect_regime` 对整段区间做 regime 识别，故 agent 侧 S3-c 只需 HTTP
@@ -3207,28 +3209,34 @@ POST /api/factor/registrations    - 登记一版因子定义（QT-50 第 6 类�
                                      四样（公式/哈希/登记人/生效日）缺一 400；同 (name, hash) 幂等
 ```
 
-#### Reference Data (QT-67 — D24 第 7 类)
+#### Reference Data (QT-67 — D24 第 7 类) — 已退役（2026-11-08）
 
-只读仪器域数据。**不写任何表**；存储未装配时 `503`（fail-closed，不返回空集合
-冒充「没有数据」）。DTO 与 `docs/openapi.yaml` 的 schema 由
-`cmd/analysis/handlers_reference_data_test.go` 的反射测试双向对拍 —— QT-67 原
-要求「DTO 走 `oapi-codegen` 生成」，但 contracts 今天没有 `dto` 包（G0D-C5，
-见 QT-50 记录），故本单**没有生成物**，改用这条互锁。
-
-```
-GET  /api/v1/trading-calendar     - 交易日历按区间查（QT-67；D24 第 7 类）  [已认证]
-     ?start=2026-01-01&end=2026-01-31
-     日期只认 YYYY-MM-DD；缺失/不可解析/start>end 一律 400 点名。
-     返回区间内的**全部**日历行（含 is_trading_day=false 的休市日）：
-     {"start_date","end_date","count","entries":[{"trade_date","exchange","is_trading_day"}]}
-     空区间 ⇒ "entries":[]（不是 null）。
-POST /api/v1/listing-windows      - 上市/摘牌窗口按标的查（QT-67；D24 第 7 类）  [readonly-post]
-     {"symbols": ["600000.SH", ...]}      // 省略/空 = stocks 全量
-     {"count","windows":[{"symbol","list_date","delist_date"}]}
-     symbols 只是过滤器，一次请求承载整批 —— 不是 per-symbol 端点（D24 硬否决）。
-     未知 symbol 省略；库里 list_date/delist_date 为 NULL ⇒ 响应 null；
-     输出按 symbol 稳定排序（map 迭代顺序不能泄漏进 wire）。
-```
+> **今天不成立**：`GET /api/v1/trading-calendar` 与 `POST /api/v1/listing-windows`
+> 随 `SVC-CORE-DATA-RETIRE`（2026-11-08）一并删除——core 不再持有 `trading_calendar` /
+> `stocks`。`cmd/analysis/main.go` 已明确不注册这两条，`cmd/analysis/agent_actions.go`
+> 的粗粒度动作表同步移除（条目数 10 → 7，`coarseActionCount` 常量为证）。
+> 本节保留的是**历史契约**，不是当前端点。
+>
+> **当前真身（2026-11-11 核对）**：
+> - 交易日历：data 仓 `GET /api/v1/trading/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD`
+>   （G3 只读兼容，2026-11-10），响应 `{trading_days:["YYYY-MM-DD"]}`。**路径、方法、
+>   响应形状都与 QT-67 不同**，不能按旧客户端直接替换。
+> - 上市 / 摘牌窗口：**今天没有任何服务提供**。data 仓 G3 只读面与股票相关的是
+>   `GET /stocks[?exchange=]`（全量/按交易所）与 `GET /api/v1/stocks/{symbol}`（单票），
+>   没有 list/delist 窗口。
+>
+> **本仓保留的形状**：`docs/openapi.yaml` 的 `TradingCalendarEntry` /
+> `TradingCalendarResponse` / `ListingWindowsRequest` / `ListingWindow` /
+> `ListingWindowsResponse` 五个 schema 今天**没有 path 引用**；保留它们只为给 agent
+> `pkg/ai/client` 的 DTO 对拍提供字段出处，不代表端点存活。原先注释里提到的
+> `cmd/analysis/handlers_reference_data_test.go` 已随 handler 一起删除。
+>
+> **跨仓移交（未完成）**：agent 的 `pkg/ai/client/reference_data_client.go` 仍调用上面
+> 两条已删路径，`pkg/ai/client/openapi_contract_test.go` 因此在「同工作区存在 core
+> checkout」时变红。这是**真实的客户端漂移**，不是 core openapi 漏登记——core 侧不恢复
+> 幽灵路由（`cmd/analysis/routes_contract_rev13_test.go` 会拒绝「yaml 有、代码无」）。
+> 修法归 agent：calendar 改指 data 的 `/api/v1/trading/calendar`；listing-windows 要么
+> 在 data 新建读面、要么删掉该客户端腿。
 
 #### Strategy Management
 ```
@@ -3356,7 +3364,7 @@ GET  /api/pipeline/jobs/:id       - Get specific pipeline job result
 | `public` | 无 token 可达（同时在 `pkg/auth` 的 publicPaths 白名单里） | `POST /api/auth/{login,refresh,bootstrap}` |
 | `admin` | admin | 用户管理、插件 load/unload/reload/watch-dir、同步排程的增删改启停 |
 | `trader` | trader 或 admin | 下单/撤单/kill-switch、回测/批量/走查、策略 CRUD、因子计算、合规动作、同步触发、ingest 写门、反代族的写方法 |
-| `readonly-post` | 任意已认证角色 | `POST /screen`、`POST /api/v1/ohlcv/bulk`、`POST /api/v1/listing-windows`、`POST /api/expression/validate`、`POST /api/risk/{calculate_position,check_stoploss,detect_regime}`（及 legacy 别名）——**用 POST 承载查询/纯计算，不写库** |
+| `readonly-post` | 任意已认证角色 | `POST /screen`、`POST /api/v1/ohlcv/bulk`、`POST /api/expression/validate`、`POST /api/risk/{calculate_position,check_stoploss,detect_regime}`（及 legacy 别名）——**用 POST 承载查询/纯计算，不写库**；`POST /api/v1/listing-windows` 已于 2026-11-08 退役（见 §Reference Data） |
 
 **执法位置**：`pkg/authz.Middleware`，在 `auth.Service.Middleware()` **之后**、
 **注册路由之前**挂载（gin 在注册时快照 handler 链）。规则表逐条写在服务里：
