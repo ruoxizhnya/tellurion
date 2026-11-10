@@ -249,8 +249,7 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Error(c, http.StatusInternalServerError, err)
 				return
 			}
-			if job == nil || job.Status != "completed" {
-				httpserver.Fail(c, http.StatusNotFound, "backtest not found or not completed")
+			if failRunReadSurface(c, job) {
 				return
 			}
 			var report map[string]any
@@ -290,8 +289,7 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Error(c, http.StatusInternalServerError, err)
 				return
 			}
-			if job == nil || job.Status != "completed" {
-				httpserver.Fail(c, http.StatusNotFound, "backtest not found or not completed")
+			if failRunReadSurface(c, job) {
 				return
 			}
 			var stored backtest.BacktestResponse
@@ -323,8 +321,7 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Error(c, http.StatusInternalServerError, err)
 				return
 			}
-			if job == nil || job.Status != "completed" {
-				httpserver.Fail(c, http.StatusNotFound, "backtest not found or not completed")
+			if failRunReadSurface(c, job) {
 				return
 			}
 			var stored backtest.BacktestResponse
@@ -425,6 +422,37 @@ func buildResponseFromState(engine *backtest.Engine, backtestID string) (backtes
 	return engine.ResponseFromState(backtestID)
 }
 
+// failRunReadSurface 把「作业存在但还没有结论」从 404 里分出来（裁决 ⑲ / K4）。
+//
+// 三种情况必须能被调用方区分：
+//
+//	job == nil                → 404 run_not_found
+//	非终态（pending/running/cancelling…）→ 409 run_result_incomplete
+//	failed                    → 409 run_result_failed
+//	completed（含 result_status=invalid）→ 放行，返回 false
+//
+// code 与 analytics 既有三态同名（analytics `internal/analysis/errors.go`），
+// 不得另造命名。`result_status=invalid` 是**结论**，不是失败，照样 200。
+func failRunReadSurface(c *gin.Context, job *backtest.Job) bool {
+	if job == nil {
+		httpserver.FailCode(c, http.StatusNotFound, "run_not_found", "backtest not found")
+		return true
+	}
+	if job.Status == "failed" || (job.Status == backtest.StatusCompleted && job.ResultStatus == backtest.StatusFailed) {
+		httpserver.FailCode(c, http.StatusConflict, "run_result_failed", "backtest run failed; no result is available")
+		return true
+	}
+	if job.Status != backtest.StatusCompleted {
+		httpserver.FailCode(c, http.StatusConflict, "run_result_incomplete", "backtest run is not finished yet")
+		return true
+	}
+	return false
+}
+
+// errRunReadSurface 是「错误响应已经写过，调用方别再写」的信号。
+// export 端点据此提前返回，避免在 404/409 之后又渲染一份 200 的 HTML。
+var errRunReadSurface = errors.New("run read surface: response already written")
+
 // lookupBacktestResponse fetches a backtest result by ID, falling back from
 // in-memory (Engine) to stored job (JobService) when the in-memory copy
 // has been evicted. On error, writes the error response to the gin context
@@ -440,9 +468,8 @@ func lookupBacktestResponse(c *gin.Context, backtestID string, engine *backtest.
 		httpserver.Error(c, http.StatusInternalServerError, err)
 		return backtest.BacktestResponse{}, err
 	}
-	if job == nil || job.Status != "completed" {
-		httpserver.Fail(c, http.StatusNotFound, "backtest not found or not completed")
-		return backtest.BacktestResponse{}, err
+	if failRunReadSurface(c, job) {
+		return backtest.BacktestResponse{}, errRunReadSurface
 	}
 	var stored backtest.BacktestResponse
 	if err := json.Unmarshal(job.Result, &stored); err != nil {

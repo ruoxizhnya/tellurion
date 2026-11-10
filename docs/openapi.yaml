@@ -243,7 +243,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/BacktestResponse'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/RunNotFound'
+        '409':
+          $ref: '#/components/responses/RunResultNotReady'
 
   /api/backtest/{id}/trades:
     get:
@@ -269,7 +271,9 @@ paths:
                     items:
                       $ref: '#/components/schemas/Trade'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/RunNotFound'
+        '409':
+          $ref: '#/components/responses/RunResultNotReady'
 
   /api/backtest/{id}/equity:
     get:
@@ -295,7 +299,9 @@ paths:
                     items:
                       $ref: '#/components/schemas/PortfolioValue'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/RunNotFound'
+        '409':
+          $ref: '#/components/responses/RunResultNotReady'
 
   /api/backtest/{id}/export/{format}:
     get:
@@ -336,6 +342,10 @@ paths:
                 type: string
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/RunNotFound'
+        '409':
+          $ref: '#/components/responses/RunResultNotReady'
 
   /api/backtest/{id}/provenance:
     get:
@@ -3384,6 +3394,21 @@ components:
             $ref: '#/components/schemas/Error'
     NotFound:
       description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RunNotFound:
+      description: The run does not exist (`code=run_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RunResultNotReady:
+      description: |
+        The run exists but has no conclusion yet — `code=run_result_incomplete`
+        for pending / running / cancelling, `code=run_result_failed` for a
+        failed run. Codes are the same three-state names analytics uses.
       content:
         application/json:
           schema:

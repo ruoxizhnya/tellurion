@@ -142,6 +142,14 @@ verified-by: 第三批分组方案实测取证（12 仓 git 快照 + 全量未�
 - **⑤ 验收**：① 表驱动测试覆盖 6 种输入（nil / pending / running / failed / completed / completed+invalid），逐条断言状态码与 `code` 字符串；② 破坏验证：把 `failed` 分支改回 404 ⇒ 对应用例红；把 `running` 判成 200 ⇒ 红；③ `docs/openapi_test.go` 与 `handlers_openapi_test.go` 绿（说明文档与实现同步）；④ `gofmt -l .` 空 + `go build/vet/test ./... -count=1` 绿。
 - **⑥ 边界**：只改 core 的读面语义与 openapi。analytics 的既有码不动；UI 的展示另单（K6 不含）。
 
+> **✅ 结案（2026-11-10）**：
+> - **前置**：kit 新增 `httpserver.FailCode(c, status, code, message)` 并发 `v0.3.0`（只增不改；`codeForStatus` 派生不出三态粒度），core 升 pin 到 `v0.3.0`。
+> - **实现**：`cmd/analysis/handlers_backtest.go` 新增 `failRunReadSurface`，report / trades / equity / export 四处统一走它 —— nil → 404 `run_not_found`；`failed`（或 `completed` + `result_status=failed`）→ 409 `run_result_failed`；其余非 `completed` → 409 `run_result_incomplete`；`completed`（含 `invalid`）→ 200。export 用 `errRunReadSurface` 提前返回，修掉「写完 404 又渲染 200 HTML」的旧隐患。
+> - **文档**：`docs/openapi.yaml` 四端点加 404/409 + 新增 `RunNotFound` / `RunResultNotReady` 响应组件。
+> - **测试**：`cmd/analysis/handlers_backtest_readsurface_test.go` 表驱动 6 输入 × 4 端点 = 24 腿，逐条断言状态码与 `code`；`go test ./... -count=1` = 0（含 `docs/openapi_test.go`）。
+> - **破坏验证**：failed 分支改回 404 ⇒ 4 条 failed 腿红；running 分支判成 200 ⇒ 4 条 running 腿红；两次均按备份还原、`sha256` 一致、复跑绿。
+> - **消费方**：`tellurion-analytics` 同批按契约 code 映射（`internal/upstream.ResultReader`）：409 两码 → `IncompleteError` / `FailedError`，未知 409 fail-closed 成 `dependency_unavailable`；3 条新用例 + 破坏验证见该仓 `docs/TASKS.md` QT-43 施工记录。
+
 ### K5 · core 部署路径两个真 bug
 
 - **① 目标**：`docker compose up -d` 不再因为构建一个**已删除的目录**而失败；`check_deploy_consistency.py` 不再对 `BindEnv` 别名报假阳性。
