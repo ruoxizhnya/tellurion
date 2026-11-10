@@ -133,6 +133,10 @@ func TestFieldDefsDependOnKnownTables(t *testing.T) {
 func TestFieldAvailabilityMatchesRealDatabase(t *testing.T) {
 	ctx := context.Background()
 	pool := testenv.OpenPoolForTest(t)
+	// QT-82 裁决 ①a：`market_activity` 的 DDL owner 是 tellurion-data；core
+	// 测试库按列形状镜像补空表（夹具见 pkg/testenv/market_tables.go）。空表 ⇒
+	// 该表字段判定为不可用，下面的「判定 ≡ 真库行数」照旧成立。
+	testenv.EnsureMarketTableFixtures(t, pool)
 
 	// 真 probe：查表行数（只读）。
 	probe := func(ctx context.Context, table string) (bool, error) {

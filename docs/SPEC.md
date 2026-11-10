@@ -210,6 +210,24 @@ L1  数据层       行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日
 | D | 研究叙事（人的判断） | **Vault markdown**（事实源） | — |
 | E | 研究结构化状态 | PG `research.*`（D 的确定性投影，可 DROP 重建） | 权威在 D |
 
+> **跨仓只读表依赖清单（QT-82 裁决 ①a，2026-11-10；待主任追认）**
+>
+> `SVC-CORE-DATA-RETIRE` 之后，`market.*` 的 **DDL owner = `tellurion-data`**
+> （`tellurion-data:internal/schema/market.go`），本仓生产迁移里不再建这些表。
+> core 仍有**只读**依赖的裸表名只有四张，且都只出现在下列位置：
+>
+> | 表 | core 读它的位置 | 为什么仍直读 PG（而不是走 data-service HTTP） |
+> |---|---|---|
+> | `ohlcv_daily_qfq` | `pkg/marketdata/router.go`（1d） | 回测取数主路径；本仓 `migrations/00000002` 仍保留该表 DDL（历史基线，本轮不动） |
+> | `ohlcv_minute` | `pkg/marketdata/router.go`（1m / 15m 聚合） | 分钟线是日内 warm-up 的高频输入；`tellurion-data` 的硬边界禁止「逐 bar / 逐笔的远程取数」，内网直读 PG 是唯一符合延迟预算的路径 |
+> | `stock_sector_map` | `pkg/expression` 的字段可用性探测（`sector`） | 同上：探测只查行数，不值得为它引入 HTTP 往返 |
+> | `market_activity` | `pkg/expression` 的字段可用性探测（`turnover_rate*`） | 同上 |
+>
+> 测试库（`TEST_DATABASE_DSN`）用 core 迁移搭建时不含这四张的 data 侧 DDL ⇒
+> `pkg/testenv/market_tables.go` 按 data 仓**列形状镜像**补空表夹具（仅测试，
+> 不写生产 DDL、不恢复数据面写路径）。这四张之外，core 读数据面一律走
+> `data_service.url`；新增第五张直读表 = 越界，需要新裁决。
+
 ### 证据服务（已实现 — 原「L0-3」，见 [ODR-050](archive/odr/odr-050-p1-base-contract-landing.md)）
 
 证据坐标从"文件路径 + 模糊字符串"升级为**不可变内容坐标**：

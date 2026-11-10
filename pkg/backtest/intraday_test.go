@@ -663,6 +663,9 @@ func TestEngine_WarmIntraday_WithRouter_SelfSeed(t *testing.T) {
 	)
 	ctx := context.Background()
 	pool := testenv.OpenPoolForTest(t)
+	// QT-82 裁决 ①a：`ohlcv_minute` 的 DDL owner 是 tellurion-data，core 测试库
+	// 按列形状镜像补空表（夹具见 pkg/testenv/market_tables.go）。
+	testenv.EnsureMarketTableFixtures(t, pool)
 	_, _ = pool.Exec(ctx, "DELETE FROM ohlcv_minute WHERE symbol = $1", testSymbol)
 	t.Cleanup(func() {
 		cctx := context.Background()

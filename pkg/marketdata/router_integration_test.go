@@ -62,6 +62,9 @@ func setupRouterDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	// TEST_DATABASE_DSN 统一契约（REV-21）：未设置→显式跳过并登记；
 	// 已设置但连不上→fail-loud。
 	pool := testenv.OpenPoolForTest(t)
+	// QT-82 裁决 ①a：`ohlcv_minute` / `market_activity` 的 DDL owner 是
+	// tellurion-data；core 测试库按列形状镜像补空表（pkg/testenv/market_tables.go）。
+	testenv.EnsureMarketTableFixtures(t, pool)
 	// 防御性清理：上次崩溃运行可能留了种子数据。
 	_, _ = pool.Exec(ctx, "DELETE FROM ohlcv_minute WHERE symbol = $1", testSymbol)
 	_, _ = pool.Exec(ctx, "DELETE FROM ohlcv_daily_qfq WHERE symbol = $1", testSymbol)

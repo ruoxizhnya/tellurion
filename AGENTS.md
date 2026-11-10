@@ -40,6 +40,11 @@
    `pkg/eventstore` / `pkg/strategy` 侧的变量是 `storage.*SchemaDDL` 的**别名**，其 `EnsureSchema` 仅作
    「独立可安装 / 测试自证」幂等兜底入口。新增 DDL 一律加到 `migrationStatements()`。
    `migrations/` 与 `docs/migrations/` 的 `.sql` **不执行**，只作历史证据。
+   **跨仓表依赖清单（QT-82）**：`market.*` 的 DDL owner 是 `tellurion-data`；本仓
+   只读的裸表名仅 `ohlcv_daily_qfq` / `ohlcv_minute`（`pkg/marketdata`）与
+   `stock_sector_map` / `market_activity`（`pkg/expression` 可用性探测），清单与
+   理由见 `docs/SPEC.md` §数据归属。测试库用 `pkg/testenv/market_tables.go` 的
+   形状镜像夹具补空表；**新增第五张直读表要新裁决**，不要顺手加。
 
 ### 契约 pin 怎么 bump（QT-07 ⑤ / QT-09 ①）
 
