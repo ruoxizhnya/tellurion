@@ -3668,21 +3668,23 @@ Turnover，就是文档与实现静默漂移的标本）。
 
 ## Configuration
 
-**本仓的配置就是 `config/` 下的三份 YAML。** 没有 `config/global.yaml`，也没有
-把多份合成一份的加载器 —— 每个服务只读自己那一份。
+**本仓运行期只读一份 YAML：`config/analysis-service.yaml`**（`cmd/analysis` 与
+`cmd/worker` 共用）。`config/data-service.yaml` 已随数据面退役删除
+（SVC-CORE-DATA-RETIRE，2026-11-08）；`config/ai-service.yaml` 自 AI 服务拆仓后
+本仓没有运行期读者，仅 `tools/check_deploy_consistency.py` 用它做 DB 身份对拍。
+没有 `config/global.yaml`，也没有把多份合成一份的加载器。
 
 | 文件 | 谁读 | 定位方式 | 默认端口 |
 |---|---|---|---|
-| `config/analysis-service.yaml` | `cmd/analysis` | `CONFIG_PATH` env（默认 `config/analysis-service.yaml`） | 8085 |
-| `config/data-service.yaml` | `cmd/data` | viper `SetConfigName("data-service")`，搜索 `./config` `../config` `../../config` | 8081 |
+| `config/analysis-service.yaml` | `cmd/analysis`、`cmd/worker` | `CONFIG_PATH` env（默认 `config/analysis-service.yaml`） | 8085 |
+| `config/ai-service.yaml` | 仅部署一致性检查器（DB 身份对拍），运行期无读者 | — | — |
 
-⚠️ **定位方式不统一是有意保留的历史差异，不是设计。** analysis 走 `CONFIG_PATH`
-（便于容器里挂不同文件），另两个走 viper 的搜索路径。改启动逻辑时注意别把
-`CONFIG_PATH` 当成三个服务的通用开关 —— 它只对 `cmd/analysis` 生效。
+⚠️ `CONFIG_PATH` 只对 `cmd/analysis` 与 `cmd/worker` 生效（worker 的 `-config`
+会转写成该 env）。不要把它当成全仓通用开关。
 
 ### 键名 → env 名
 
-三个服务都接了 `viper.AutomaticEnv()` + `SetEnvKeyReplacer(".", "_")`，所以
+`cmd/analysis` 与 `cmd/worker` 都接了 `viper.AutomaticEnv()` + `SetEnvKeyReplacer(".", "_")`，所以
 **配置键里的 `.` 换成 `_` 就是 env 名**：`database.host` → `DATABASE_HOST`、
 `server.gin_mode` → `SERVER_GIN_MODE`、`logging.level` → `LOGGING_LEVEL`、
 `redis.url` → `REDIS_URL`。这是本仓**唯一**的重命名规则，不要再发明第二种 ——

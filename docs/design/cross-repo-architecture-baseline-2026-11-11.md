@@ -103,7 +103,7 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 | ID | 矛盾 | 可能过错方 | 处置 |
 |---|---|---|---|
 | G-01 | core `docs/ARCHITECTURE.md:51-52,144-145,222`、`README.md:26,179` 把 `data-service :8081`（`cmd/data`）写成运行中进程；实际 `cmd/` 无 `data` 目录 | **文档过期**（代码已完成 `SVC-CORE-DATA-RETIRE`） | B5 修 core 文档；不改代码 |
-| G-02 | `config/data-service.yaml` 仍存在，但 Go 代码零读取（搜索模式：`data-service\.yaml`、`data_service\.yaml`，**命中仅 SPEC 与 yaml 自身注释**）；`docs/SPEC.md:3677` 仍指向 `cmd/data` | **两者都过时** | B2 判定删除或标注为历史残留，并同步 SPEC |
+| G-02 | `config/data-service.yaml` 仍存在，但 Go 代码零读取（搜索模式：`data-service\.yaml`、`data_service\.yaml`，**命中仅 SPEC 与 yaml 自身注释**）；`docs/SPEC.md:3677` 仍指向 `cmd/data` | **两者都过时（退役时漏删）** | 已处置 2026-11-11：删除该文件并同步 SPEC 配置表；Git 历史可查 |
 | G-03 | core `docs/ARCHITECTURE.md:71` 称 `POST /api/ingest/raw` 是 class A「唯一外部写入门」；data ADR-0006 称 `POST /ingest/points` 是唯一写端点，且 `ingest` schema 归 data | **跨仓契约争议** | 只报方案，不擅自改；需三组会签 |
 | G-04 | core `docs/ARCHITECTURE.md:72` 称 data-service 写 `public` 规范化表（stocks/trading_calendar/splits/dividends/index_constituents）；data 仓称这些表在 `market` schema 且自己是唯一 writer | **跨仓契约争议** | 报方案；以 data `db-schema.md` + 迁移真实 schema 为准 |
 | G-05 | core `docs/ARCHITECTURE.md`/`README.md` 称「compose 只编排 3 个服务、PG 不在容器内」；`docker-compose.services.yml` 已含 6~7 个服务与 postgres | **文档过期** | B5 修 core 文档，写清两个 compose 文件各自的职责 |
