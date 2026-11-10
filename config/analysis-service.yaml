@@ -109,6 +109,28 @@ benchmark:
 # strategy_service.url 已随 OBS-11（2026-10-09）删除：策略服务 standby
 # （ADR-012），信号只从引擎本地注册表产出，不存在 per-day HTTP fallback。
 
+# QT-32 K11：AI 产物（非空 `strategy_ref`）的回测入口闸门。
+#
+# 语义：`strategy_ref` 非空 ⇒ 必须先向 tellurion-strategy 询问「这个版本是否
+# 已过人工 promote 且有审批留痕」，否则拒绝（fail-closed）。空 `strategy_ref`
+# 的内置策略路径不解析、不联网，行为逐字节不变。
+#
+#   - resolve_enabled=false ⇒ 本部署视为「未接入资产服务」：非空 strategy_ref
+#     一律拒绝（503 strategy_asset_not_configured），内置策略不受影响。
+#   - resolve_enabled=true 但 resolve_url 为空 ⇒ 启动即失败（配置错误不拖到
+#     第一条 AI run 才暴露）。
+#   - 拒绝口径：404 资产不存在 / 409 未 promote 或缺审计 / 502 资产服务返回
+#     畸形或 5xx / 503 连不上或未配置。**没有任何一条会回落到内置策略**。
+#
+# 注意：analysis 与 worker 读同一份文件，两个进程都必须看到同一组值。
+strategy_asset:
+  resolve_enabled: true
+  # tellurion-strategy 资产服务的容器视角地址（仓内默认 :8090）。
+  resolve_url: "http://strategy:8090"
+  # 读面今天端口隔离、不校验凭证；预留以便网关统一鉴权（只从 env 注入）。
+  resolve_token: ""
+  resolve_timeout: 10s
+
 # P1-15 (Sprint 6, ODR-021): risk + execution services merged into
 # analysis service. The `risk_service.url` and the
 # `STRATEGY_SERVICE_URL` env on docker-compose still work for backward

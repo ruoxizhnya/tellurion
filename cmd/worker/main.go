@@ -142,6 +142,14 @@ func run() error {
 		Log: logger,
 	}
 
+	// QT-32 K11：worker 也要过同一道资产闸 —— 直接把 run spec POST 给编排
+	// 服务的路径绕过 analysis 入口，闸门不能只装在入口。未启用 = nil 闸门，
+	// 非空 strategy_ref 在这里被折成 failed（fail-closed）。
+	strategyAssetGate, err := wiring.LoadStrategyAssetGate(v, logger)
+	if err != nil {
+		return err
+	}
+
 	executor := &orchestrationworker.Executor{
 		RunnerFor: func(kernel string) (contracts.EngineRunner, error) {
 			return registry.Resolve(kernel)
@@ -151,8 +159,11 @@ func run() error {
 		// （Migration 065 DROP TABLE）。
 		Sink: &orchestrationworker.ResultStoreSink{Store: resultFaceStore{store: store}},
 		// 失败留痕：failed 行没有载荷，走结果面的直接写口（见 recordFailure）。
-		Face:      resultFaceStore{store: store},
-		Timeout:   *runTimeout,
+		Face:    resultFaceStore{store: store},
+		Timeout: *runTimeout,
+		StrategyGate: func(ctx context.Context, rawRef string) (*backtest.StrategyAssetIdentity, error) {
+			return wiring.CheckStrategyRef(ctx, strategyAssetGate, rawRef)
+		},
 		Publisher: publisher,
 		Log:       logger,
 	}

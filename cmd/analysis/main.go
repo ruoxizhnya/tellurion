@@ -299,7 +299,13 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	if deps.Store != nil && deps.Store.DB() != nil {
 		provenanceReader = deps.Store
 	}
-	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, deps.TaskClient, provenanceReader, deps.Logger)
+	// QT-32 K11：AI 产物的回测入口闸门。未启用/未配置 = nil 闸门，非空
+	// strategy_ref 在入口被拒（503），内置策略路径不受影响。
+	strategyAssetGate, gateErr := wiring.LoadStrategyAssetGate(deps.Viper, deps.Logger)
+	if gateErr != nil {
+		deps.Logger.Fatal().Err(gateErr).Msg("strategy asset gate wiring failed")
+	}
+	registerBacktestRoutes(router, deps.Engine, deps.EngineRegistry, deps.JobService, deps.MarketRouter, deps.TaskClient, provenanceReader, deps.Logger, strategyAssetGate)
 	// QT-78：R2 分析产物读面（core 自持 quant.run_analysis_artifacts）。
 	// 与上面同款：未接库时路由照常注册、请求时 503。
 	var artifactReader analysisArtifactReader

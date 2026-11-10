@@ -158,6 +158,34 @@ func (e *Engine) provenanceSink() RunProvenanceWriter {
 	return e.store
 }
 
+// StrategyAssetIdentity 是回测入口过闸（QT-32 K11）后固化的资产坐标。
+//
+// 为什么走 context 而不是 BacktestRequest 字段：BacktestRequest 是四契约之一，
+// 字段集冻结（D7）。身份只存在于「`strategy_ref` 非空且已过 promote 闸」的
+// 路径上；内置策略路径没有它，provenance 保持既有口径（无 artifact_hash、
+// version_hash = 插件 loader git hash）。入口把身份放进 ctx，引擎写
+// provenance 时原样记账 —— 这样 N7-5 要求的两个 hash 才落得下来。
+type StrategyAssetIdentity struct {
+	// RefInput 是调用方原始引用（`id` 或 `id@hash`），逐字记，不做规范化。
+	RefInput     string
+	StrategyID   string
+	VersionHash  string
+	ArtifactHash string
+}
+
+type strategyAssetIdentityKey struct{}
+
+// WithStrategyAssetIdentity 把过闸后的资产坐标放进 ctx。
+func WithStrategyAssetIdentity(ctx context.Context, id StrategyAssetIdentity) context.Context {
+	return context.WithValue(ctx, strategyAssetIdentityKey{}, id)
+}
+
+// StrategyAssetIdentityFrom 取出过闸后的资产坐标。
+func StrategyAssetIdentityFrom(ctx context.Context) (StrategyAssetIdentity, bool) {
+	id, ok := ctx.Value(strategyAssetIdentityKey{}).(StrategyAssetIdentity)
+	return id, ok
+}
+
 // recordRunProvenance 计算并写入一次 run 的输入身份。
 //
 // 调用点：日循环之前（tradingDays 与复权锚点都已就位）。失败 = run 失败：
@@ -184,7 +212,12 @@ func (e *Engine) recordRunProvenance(
 		return err
 	}
 
-	rec, err := e.buildRunProvenance(state, tradingDays, runUniverse, adj, riskRules.Hash)
+	identity, hasIdentity := StrategyAssetIdentityFrom(ctx)
+	var identityPtr *StrategyAssetIdentity
+	if hasIdentity {
+		identityPtr = &identity
+	}
+	rec, err := e.buildRunProvenance(state, tradingDays, runUniverse, adj, riskRules.Hash, identityPtr)
 	if err != nil {
 		return err
 	}
@@ -212,6 +245,7 @@ func (e *Engine) buildRunProvenance(
 	runUniverse []string,
 	adj *adjustmentRun,
 	riskRulesHash string,
+	identity *StrategyAssetIdentity,
 ) (*persistence.RunProvenanceRecord, error) {
 	params := state.Params
 
@@ -256,6 +290,23 @@ func (e *Engine) buildRunProvenance(
 		AdjustmentBasis: adjustmentBasis,
 	}.Hash()
 
+	// 内置策略的载体是编译进二进制的 Go 代码：没有 wasm / 插件字节码，
+	// 也就没有 artifact_hash（N7：执行真相为空 = 无独立字节码可锁定）。
+	// version_hash 用插件 loader 的 git hash（内置策略拿不到，留空）。
+	//
+	// 过闸的资产路径（identity != nil）以资产服务签发的坐标为准：两个 hash
+	// 都取自 resolve 的返回值，不再拿 git hash 冒充版本身份。
+	artifactHash := ""
+	versionHash := lookupStrategyGitHash(params.StrategyName)
+	refInput := contracts.StrategyRef{ID: params.StrategyName}.String()
+	if identity != nil {
+		artifactHash = identity.ArtifactHash
+		versionHash = identity.VersionHash
+		if identity.RefInput != "" {
+			refInput = identity.RefInput
+		}
+	}
+
 	slippage, costModel := e.effectiveExecutionCost()
 
 	spec := contracts.RunSpecInput{
@@ -264,12 +315,8 @@ func (e *Engine) buildRunProvenance(
 		InitialCapital: params.InitialCapital,
 		RiskFreeRate:   params.RiskFreeRate,
 
-		// 内置策略的载体是编译进二进制的 Go 代码：没有 wasm / 插件字节码，
-		// 也就没有 artifact_hash（N7：执行真相为空 = 无独立字节码可锁定）。
-		// version_hash 用插件 loader 的 git hash（内置策略拿不到，留空）。
-		// QT-41b 的编译管线落地后，这两列由 artifact 登记填实。
-		StrategyArtifactHash:    "",
-		StrategyVersionHash:     lookupStrategyGitHash(params.StrategyName),
+		StrategyArtifactHash:    artifactHash,
+		StrategyVersionHash:     versionHash,
 		StrategyParamsEffective: effParams,
 
 		// QT-23：RunSpec 的票池同样记 **RunUniverse**（索引来源）。原始请求
@@ -315,7 +362,7 @@ func (e *Engine) buildRunProvenance(
 		DatasetSnapshotHash: datasetHash,
 		ArtifactHash:        spec.StrategyArtifactHash,
 		VersionHash:         spec.StrategyVersionHash,
-		StrategyRefInput:    contracts.StrategyRef{ID: params.StrategyName}.String(),
+		StrategyRefInput:    refInput,
 		ParamsJSON:          paramsJSON,
 		ParamsHash:          paramsHash,
 		Seed:                spec.Seed,

@@ -14,6 +14,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/ruoxizhnya/tellurion-contracts/run"
+
+	"tellurion/pkg/backtest"
 )
 
 // ---------- spec ----------
@@ -108,14 +110,18 @@ func TestParseBaseRunSpec_ReadsCanonicalSpec(t *testing.T) {
 // ---------- executor ----------
 
 type fakeRunner struct {
-	resp  *contracts.BacktestResponse
-	err   error
-	block bool
-	got   contracts.BacktestRequest
+	resp     *contracts.BacktestResponse
+	err      error
+	block    bool
+	got      contracts.BacktestRequest
+	identity *backtest.StrategyAssetIdentity
 }
 
 func (f *fakeRunner) RunBacktest(ctx context.Context, req contracts.BacktestRequest) (*contracts.BacktestResponse, error) {
 	f.got = req
+	if id, ok := backtest.StrategyAssetIdentityFrom(ctx); ok {
+		f.identity = &id
+	}
 	if f.block {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -141,6 +147,78 @@ func newExecutor(runner contracts.EngineRunner, sink ResultSink) *Executor {
 		RunnerFor: func(string) (contracts.EngineRunner, error) { return runner, nil },
 		Sink:      sink,
 		Timeout:   2 * time.Second,
+	}
+}
+
+// QT-32 K11：非空 strategy_ref + 未装配闸门 ⇒ 折成 failed，引擎不执行。
+func TestExecutor_StrategyRefWithoutGateFailsClosed(t *testing.T) {
+	runner := &fakeRunner{resp: &contracts.BacktestResponse{ID: "bt-1", Status: contracts.StatusCompleted}}
+	out, err := newExecutor(runner, &fakeSink{}).Execute(context.Background(), contracts.BacktestRequest{
+		Strategy:    "m",
+		RunID:       "run-gate-missing",
+		StrategyRef: "st_ai",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.ResultStatus != string(contracts.StatusFailed) || !strings.Contains(out.Error, "no strategy asset gate") &&
+		!strings.Contains(out.Error, "none configured") {
+		t.Fatalf("outcome = %+v, want failed naming the missing gate", out)
+	}
+	if runner.got.RunID != "" {
+		t.Fatal("runner must not be called when the gate is missing")
+	}
+}
+
+// QT-32 K11：闸门拒绝（未 promote / 缺审计 / 资产服务异常）⇒ failed。
+func TestExecutor_StrategyGateRejectionFailsRun(t *testing.T) {
+	runner := &fakeRunner{resp: &contracts.BacktestResponse{ID: "bt-1", Status: contracts.StatusCompleted}}
+	exec := newExecutor(runner, &fakeSink{})
+	exec.StrategyGate = func(context.Context, string) (*backtest.StrategyAssetIdentity, error) {
+		return nil, errors.New("strategy_not_promoted: want promoted")
+	}
+	out, err := exec.Execute(context.Background(), contracts.BacktestRequest{
+		Strategy:    "m",
+		RunID:       "run-gate-rejected",
+		StrategyRef: "st_ai",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.ResultStatus != string(contracts.StatusFailed) || !strings.Contains(out.Error, "strategy asset gate") {
+		t.Fatalf("outcome = %+v, want failed with gate reason", out)
+	}
+	if runner.got.RunID != "" {
+		t.Fatal("runner must not be called when the gate rejects")
+	}
+}
+
+// QT-32 K11：过闸的坐标进 ctx，引擎（provenance）能拿到两个 hash。
+func TestExecutor_StrategyGateIdentityReachesRunner(t *testing.T) {
+	runner := &fakeRunner{resp: &contracts.BacktestResponse{ID: "bt-1", Status: contracts.StatusCompleted}}
+	exec := newExecutor(runner, &fakeSink{})
+	want := backtest.StrategyAssetIdentity{
+		RefInput:     "st_ai@" + strings.Repeat("a", 64),
+		StrategyID:   "st_ai",
+		VersionHash:  strings.Repeat("a", 64),
+		ArtifactHash: strings.Repeat("b", 64),
+	}
+	exec.StrategyGate = func(context.Context, string) (*backtest.StrategyAssetIdentity, error) {
+		return &want, nil
+	}
+	out, err := exec.Execute(context.Background(), contracts.BacktestRequest{
+		Strategy:    "m",
+		RunID:       "run-gate-passed",
+		StrategyRef: want.RefInput,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if out.ResultStatus != contracts.StatusCompleted {
+		t.Fatalf("outcome = %+v, want completed", out)
+	}
+	if runner.identity == nil || *runner.identity != want {
+		t.Fatalf("runner identity = %+v, want %+v", runner.identity, want)
 	}
 }
 

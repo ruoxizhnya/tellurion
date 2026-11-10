@@ -173,7 +173,7 @@ func newBacktestKernelRouter(t *testing.T) (*gin.Engine, *memJobStore, *kernelFa
 	jobSvc := backtest.NewJobService(store, zerolog.Nop(),
 		backtest.WithResultFace(memResultFace{store: store}))
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop(), nil)
 	return r, store, fake
 }
 

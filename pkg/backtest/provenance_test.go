@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -481,6 +482,44 @@ func TestRunProvenance_RecordsDeclaredParameterDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, wantHash, rec.ParamsHash,
 		"params_hash 必须由生效参数算出（int 与 float64 同身份）")
+}
+
+// K11（QT-32）：过闸的 AI 产物把资产服务签发的两个 hash 记进 provenance，
+// 而不是继续拿内置策略的占位值（N7-5 要回答「当初跑的是哪份字节码」）。
+func TestRunProvenance_AssetIdentityOverridesBuiltinPlaceholder(t *testing.T) {
+	registerQT63Probe(t)
+
+	capture := &provenanceCapture{}
+	sc := provenanceBaseline()
+	sc.writer = capture
+
+	prov := provenanceProvider(t, sc.pool, sc.days)
+	eng, err := NewEngine(provenanceViper(sc.seed, sc.commission, sc.slippage, sc.stampTax), prov, zerolog.Nop())
+	require.NoError(t, err)
+	applyOptions(eng, append(provenanceBaseOptions(t), WithRunProvenanceWriter(capture)))
+
+	version := strings.Repeat("a", 64)
+	artifact := strings.Repeat("b", 64)
+	identity := StrategyAssetIdentity{
+		RefInput:     "ai_momentum@" + version,
+		StrategyID:   "ai_momentum",
+		VersionHash:  version,
+		ArtifactHash: artifact,
+	}
+	_, err = eng.RunBacktest(WithStrategyAssetIdentity(context.Background(), identity), BacktestRequest{
+		Strategy:  qt63ProbeName,
+		StockPool: sc.pool,
+		StartDate: provenanceTestStart.Format("2006-01-02"),
+		EndDate:   provenanceTestStart.AddDate(0, 0, sc.days-1).Format("2006-01-02"),
+		RunID:     "k11-identity",
+	})
+	require.NoError(t, err)
+
+	rec := capture.last(t)
+	assert.Equal(t, identity.RefInput, rec.StrategyRefInput,
+		"过闸路径必须逐字记录调用方原始引用（含 hash），不再回落到策略名")
+	assert.Equal(t, identity.VersionHash, rec.VersionHash)
+	assert.Equal(t, identity.ArtifactHash, rec.ArtifactHash)
 }
 
 // ───────────────────────── 5. dataset 身份的构成 ─────────────────────────

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/cmd/analysis/wiring"
 	"tellurion/internal/orchestrationworker"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/backtest/reporting"
@@ -64,7 +65,7 @@ type asyncBacktestRequest struct {
 	EngineParams map[string]any `json:"engine_params,omitempty"`
 }
 
-func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, tasks *orchestrationworker.Client, provenanceReader backtestProvenanceReader, logger zerolog.Logger) {
+func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineRegistry *contracts.EngineRegistry, jobService *backtest.JobService, marketRouter *contracts.MarketRouter, tasks *orchestrationworker.Client, provenanceReader backtestProvenanceReader, logger zerolog.Logger, strategyAssetGate *wiring.StrategyAssetGate) {
 	api := router.Group("/api/backtest")
 	{
 		// QT-72：X0 三 hash 对外读面（读 quant.run_provenance ⋈ run.backtest_results）。
@@ -170,7 +171,30 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 					httpserver.Fail(c, http.StatusBadRequest, err.Error())
 					return
 				}
-				ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
+				// QT-32 K11：非空 strategy_ref 必须先在资产服务过「promoted +
+				// 审批留痕」闸门。空引用（内置策略）不解析、不联网，行为逐字节
+				// 不变。闸门拒绝发生在任何执行与落库之前。
+				baseCtx := c.Request.Context()
+				identity, gateErr := wiring.CheckStrategyRef(baseCtx, strategyAssetGate, req.StrategyRef)
+				if gateErr != nil {
+					var ge *wiring.GateError
+					if errors.As(gateErr, &ge) {
+						httpserver.Fail(c, ge.Status, ge.Message)
+					} else {
+						httpserver.FailCause(c, http.StatusInternalServerError, "strategy asset gate failed", gateErr)
+					}
+					return
+				}
+				if identity != nil {
+					logger.Info().
+						Str("strategy_id", identity.StrategyID).
+						Str("version_hash", identity.VersionHash).
+						Str("artifact_hash", identity.ArtifactHash).
+						Str("strategy_ref", identity.RefInput).
+						Msg("strategy_ref passed the asset promote gate")
+					baseCtx = backtest.WithStrategyAssetIdentity(baseCtx, *identity)
+				}
+				ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 				defer cancel()
 				result, err := runner.RunBacktest(ctx, req)
 				if err != nil {

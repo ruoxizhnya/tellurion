@@ -12,6 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
+
+	"tellurion/pkg/backtest"
 )
 
 // RunnerResolver 按内核名解析执行器（生产实现 = contracts.EngineRegistry.Resolve）。
@@ -49,7 +51,12 @@ type Executor struct {
 	// Face 是结果面的直接写口，只用于**失败留痕**（Sink 只接
 	// completed / invalid 的载荷）。见 recordFailure。
 	Face ResultFaceStore
-	Log  zerolog.Logger
+	// StrategyGate 在真正执行前校验 strategy_ref（QT-32 K11）：非空引用必须
+	// 过资产服务的 promoted + 审批留痕闸门。返回的 identity 放进 ctx，供引擎
+	// 的 provenance 记录资产服务签发的两个 hash。nil + 非空引用 = 拒绝
+	// （fail-closed）；内置策略路径不解析、不联网。
+	StrategyGate func(ctx context.Context, rawRef string) (*backtest.StrategyAssetIdentity, error)
+	Log          zerolog.Logger
 }
 
 // Execute 执行一条请求。引擎错误、结果落库失败、未知状态一律折成 failed——
@@ -65,6 +72,34 @@ func (e *Executor) Execute(ctx context.Context, req contracts.BacktestRequest) (
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
 		defer cancel()
+	}
+
+	// QT-32 K11：非空 strategy_ref 必须先过资产服务的 promote 闸门。拒绝
+	// 折成 failed（与内核未注册同一条路），不进入引擎、不落结果。
+	if strings.TrimSpace(req.StrategyRef) != "" {
+		if e.StrategyGate == nil {
+			msg := "strategy_ref requires the strategy asset gate, but this worker has none configured"
+			e.recordFailure(ctx, req.RunID, msg)
+			return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
+		}
+		identity, gateErr := e.StrategyGate(ctx, req.StrategyRef)
+		if gateErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Outcome{}, ctxErr
+			}
+			msg := "strategy asset gate: " + gateErr.Error()
+			e.recordFailure(ctx, req.RunID, msg)
+			return Outcome{ResultStatus: string(contracts.StatusFailed), Error: msg}, nil
+		}
+		if identity != nil {
+			e.Log.Info().
+				Str("run_id", req.RunID).
+				Str("strategy_id", identity.StrategyID).
+				Str("version_hash", identity.VersionHash).
+				Str("artifact_hash", identity.ArtifactHash).
+				Msg("strategy_ref passed the asset promote gate")
+			ctx = backtest.WithStrategyAssetIdentity(ctx, *identity)
+		}
 	}
 
 	runner, err := e.RunnerFor(req.EffectiveKernel())

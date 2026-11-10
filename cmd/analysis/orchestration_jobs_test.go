@@ -266,7 +266,7 @@ func TestAsyncEntrySubmitsToOrchestration(t *testing.T) {
 	reg := contracts.NewEngineRegistry()
 	reg.Register(contracts.DefaultKernel, eng)
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, nil, nil, orchestrationworker.NewClient(srv.URL, srv.Client()), nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, nil, nil, orchestrationworker.NewClient(srv.URL, srv.Client()), nil, zerolog.Nop(), nil)
 
 	body := `{"strategy_id":"momentum","universe":"600000.SH","start_date":"2026-01-01","end_date":"2026-03-01","initial_capital":500000}`
 	req := httptest.NewRequest(http.MethodPost, "/api/backtest", strings.NewReader(body))

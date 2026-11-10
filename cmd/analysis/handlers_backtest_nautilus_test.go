@@ -87,7 +87,7 @@ func newNautilusRouter(t *testing.T, sidecarURL string) (*gin.Engine, *memJobSto
 	jobSvc := backtest.NewJobService(store, zerolog.Nop(),
 		backtest.WithResultFace(memResultFace{store: store}))
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop(), nil)
 	return r, store, goKernel
 }
 
@@ -212,7 +212,7 @@ func TestBacktestPost_NautilusKernelEndToEnd(t *testing.T) {
 
 	eng := newReadPathEngine(t)
 	r := gin.New()
-	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop())
+	registerBacktestRoutes(r, eng, reg, jobSvc, nil, nil, nil, zerolog.Nop(), nil)
 
 	symbols := os.Getenv("NT_E2E_SYMBOLS")
 	if symbols == "" {
