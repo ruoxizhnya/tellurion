@@ -418,7 +418,7 @@ verified-by: `QT-32` K11 执行侧闸门（2026-11-10：`strategy_ref` 非空先
     - **⑤④**：`gofmt -l` 改动文件 = 空；`go build ./...` = **0**；`go vet ./...` = **0**；`go test ./... -count=1` = **0**（`ok` = 70 包 / `FAIL` = 0）。新增单测：`TestBacktestState_TerminalPositions`（含「空快照 ≠ 没快照」「Freeze 后拒写」）、`TestEngine_GetBacktestPositions_PrefersTerminalSnapshot` / `_EmptySnapshotIsAuthoritative` / `_SurvivesForceClose`（整轮真 run：强平后 Tracker 空、快照 1 条且 `MarketValue>0`）、`TestPublish_NoFactorZScoresFailClosed`；publisher 夹具的 z-score 改由 `fakeFactorCache` 供给（`EnginePort` 不再需要 `GetFactorZScore`）。
     - **清场**：五个真进程（data / orchestration / worker / analysis / analytics）已停，`8081/8085/8087/8088` 无监听；临时库 `tellurion_qt78` 已 `DROP DATABASE … WITH (FORCE)` 且复查无残留；`%TEMP%` 的五个二进制与日志已删。
 
-### QT-79 · `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） [P1] 🔶（2026-11-07 施工；2026-11-08 容器腿：注册 + 领取已过、fail-closed 已过，dualrun 报告受数据/侧车缺口未落盘）
+### QT-79 · `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） [P1] ✅（2026-11-10 dualrun 报告落盘补齐；⑤ 四项判据均真实达成）
 
 - **① 目标**：ADR-036 §5.1 那句「core 的 `deploy/` 只留 **analysis / worker / dualrun** + 共享基础设施」成为现实——今天这两个二进制**不在任何镜像、不在任何 compose**。
 - **② 上下文**：实测 `Dockerfile.service:24-25` 只 build `./cmd/data` 与 `./cmd/analysis`，`:36-37` 的 COPY 与之一一对应（材料 §1.5 判定「本项已自洽」），但 `cmd/worker`、`cmd/dualrun` 两个源包都存在却**未进镜像**（材料 §1.5 表内明写「今天只能裸跑」）；`grep worker\|dualrun` 在 `Dockerfile.service` / `docker-compose.yml` / `docker-compose.services.yml` 三份里 **0 命中**；`cmd/dualrun` 是引擎验收门（K15 双跑，已裁留 core），`cmd/worker` 领 orchestration 的 run。未决的**部署面 owner** 选择题 = 材料 §1.4 **D-DEPLOY-1（A/B/C，建议 A）至今未拍**。
@@ -443,8 +443,14 @@ verified-by: `QT-32` K11 执行侧闸门（2026-11-10：`strategy_ref` 非空先
     - **代码改动（只为可观察，不改行为）**：`internal/orchestrationworker/loop.go` 在领取成功后新增一条 info 日志 `orchestration worker claimed job`（带 `run_id/attempts/cancel_requested`）。理由：③② 的健康判据是「心跳成功 + **能领到活**」，而空队列时旧实现**没有任何领取日志**——这条判据此前不可观察，⑤ 的「两条日志」无法取证。
     - **fail-closed（⑤「退出码非 0」）**：沿用同日早先实测——orchestration 不可达（`ORCHESTRATION_URL=http://127.0.0.1:1`）时 worker 打印 `worker: register worker: orchestrationworker: POST /api/runs/workers: … dial tcp 127.0.0.1:1: connect: connection refused`，**WORKER_EXIT=1**。
     - **dualrun（⑤「报告落在预期路径」）**：先暴露一处部署真缺陷并修掉——`cmd/dualrun/main.go:44` 的 `-pg` 默认值是 `127.0.0.1:5432`，compose 只给了 `DATABASE_*`（`dualrun` 不读），容器里 `127.0.0.1` 是容器自己：修前报 `dualrun: connect postgres: failed to ping database: … 127.0.0.1:5432 … connection refused`。修法：`docker-compose.yml` 的 `dualrun.command` 显式传 `-pg ${DUALRUN_PG_DSN:-postgres://postgres:postgres@host.docker.internal:5432/tellurion?sslmode=disable}`；`docker compose --profile tools config -q` **exit 0**。修后重跑：**DUALRUN_EXIT=1**，报 `dualrun: data: no bars for 000001.SZ in PG — is ohlcv_daily_qfq loaded for the window?`，`reports/dualrun-latest.md` **不存在**。
-    - **残余缺口（如实，不标 ✅）**：① 本机 `tellurion` 库 `ohlcv_daily_qfq` 在 2024 窗口 **0 行**（`count(*) = 0`）；② `python -c "import nautilus_trader"` → `ModuleNotFoundError`，NT 侧车起不来；③ `127.0.0.1:9100` 无监听。⇒ ⑤ 的「dualrun 差异报告落盘」**未达成**，本单维持 🔶；①②③ 是环境数据/依赖缺口，不是部署形态缺陷（DSN 缺陷已修）。
+    - **残余缺口（如实，不标 ✅）**：① 本机 `tellurion` 库 `ohlcv_daily_qfq` 在 2024 窗口 **0 行**（`count(*) = 0`）；② `python -c "import nautilus_trader"` → `ModuleNotFoundError`，NT 侧车起不来；③ `127.0.0.1:9100` 无监听。⇒ ⑤ 的「dualrun 差异报告落盘」**未达成**，本单维持 🔶；①②③ 是环境数据/依赖缺口，不是部署形态缺陷（DSN 缺陷已修）。→ **2026-11-10 已全部补齐，见下条**。
     - **顺带说明**：以上编排服务、worker 容器、Docker Desktop 均在取证后关闭/停止，未留常驻进程；`reports/` 未生成报告文件。
+  - **dualrun 报告落盘（2026-11-10，⑤ 收口翻 ✅）**：三处缺口逐条补齐并实跑——
+    - ① 数据：本机 `tellurion` 库 `ohlcv_daily_qfq` 2024 窗口补种 **261 个交易日 × 2 只**（`000001.SZ` / `600000.SH`，确定性合成价，`ON CONFLICT DO NOTHING`），窗口行数 `0 → 522`；导出脚本 `python tools/export_bars.py --symbols 000001.SZ,600000.SH --start 2024-01-02 --end 2024-12-31 --dsn postgres://…/tellurion` **EXIT=0**。
+    - ② 侧车依赖：`nt-sidecar/.venv` 可用，`import nautilus_trader` → **2.0.0rc6**（11-08 的 `ModuleNotFoundError` 已不成立）；`python -m sidecar --port 9100 --catalog <导出目录>` 起在 `127.0.0.1:9100`，`/healthz` → **200**。
+    - ③ 报告：`dualrun -out reports/dualrun-latest.md`（宿主直跑，`-pg` 走默认本机 `tellurion`）→ **DUALRUN_EXIT=0**，报告落盘 **5249 B / `sha256=4CD12A8D414738E96CE5101BBFC8D55A3B14F9B09C98AE1014976D25F86B435A`**：`确定性腿 Go 一致 ✅ / NT 一致 ✅`；`total_return 0.022504 / 0.022518`、`matched=11 go_only=13 nt_only=13`；归因 ① 价源精度（PG 浮点价 vs NT catalog Decimal tick 0.01）为主因。报告为生成物，取证后已删除（`reports/` 恢复为空）。
+    - **结构性发现（不改本单判据）**：**容器内**直跑 dualrun 仍无法到达 NT 侧车——侧车按 ADR-031 D5 只允许 loopback 绑定，容器经 `host.docker.internal` 连不上；宿主 `pg_hba.conf` 亦只放行 loopback。若后续要求「dualrun 容器 + 宿主侧车」这条拓扑，需另裁（容器内起侧车 / 显式放开绑定），不在本单 ⑤ 字面判据内。
+    - 清理：侧车进程已停；临时库 `tellurion_dualrun_e2e` 已删；`tellurion` 库补种行为取证需要保留（可由 `DELETE FROM ohlcv_daily_qfq WHERE trade_date BETWEEN '2024-01-02' AND '2024-12-31' AND symbol IN ('000001.SZ','600000.SH')` 撤回，未执行）。
 
 ### QT-81 · 表级 writer 对拍工具（G3 停写判据缺的那件工具）[P1] ✅（2026-11-07，含真库夹具腿）
 
