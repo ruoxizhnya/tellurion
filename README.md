@@ -72,6 +72,31 @@ git clone <tellurion-ui 仓地址> ../tellurion-ui
 `web/` 目录在本仓只可能残留**本地构建产物**（不跟踪、不是源码）；前端源码
 与 dev server 都在 `tellurion-ui` 仓。
 
+### 本机直跑（不走 compose，宿主 PG）
+
+`config/*.yaml` 里的口令与密钥一律留空（入库文件不放真值），**缺项即启动期
+拒绝**——不会带着空口令拖到第一次查询才报 `password authentication failed`：
+
+| env | 作用 | 缺失后果 |
+|---|---|---|
+| `DATABASE_PASSWORD` | PG 口令（`database.*` 逐字段拼装；给了 `DATABASE_URL` 则后者优先） | `invalid database configuration` |
+| `JWT_SECRET`（或 `AUTH_INSECURE=true` + `SERVER_HOST=127.0.0.1`） | 鉴权启动门 | 拒绝启动（open-access 只允许回环） |
+| `BROKER_URL` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID` | 执行引擎（进程内撮合已退役） | `kernel assembly failed` |
+| `RISK_SERVICE_RESOLVE_ENABLED=false`，或 risk 在线且库里有 approved 规则 | 14 个风控限额 | 取不到快照即拒绝启动 |
+
+```bash
+# analysis-service（风险快照未接入时用内置限额；端口用 SERVER_PORT 覆盖）
+DATABASE_PASSWORD='<宿主 postgres 口令>' JWT_SECRET='<32+ 字节随机值>' \
+BROKER_URL=http://127.0.0.1:8091 BROKER_SERVICE_TOKEN='<网关凭证>' BROKER_ACCOUNT_ID=mock \
+RISK_SERVICE_RESOLVE_ENABLED=false SERVER_HOST=127.0.0.1 SERVER_PORT=18085 \
+  go run ./cmd/analysis
+
+curl -sS http://127.0.0.1:18085/health   # analysis 只有 /health 与 /api/health
+```
+
+ai-service（`tellurion-agent` 仓）同样只从 env 取 `DATABASE_PASSWORD` 与
+`JWT_SECRET`，探针是 `/health`；启动口径见该仓 README。
+
 测试与本地栈：
 
 ```bash

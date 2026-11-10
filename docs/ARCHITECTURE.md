@@ -24,10 +24,12 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │  只经 /api/* 打后端（AUD-32：nginx 托管在宿主 8080）
   ├──► analysis-service :8085 ──► PostgreSQL :5432（唯一数据面）
   │                             ──► Redis :6379（缓存）
-  │                             ──► risk-service :8086（源码在 tellurion-risk 仓，X3；
-  │                                `cmd/riskservice -addr` 的默认值，与 core 的
-  │                                `risk_service.resolve_url` 一致。该服务不在 compose 里，
-  │                                单主机裸跑要和 ai-service 的 8086 错开）
+  │                             ──► risk-service :8089（源码在 tellurion-risk 仓，X3；
+  │                                `cmd/riskservice -addr` 的默认值 127.0.0.1:8089，
+  │                                与 core 的 `risk_service.resolve_url` 一致；8086
+  │                                留给 ai-service（ADR-036 G0）。该服务不在 compose 里，
+  │                                单主机裸跑需自行拉起或用
+  │                                `RISK_SERVICE_RESOLVE_ENABLED=false` 走内置限额）
   │                                两个出站调用，都不在热路径：run 提交时取规则快照
   │                                hash（QT-66，`POST /api/risk/resolve`）；告警经
   │                                `quant.alert_outbox` 落一行再按批回传

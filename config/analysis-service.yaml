@@ -151,11 +151,13 @@ risk_service:
   # （真相源，取不到即拒绝启动）；false = `risk.BuiltinPolicy()` 代码常量
   # 兜底，启动日志明示 source=builtin_default。长期观测看这条日志。
   # resolve_url 必填（**不**回落到上面的 url：那一项指向 analysis 自己的
-  # 进程内风控 :8085，没有 /api/risk/resolve）。tellurion-risk 默认 :8086。
+  # 进程内风控 :8085，没有 /api/risk/resolve）。tellurion-risk 的默认监听是
+  # **127.0.0.1:8089**（ADR-036 G0：8086 留给 ai-service，本仓曾按 risk 的旧
+  # 默认写成 8086，结果是启动期 resolve 打到 ai-service / 拒连，进程直接拒起）。
   # resolve_token：服务间凭证。risk 配了 AUTH_JWT_SECRET 后必填，否则 401。
   # resolve_timeout 缺省 10s。
   resolve_enabled: true
-  resolve_url: "http://localhost:8086"
+  resolve_url: "http://localhost:8089"
   resolve_token: ""
   resolve_timeout: "10s"
   # QT-42 X3c 的 core 腿（告警生产侧接线）：把 pkg/alert 的 detector 告警按
@@ -166,8 +168,9 @@ risk_service:
   # events_url **必填**（启用时）：**不**回落到上面的 url —— :8085 是 analysis 自己
   # （P1-15 合并后的进程内风控），没有这个端点，回落等于把「少配一项」变成每条
   # 告警 404、且要等告警真触发才看得见，所以装配期直接拒。
-  # 端口口径：`tellurion-risk:cmd/riskservice` 的 `-addr` 默认是 127.0.0.1:8086，
-  # 上面的 resolve_url 与之对齐；events_url 按你实际的部署填。
+  # 端口口径：`tellurion-risk:cmd/riskservice` 的 `-addr` 默认是 127.0.0.1:8089
+  # （ADR-036 G0；8086 是 ai-service），上面的 resolve_url 与之对齐；
+  # events_url 按你实际的部署填。
   # events_token 为空 ⇒ 不带 Authorization；risk 侧 policy 表要 trader/admin 角色，
   # 配了 AUTH_JWT_SECRET 而无凭据会收到 401 并记 error 日志。token 只从 env
   # RISK_SERVICE_EVENTS_TOKEN 注入（本文件不放真值）。
