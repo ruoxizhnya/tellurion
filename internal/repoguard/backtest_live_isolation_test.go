@@ -36,8 +36,8 @@ const (
 	qt51AdapterPath = "cmd/analysis/wiring/live_trader_port.go"
 )
 
-// TestBacktestPackage_CannotImportLive 守住 QT-51 的依赖方向。
-func TestBacktestPackage_CannotImportLive(t *testing.T) {
+// TestBacktestPackage_CannotImportTrading 守住 QT-51 的依赖方向。
+func TestBacktestPackage_CannotImportTrading(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..")
@@ -59,7 +59,7 @@ func TestBacktestPackage_CannotImportLive(t *testing.T) {
 		if rel == "" {
 			return nil // 模块外
 		}
-		for _, imp := range liveImports(t, path) {
+		for _, imp := range tradingImports(t, path) {
 			violations = append(violations, rel+" -> "+imp)
 		}
 		return nil
@@ -75,7 +75,7 @@ func TestBacktestPackage_CannotImportLive(t *testing.T) {
 }
 
 // TestLiveTraderAdapterExistsAtCompositionLayer 是正向腿：
-// 实盘适配层必须存在，且同时认识两侧（import live + import 回测执行端）。
+// 实盘适配层必须存在，且同时认识两侧（import pkg/trading + import 回测执行端）。
 func TestLiveTraderAdapterExistsAtCompositionLayer(t *testing.T) {
 	t.Parallel()
 
@@ -93,9 +93,9 @@ func TestLiveTraderAdapterExistsAtCompositionLayer(t *testing.T) {
 		"适配层必须能拿到 Engine（AttachLiveTrader 注入点）")
 }
 
-// liveImports 返回文件中 import 了 pkg/trading 的路径列表。
+// tradingImports 返回文件中 import 了 pkg/trading 的路径列表。
 // 解析失败返回 nil（由 go build / go vet 负责报错，护栏不重复）。
-func liveImports(t *testing.T, path string) []string {
+func tradingImports(t *testing.T, path string) []string {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if err != nil {
@@ -104,23 +104,23 @@ func liveImports(t *testing.T, path string) []string {
 	var hits []string
 	for _, spec := range file.Imports {
 		val := strings.Trim(spec.Path.Value, `"`)
-		if isLiveImport(val) {
+		if isTradingImport(val) {
 			hits = append(hits, val)
 		}
 	}
 	return hits
 }
 
-// isLiveImport 判定 import 路径是否属于 pkg/trading 域（含子包）。
+// isTradingImport 判定 import 路径是否属于 pkg/trading 域（含子包）。
 // 用边界匹配而不是裸 Contains，避免把 `pkg/tradingevil` 误判成实盘域。
-func isLiveImport(path string) bool {
+func isTradingImport(path string) bool {
 	return path == "pkg/trading" ||
 		strings.HasSuffix(path, "/pkg/trading") ||
 		strings.Contains(path, "/pkg/trading/")
 }
 
-// TestQT51IsLiveImportMatcher 锁住判据本身：精确包 / 子包命中，近似名不命中。
-func TestQT51IsLiveImportMatcher(t *testing.T) {
+// TestQT51IsTradingImportMatcher 锁住判据本身：精确包 / 子包命中，近似名不命中。
+func TestQT51IsTradingImportMatcher(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]bool{
@@ -133,7 +133,7 @@ func TestQT51IsLiveImportMatcher(t *testing.T) {
 		"tellurion/pkg/tradingx/margin":        false,
 	}
 	for path, want := range cases {
-		assert.Equal(t, want, isLiveImport(path), "isLiveImport(%q)", path)
+		assert.Equal(t, want, isTradingImport(path), "isTradingImport(%q)", path)
 	}
 }
 

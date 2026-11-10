@@ -297,6 +297,13 @@ verified-by: 2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-
     - **文档同笔**：`README.md` 执行层、`AGENTS.md` 依赖表 / ODR-021 注记 / 技术债 / AUD-34 已知问题、`docs/SPEC.md`（费用同构 / 滑点表 / Execution API / 价格笼子）、`docs/ARCHITECTURE.md`（切读段改为「通道切换完成 + 无回退」）、`docs/live-trading.md`（状态表 + 第 6/7/10 节标历史）、`docs/openapi.yaml` 下单描述、`config/analysis-service.yaml` 对账自检注释，全部改指 broker HTTP。历史归档与设计审计文档保持当时事实。
     - **计数（当场实测）**：`NewPostgresOrderStore` 在 `*.go` = **0**；`pkg/trading/broker/xtp` 目录**不存在**；`tellurion/pkg/brokerhttp` 的导入者 = **1**（`pkg/bootstrap/engine.go`，`cmd/analysis` 经它间接使用）。
     - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（含 `pkg/brokerhttp`、`pkg/trading` 五个包、`cmd/analysis`、`internal/repoguard`）。
+  - **步骤 C 施工记录（2026-11-10，本机实跑，独立 commit）**：
+    - **新增护栏** `internal/repoguard/legacy_live_import_test.go`：全仓 AST 扫 import，判据 = `pkg/live` 精确 / 以 `/pkg/live` 结尾 / 含 `/pkg/live/` 子包；同时断言 `pkg/live` 目录不存在（零 import 也可能只是目录还留着）。跳过 `.git` / `.workbuddy-ai` / `node_modules` / `web` / `testdata` / `vendor`。
+    - **与 QT-51 护栏分工**：`backtest_live_isolation_test.go` 管「`pkg/backtest` 不得 import `pkg/trading`」（依赖方向）；新护栏管「任何位置不得 import `pkg/live`」（旧路径已注销）。两者都用 AST 而不是文本 grep：注释与文档可以继续写旧路径以记录历史，只有真的 import 才算复活。
+    - **命名订正**（避免「pkg/live 已注销」与「live 域禁止跨包」混淆）：`TestBacktestPackage_CannotImportLive` → `...CannotImportTrading`；`liveImports` → `tradingImports`；`isLiveImport` → `isTradingImport`；`TestQT51IsLiveImportMatcher` → `...IsTradingImportMatcher`。
+    - **破坏验证（真做真还原）**：临时建 `pkg/live/legacy.go` + `pkg/trading/zz_legacy_import_break.go`（`import _ "tellurion/pkg/live"`），`go test ./internal/repoguard -run TestLegacyLivePackageIsGone` → **FAIL，退出码 1**，两条腿同时报错：`pkg/live 目录又出现了` + `pkg/trading/zz_legacy_import_break.go -> tellurion/pkg/live`。
+    - **还原核对**：删临时文件与空目录后 `Test-Path pkg\live` = `False`、临时文件 = `False`；`go test ./internal/repoguard -count=1` = 0；护栏文件 sha256 = `B8131DED29B5C54014343F46B59B9D4D407E07573DA1B0F15D3705CF147B040B`（验证前后未变）。
+    - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
 
 ### SVC-CORE-AI-RETIRE · core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10）[P1] ✅（2026-11-10）
 
