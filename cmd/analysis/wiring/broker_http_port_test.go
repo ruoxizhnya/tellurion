@@ -3,13 +3,14 @@ package wiring
 // SVC-BROKER-G3 的验收测试：BrokerHTTPPort 的报文映射、错误码透传，以及
 // 与旧实现（live.MockTrader）的**同批对拍**。
 //
-// 对拍为什么用 wire-faithful double 而不是真 broker 进程：
+// 对拍为什么默认用 wire-faithful double：
 //   - core 与 tellurion-broker 是两个 Go module，没有 go.work，core **不能**
 //     import broker 的 internal/gateway；跨仓只能走 HTTP。
 //   - 单元测试里起真 broker 进程需要外部二进制 / 端口编排，不属于单仓门禁。
 //     故本文件的 double **按 docs/api-schema.md §1.5 与 broker Mock 的语义**
-//     实现携带 token 的 POST/GET/DELETE 与「受理 ≠ 成交」规则；真进程对拍
-//     未跑，已在 broker/docs/TASKS.md 与本仓 docs/TASKS.md 如实登记。
+//     实现携带 token 的 POST/GET/DELETE 与「受理 ≠ 成交」规则。
+//   - 真进程腿已经存在，但为 opt-in：TestBrokerHTTPPortParityAgainstRealBrokerProcess
+//     只在设置了 BROKER_PARITY_URL 时运行（起进程步骤见 broker:docs/TASKS.md）。
 
 import (
 	"context"
@@ -17,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -492,6 +494,71 @@ func TestBrokerHTTPPortParityWithMockTrader(t *testing.T) {
 
 		t.Logf("parity %-10s qty=%.0f status=%s/%s fill=%.4f/%.4f fee=%.2f/0",
 			req.Symbol, req.Quantity, oldRes.Status, newRes.Status, oldRes.FillPrice, newRes.FillPrice, oldRes.Fee)
+	}
+}
+
+// TestBrokerHTTPPortParityAgainstRealBrokerProcess 是上一条对拍的**真进程腿**：
+// 外部起一个真 broker 服务（MemoryAckStore + Mock，参考价经 -mock-prices 喂入），
+// 本用例经 HTTP 打真服务，再与旧 live.MockTrader 逐笔比对，口径与 double 腿一致。
+//
+// opt-in：未设 BROKER_PARITY_URL 时 skip —— 单仓门禁不依赖外部进程/端口。
+// 起进程（broker 仓根目录，真实命令见 broker:docs/TASKS.md SVC-BROKER-G3）：
+//
+//	BROKER_SERVICE_TOKEN=service-token ./brokergateway \
+//	  -addr 127.0.0.1:18094 -account-id acc-mock \
+//	  -mock-prices "000001=12.5,600000=8.2,002594=30.1"
+func TestBrokerHTTPPortParityAgainstRealBrokerProcess(t *testing.T) {
+	baseURL := os.Getenv("BROKER_PARITY_URL")
+	if baseURL == "" {
+		t.Skip("BROKER_PARITY_URL 未设置：真 broker 进程对拍是 opt-in 腿")
+	}
+	port, err := NewBrokerHTTPPort(BrokerHTTPOptions{
+		BaseURL:      baseURL,
+		ServiceToken: os.Getenv("BROKER_PARITY_TOKEN"),
+		AccountID:    os.Getenv("BROKER_PARITY_ACCOUNT"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, port.HealthCheck(context.Background()), "真 broker 进程 /healthz 必须可用")
+
+	prices := map[string]float64{
+		"000001": 12.5,
+		"600000": 8.2,
+		"002594": 30.1,
+	}
+	const slippage = 0.0005
+	mock := live.NewMockTrader(live.MockTraderConfig{
+		InitialCash:   1_000_000,
+		SlippageRate:  slippage,
+		PriceProvider: func(symbol string) float64 { return prices[brokerSymbolOrSelf(t, symbol)] },
+	}, zerolog.Nop())
+
+	batch := []execution.OrderRequest{
+		{Symbol: "000001.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 100},
+		{Symbol: "600000.SH", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 300},
+		{Symbol: "002594.SZ", Direction: cdom.DirectionLong, OrderType: domain.OrderTypeMarket, Quantity: 200},
+	}
+	for _, req := range batch {
+		ref := prices[brokerSymbolOrSelf(t, req.Symbol)]
+
+		oldRes, err := mock.SubmitOrder(context.Background(), req.Symbol, req.Direction, req.OrderType, req.Quantity, req.Price)
+		require.NoError(t, err, "旧实现下单失败: %s", req.Symbol)
+
+		newRes, err := port.SubmitOrder(context.Background(), req)
+		require.NoError(t, err, "真 broker 进程下单失败: %s", req.Symbol)
+
+		assert.Equal(t, oldRes.Symbol, newRes.Symbol)
+		assert.Equal(t, oldRes.Direction, newRes.Direction)
+		assert.Equal(t, oldRes.OrderType, newRes.OrderType)
+		assert.Equal(t, oldRes.Quantity, newRes.Quantity)
+		assert.Equal(t, "filled", newRes.Status, "真进程腿要求 Mock 已配参考价并成交")
+		assert.Equal(t, oldRes.FilledQty, newRes.FilledQty)
+		assert.InDelta(t, ref, newRes.FillPrice, 1e-9)
+		assert.InDelta(t, ref*(1+slippage), oldRes.FillPrice, 1e-9)
+		assert.Zero(t, newRes.Fee, "broker wire 无费用字段")
+		assert.Positive(t, oldRes.Fee, "旧实现自算费用")
+
+		t.Logf("real-process parity %-10s qty=%.0f status=%s/%s fill=%.4f/%.4f",
+			req.Symbol, req.Quantity, oldRes.Status, newRes.Status, oldRes.FillPrice, newRes.FillPrice)
 	}
 }
 
