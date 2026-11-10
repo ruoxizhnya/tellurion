@@ -38,7 +38,7 @@ func (f *fakeIndexReader) LatestIndexBars(_ context.Context, codes []string, asO
 
 func newMarketIndexTestRouter(t *testing.T, reader indexDailyReader) *gin.Engine {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
+	// gin 的 mode 由 TestMain 设一次（AUD-12）—— 这里不调 gin.SetMode。
 	router := gin.New()
 	registerMarketIndexRoutes(router, reader, zerolog.Nop())
 	return router

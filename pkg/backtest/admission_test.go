@@ -426,14 +426,19 @@ func TestAdmission_TenConcurrentRuns_SplitAcrossAdmitQueueReject(t *testing.T) {
 	require.Equal(t, maxRuns, len(gate.slots))
 
 	// 再放 3 笔进队列：它们阻塞在槽位上，不是被拒。
-	admitted := make(chan error, attempts)
+	//
+	// 进场后**持住**槽位、不在这里归还：若拿到就放，几笔排队者会互相抢占同一个
+	// 槽位，「此刻在跑几笔」就取决于 goroutine 的调度顺序 —— 断言会退化成测调度器
+	// （CI 上实测偶发 1 != 2）。归还动作交给主测试线程做。
+	type admitResult struct {
+		lease *admissionLease
+		err   error
+	}
+	admitted := make(chan admitResult, attempts)
 	for i := 0; i < maxQueue; i++ {
 		go func() {
 			l, err := gate.acquire(context.Background())
-			if err == nil {
-				l.Release(0)
-			}
-			admitted <- err
+			admitted <- admitResult{lease: l, err: err}
 		}()
 	}
 	require.Eventually(t, func() bool { return len(gate.queue) == maxQueue }, 2*time.Second, 5*time.Millisecond,
@@ -453,26 +458,40 @@ func TestAdmission_TenConcurrentRuns_SplitAcrossAdmitQueueReject(t *testing.T) {
 	}
 	assert.Equal(t, attempts-maxRuns-maxQueue, rejected, "被拒的笔数要对得上「既不在跑也没排队」")
 
-	// 放掉一格：排队中的一笔立刻进去，队列随之短一格（容量是还回来的，不是重置出来的）。
-	leases[0].Release(0)
-	select {
-	case err := <-admitted:
-		require.NoError(t, err, "腾出一格后排队的那笔应当开工")
-	case <-time.After(2 * time.Second):
-		t.Fatal("槽位已腾出，排队的 run 却没进去 —— 队列与槽位没接上")
+	// 放掉最初占位的两格：队列里前两笔立刻进场并持住槽位。
+	//
+	// 容量是还回来的，不是重置出来的 —— 每腾一格都被排队者接手，而不是让
+	// 在跑数掉下来。
+	for _, l := range leases {
+		l.Release(0)
+	}
+	held := make([]admitResult, 0, maxQueue)
+	for i := 0; i < maxRuns; i++ {
+		select {
+		case r := <-admitted:
+			require.NoError(t, r.err, "腾出槽位后排队的那笔应当开工")
+			require.NotNil(t, r.lease)
+			held = append(held, r)
+		case <-time.After(2 * time.Second):
+			t.Fatal("槽位已腾出，排队的 run 却没进去 —— 队列与槽位没接上")
+		}
 	}
 	assert.Equal(t, maxRuns, len(gate.slots), "在跑数不得超过上限")
 
-	for i := 1; i < len(leases); i++ {
-		leases[i].Release(0)
+	// 再放掉一笔：队列里还压着第 3 笔，它必须立刻进场。
+	held[0].lease.Release(0)
+	select {
+	case r := <-admitted:
+		require.NoError(t, r.err, "剩余排队者没能进场")
+		require.NotNil(t, r.lease)
+		held = append(held, r)
+	case <-time.After(2 * time.Second):
+		t.Fatal("剩余排队者没能进场")
 	}
-	for i := 0; i < maxQueue-1; i++ {
-		select {
-		case err := <-admitted:
-			require.NoError(t, err)
-		case <-time.After(2 * time.Second):
-			t.Fatal("剩余排队者没能进场")
-		}
+	assert.Equal(t, maxRuns, len(gate.slots), "在跑数不得超过上限")
+
+	for _, r := range held[1:] {
+		r.lease.Release(0)
 	}
 	require.Eventually(t, func() bool { return len(gate.slots) == 0 && len(gate.queue) == 0 },
 		2*time.Second, 5*time.Millisecond, "全部收尾后槽位与队列都该空")

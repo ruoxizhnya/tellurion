@@ -28,7 +28,7 @@ func (f fakeArtifactReader) GetAnalysisArtifact(ctx context.Context, runID, kind
 }
 
 func artifactRouter(reader analysisArtifactReader) *gin.Engine {
-	gin.SetMode(gin.TestMode)
+	// gin 的 mode 由 TestMain 设一次（AUD-12）—— 这里不调 gin.SetMode。
 	r := gin.New()
 	registerAnalysisArtifactRoutes(r, reader, zerolog.Nop())
 	return r
