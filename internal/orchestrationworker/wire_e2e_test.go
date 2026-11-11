@@ -25,10 +25,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/internal/orchestrationworker"
 )
+
+// resetQueue 清空本测试库的父/子队列。父记录的身份是 plan_hash（X5b：同一份
+// 计划只认一条父记录），而下面两条 wire 用例提交的是**固定计划**；不清库时，
+// 第二次运行会命中上一次留下的 completed 父记录，按幂等回放返回 200，而用例
+// 期望 202 并真跑 2 个子任务——于是"只能过一次"。本包独占 ORCHESTRATION_TEST_DSN
+// 指向的测试库（同一时刻只有一个用例起服务），开局清空即恢复可重复。
+func resetQueue(t *testing.T, dsn string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect orchestration db: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if _, err := conn.Exec(ctx, `TRUNCATE run.parent_jobs, run.backtest_jobs CASCADE`); err != nil {
+		t.Fatalf("reset orchestration queue: %v", err)
+	}
+}
 
 func TestWireWithRealOrchestrationProcess(t *testing.T) {
 	dsn := os.Getenv("ORCHESTRATION_TEST_DSN")
@@ -44,6 +64,7 @@ func TestWireWithRealOrchestrationProcess(t *testing.T) {
 	}
 
 	base := startOrchestration(t, repo, dsn)
+	resetQueue(t, dsn)
 	parentID := submitParent(t, base)
 
 	client := orchestrationworker.NewClient(base, &http.Client{Timeout: 10 * time.Second})
@@ -108,6 +129,7 @@ func TestWireWalkForwardWithRealOrchestrationProcess(t *testing.T) {
 	}
 
 	base := startOrchestration(t, repo, dsn)
+	resetQueue(t, dsn)
 	parentID := submitWalkForwardParent(t, base)
 
 	client := orchestrationworker.NewClient(base, &http.Client{Timeout: 10 * time.Second})
