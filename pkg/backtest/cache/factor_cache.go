@@ -214,6 +214,34 @@ func (f *FactorCacheAccessor) Get(factor cdom.FactorType, date time.Time, symbol
 	return z, ok
 }
 
+// MissingFactors 返回 factors 中「整份缓存都没有条目」的那些因子。
+//
+// 判据是**条目有无**，不是 z-score 的取值：某个因子本期全是 0 仍然是
+// 正常数据（0 是一个合法读数），只有连一个 (日期, 标的) 组合都没有才算
+// 缺缓存。命中的因子不会出现在返回值里。
+//
+// 调用方（引擎的因子覆盖度闸）只用它的「全部缺失」分支 —— 部分缺失是
+// 允许的（策略按可用因子加权），但语义上仍需如实报出来。
+func (f *FactorCacheAccessor) MissingFactors(factors []cdom.FactorType) []cdom.FactorType {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	var missing []cdom.FactorType
+	for _, factor := range factors {
+		present := false
+		for _, bySymbol := range f.cache[factor] {
+			if len(bySymbol) > 0 {
+				present = true
+				break
+			}
+		}
+		if !present {
+			missing = append(missing, factor)
+		}
+	}
+	return missing
+}
+
 // Warm 从 store 批量预热 3 类常用因子（momentum/value/quality）。
 // store 为 nil 时 no-op；具体因子加载失败时打 Warn 不中断。
 //

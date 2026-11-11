@@ -157,6 +157,52 @@ func (rc *runContext) warmFactorCache(ctx context.Context) error {
 	return rc.factor.Warm(ctx, rc.start, rc.warmEnd, store)
 }
 
+// ensureRequiredFactors 是「因子覆盖度闸」：策略声明的必需因子**整体**
+// 一条缓存都没有时拒跑。
+//
+// 为什么必须在这里拦（2026-11-11 真栈实测）：`Warm` 空结果只打 Info 就继续，
+// 策略随后读到的全是「不存在」，generateSignalsFromFactorCache 逐票 continue，
+// 最后以 invalid/zero_trades 收场 —— 那个结论看起来像「策略不赚钱」，
+// 实际是「库里没有因子」。缺因子必须响亮失败，不能伪装成一份空的回测。
+//
+// 判据的三条边界（都来自任务单）：
+//   - 只看**条目有无**，不看 z-score 取值：某因子本期全为 0 是正常数据；
+//   - 只拦「全部缺失」：部分因子可用时按可用因子加权，是策略既有语义；
+//   - 与窗口长短无关：这里不判断预热期够不够（那是 invalid_reasons 的事）。
+func (rc *runContext) ensureRequiredFactors(strategyName string) error {
+	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
+	if err != nil {
+		// 本地注册表没有该策略（未加载 / 拼错）：执行路径随后会明确报错，
+		// 这里不越俎代庖。
+		return nil
+	}
+	fd, ok := strat.(strategy.FactorDependent)
+	if !ok {
+		return nil // 价量策略：不依赖因子缓存，不做任何覆盖度核对
+	}
+	required := fd.RequiredFactors()
+	if len(required) == 0 {
+		return nil
+	}
+
+	missing := rc.factor.MissingFactors(required)
+	if len(missing) == 0 {
+		return nil
+	}
+	if len(missing) < len(required) {
+		names := make([]string, 0, len(missing))
+		for _, f := range missing {
+			names = append(names, string(f))
+		}
+		rc.e.logger.Warn().
+			Str("strategy", strategyName).
+			Strs("missing_factors", names).
+			Msg("部分必需因子无缓存 —— 按可用因子加权继续（只有全部缺失才拒跑）")
+		return nil
+	}
+	return errRequiredFactorsUnavailable(strategyName, missing, rc.start, rc.warmEnd)
+}
+
 // warmFundamentalsIfNeeded 只在策略声明要财报时预热一次（P2-12）。
 // 三个「不」的原文口径见 engine.go 同名注释的历史版本，语义未变：
 // 策略不要就不查、只查一次、失败不阻断 —— 变的只有「写给谁」。

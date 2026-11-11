@@ -26,6 +26,20 @@ type FactorAware interface {
 	SetFactorCache(reader FactorZScoreReader)
 }
 
+// FactorDependent 是可选能力接口：策略在此**声明**自己依赖哪些因子的
+// z-score。引擎在预热因子缓存之后按这份清单核对覆盖度 —— 全部缺失时拒跑，
+// 而不是让策略读到一串「不存在」然后照常产出零信号。
+//
+// 为什么需要显式声明：`FactorAware` 只说明策略能接受注入，说不出它到底
+// 读哪几个因子；而「缺因子」和「因子值为 0」在读数层面长得一模一样
+// （都拿不到）、语义却完全不同 —— 前者该拒跑，后者是正常数据。
+//
+// 未实现本接口的策略一律视为不依赖因子缓存（价量策略），引擎不做任何
+// 覆盖度核对。
+type FactorDependent interface {
+	RequiredFactors() []cdom.FactorType
+}
+
 // FundamentalSeries 是一只股票的财务记录序列，**按可用日升序**。
 //
 // 每条记录的 Date 必须是「可用日」（= stock_fundamentals.available_date，

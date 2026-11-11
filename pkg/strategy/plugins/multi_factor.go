@@ -118,6 +118,14 @@ func (s *multiFactorStrategy) SetFactorCache(reader strategy.FactorZScoreReader)
 	s.factorReader = reader
 }
 
+// RequiredFactors 声明本策略读的三个横截面因子（见 generateSignalsFromFactorCache）。
+// 引擎据此在预热后核对覆盖度：三个因子在回测区间内一条缓存都没有时拒跑 ——
+// 那种情况下 generateSignalsFromFactorCache 会全部落空，最后以
+// invalid/zero_trades 收场，看起来像「策略不赚钱」，实际是「没有因子」。
+func (s *multiFactorStrategy) RequiredFactors() []cdom.FactorType {
+	return []cdom.FactorType{cdom.FactorValue, cdom.FactorQuality, cdom.FactorMomentum}
+}
+
 // Name returns the strategy name.
 func (s *multiFactorStrategy) Name() string {
 	return "multi_factor"

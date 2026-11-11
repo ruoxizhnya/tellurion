@@ -69,8 +69,9 @@ var factorRosterConstants = []string{
 // 白名单重新登记该文件、说明它是唯一权威本体。反向棘轮对「文件已不存在」
 // 的条目判红。
 var factorRosterBaseline = map[string]string{
-	"pkg/backtest/cache/factor_cache.go": "回测因子缓存预热清单（存量：预热 3 个横截面因子。待收敛为从 Registry 读取——D6 多频率视野时一并处理，届时删本条目）",
-	"pkg/domain/factor_def_seed.go":      "OnlyBuiltinDefinitions 的库里种子本体（CT-06-B 2026-11-10 从契约仓迁回；名册的唯一权威就在本文件，不在库外重建）",
+	"pkg/backtest/cache/factor_cache.go":   "回测因子缓存预热清单（存量：预热 3 个横截面因子。待收敛为从 Registry 读取——D6 多频率视野时一并处理，届时删本条目）",
+	"pkg/domain/factor_def_seed.go":        "OnlyBuiltinDefinitions 的库里种子本体（CT-06-B 2026-11-10 从契约仓迁回；名册的唯一权威就在本文件，不在库外重建）",
+	"pkg/strategy/plugins/multi_factor.go": "消费声明，不是名册重建：`RequiredFactors()` 用一个 3 元素字面量点名本策略**读**的因子（value/quality/momentum），供引擎在预热后核对缓存覆盖度（CORE-FACTOR-GUARD，2026-11-11）；11 个名册常量里只列 3 个，权威仍在 pkg/domain/factor_def_seed.go。收敛条件：策略改为从 Registry 取输入清单时删本条目",
 }
 
 // factorRosterThreshold 是「清单气味」的判定阈值：单文件引用名册常量

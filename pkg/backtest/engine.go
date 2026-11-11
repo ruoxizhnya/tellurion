@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -697,6 +698,25 @@ func errTradingCalendarNotSynced() error {
 		WithOperation("RunBacktest")
 }
 
+// errRequiredFactorsUnavailable 是「策略必需因子整体无缓存」的唯一构造点。
+//
+// 分类与 errTradingCalendarNotSynced 一致：DATA_QUALITY（缺的是库里的数据，
+// 不是请求参数），HTTP 409。收敛成函数是为了让「这条分支给什么分类」能被
+// 单测钉住 —— 见 factor_coverage_test.go。
+func errRequiredFactorsUnavailable(strategyName string, missing []cdom.FactorType, start, end time.Time) error {
+	names := make([]string, 0, len(missing))
+	for _, f := range missing {
+		names = append(names, string(f))
+	}
+	sort.Strings(names)
+	return apperrors.New(apperrors.ErrCodeDataQuality, fmt.Sprintf(
+		"strategy %q requires factor cache for [%s], but public.factor_cache has no entries in %s..%s. "+
+			"The current stack has no factor-cache writer (core's sync/factors/all route no longer exists and "+
+			"data-service does not serve factors), so the run would silently produce zero signals. Refusing to run.",
+		strategyName, strings.Join(names, " "), start.Format("2006-01-02"), end.Format("2006-01-02"))).
+		WithOperation("RunBacktest")
+}
+
 // resolveStockPool returns the stock pool from the request, expanding index
 // constituents when an IndexCode is supplied and StockPool is empty.
 func (e *Engine) resolveStockPool(ctx context.Context, req BacktestRequest, startDate time.Time) ([]string, error) {
@@ -1028,6 +1048,13 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		logger.Warn().Err(err).Msg("Factor cache warm-up failed — strategies will fall back to HTTP computation")
 	} else if rc.factor.Len() > 0 {
 		logger.Info().Msg("Factor cache warm-up completed")
+	}
+
+	// 因子覆盖度闸（2026-11-11）：策略声明的必需因子**整体**无缓存时拒跑。
+	// 必须放在任何结果行之前 —— 本栈的 factor_cache 有表无写者，放过去就会
+	// 得到一份「合法的零成交回测」，读起来像策略不赚钱。
+	if err := rc.ensureRequiredFactors(params.StrategyName); err != nil {
+		return nil, err
 	}
 
 	// P2-12：只有声明了要财报的策略才会真的去查。
