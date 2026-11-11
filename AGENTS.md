@@ -349,13 +349,23 @@ npx playwright test --report=html      # Generate HTML report
 
 ### Infrastructure
 ```bash
-docker compose up -d                    # Start all 5 services (ODR-021: risk+exec merged into analysis)
+docker compose up -d                    # Default stack: 4 services
+                                        # (data-service / broker / analysis-service / ai-service)
+docker compose --profile full up -d     # + risk / strategy / analytics / orchestration
 docker compose ps                       # Check service health
 docker compose logs -f analysis-service  # Tail analysis service logs
 docker compose down                     # Stop all services
 ```
 
-> **容器数**: 当前 5 个服务（ODR-021 合并 risk+exec 后从 7 降下来）。
+> **部署形态（2026-11-11 定案）**：本地只留**一个** `docker-compose.yml`，
+> 差异用 profile 表达（默认 4 个服务；`full` 加 4 个；`orchestration-worker` /
+> `tools` / `nt` 各自独立）。原 `docker-compose.services.yml` / `.e2e.yml` /
+> `.nt.yaml` 已并入并删除，`D-DEPLOY-1 = A` 已撤销。跨仓 7 份
+> `<repo>/deploy/compose.yaml` 是**各仓自证资产**，不属于本地统一栈。
+> 默认栈的 broker 是 **mock 通道**（订单永不触达真实柜台）；要接真实柜台必须
+> 显式 `BROKER_CHANNEL=live` 且对端 `/version` 自报 `live`，否则装配期拒起。
+> PostgreSQL / Redis 不在容器内（宿主机原生；Redis 已退役）。
+> 完整口径见 `docs/ARCHITECTURE.md` §1 与 `docker-compose.yml` 文件头。
 > EquityDeep **不再新增 worker 容器** —— ADR-023 已把它从「工作面」降为
 > **数据底座**（产业链图谱 + 研究洞察两块，见 §2），其取数经 L1 数据层，
 > 由 AI 实验员按需触发。ADR-022 曾计划的 `equitydeep-research` worker 容器

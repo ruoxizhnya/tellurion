@@ -3,6 +3,31 @@
 本目录是 **core 仓的部署面**（裁-17 ①）：`k8s/` 放各服务清单，
 `docker-compose.yml`（仓根）放本地 compose 形态。
 
+## 本地编排：单一文件 + profile（2026-11-11 定案）
+
+本地只留**一个** `docker-compose.yml`，差异全靠 profile（`D-DEPLOY-1 = A` 已撤销）：
+
+| 命令 | 起的服务 |
+|---|---|
+| `docker compose up -d` | `data-service` :8081 / `broker` :8091 / `analysis-service` :8085 / `ai-service` :8086 |
+| `docker compose --profile full up -d` | 默认 4 个 + `risk` :8089 / `strategy` :8090 / `analytics` :8087 / `orchestration` :8088 |
+| `--profile orchestration-worker` | `worker`（`cmd/worker`，需 `ORCHESTRATION_URL`） |
+| `--profile tools` | `dualrun`（一次性验收门，跑完即退） |
+| `--profile nt` | `nt-sidecar`（可选旁路样本） |
+
+- **数据库不在容器里**：PG 用宿主机原生 16.15，服务经 `host.docker.internal:5432`
+  连；`docker compose` 不再有 postgres / redis 服务。
+- **默认栈 broker 是 mock 通道**：订单永不触达真实柜台。要接真实柜台必须
+  `BROKER_CHANNEL=live` **且**对端 `/version` 自报 `live`，否则 `analysis-service`
+  在装配期拒起（`pkg/brokerhttp.verifyPeerChannel`）。
+- **高额度 e2e**：`RATE_LIMIT_PER_MINUTE=100000 docker compose up -d --force-recreate
+  --no-deps analysis-service data-service`（原 `docker-compose.e2e.yml` 覆盖层已删）。
+- 跨仓 7 份 `<repo>/deploy/compose.yaml` **不并入、不改动**：它们是各仓自证
+  Dockerfile / health 的资产，联调一律用本仓的 profile。
+
+`k8s/` 形态仍未接 broker，也没有 `BROKER_*` 注入（`deploy/k8s/README.md` 的
+待办口径），走 k8s 部署前必须先补这一层。
+
 ## 凭证只经 env 注入
 
 | env | 来源 Secret / key | 使用方 | 用途 |

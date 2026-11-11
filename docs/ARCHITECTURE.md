@@ -1,7 +1,7 @@
 ---
 status: evergreen
 last-verified: 2026-11-11
-verified-by: 2026-11-11 阶段 B core 对齐（B5-1）：服务拓扑按三种部署形态写实、data/ai 拆仓后的入口与端口、`public` 13 张 / `quant`·`audit` 启用 / `research` 退役、Redis 面退役（保留历史）、TimescaleDB 归 data；口径与实测数据见 `docs/design/cross-repo-architecture-baseline-2026-11-11.md` §5/§6；文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-23）
+verified-by: 2026-11-11 部署形态收敛：本地只留一个 `docker-compose.yml`（默认 4 服务 + `--profile full` 4 服务），撤销 QT-79 的代裁 `D-DEPLOY-1 = A`，跨仓 7 份 `deploy/compose.yaml` 注明为各仓自证资产；2026-11-11 阶段 B core 对齐（B5-1）：服务拓扑按部署形态写实、data/ai 拆仓后的入口与端口、`public` 13 张 / `quant`·`audit` 启用 / `research` 退役、Redis 面退役（保留历史）、TimescaleDB 归 data；口径与实测数据见 `docs/design/cross-repo-architecture-baseline-2026-11-11.md` §5/§6；文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-23）
 ---
 
 # Quant Lab — 架构总览
@@ -16,13 +16,24 @@ verified-by: 2026-11-11 阶段 B core 对齐（B5-1）：服务拓扑按三种�
 ## 1. 服务拓扑
 
 微服务架构，Analysis Service 作为 API 网关协调 Data Service 与 AI
-Service。**部署形态有三种，别把三者的配置混着读**（G-05）：
+Service。**部署形态有两种，别把两者的配置混着读**（G-05；2026-11-11 收敛，见下）：
 
 | 形态 | 编排来源 | 服务集合 | PG / Redis 在哪 |
 |---|---|---|---|
-| core 容器栈（本地默认） | 本仓 `docker-compose.yml` | 5 个：data-service / analysis-service / ai-service / worker / dualrun | **都不在容器内**：各服务经 `host.docker.internal` 连宿主机原生安装的 PG（Redis 键与部署已退役，见 §4） |
-| 跨仓聚合栈 | 本仓 `docker-compose.services.yml` | postgres + data / risk / strategy / analytics / orchestration / broker | postgres 在容器内；**无 Redis 服务** |
+| 本地统一栈（默认，无 profile） | 本仓 `docker-compose.yml` | 4 个：data-service / broker / analysis-service / ai-service | **都不在容器内**：各服务经 `host.docker.internal` 连宿主机原生安装的 PostgreSQL 16.15（Redis 已退役，见 §4） |
+| 本地统一栈 `--profile full` | 同上 | 再加 4 个：risk / strategy / analytics / orchestration | 同上（DSN 同样走 `host.docker.internal:5432`） |
 | k8s | `deploy/k8s/`（**跨仓部署资产**，处置见 `deploy/k8s/README.md`） | analysis / data / web 三个 Deployment + postgres StatefulSet + redis Deployment | 两者都在集群内 |
+
+> **2026-11-11 定案：本地只留一个 compose。** 主任指令要求单一文件，避免三份
+> 各说各话；QT-79 的代裁 `D-DEPLOY-1 = A`（core compose 与
+> `docker-compose.services.yml` 各自是单一 owner 的完整栈、不合并）**已撤销**。
+> 原代裁的顾虑是 8081 双发布（聚合栈的 `data` 与 core 的 `data-service` 同时
+> 发布同一端口）——新方案只保留 `data-service` 一份，聚合栈的 `data` 服务已删除，
+> 该前提消失。`docker-compose.services.yml` / `.e2e.yml` / `.nt.yaml` 三份文件
+> 均已删除，差异改由 profile 与命令行 env 表达。
+>
+> 跨仓的 7 份 `<repo>/deploy/compose.yaml` **不动**：它们是各仓自证 Dockerfile /
+> health 的资产，不属于本地统一栈，联调一律用本仓 `docker-compose.yml` 的 profile。
 
 前端已拆仓至 `tellurion-ui`（2026-10-09）；data-service 已拆仓至
 `tellurion-data`（`SVC-CORE-DATA-RETIRE`，2026-11-08）—— 两者都只是**拓扑上
@@ -35,7 +46,8 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │                             ──► risk-service :8089（源码在 tellurion-risk 仓，X3；
   │                                `cmd/riskservice -addr` 的默认值 127.0.0.1:8089，
   │                                与 core 的 `risk_service.resolve_url` 一致；8086
-  │                                留给 ai-service（ADR-036 G0）。该服务不在 compose 里，
+  │                                留给 ai-service（ADR-036 G0）。该服务只在
+  │                                `--profile full` 里，默认栈不含它；
   │                                单主机裸跑需自行拉起或用
   │                                `RISK_SERVICE_RESOLVE_ENABLED=false` 走内置限额）
   │                                两个出站调用，都不在热路径：run 提交时取规则快照
@@ -50,6 +62,9 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   ├──► data-service :8081 ──────► tushare.pro 摄取（源码在 tellurion-data 仓，
   │                               SVC-CORE-DATA-RETIRE；本仓只经 HTTP 反代，
   │                               `market`/`ingest` schema 的唯一 writer 在那边）
+  ├──► broker :8091 ────────────► 执行网关（源码在 tellurion-broker 仓；
+  │                               默认栈以 mock 通道起，装配期 GET /version
+  │                               核对 channel，不一致即拒起）
 ```
 
 > **本图不含 Redis**：缓存面已退役（data 面退役后 `redis.url` 零读取点），
@@ -63,10 +78,11 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 |---|---|---|---|
 | analysis-service | 8085 | `cmd/analysis` | API 网关 + 回测/batch/walkforward + 风控/执行（in-process，ODR-021 合并）+ 信号/证据/产业链只读门 |
 | data-service | 8081 | `tellurion-data` 仓（**本仓无 `cmd/data`**） | tushare 摄取、同步任务队列、`market`/`ingest` 的唯一 writer；本仓只经 `data_service.url` 反代 |
+| broker | 8091 | `tellurion-broker` 仓 | 执行网关（ADR-036 G0），本地默认栈以 **mock 通道** 起；analysis 装配期必读 `GET /version` 的 `channel`，不一致即拒起 |
 | ai-service | 8086 | `tellurion-agent` 仓（**本仓无 `cmd/ai`**） | Hermes AI 实验员（L3 编排层，源码不在本仓） |
 | orchestration worker | 无监听 | `cmd/worker` | 用 core 引擎领 `tellurion-orchestration` 的 run（出站 `ORCHESTRATION_URL` 或 `-orchestration-url`，**两者都空即拒绝启动**）；结果落 `backtest_jobs`，三 hash 回传仍未落 |
 
-> **orchestration worker（2026-10-25，QT-44 core 腿）**：`cmd/worker` 不是常驻 HTTP 服务，也不在本仓 compose 的默认清单里；它按部署需要单独起（可多个副本）。它与 orchestration 只经 HTTP 交互，本仓不 import 对方的代码；`internal/orchestrationworker` 的 run_spec 解析 / 执行 / 上报循环见 `docs/TASKS.md` 的 QT-44 指针记录。
+> **orchestration worker（2026-10-25，QT-44 core 腿）**：`cmd/worker` 不是常驻 HTTP 服务，也不在默认 profile 里（要起用 `--profile orchestration-worker`）；按部署需要可起多个副本。它与 orchestration 只经 HTTP 交互，本仓不 import 对方的代码；`internal/orchestrationworker` 的 run_spec 解析 / 执行 / 上报循环见 `docs/TASKS.md` 的 QT-44 指针记录。
 >
 > **AI 拆仓（ADR-027，2026-10-09）**：`pkg/ai` + CopilotService + cmd/ai 物理
 > 迁入 `tellurion-agent`（独立 module，单向依赖 agent→core）。core 不许

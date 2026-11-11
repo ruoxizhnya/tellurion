@@ -62,8 +62,10 @@ grep -n "ports:" -A2 docker-compose.yml # compose 发布端口
   （`http://data-service:8081`）会**启动即报错**并被点名。
 - **`cmd/worker` 没有 `ORCHESTRATION_URL`（或 `-orchestration-url`）直接拒起**
   （它无监听、也没法「空跑成功」）。
-- **`BROKER_URL` 若配置，对端必须已就绪**：启动期核对 `GET <BROKER_URL>/version`
-  的 `channel`，不可达 / 非 2xx / 缺字段一律拒绝启动。
+- **`BROKER_URL` 是必填**（装配期无条件构造执行通道）：compose 默认栈已经
+  提供 broker（`http://broker:8091`，mock 通道），本机直跑需自己拉起网关。
+  启动期核对 `GET <BROKER_URL>/version` 的 `channel`，不可达 / 非 2xx / 缺字段
+  一律拒绝启动。
 
 还需要两个**平级 clone** 的仓（镜像来自它们，不是本仓构建产物）：`tellurion-data`
 （不起则 `/api/sync/*` 与行情读路径失败）与 `tellurion-agent`（不起则
@@ -77,10 +79,14 @@ psql "postgres://postgres:postgres@localhost:5432/tellurion?sslmode=disable" -c 
 git clone <tellurion-data 仓地址>  ../tellurion-data
 git clone <tellurion-agent 仓地址> ../tellurion-agent
 
-# 3) 起默认栈（3 个 service：data-service :8081 / analysis-service :8085 / ai-service :8086）
+# 3) 起默认栈（4 个 service：data-service :8081 / broker :8091 /
+#    analysis-service :8085 / ai-service :8086；broker 是 mock 通道）
 docker compose up -d
-#    可选 profile：--profile orchestration-worker（cmd/worker，需 ORCHESTRATION_URL）
+#    可选 profile：--profile full（risk :8089 / strategy :8090 /
+#                  analytics :8087 / orchestration :8088）
+#                  --profile orchestration-worker（cmd/worker，需 ORCHESTRATION_URL）
 #                  --profile tools（cmd/dualrun，一次性验收门，跑完即退）
+#                  --profile nt（nt-sidecar，可选旁路样本）
 
 # 4) 冒烟
 curl -s localhost:8085/health | jq
