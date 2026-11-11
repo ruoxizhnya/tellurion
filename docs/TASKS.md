@@ -198,6 +198,16 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **owner**：待定
 - **重开条件**：出现第二次「起不来但只能翻 TASKS 找原因」的排障经历，或接手人变更。
 
+### CORE-AUDIT-FULLSTACK-2026-11 · 12 仓全面审查（产品→DDD→整洁度→最佳实践，W0~W7）[P1] 🔶
+
+- **① 目标**：按主任批准的计划完成 12 仓全维度审查，产出逐项判定表（P-1…X-3，每项带证据坐标），发现全部走 ODR（自 068 起编）+ 各仓六字段立单；Critical/High 当场修复或当场立单。
+- **② 上下文**：计划文件 = `C:\Users\ruoxi\.qoder-cn\plans\gentle-creek-tench.md`（主任已批，**不落仓**）；14 个工作流 / 风险分层 T0~T3 / 波次 W0~W7。去重基准 = 本文件 §一 开放项与 ⏸、§三 DDD C1~C13、ODR-043/065 闭项、第四轮目的对齐审计；工作件在 `C:\Users\ruoxi\.qoder-cn\plans\audit-w0\dedup.md`（仓外，非报告文件）。
+- **③ 要求**：① 每波开工前按仓规立单，一 task 一 commit；② 真退出码 + 证据分级 E1~E4，环境降级须标注；③ 护栏破坏验证用绝对数值断言 + 「调大阈值」腿，改坏/写操作/起服务先拿主任授权；④ 派工前提先证伪；⑤ 每波做完停下核对，结论反转处放最前面。
+- **④ 约束与非目标**：不写独立 Report .md；已裁例外不重报（只验钉住护栏）；⏸/⛔ 只核解冻条件；本单只做审查与立案，**代码修复另立单**，不在审查 commit 里混修复。
+- **⑤ 验收**：逐项判定表齐（通过/不通过/已裁例外 + 证据坐标）；真跑项全 E1/E2；发现全部进 ODR/台账或归入已裁例外；主任逐波 checkpoint 签收 + W7 总验收。
+- **⑥ 边界**：审查证据、ODR 立案、各仓立单；修复施工归各修复单。
+- **施工记录（W0 基线，2026-11-11）**：12 仓工作树全干净（in-place = 干净 checkout），HEAD 锚定：core `27e0c15` / agent `8ace9b9` / analytics `cc440f0` / broker `fbaa9fe` / contracts `fb19870` / data `2fdf48b` / docs `975a403` / kit `7d7c3a8` / orchestration `ab2ee94` / risk `693f590` / strategy `03a5d91` / ui `90d0a2c`。**基线红名单 = 空**：10 Go 仓 gofmt/build/vet/test 全 EXIT=0；contracts 5 护栏 + conformance 全 0；kit 2 护栏全 0；core 4 Python 检查器全 0；docs 3 检查器 + 38 条自测全 0（guide_refs 首跑 GBK 假红，UTF-8 复跑绿）；ui lint/typecheck/vitest 全 0（**945 条 eslint warnings 不红**，T-1/K-7 候选发现留 W6 立案；vitest 38 文件全过）。agent 两条历史红（QT-17 ③ 端点字面量）已随数据面退役消解（grep 零命中）。DB 依赖腿无 DSN 按设计 skip，留 W3/W5/W6；-race 本机无 gcc，只认 CI。**W0-3 C2 核实**：research_tool vault 镜像回落有契约授权（legacy §3.3/§3.5 + agent db-schema.md:73 + hermes tools yaml:445），不构成违规；治理观察一条（C2 规范文本住归档层）留 W1 G-4。日志：`C:\Users\ruoxi\.qoder-cn\plans\audit-w0\<repo>.log`。
+
 ## 二、跨仓指针（不在本仓，勿双写）
 
 | 事项 | 去哪 |
