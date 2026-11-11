@@ -32,6 +32,16 @@ verified-by: 2026-11-11 本地编排收敛为单一 `docker-compose.yml`（撤�
   - 另有一条**非配置缺陷**：本机 `tellurion-broker:dev` 镜像旧于源码（`/version` 没有 `channel`），core 按契约拒起；重建镜像后 `broker peer channel verified`。冷启动前必须先 `build`。
   - 验收：`--profile full` 连续三次 `down → up -d --wait` 全绿（八服务 healthy）；默认栈日志 `risk_policy_source=builtin_default`；`RISK_SERVICE_RESOLVE_ENABLED=true` 时日志 `risk_policy_source=risk_snapshot`（`risk_rules_hash=84a95d7d…`）；八服务探针全 200（strategy 是 `/healthz` + `/readyz`，`/health` 不存在）。
 
+### CORE-FACTOR-CACHE-WRITER · `public.factor_cache` 有表无写者，`multi_factor` 因此不可用 [P0] ⬜
+
+- **① 目标**：给 `public.factor_cache` 一个明确的**生产方**，让依赖横截面因子的策略（今天只有 `multi_factor`）能在本栈里真实跑出信号；在此之前不改任何策略逻辑。
+- **② 上下文**：2026-11-11 真栈打通回测时实测——`market.stocks=5580` / `ohlcv_daily_qfq=22` / `trading_calendar=31` 都已同步到位，`POST /api/backtest`（`multi_factor` + `600519.SH` + 2024-01-02~01-10）却以 `invalid/zero_trades` 收场。运行期日志三条 `No factor cache entries in DB — run sync/factors/all first`，而**那条提示指向的路由不存在**：`cmd/data` 已于 `a96d836` 删除，data-service 按裁-14 不提供因子，本仓 `pkg/backtest/cache/factor_cache.go` 的 `Warm` 只**读**库、不写；全仓 grep 无 `factor_cache` 写入实现。即：表在、DDL 在、读点在，**写者从来没进过这个栈**。同轮已落一条护栏（`CORE-FACTOR-GUARD`，见 `pkg/backtest/factor_coverage_test.go`）：必需因子整体无缓存时回测直接拒跑（DATA_QUALITY / 409），不再伪装成一份零成交结果——**那条只是让缺陷响亮，不是修复**。
+- **③ 要求**：① 先裁决 owner 与形态，三者只能选一：**(a) core 恢复因子预热作业**（`POST /sync/factors/all` 或 CLI，把价量/财务原料算成 z-score 批量落 `factor_cache`）；**(b) 归 data 提供**（需要在 `tellurion-data` 立单，推翻裁-14 的「因子读面只在 core」口径，并把 `job_type` 扩到因子）；**(c) 按需实时计算**（回测开始时算，落不落库另行定，需回答 PIT 与可复现性）。② 选定后必须写明：哪些因子、什么频率、PIT 口径（`visible_at` 语义）、以及「算不出来时响亮失败」；③ 不允许用「表里预置几行假数据」让 `multi_factor` 变绿。
+- **④ 约束与非目标**：本轮**不写代码**；不改 `factor_cache` 的表结构与读面契约；不动 `multi_factor` 的加权逻辑（它按可用因子加权是既有语义）。
+- **⑤ 验收**：真栈里 `POST /api/backtest`（`multi_factor` + `600519.SH` + 至少 60 个交易日的区间）返回 `status=completed` 且 `total_trades>0`；破坏验证 = 清空 `factor_cache` 后同一请求得 409 且文案点名缺失因子。
+- **⑥ 边界**：因子公式与读面在本仓 `pkg/data` / `pkg/backtest/cache`；若选 (b)，生产方归 `tellurion-data`，本仓只保留消费面。
+- **待裁决**：**owner 未定**（core / data / 无持久化三者之一），需主任拍板后才能开工。
+
 ### CORE-BROKER-RUNTIME-RECHECK · broker 通道性质只在启动期核对一次 [P1] ⏸
 
 - **① 目标**：运行期对端被替换 / 重启成 mock 时，core 能发现并拒绝下单，而不是沿用启动期那一次核对结论。
