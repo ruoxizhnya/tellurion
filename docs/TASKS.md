@@ -43,13 +43,15 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **裁决**：**owner = core；形态 = (c) 按需实时；依据 ADR-037**。否决 (a)：把可选物化升级为常驻批处理，且必须先重写已删的 5 个 `KernelCode`；否决 (b)：data 无算法载体，落地必然双实现，并推翻裁-14。
 - **重开条件**：① 决定让 `multi_factor` 在真栈可用；或 ② 有外部预计算缓存愿意按同一口径灌入（此时只做 Warm 读面验证）；或 ③ 出现 ADR-028 §11 的实测证据「多消费者需要同一份重计算因子且缓存命中率低」，重新评估物化写者。**本轮不满足以上任一条，故不实现。**
 
-### CORE-FACTOR-DERIVED-GUARD · 因子派生表零写者时，产物组装必须说清「为什么缺」 [P1] ⬜
+### CORE-FACTOR-DERIVED-GUARD · 因子派生表零写者时，产物组装必须说清「为什么缺」 [P1] ✅
+
+> **施工记录（2026-11-11）**：`internal/analysisartifact` 新增 `FactorReturnsUnavailableError`（`reason` = `no_writer` / `no_rows`，携带因子名与窗口）与可选探针 `FactorReturnProbe`；`pkg/storage.PostgresStore.HasFactorReturns` 用一条 `EXISTS` 判定表是否为空。全部因子缺失 ⇒ 返回该错误（原因可判定、文案点名缺哪些因子并指向 ADR-038）；部分缺失 ⇒ 产物照常产出，但 `FactorExposures.MissingFactors` 点名缺失因子（`omitempty`，加法字段，analytics 侧用非严格解码，不受影响）。探针失败按 `no_rows` 降级，不伪装成 `no_writer`。测试：5 条（无探针/no_writer/有行/no_rows/探针报错/部分缺失）。破坏验证：临时改回 `missing("factor_exposures")` ⇒ 3 条用例红，还原复绿。`ic_analysis` 零读者的事实保留在代码注释，删除另立单。
 
 - **① 目标**：`analysisartifact` 在 `factor_returns` 无写者、`GetFactorReturns` 恒空时，产出**可判定的缺失原因**（点名「本仓无因子收益写者，见 ADR-038」），而不是笼统的 `missing factor_exposures`；逐因子缺失不再静默跳过。
 - **② 上下文**：`internal/analysisartifact/builder.go:205-212` 逐因子取收益，`latestTopMinusBot` 为空就 `continue`；全部为空时在 `:219-221` 报 `missing("factor_exposures")`（`MissingError` 文案只写字段名，`builder.go:51-53`）。写方 `pkg/storage/cache.go:121` 的 `SaveFactorReturnBatch` **零调用**，`ic_analysis` 读写皆零调用（`cache.go:194,239`）。跨仓裁决见 ADR-038（两表归 core、沿用按需求值、不新增写者）。今天是「必然缺」而不是「偶尔缺」，错误文案却把两者混为一谈。
-- **③ 要求**：① 区分三种空：表无写者（`no_writer`）/ 窗口内无行（`no_rows`）/ 单因子无行（`factor_missing`）；`MissingError` 或其替代类型承载 `reason` + `factors[]` + 指向 ADR-038 的文案；② 逐因子缺失汇总到一次错误里，不静默 `continue`（若无缺失则行为不变）；③ `ic_analysis` 零读者的事实写进代码注释与 SPEC 表清单，删除另立单（本单不动 DDL）；④ 补测试：无写者 ⇒ 错误含 `no_writer` 与因子名；有行 ⇒ 正常组装；破坏验证：把错误改回 `missing("factor_exposures")` ⇒ 新用例红。
+- **③ 要求**（实施后修正）：① 全缺失时区分两种整表原因——`no_writer`（表一行都没有）/ `no_rows`（表有行但本窗口没有），用 `FactorReturnsUnavailableError` 承载 `reason` + `factors[]` + 指向 ADR-038 的文案；② 部分缺失不升级为错误，改为在 `FactorExposures.MissingFactors` 里**逐因子点名**，保证「不再静默」的同时不丢可用因子；③ `ic_analysis` 零读者的事实写进代码注释，删除另立单（本单不动 DDL）；④ 补测试：无写者 ⇒ 错误含 `no_writer` 与因子名；有行 ⇒ 正常组装；破坏验证：把错误改回 `missing("factor_exposures")` ⇒ 新用例红。
 - **④ 约束与非目标**：**不补写者**、不改 `factor_returns`/`ic_analysis` 表结构、不改因子收益算法；不改 analytics 侧。
-- **⑤ 验收**：`gofmt -l` 空、`go build ./...`、`go vet ./...`、`go test ./... -count=1` 全绿；新增用例覆盖三种空；破坏验证真做真还原。
+- **⑤ 验收**：`gofmt -l` 空、`go build ./...`、`go vet ./...`、`go test ./... -count=1` 全绿；新增用例覆盖两种整表原因 + 部分缺失 + 探针失败；破坏验证真做真还原。
 - **⑥ 边界**：`internal/analysisartifact` 与 `pkg/storage` 的只读注释/表清单；DDL 删除不在本单。
 - **重开条件**：本条无外部前置。若将来按需实时计算落地（ADR-037 D2），本单的 `no_writer` 分支应随之删除并在同单更新用例。
 
@@ -205,7 +207,7 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 |---|---|---|---|---|
 | C1 | agent 三个因子工具打向 core 不存在的端点 | 改代码：显式「未提供」，不补端点 | 跨仓 ADR-041；`tellurion-agent:AGENT-FACTOR-TOOLS-UNAVAILABLE` | ✅ 2026-11-11 |
 | C2 | data `db-schema` 的 SPEC-R-02 把因子域 owner 写成 data | 改文档（已改） | `tellurion-data:docs/db-schema.md` §1.3/SPEC-R-02 + `ARCHITECTURE.md` | ✅ 2026-11-11 |
-| C3 | `factor_returns`/`ic_analysis` 孤儿表、产物组装静默跳过 | 裁决归 core + 改代码（说明缺失原因） | 跨仓 ADR-038；`CORE-FACTOR-DERIVED-GUARD` | ⬜ 待做 |
+| C3 | `factor_returns`/`ic_analysis` 孤儿表、产物组装静默跳过 | 裁决归 core + 改代码（说明缺失原因） | 跨仓 ADR-038；`CORE-FACTOR-DERIVED-GUARD` | ✅ 2026-11-11 |
 | C4 | core 与 analytics 指标双实现、无权威条款 | 新建 ADR + 漂移检测 | 跨仓 ADR-039；`tellurion-analytics:ANALYTICS-METRIC-DRIFT` | ⬜ 待做 |
 | C5 | risk 自持 `Snapshot`，与 `contracts/risk` 双定义 | 改代码：别名引用 contracts | 跨仓 ADR-040；`tellurion-risk:RISK-CONTRACTS-SNAPSHOT-MIGRATION` | ⬜ 待做 |
 | C6 | core `internal/analysisartifact` 生产分析产物 | 保留 + 记退出条件（本轮不改代码） | `CORE-ANALYSISARTIFACT-RETENTION` | ⏸ 挂起 |

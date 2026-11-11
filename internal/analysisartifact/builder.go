@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
@@ -53,6 +54,47 @@ func (e *MissingError) Error() string {
 }
 
 func missing(field string) error { return &MissingError{Field: field} }
+
+// 因子收益缺失的两种可判定原因（ADR-038）。
+const (
+	// FactorReturnsNoWriter：整张 factor_returns 表一行都没有——本栈没有生产写者。
+	FactorReturnsNoWriter = "no_writer"
+	// FactorReturnsNoRows：表里有行，但本次窗口内这些因子没有行。
+	FactorReturnsNoRows = "no_rows"
+)
+
+// FactorReturnsUnavailableError 表示因子归因不可产出，并说清**为什么**缺。
+//
+// 与 MissingError 的分工：MissingError 是「字段没填」，本错误是「数据源不存在 /
+// 窗口内无数据」。把两者混成一个 "missing factor_exposures" 会让「本栈从来没有
+// 写者」和「这次窗口刚好没数据」无法区分——这正是 ADR-038 D3 要修的问题。
+type FactorReturnsUnavailableError struct {
+	Reason  string
+	Factors []cdom.FactorType
+	Start   time.Time
+	End     time.Time
+}
+
+func (e *FactorReturnsUnavailableError) Error() string {
+	names := make([]string, len(e.Factors))
+	for i, f := range e.Factors {
+		names[i] = string(f)
+	}
+	hint := "the table has rows, but none for these factors in this window"
+	if e.Reason == FactorReturnsNoWriter {
+		hint = "the table has no row at all: this stack has no production writer for factor_returns (ADR-038); reads are on-demand, not materialized"
+	}
+	return fmt.Sprintf("factor attribution unavailable (%s): factors [%s] have no factor_returns in [%s, %s]; %s",
+		e.Reason, strings.Join(names, ", "),
+		e.Start.Format("2006-01-02"), e.End.Format("2006-01-02"), hint)
+}
+
+// FactorReturnProbe 是可选的「表里到底有没有任何行」探针（由 *storage.PostgresStore 满足）。
+//
+// 不实现时退化为 FactorReturnsNoRows：判不出「无写者」，但至少不会静默产出空产物。
+type FactorReturnProbe interface {
+	HasFactorReturns(ctx context.Context) (bool, error)
+}
 
 // MarketProvider 是构建基准侧所需的行情面（由 marketdata.Provider 满足）。
 type MarketProvider interface {
@@ -197,9 +239,11 @@ func (b *Builder) BuildFactors(ctx context.Context, in Input) (*FactorExposures,
 	}
 
 	out := make([]FactorExposure, 0, len(factors))
+	missingFactors := make([]cdom.FactorType, 0, len(factors))
 	for _, factor := range factors {
 		exposure, ok := b.portfolioExposure(factor, in.EndDate, in.Positions, weights)
 		if !ok {
+			missingFactors = append(missingFactors, factor)
 			continue
 		}
 		returns, err := b.FactorReturns.GetFactorReturns(ctx, factor, in.StartDate, in.EndDate)
@@ -208,6 +252,7 @@ func (b *Builder) BuildFactors(ctx context.Context, in Input) (*FactorExposures,
 		}
 		factorReturn, ok := latestTopMinusBot(returns)
 		if !ok {
+			missingFactors = append(missingFactors, factor)
 			continue
 		}
 		out = append(out, FactorExposure{
@@ -217,9 +262,34 @@ func (b *Builder) BuildFactors(ctx context.Context, in Input) (*FactorExposures,
 		})
 	}
 	if len(out) == 0 {
-		return nil, missing("factor_exposures")
+		return nil, b.factorReturnsUnavailable(ctx, missingFactors, in)
 	}
-	return &FactorExposures{Factors: out, DatasetHash: in.DatasetHash}, nil
+	// 部分缺失不再静默：产物里点名缺哪些因子，消费方可以据此判断归因覆盖度。
+	return &FactorExposures{Factors: out, MissingFactors: factorNames(missingFactors), DatasetHash: in.DatasetHash}, nil
+}
+
+// factorReturnsUnavailable 判定「全部因子都无收益」的原因：表空 = 无写者；表非空 = 窗口无行。
+func (b *Builder) factorReturnsUnavailable(ctx context.Context, factors []cdom.FactorType, in Input) error {
+	reason := FactorReturnsNoRows
+	if probe, ok := b.FactorReturns.(FactorReturnProbe); ok {
+		hasAny, err := probe.HasFactorReturns(ctx)
+		// 探针失败不掩盖主错误：按 no_rows 上报，至少不会把「查询失败」伪装成「无写者」。
+		if err == nil && !hasAny {
+			reason = FactorReturnsNoWriter
+		}
+	}
+	return &FactorReturnsUnavailableError{Reason: reason, Factors: factors, Start: in.StartDate, End: in.EndDate}
+}
+
+func factorNames(factors []cdom.FactorType) []string {
+	if len(factors) == 0 {
+		return nil
+	}
+	out := make([]string, len(factors))
+	for i, f := range factors {
+		out[i] = string(f)
+	}
+	return out
 }
 
 // portfolioExposure 返回持仓市值加权因子 z-score；一个可得暴露都没有时返回 false。

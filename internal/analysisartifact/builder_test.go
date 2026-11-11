@@ -184,7 +184,18 @@ func TestBuildFactors_Shape(t *testing.T) {
 	assert.Equal(t, "ds-1", out.DatasetHash)
 }
 
-func TestBuildFactors_FailClosed(t *testing.T) {
+// probeFactorReturns 在 fake 基础上实现 FactorReturnProbe（表里有没有任何行）。
+type probeFactorReturns struct {
+	fakeFactorReturns
+	hasAny bool
+	err    error
+}
+
+func (f probeFactorReturns) HasFactorReturns(ctx context.Context) (bool, error) {
+	return f.hasAny, f.err
+}
+
+func TestBuildFactors_AllMissing_NoProbe_ReportsNoRows(t *testing.T) {
 	t.Parallel()
 
 	in, _ := portfolioFixture()
@@ -195,7 +206,86 @@ func TestBuildFactors_FailClosed(t *testing.T) {
 	}
 
 	_, err := b.BuildFactors(context.Background(), in)
-	var missingErr *MissingError
-	require.True(t, errors.As(err, &missingErr), "want MissingError, got %v", err)
-	assert.Equal(t, "factor_exposures", missingErr.Field)
+	var unavailable *FactorReturnsUnavailableError
+	require.True(t, errors.As(err, &unavailable), "want FactorReturnsUnavailableError, got %v", err)
+	assert.Equal(t, FactorReturnsNoRows, unavailable.Reason)
+	assert.Equal(t, []cdom.FactorType{cdom.FactorMomentum}, unavailable.Factors)
+	assert.Contains(t, err.Error(), "momentum")
+}
+
+func TestBuildFactors_NoWriter_EmptyTable_ReportsNoWriter(t *testing.T) {
+	t.Parallel()
+
+	in, _ := portfolioFixture()
+	b := &Builder{
+		Factors: []cdom.FactorType{cdom.FactorMomentum},
+		ZScores: fakeZScores{
+			"A": {cdom.FactorMomentum: 1.0},
+		},
+		FactorReturns: probeFactorReturns{hasAny: false},
+	}
+
+	_, err := b.BuildFactors(context.Background(), in)
+	var unavailable *FactorReturnsUnavailableError
+	require.True(t, errors.As(err, &unavailable), "want FactorReturnsUnavailableError, got %v", err)
+	assert.Equal(t, FactorReturnsNoWriter, unavailable.Reason)
+	assert.Contains(t, err.Error(), "no production writer")
+	assert.Contains(t, err.Error(), "ADR-038")
+}
+
+func TestBuildFactors_TableHasRows_ReportsNoRows(t *testing.T) {
+	t.Parallel()
+
+	in, _ := portfolioFixture()
+	b := &Builder{
+		Factors:       []cdom.FactorType{cdom.FactorMomentum},
+		ZScores:       fakeZScores{"A": {cdom.FactorMomentum: 1.0}},
+		FactorReturns: probeFactorReturns{hasAny: true},
+	}
+
+	_, err := b.BuildFactors(context.Background(), in)
+	var unavailable *FactorReturnsUnavailableError
+	require.True(t, errors.As(err, &unavailable), "want FactorReturnsUnavailableError, got %v", err)
+	assert.Equal(t, FactorReturnsNoRows, unavailable.Reason)
+	assert.NotContains(t, err.Error(), "no production writer")
+}
+
+func TestBuildFactors_ProbeError_DegradesToNoRows(t *testing.T) {
+	t.Parallel()
+
+	in, _ := portfolioFixture()
+	b := &Builder{
+		Factors:       []cdom.FactorType{cdom.FactorMomentum},
+		ZScores:       fakeZScores{"A": {cdom.FactorMomentum: 1.0}},
+		FactorReturns: probeFactorReturns{err: errors.New("db down")},
+	}
+
+	_, err := b.BuildFactors(context.Background(), in)
+	var unavailable *FactorReturnsUnavailableError
+	require.True(t, errors.As(err, &unavailable), "want FactorReturnsUnavailableError, got %v", err)
+	assert.Equal(t, FactorReturnsNoRows, unavailable.Reason, "探针失败不得被伪装成 no_writer")
+}
+
+func TestBuildFactors_PartialMissing_NamesMissingFactors(t *testing.T) {
+	t.Parallel()
+
+	in, _ := portfolioFixture()
+	b := &Builder{
+		Factors: []cdom.FactorType{cdom.FactorMomentum, cdom.FactorValue},
+		ZScores: fakeZScores{
+			"A": {cdom.FactorMomentum: 1.0},
+			"B": {cdom.FactorMomentum: -1.0},
+		},
+		FactorReturns: fakeFactorReturns{
+			cdom.FactorMomentum: {
+				{TradeDate: time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC), TopMinusBot: 0.05},
+			},
+		},
+	}
+
+	out, err := b.BuildFactors(context.Background(), in)
+	require.NoError(t, err, "部分缺失不应让整类产物缺席")
+	require.Len(t, out.Factors, 1)
+	assert.Equal(t, "momentum", out.Factors[0].Name)
+	assert.Equal(t, []string{"value"}, out.MissingFactors, "缺失因子必须点名，不许静默跳过")
 }

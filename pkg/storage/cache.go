@@ -162,6 +162,18 @@ func (s *PostgresStore) SaveFactorReturnBatch(ctx context.Context, records []*do
 	return nil
 }
 
+// HasFactorReturns 报告 factor_returns 表里是否**有任何行**。
+//
+// 用途：产物组装在「全部因子都取不到收益」时区分两种原因——表空 = 本栈没有
+// 生产写者（ADR-038），表非空 = 本次窗口没数据。只做一次 EXISTS，不拉数据。
+func (s *PostgresStore) HasFactorReturns(ctx context.Context) (bool, error) {
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM factor_returns)`).Scan(&exists); err != nil {
+		return false, fmt.Errorf("probe factor_returns: %w", err)
+	}
+	return exists, nil
+}
+
 // GetFactorReturns retrieves factor returns for a factor within a date range.
 func (s *PostgresStore) GetFactorReturns(ctx context.Context, factor cdom.FactorType, startDate, endDate time.Time) ([]*domain.FactorReturn, error) {
 	query := `

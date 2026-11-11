@@ -41,7 +41,12 @@ type FactorExposure struct {
 }
 
 // FactorExposures 是因子归因的输入（analytics §6.2）。
+//
+// MissingFactors 是部分缺失时的点名（ADR-038 D3）：有值因子照常计入，但缺哪些
+// 必须可见，消费方据此判断归因覆盖度。全缺失不产出本结构，而是返回
+// *FactorReturnsUnavailableError。新增字段是加法，旧 reader 解码时忽略即可。
 type FactorExposures struct {
-	Factors     []FactorExposure `json:"factors"`
-	DatasetHash string           `json:"dataset_hash"`
+	Factors        []FactorExposure `json:"factors"`
+	MissingFactors []string         `json:"missing_factors,omitempty"`
+	DatasetHash    string           `json:"dataset_hash"`
 }
