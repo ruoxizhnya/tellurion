@@ -233,6 +233,10 @@ func TestBacktestPost_NautilusKernelEndToEnd(t *testing.T) {
 		"start_date": start,
 		"end_date":   end,
 		"kernel":     nautilus.KernelName,
+		// QT-02：留空 = 生效口径 next_open，而 nautilus 内核只实现收盘成交，
+		// 请求会在执行前被拒（400 → 503），这条 E2E 腿永远跑不到落库断言。
+		// 与同包其余 nautilus 请求同口径显式钉 same_close。
+		"fill_timing": string(contracts.FillTimingSameClose),
 	}
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
