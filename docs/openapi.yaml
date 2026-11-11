@@ -1180,42 +1180,30 @@ paths:
   # ============================================================
   # Copilot (AI strategy generation)
   # ============================================================
+  # ⚠️ 以下 10 条 copilot/pipeline/explore/tools 都是 core 的**反代入口**
+  # （`x-served-by: agent`，G-06 裁决：端点双声明以 agent 为准）。本文件不再
+  # 复制请求/响应 schema —— 唯一完整定义在 tellurion-agent:docs/api-schema.md，
+  # 那里同样标了 `x-served-by: agent`。此处只保留路径、方法与「转发成功 /
+  # 上游不可达」两种结果，避免两份 schema 静默漂移。
   /api/copilot/generate:
     post:
       tags: [Copilot]
-      summary: Generate strategy via AI
-      description: Submits a natural-language description and starts AI strategy generation.
+      summary: Generate strategy via AI（反代 agent）
+      description: 转发到 ai-service 的 `POST /copilot/generate`；请求体与响应以 agent 的 api-schema 为准。
       operationId: generateStrategy
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CopilotGenerateRequest'
+      x-served-by: agent
       responses:
         '202':
-          description: Generation job started
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  job_id:
-                    type: string
-                  status:
-                    type: string
+          description: Upstream response (pass-through)
         '503':
-          description: AI not configured
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          description: ai-service unreachable
 
   /api/copilot/generate/{job_id}:
     get:
       tags: [Copilot]
-      summary: Get generation job status
+      summary: Get generation job status（反代 agent）
       operationId: getGenerationJob
+      x-served-by: agent
       parameters:
         - name: job_id
           in: path
@@ -1224,50 +1212,21 @@ paths:
             type: string
       responses:
         '200':
-          description: Job status and result
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  job_id:
-                    type: string
-                  status:
-                    type: string
-                  generated_code:
-                    type: string
-                  build_error:
-                    type: string
-                  strategy_name:
-                    type: string
-                  backtest_error:
-                    type: string
-                  backtest_result:
-                    type: object
-        '404':
-          $ref: '#/components/responses/NotFound'
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
 
   /api/copilot/stats:
     get:
       tags: [Copilot]
-      summary: Get copilot statistics
+      summary: Get copilot statistics（反代 agent）
       operationId: getCopilotStats
+      x-served-by: agent
       responses:
         '200':
-          description: Copilot statistics
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  generated:
-                    type: integer
-                  buildable:
-                    type: integer
-                  backtest_valid:
-                    type: integer
-                  acceptance_rate:
-                    type: number
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
 
   # /api/copilot/save 已于 AUD-01 (ODR-065 C3) 删除，不是加固。
   # 原因：零生产调用方（前端 S7-P2-7 已删 saveStrategy stub），且其用途
@@ -1282,47 +1241,34 @@ paths:
   /api/pipeline/run:
     post:
       tags: [AI Pipeline]
-      summary: Run AI strategy generation pipeline
-      description: |
-        Executes the full pipeline: intent parsing → YAML generation →
-        code generation → compilation → backtest.
+      summary: Run AI strategy generation pipeline（反代 agent）
+      description: 转发到 ai-service 的 `POST /pipeline/run`；流程与载荷以 agent 的 api-schema 为准。
       operationId: runPipeline
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PipelineRunRequest'
+      x-served-by: agent
       responses:
         '200':
-          description: Pipeline execution result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PipelineJobResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
 
   /api/pipeline/jobs:
     get:
       tags: [AI Pipeline]
-      summary: List pipeline jobs
+      summary: List pipeline jobs（反代 agent）
       operationId: listPipelineJobs
+      x-served-by: agent
       responses:
         '200':
-          description: List of pipeline jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PipelineJobResponse'
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
 
   /api/pipeline/jobs/{id}:
     get:
       tags: [AI Pipeline]
-      summary: Get pipeline job by ID
+      summary: Get pipeline job by ID（反代 agent）
       operationId: getPipelineJob
+      x-served-by: agent
       parameters:
         - name: id
           in: path
@@ -1331,13 +1277,9 @@ paths:
             type: string
       responses:
         '200':
-          description: Pipeline job
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PipelineJobResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
 
   # ============================================================
   # Auth
@@ -3318,6 +3260,8 @@ paths:
           description: Reconciliation worker is not enabled
 
   # ---- 反代族（REV-13：代码注册的是通配 Any，此处按族登记；子路径直通上游）----
+  # 四条都标 `x-served-by: agent`：路径语义与载荷以 agent 的 api-schema 为准，
+  # 本文件只声明「core 有这条入口」。 ----
 
   /api/explore:
     get:
@@ -3328,6 +3272,7 @@ paths:
         ai-service，路径语义由上游决定：网关只做转发、SSE 直通与 503 点名。
         此前这一族完全没有契约记录（「探索观察台无文档」的缺口）。
       operationId: proxyExploreRoot
+      x-served-by: agent
       responses:
         '200':
           description: Upstream response (pass-through)
@@ -3339,6 +3284,7 @@ paths:
       tags: [Data Proxy]
       summary: Explore family (proxied to ai-service) — any sub-path
       operationId: proxyExplorePath
+      x-served-by: agent
       parameters:
         - name: path
           in: path
@@ -3359,6 +3305,7 @@ paths:
         AI 工具注册表族（S7-P3-3）的反代入口。`/api/tools/*` 全部直通
         ai-service；工具清单与调用语义由上游决定。
       operationId: proxyToolsRoot
+      x-served-by: agent
       responses:
         '200':
           description: Upstream response (pass-through)
@@ -3370,6 +3317,7 @@ paths:
       tags: [Data Proxy]
       summary: Tools family (proxied to ai-service) — any sub-path
       operationId: proxyToolsPath
+      x-served-by: agent
       parameters:
         - name: path
           in: path
@@ -4712,53 +4660,9 @@ components:
         max:
           type: number
 
-    CopilotGenerateRequest:
-      type: object
-      properties:
-        description:
-          type: string
-          example: "20日动量策略，在沪深300中选出最强10只股票"
-        language:
-          type: string
-          default: go
-
-    PipelineRunRequest:
-      type: object
-      required: [description]
-      properties:
-        description:
-          type: string
-          example: "20日动量策略，在沪深300中选出最强10只股票"
-
-    PipelineJobResponse:
-      type: object
-      properties:
-        id:
-          type: string
-        status:
-          type: string
-        intent:
-          type: object
-        yaml_config:
-          type: string
-        generated_code:
-          type: string
-        build_error:
-          type: string
-        backtest_result:
-          type: object
-        backtest_error:
-          type: string
-        started_at:
-          type: string
-        completed_at:
-          type: string
-        duration_ms:
-          type: integer
-        logs:
-          type: array
-          items:
-            type: string
+    # CopilotGenerateRequest / PipelineRunRequest / PipelineJobResponse 已删除：
+    # 这三族的请求与响应 schema 归 tellurion-agent 的 api-schema.md（G-06），
+    # core 侧只保留反代入口（`x-served-by: agent`），此处不再复制第二份。
 
     LoginRequest:
       type: object

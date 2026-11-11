@@ -276,13 +276,37 @@ func TestRouteContract_SpecToCode(t *testing.T) {
 			"经反代族转发的会被通配路由自动覆盖。\n%s",
 		strings.Join(ghosts, "\n"))
 
-	// 宿主声明只允许出现在 data-service 的 ingest 两条上——否则
-	// `x-served-by` 就成了绕过双向对拍的万能后门。
-	require.Len(t, otherHost, 2, "x-served-by 只应有 2 条（ingest/raw、ingest/equitydeep）")
+	// 宿主声明只允许出现在下面**逐条列出**的键上——否则 `x-served-by`
+	// 就成了绕过双向对拍的万能后门。刻意不做前缀匹配（写成 `/api/copilot/*`
+	// 会把未来新增的路径一起吞掉），新增一条宿主声明必须同时改这里。
+	//
+	//   - data-service：ingest 两条（只在 :8081 注册）
+	//   - agent：copilot / pipeline / explore / tools 的反代入口共 10 条
+	//     （G-06 裁决：端点双声明以 agent 为准，core 只留入口壳）
+	allowedOtherHost := map[string]map[string]bool{
+		"data-service": {
+			"POST /api/ingest/raw":        true,
+			"POST /api/ingest/equitydeep": true,
+		},
+		"agent": {
+			"POST /api/copilot/generate":         true,
+			"GET /api/copilot/generate/{job_id}": true,
+			"GET /api/copilot/stats":             true,
+			"POST /api/pipeline/run":             true,
+			"GET /api/pipeline/jobs":             true,
+			"GET /api/pipeline/jobs/{id}":        true,
+			"GET /api/explore":                   true,
+			"GET /api/explore/{path}":            true,
+			"GET /api/tools":                     true,
+			"GET /api/tools/{path}":              true,
+		},
+	}
+	require.Len(t, otherHost, 12, "x-served-by 只应有 12 条（ingest 2 + agent 反代入口 10）")
 	for key, host := range otherHost {
-		assert.Equal(t, "data-service", host, "%s 的宿主声明应为 data-service", key)
-		assert.Contains(t, []string{"POST /api/ingest/raw", "POST /api/ingest/equitydeep"}, key,
-			"只有 ingest 两条允许声明别的宿主（它们只在 :8081 注册）")
+		allowed, knownHost := allowedOtherHost[host]
+		require.Truef(t, knownHost, "%s 声明了未登记的宿主 %q —— 新宿主必须先加进本表的白名单", key, host)
+		assert.Truef(t, allowed[key],
+			"%s 不在 %s 的允许清单里 —— 新增宿主声明必须先在白名单逐条登记，不许用前缀吞路径", key, host)
 	}
 }
 
