@@ -32,7 +32,7 @@
 
 | 服务 | schema | 持有表（摘要） | DDL 归属 |
 |---|---|---|---|
-| **数据服务** | `market` + `ingest` | ohlcv / bars / symbols / 复权因子 / 公司行为 / fundamentals / macro / sector / supply_chain / factor_definitions / factor_values / data_sync_state | ✅ 唯一 |
+| **数据服务** | `market` + `ingest` | ohlcv / bars / symbols / 复权因子 / 公司行为 / macro / sector / supply_chain / factor_definitions / factor_values / data_sync_state | ✅ 唯一 |
 | **策略服务** | `strategy` | strategy_definitions / strategy_artifacts / strategy_versions | ✅ |
 | **风控服务** | `risk` | risk_rules / risk_limits / risk_events / 熔断开关 / compliance 报送 / alerts | ✅ |
 | **分析服务** | `analysis` | 报表 / 基准 / 归因结果 / 敏感性扫描 | ✅ |
@@ -45,6 +45,8 @@
 | **内核（鉴权域）** | 无 schema 前缀（`public`） | `users`（含会话/角色） | ✅ **owner = core（ADR-017 鉴权域，SPEC-R-02）**；写者 `tellurion:pkg/auth/auth.go` |
 
 > ⚠️ **2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：`strategy_state` 归 **strategy-runtime 模块**（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`——本文「`strategy_state` 归编排服务 / 迁 `run`」的旧口径**作废**（含上表编排行、下方第 3 条与风险表对应行）；`backtest_jobs` 迁 `run` 不受影响。
+
+> ⚠️ **2026-11-12 订正（基本面归属裁决）**：上表原列的 `fundamentals` **归 core，不在数据服务**。取证：core 的 `pkg/storage/postgres.go` 建 `public.stock_fundamentals`、`pkg/storage/fundamentals.go` 是唯一读写点（含 PIT 的 `available_date` 逻辑）；data 的 `internal/store/write.go` 把 `fundamentals` 放进 `writeExcludedTypes` 拒绝写，`market` schema 里也没有这张表。读面是 core 的 `GET /api/fundamental/{symbol}`（空态 404 `fundamental_not_found`，缺表由 `/readyz` 暴露）；data 侧的 `/fundamental/{symbol}` 已删除。事实口径以 `tellurion-data:docs/db-schema.md` §9.1 与 `tellurion:docs/ARCHITECTURE.md` §2 为准。
 
 三条纪律（参考库 §七）：
 1. **每张表只归一个服务写**，其他服务只读（走接口/视图，不直接摸表）；
