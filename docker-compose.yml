@@ -142,7 +142,7 @@ services:
     environment:
       # 数据服务只读 DSN（不是 core 旧 viper 的 DATABASE_HOST/PORT/USER/DATABASE 四键）。
       # 容器内视角：宿主机 PG 走 host.docker.internal（容器里的 localhost 是容器自己）。
-      DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
       # 目标 schema（X1d 方向，出厂即 market）：数据仓据此定 DDL 落点与读表前缀。
       DATA_MARKET_SCHEMA: market
       TUSHARE_TOKEN: ${TUSHARE_TOKEN}
@@ -220,7 +220,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: tellurion
+      DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
       # REDIS_URL 于 2026-11-10 移除（同 data-service：本仓已无 redis 读取点）。
       DATA_SERVICE_URL: http://data-service:8081
       # STRATEGY_SERVICE_URL 已随 OBS-11（2026-10-09）删除：策略服务 standby
@@ -318,7 +318,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: tellurion
+      DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
       # REDIS_URL 于 2026-11-10 移除（ai-service 的代码也不读 redis）。
       DATA_SERVICE_URL: http://data-service:8081
       # factor.compute / factor.evaluate / compute_factor_ic 在当前栈上不可用：
@@ -367,7 +367,7 @@ services:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: tellurion
+      DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       # 编排服务在 `full` profile，容器内直接用 compose 服务名。
       ORCHESTRATION_URL: ${ORCHESTRATION_URL:-http://orchestration:8088}
@@ -378,8 +378,22 @@ services:
       # data_service.url）。yaml 默认是宿主机视角 localhost:8081；容器里必须
       # 显式指向 compose 服务名，否则取数会打到 worker 自己容器上。
       DATA_SERVICE_URL: http://data-service:8081
+      # ruleset 装配与 analysis 用同一组键。yaml 默认 resolve_url 是宿主机视角
+      # localhost:8089，且 resolve_enabled=true —— worker 容器里照抄会拒起
+      # （localhost 是容器自己）。这里与 analysis 保持同一档位：
+      # 默认 false = 用代码常量限额，要真快照就 up 前显式置 true。
+      RISK_SERVICE_RESOLVE_ENABLED: ${RISK_SERVICE_RESOLVE_ENABLED:-false}
+      RISK_SERVICE_RESOLVE_URL: ${RISK_SERVICE_RESOLVE_URL:-http://risk:8089}
+      RISK_SERVICE_RESOLVE_TOKEN: ${RISK_SERVICE_RESOLVE_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-}
       LOGGING_LEVEL: info
+    # worker 启动即注册；编排还没 healthy 时会 DNS 解析不到并 fail-closed 退出。
+    # 因此显式等编排与取数面就绪 —— 这是起栈顺序，不是健康判据放宽。
+    depends_on:
+      orchestration:
+        condition: service_healthy
+      data-service:
+        condition: service_healthy
     restart: "no"
 
   # dualrun 是**一次性验收门**（K15 双跑差异报告），跑完退出码即结论：
@@ -396,14 +410,14 @@ services:
     command:
       - "/app/dualrun"
       - "-pg"
-      - "${DUALRUN_PG_DSN:-postgres://postgres:postgres@host.docker.internal:5432/tellurion?sslmode=disable}"
+      - "${DUALRUN_PG_DSN:-postgres://postgres:postgres@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable}"
       - "-out"
       - "/app/reports/dualrun-latest.md"
     environment:
       DATABASE_HOST: host.docker.internal
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
-      DATABASE_DATABASE: tellurion
+      DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       LOGGING_LEVEL: info
     volumes:
@@ -429,7 +443,7 @@ services:
       - "127.0.0.1:8089:8089"
     environment:
       # 要换库改 .env 的 DATABASE_PASSWORD（或直接改本行）。
-      RISK_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      RISK_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
       # 与 analysis 同源：不设 = 全栈 open-access（仅回环可达）；设了则四个
       # full 服务一起开鉴权。容器绑 0.0.0.0，无 secret 时必须显式声明
       # loopback-published 才让启动闸（kit DecideStartup）放行。
@@ -456,7 +470,7 @@ services:
     ports:
       - "127.0.0.1:8090:8090"
     environment:
-      STRATEGY_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      STRATEGY_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-}
       # 容器内绑 0.0.0.0 才能发端口，但只发布在宿主回环 —— 无 secret 时靠这一项
       # 让启动闸放行；缺它则按设计拒绝启动。
@@ -481,7 +495,7 @@ services:
     ports:
       - "127.0.0.1:8087:8087"
     environment:
-      ANALYTICS_DATABASE_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      ANALYTICS_DATABASE_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
       # core / data / orchestration 都是 compose 成员，直接用服务名（原聚合栈
       # 因为没有 core，才不得不走 host.docker.internal）。
       ANALYTICS_CORE_URL: ${ANALYTICS_CORE_URL:-http://analysis-service:8085}
@@ -517,7 +531,7 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       # DSN 为空时本服务按设计拒绝启动（fail-closed）。
-      ORCHESTRATION_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      ORCHESTRATION_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
       # 验签方：SVC-ORCH-G1 起 /api/* 全量 service 角色；/healthz /readyz 公开。
       JWT_SECRET: ${JWT_SECRET:-}
       AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
