@@ -1,5 +1,7 @@
 # Quant Lab (tellurion)
 
+> 5 分钟了解本服务：[SERVICE.md](SERVICE.md)
+
 > **A股多因子量化交易系统** — Go 后端（analysis 网关 + 回测 / 风控 / 执行）+ PostgreSQL；
 > data / ai / ui 各自成仓（`tellurion-data` / `tellurion-agent` / `tellurion-ui`）
 >
