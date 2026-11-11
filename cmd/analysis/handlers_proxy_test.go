@@ -133,6 +133,32 @@ func TestIngestRaw_Retired(t *testing.T) {
 	assert.Empty(t, *received, "退役路由不得向上游发请求")
 }
 
+// TestEvidenceProxy_PassesThroughUpstreamStatus 钉住 ADR-0010 的读反代：
+// core 把 content_hash 原样带到 data 的 `/api/evidence/{hash}`，上游 200 / 404
+// 都原样透传——「未摄取」不能被网关改写成 502。
+func TestEvidenceProxy_PassesThroughUpstreamStatus(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+
+	var gotPath string
+	router, received := newProxyTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		jsonUpstream(http.StatusOK, `{"content_hash":"`+hash+`","source":"tushare","dataset":"daily","key":"600519.SH","payload":{"close":1},"fetched_at":"2026-11-12T00:00:00Z"}`)(w, r)
+	})
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/evidence/"+hash, nil))
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Len(t, *received, 1)
+	assert.Equal(t, "/api/evidence/"+hash, gotPath)
+	assert.Contains(t, w.Body.String(), `"content_hash":"`+hash+`"`)
+
+	router, _ = newProxyTestRouter(t, jsonUpstream(http.StatusNotFound, `{"error":{"code":"evidence_not_found","message":"not ingested"}}`))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/evidence/"+hash, nil))
+	require.Equal(t, http.StatusNotFound, w.Code, "上游 404 必须原样透传，不能改成 502: %s", w.Body.String())
+	assert.Contains(t, w.Body.String(), `"code":"evidence_not_found"`)
+}
+
 // TestIngestPoints_ProxiesToTheRealWriteDoor 钉住对齐后的真实路径：
 // `/api/ingest/points` → data `/ingest/points`，body 与凭证原样透传。
 func TestIngestPoints_ProxiesToTheRealWriteDoor(t *testing.T) {

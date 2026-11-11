@@ -2656,6 +2656,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/evidence/{content_hash}:
+    get:
+      # 本路径在本仓注册为**读反代**（ADR-0010），与 /api/sync/* 同族：
+      # 权威读面与存储都在 data 的归档面，本进程不持有第二份证据存储。
+      # 不标 `x-served-by`——那个标记的语义是「本仓没有这条路由」，
+      # 而本仓确实注册了入口（合同测试 CodeToSpec 会要求它出现在本文件）。
+      tags: [Evidence]
+      summary: Fetch the archived raw source response behind a citation
+      description: |
+        Returns the unique, immutable `ingest.raw` record for a `content_hash`
+        (ADR-0010). The archive is written only by the data service
+        (`POST /api/ingest/raw`); core forwards this read and never keeps a
+        second evidence store.
+
+        `404 evidence_not_found` means the response was never ingested — the UI
+        must label the citation as "not ingested" rather than fabricate one.
+        Payloads are field-level redacted before hashing and storage, so the
+        hash always resolves to exactly what is returned here.
+      operationId: getEvidence
+      parameters:
+        - name: content_hash
+          in: path
+          required: true
+          description: 64-char lowercase hex sha256 computed by the data service over the redacted payload
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}$'
+      responses:
+        '200':
+          description: The archived raw response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawIngest'
+        '400':
+          description: content_hash is not 64 lowercase hex chars
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No archive for this content_hash (not ingested)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Data service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/ingest/equitydeep:
     post:
       x-served-by: data-service   # REV-13：只在 :8081 注册（本文件 servers 是 :8085）
@@ -3712,9 +3765,11 @@ components:
     RawIngestWrite:
       type: object
       description: |
-        Wire format of POST /api/ingest/raw. The payload is archived verbatim;
-        content_hash is computed by the server from the payload, never trusted
-        from the caller.
+        Wire format of POST /api/ingest/raw. The payload is field-level redacted
+        (token / secret / password / api_key / authorization / cookie / session
+        style keys) and canonicalized before hashing; content_hash is computed
+        by the server from the redacted payload, never trusted from the caller.
+        Archived content is therefore exactly what the hash resolves to.
       required: [source, dataset, key, payload]
       properties:
         source:
@@ -3742,9 +3797,10 @@ components:
         content_hash:
           type: string
           description: |
-            Optional. When supplied it is verified against the payload, letting
-            a caller confirm it is re-sending the response it cited; a mismatch
-            is rejected instead of poisoning the evidence index.
+            Optional. When supplied it is verified against the canonical hash of
+            the redacted payload, letting a caller confirm it is re-sending the
+            response it cited; a mismatch is rejected instead of poisoning the
+            evidence index.
 
     ExternalSignal:
       type: object
@@ -4014,7 +4070,7 @@ components:
           description: Point-in-time the data describes (PIT alignment)
         payload:
           type: object
-          description: The raw source response, archived verbatim
+          description: The raw source response, archived after field-level redaction
         fetched_at:
           type: string
           format: date-time

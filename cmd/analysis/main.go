@@ -405,9 +405,10 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	}
 	NewComplianceHandler(deps.Logger, defaultProfile, reporterCfg).RegisterRoutes(router)
 
-	// SVC-CORE-DATA-RETIRE（2026-11-08）：L0-3 的 Evidence API 读
-	// `ingest.raw`（原始源响应归档），该表随数据面退役；证据坐标改由数据
-	// 服务仓的归档面提供，本进程不再注册。
+	// SVC-CORE-DATA-RETIRE（2026-11-08）/ ADR-0010（2026-11-12）：证据读面
+	// `GET /api/evidence/{content_hash}` 的权威实现在数据服务仓的归档面
+	//（`ingest.raw` 的唯一写者 = data）；本进程只注册读反代
+	//（`handlers_proxy.go`），不持有第二份证据存储，也不提供写入。
 
 	// P2-2 (TASKS.md §五 leftover ruling): industry-chain static data layer
 	// read API (SW industry tree / supply-chain edges / industry vitality /

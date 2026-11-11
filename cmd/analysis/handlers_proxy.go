@@ -96,6 +96,16 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		c.JSON(resp.StatusCode, result)
 	}
 
+	// ADR-0010（2026-11-12）：证据坐标的权威读面在数据服务仓的归档面
+	//（`ingest.raw` 的唯一写者 = data）。本进程只注册读反代，不持有第二份
+	// 证据存储，也不提供写入（写面直连 data 的 `/api/ingest/raw`）。
+	// 用 proxyRequest 而非 ReverseProxy：单条 JSON、无 SSE，且上游 404
+	//（未摄取）必须原样透给证据页，不能被网关改写成 502。
+	router.GET("/api/evidence/:content_hash", func(c *gin.Context) {
+		hash := c.Param("content_hash")
+		proxyRequest(c, http.MethodGet, dataServiceURL+"/api/evidence/"+url.PathEscape(hash), nil)
+	})
+
 	router.GET("/api/ohlcv/:symbol", func(c *gin.Context) {
 		symbol := c.Param("symbol")
 		startDate := c.Query("start_date")
