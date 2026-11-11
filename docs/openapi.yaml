@@ -2377,11 +2377,20 @@ paths:
 
   /api/screen:
     post:
-      tags: [Data Proxy]
-      summary: Screen stocks (proxied)
+      tags: [Data]
+      summary: Screen stocks by fundamentals (served locally by core)
+      description: |
+        分析语义（基本面筛选）归 core，本地读 `stock_fundamentals` +
+        `market.stocks`，不再反代 data-service（2026-11-12 裁）。
+
+        请求体接受两种等价拼法：ui 现状的扁平字段（`{pe_max, pb_max, roe_min, ...}`）
+        或 `{filters:{...}, date, limit}`；空 body = 无筛选条件。`limit` 缺省 100、
+        上限 500（超出钳制，不报错）。
+
+        `results` 恒为数组（空结果是 `[]`，不是 `null`）。
       operationId: screenStocks
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -2393,20 +2402,32 @@ paths:
             application/json:
               schema:
                 type: object
-        '502':
-          description: Data service unavailable
+                required: [count, results]
+                properties:
+                  count:
+                    type: integer
+                    description: results 的条数
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScreenResult'
+        '400':
+          description: Invalid body or date (must be YYYY-MM-DD)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '503':
+          description: Storage not wired (service started without a database)
 
   /api/stocks/count:
     get:
-      tags: [Data Proxy]
-      summary: Stock records + status split (proxied)
+      tags: [Data]
+      summary: Stock records + status split (derived from GET /stocks)
       description: >
-        网关是字段透传（proxyRequest 解码成 map 再编码），形状由数据服务定义，
-        见 docs/SPEC.md §1「GET /stocks/count 的响应形状」。
+        由数据服务已有读面 `GET /stocks` 派生（2026-11-12 裁）：`count` /
+        `by_status` 是同一份票池的聚合，`latest_date` 由该响应的同名键带回。
+        **不新增 `/stocks/count` 端点**。
       operationId: getStockCount
       responses:
         '200':
@@ -2577,51 +2598,59 @@ paths:
 
   /api/ingest/raw:
     post:
-      x-served-by: data-service   # REV-13：只在 :8081 注册（本文件 servers 是 :8085）
       tags: [Evidence]
-      summary: Archive a raw external-source response into ingest.raw
+      summary: Retired — the raw archive door is gone with ingest.raw
       description: |
-        L0 ingest write door (ADR-022 §2/§3 / TASKS.md L0-1). The platform's
-        single write door into `ingest.raw` (class A). The data service writes
-        here in-process at the tushare request choke point; external producers
-        — in practice the akshare side of work face 1 — post here so their data
-        becomes citable by content_hash instead of being copied into a second
-        store. （core 的 GET /api/evidence/{content_hash} 已随 ingest.raw 退役，
-        解析读面由数据服务提供。）
+        `POST /api/ingest/raw` 的承载能力已随 `ingest.raw` 退役（ADR-0008 /
+        core ADR-022 的收口），data-service 也从未在该路径上注册路由。
 
-        The door is deliberately narrow: it archives a verbatim payload and
-        returns the content_hash that citations must carry. It does not
-        normalise, interpret, or validate domain content — normalisation is a
-        separate, reproducible step that reads these rows back.
+        平台**唯一**写门是数据服务的 `POST /ingest/points`，core 以
+        `POST /api/ingest/points` 转发同一路径（2026-11-12 裁：两边对齐到
+        同一真实路径，不为旧路径名造第二个写入口）。
 
-        Idempotent: content_hash is the primary key and the insert is
-        ON CONFLICT DO NOTHING, so re-posting the same response is a no-op and
-        never rewrites the original attribution.
+        保留路由注册而不是删掉变 404：旧调用方能拿到可判定的机器码
+        `ingest_raw_retired`（与 `/api/factors/{factor_name}` 同一处置）。
       operationId: ingestRaw
+      responses:
+        '410':
+          description: Capability retired (machine code `ingest_raw_retired`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/ingest/points:
+    post:
+      tags: [Evidence]
+      summary: The platform's single write door — normalized points (proxied to data-service)
+      description: |
+        数据服务唯一写面 `POST /ingest/points` 的网关入口：body 原样转发、
+        凭证原样透传，闸门与幂等判定都在数据服务（`tellurion-data`
+        `internal/assembly`）。8 MiB 上限与数据服务一致。
+      operationId: ingestPoints
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RawIngestWrite'
+              type: object
       responses:
-        '201':
-          description: Archived, or already present. Returns the stored record carrying the authoritative content_hash.
+        '200':
+          description: Points accepted (shape defined by the data service)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RawIngest'
+                type: object
         '400':
-          description: |
-            Rejected before any write: missing source/dataset/key/payload,
-            malformed body, a content_hash that does not match the payload, or
-            an as_of that is neither `YYYY-MM-DD` nor RFC3339.
+          description: Rejected by the data service (invalid payload)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '500':
-          description: The archive write failed
+        '413':
+          description: Body exceeds the 8 MiB limit
+        '502':
+          description: Data service unavailable
           content:
             application/json:
               schema:
@@ -3467,6 +3496,40 @@ components:
   # Schemas
   # ============================================================
   schemas:
+    ScreenResult:
+      type: object
+      description: One row of POST /api/screen (tellurion/pkg/domain.ScreenResult).
+      required: [ts_code]
+      properties:
+        ts_code:
+          type: string
+        pe:
+          type: number
+          nullable: true
+        pb:
+          type: number
+          nullable: true
+        ps:
+          type: number
+          nullable: true
+        roe:
+          type: number
+          nullable: true
+        roa:
+          type: number
+          nullable: true
+        debt_to_equity:
+          type: number
+          nullable: true
+        gross_margin:
+          type: number
+          nullable: true
+        net_margin:
+          type: number
+          nullable: true
+        market_cap:
+          type: number
+          nullable: true
     BacktestProvenance:
       type: object
       description: |

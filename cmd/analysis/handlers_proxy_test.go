@@ -8,6 +8,8 @@ package main
 // 向上游发请求（ADR-037 §5 / ADR-041）。
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,6 +78,85 @@ func TestFactorCitationProxy_Retired_IgnoresSelectors(t *testing.T) {
 	require.Equal(t, http.StatusGone, w.Code, "body: %s", w.Body.String())
 	assert.Contains(t, w.Body.String(), `"code":"factor_http_surface_retired"`)
 	assert.Empty(t, *received)
+}
+
+// TestStockCount_DerivedFromStocksReadFace 钉住 2026-11-12 裁的派生口径：
+// 网关**不再**打 `/stocks/count`（data 从未有该路由），而是读 `GET /stocks`
+// 后聚合 count/by_status，并原样带出 latest_date。
+func TestStockCount_DerivedFromStocksReadFace(t *testing.T) {
+	var gotPath string
+	router, received := newProxyTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		jsonUpstream(http.StatusOK, `{"stocks":[{"status":"active"},{"status":"active"},{"status":"delisted"},{"status":""}],"latest_date":"2024-06-28"}`)(w, r)
+	})
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stocks/count", nil))
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Len(t, *received, 1)
+	assert.Equal(t, "/stocks", gotPath, "派生读面必须是 /stocks，不是 /stocks/count")
+
+	var got struct {
+		Count      int              `json:"count"`
+		ByStatus   map[string]int64 `json:"by_status"`
+		LatestDate *string          `json:"latest_date"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, 4, got.Count)
+	assert.Equal(t, int64(2), got.ByStatus["active"])
+	assert.Equal(t, int64(1), got.ByStatus["delisted"])
+	assert.Equal(t, int64(1), got.ByStatus["unknown"], "空 status 折成 unknown（DATA-02 口径）")
+	require.NotNil(t, got.LatestDate)
+	assert.Equal(t, "2024-06-28", *got.LatestDate)
+}
+
+// TestStockCount_UpstreamFailureIs5xx 钉住「读失败不折成 0」：票池读挂时
+// 必须回 5xx，而不是一个看起来正常的 count=0。
+func TestStockCount_UpstreamFailureIs5xx(t *testing.T) {
+	router, _ := newProxyTestRouter(t, jsonUpstream(http.StatusServiceUnavailable, `{"error":{"code":"dependency_unavailable"}}`))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stocks/count", nil))
+	assert.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
+}
+
+// TestIngestRaw_Retired 钉住退役壳：410 + 机器码，且上游收到 0 次请求。
+func TestIngestRaw_Retired(t *testing.T) {
+	router, received := newProxyTestRouter(t, jsonUpstream(http.StatusOK, `{"unexpected":true}`))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/ingest/raw", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusGone, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"code":"ingest_raw_retired"`)
+	assert.Empty(t, *received, "退役路由不得向上游发请求")
+}
+
+// TestIngestPoints_ProxiesToTheRealWriteDoor 钉住对齐后的真实路径：
+// `/api/ingest/points` → data `/ingest/points`，body 与凭证原样透传。
+func TestIngestPoints_ProxiesToTheRealWriteDoor(t *testing.T) {
+	var gotPath, gotBody, gotAuth string
+	router, _ := newProxyTestRouter(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		buf := new(strings.Builder)
+		_, _ = io.Copy(buf, r.Body)
+		gotBody = buf.String()
+		jsonUpstream(http.StatusOK, `{"accepted":1}`)(w, r)
+	})
+
+	payload := `{"points":[{"symbol":"600519.SH"}]}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/ingest/points", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer trader-token")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "/ingest/points", gotPath)
+	assert.Equal(t, payload, gotBody)
+	assert.Equal(t, "Bearer trader-token", gotAuth)
 }
 
 // TestProxyForwardsAuthorization 是裁-15 的核心侧守卫：数据服务上鉴权后，

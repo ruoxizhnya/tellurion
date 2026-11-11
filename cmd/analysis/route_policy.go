@@ -114,6 +114,13 @@ var analysisRoutePolicy = authz.Policy{
 		"POST /api/screen",
 		"POST /api/signals",
 
+		// 数据写门（2026-11-12 裁）：平台唯一写入口，落到数据服务的
+		// `POST /ingest/points`。写库动作，viewer 不得触碰。
+		"POST /api/ingest/points",
+		// 退役壳（410 `ingest_raw_retired`）：方法仍是 POST，静态腿要求
+		// 逐条表态；档位与真实写门同档——退役不等于降权。
+		"POST /api/ingest/raw",
+
 		// 合规（写合规报告 / 触发异常交易扫描）
 		"POST /api/compliance/check",
 		"POST /api/compliance/abnormal/run",

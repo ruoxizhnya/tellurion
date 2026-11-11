@@ -280,12 +280,13 @@ func TestRouteContract_SpecToCode(t *testing.T) {
 	// 就成了绕过双向对拍的万能后门。刻意不做前缀匹配（写成 `/api/copilot/*`
 	// 会把未来新增的路径一起吞掉），新增一条宿主声明必须同时改这里。
 	//
-	//   - data-service：ingest 两条（只在 :8081 注册）
+	//   - data-service：ingest 一条（只在 :8081 注册）。`/api/ingest/raw`
+	//     已在本仓注册为 410 退役壳，不再走 x-served-by（2026-11-12 裁）；
+	//     真实写门 `/api/ingest/points` 同样在本仓注册并反代。
 	//   - agent：copilot / pipeline / explore / tools 的反代入口共 10 条
 	//     （G-06 裁决：端点双声明以 agent 为准，core 只留入口壳）
 	allowedOtherHost := map[string]map[string]bool{
 		"data-service": {
-			"POST /api/ingest/raw":        true,
 			"POST /api/ingest/equitydeep": true,
 		},
 		"agent": {
@@ -301,7 +302,7 @@ func TestRouteContract_SpecToCode(t *testing.T) {
 			"GET /api/tools/{path}":              true,
 		},
 	}
-	require.Len(t, otherHost, 12, "x-served-by 只应有 12 条（ingest 2 + agent 反代入口 10）")
+	require.Len(t, otherHost, 11, "x-served-by 只应有 11 条（ingest 1 + agent 反代入口 10）")
 	for key, host := range otherHost {
 		allowed, knownHost := allowedOtherHost[host]
 		require.Truef(t, knownHost, "%s 声明了未登记的宿主 %q —— 新宿主必须先加进本表的白名单", key, host)

@@ -303,6 +303,13 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		indexReader = deps.Store
 	}
 	registerMarketIndexRoutes(router, indexReader, deps.Logger)
+	// 选股读面（2026-11-12 裁）：分析语义归 core，本地供数，不再反代 data 的
+	// `/screen`（那条路由从来不存在）。未接库时路由照常注册、请求 503。
+	var screenReader screenFundamentalsReader
+	if deps.Store != nil && deps.Store.DB() != nil {
+		screenReader = deps.Store
+	}
+	registerScreenRoutes(router, screenReader, deps.Logger)
 	// QT-72：X0 读面端口。与下面 factorRegistrationStore / referenceDataStore
 	// 同一约束 —— nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
 	// 到 handler 里才 panic；未接库时路由照常注册、请求时 503。

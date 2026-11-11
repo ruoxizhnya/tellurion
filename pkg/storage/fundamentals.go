@@ -536,7 +536,7 @@ func buildScreenFundamentalsQuery(filters domain.ScreenFilters, date *time.Time,
 		SELECT sf.ts_code, sf.pe, sf.pb, sf.ps, sf.roe, sf.roa, sf.debt_to_equity,
 			sf.gross_margin, sf.net_margin, st.market_cap
 		FROM stock_fundamentals sf
-		LEFT JOIN stocks st ON sf.ts_code = st.symbol
+		LEFT JOIN market.stocks st ON sf.ts_code = st.symbol
 	`
 	var conditions []string
 	var args []interface{}
@@ -556,7 +556,7 @@ func buildScreenFundamentalsQuery(filters domain.ScreenFilters, date *time.Time,
 					ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY available_date DESC, end_date DESC NULLS LAST) as rn
 				FROM stock_fundamentals
 			) sf
-			LEFT JOIN stocks st ON sf.ts_code = st.symbol
+			LEFT JOIN market.stocks st ON sf.ts_code = st.symbol
 			WHERE sf.rn = 1
 		`)
 	}

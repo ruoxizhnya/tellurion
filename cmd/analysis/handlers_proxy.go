@@ -22,6 +22,10 @@ import (
 // 网关成为无界缓冲。
 const maxBulkOHLCVBodyBytes = 1 << 20
 
+// maxIngestPointsBodyBytes 与 data 的投点上限对齐（8 MiB）：网关不额外放宽，
+// 也不提前截断——截断由数据服务按自己的口子判 413。
+const maxIngestPointsBodyBytes = 8 << 20
+
 // registerProxyRoutes wires the analysis→data forwarding surface. The viper
 // instance is the loaded analysis config (not the global one) so that
 // data_service.url is actually read — the global viper was never populated
@@ -140,18 +144,95 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		proxyRequest(c, http.MethodPost, dataServiceURL+"/api/v1/ohlcv/bulk", bytes.NewReader(body))
 	})
 
-	router.POST("/api/screen", func(c *gin.Context) {
-		var reqBody map[string]interface{}
-		if err := json.NewDecoder(c.Request.Body).Decode(&reqBody); err != nil {
-			httpserver.Fail(c, http.StatusBadRequest, "invalid request body")
-			return
-		}
-		bodyBytes, _ := json.Marshal(reqBody)
-		proxyRequest(c, http.MethodPost, dataServiceURL+"/screen", bytes.NewReader(bodyBytes))
+	// `POST /api/screen` 与 `GET /api/stocks/count` 不再反代（2026-11-12 裁）：
+	//   - screen 的分析语义归 core，由 `handlers_screen.go` 本地供数；
+	//   - count 由 data 已有读面 `GET /stocks` 派生，不新增 `/stocks/count`。
+	// 两者都在本文件的 registerProxyRoutes 之外装配，理由见各自文件头。
+
+	// `POST /api/ingest/raw` 承载的能力已随 `ingest.raw` 退役（ADR-0008 /
+	// 本仓 ADR-022 的收口）。data 侧唯一写面是 `POST /ingest/points`，本仓
+	// 把它作为网关入口原样转发；**不为旧路径名造第二个写入口**。
+	//
+	// 保留路由注册（而不是删掉变 gin 404）：让 openapi 的 path 与真实路由
+	// 一一对应，旧调用方拿到可判定的 410 + 机器码（与 `/api/factors/:name`
+	// 同一处置）。
+	router.POST("/api/ingest/raw", func(c *gin.Context) {
+		httpserver.FailCode(c, http.StatusGone, "ingest_raw_retired",
+			"POST /api/ingest/raw is retired with ingest.raw (ADR-0008); the data service's only write door is POST /api/ingest/points")
 	})
 
+	router.POST("/api/ingest/points", func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxIngestPointsBodyBytes)
+		req, reqErr := http.NewRequestWithContext(c.Request.Context(), http.MethodPost,
+			dataServiceURL+"/ingest/points", c.Request.Body)
+		if reqErr != nil {
+			httpserver.Fail(c, http.StatusBadGateway, "failed to create proxy request")
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if auth := c.GetHeader("Authorization"); auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			httpserver.Wrap(c, http.StatusBadGateway, err, "data service unavailable: ")
+			return
+		}
+		defer resp.Body.Close()
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			httpserver.Fail(c, http.StatusBadGateway, "invalid response from data service")
+			return
+		}
+		c.JSON(resp.StatusCode, result)
+	})
+
+	// `GET /api/stocks/count`：由 data 的 `GET /stocks` 派生（2026-11-12 裁）。
+	// 不新增 `/stocks/count` 端点——count 与 by_status 是同一份票池的聚合，
+	// `latest_date` 已由 data 的 `/stocks` 响应带上。读失败回 5xx，不折成 0。
 	router.GET("/api/stocks/count", func(c *gin.Context) {
-		proxyRequest(c, http.MethodGet, dataServiceURL+"/stocks/count", nil)
+		req, reqErr := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, dataServiceURL+"/stocks", nil)
+		if reqErr != nil {
+			httpserver.Fail(c, http.StatusBadGateway, "failed to create proxy request")
+			return
+		}
+		if auth := c.GetHeader("Authorization"); auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			httpserver.Wrap(c, http.StatusBadGateway, err, "data service unavailable: ")
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			httpserver.Fail(c, http.StatusBadGateway, "data service /stocks returned "+resp.Status)
+			return
+		}
+		var upstream struct {
+			Stocks []struct {
+				Status string `json:"status"`
+			} `json:"stocks"`
+			LatestDate *string `json:"latest_date"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&upstream); err != nil {
+			httpserver.Fail(c, http.StatusBadGateway, "invalid response from data service")
+			return
+		}
+		byStatus := make(map[string]int64, 4)
+		for _, s := range upstream.Stocks {
+			status := s.Status
+			if status == "" {
+				// 该列可空：NULL/空串折成 unknown 一档（DATA-02 已冻口径）。
+				status = "unknown"
+			}
+			byStatus[status]++
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"count":       len(upstream.Stocks),
+			"by_status":   byStatus,
+			"latest_date": upstream.LatestDate,
+		})
 	})
 
 	// C8 / CORE-FACTOR-DEAD-PROXY：这条反代已显式退役。
