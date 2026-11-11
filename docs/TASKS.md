@@ -1,7 +1,7 @@
 ---
 status: active
 last-verified: 2026-11-11
-verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新立 `CORE-FACTOR-DERIVED-GUARD` / `CORE-FACTOR-DEAD-PROXY` / `CORE-SPEC-FACTOR-ENDPOINTS-STALE` / `CORE-COMPOSE-FACTOR-COMMENT` / `CORE-ANALYSISARTIFACT-RETENTION` / `CORE-MARKET-INDEX-DAILY-EXCEPTION`；跨仓裁决 ADR-038~041）；2026-11-11 `CORE-FACTOR-CACHE-WRITER` 裁决（ADR-037：`factor_cache` 是分析上下文的读模型，owner=core、形态=消费点按需实时，不新增数据库写者；否决 core 预热作业与归 data，四条落地卡点与重开条件已写入任务单，本轮不实现）；2026-11-11 本地编排收敛为单一 `docker-compose.yml`（撤销 QT-79 代裁 `D-DEPLOY-1 = A`，见下方 `CORE-COMPOSE-UNIFY`）：默认 4 服务 + `--profile full` 4 服务、broker 进默认栈、数据库走宿主机原生 16.15、e2e 高额度改命令行 env；2026-11-11 登记 `CORE-RISK-REMOTE-FALLBACK-DEAD`（`risk_service.url` 的三处远程回落恒不可达，本轮只文档化：`config/analysis-service.yaml` 注释 + `docs/SPEC.md` §主要配置段 写实，代码零改动，待裁决删 or 接线）；改写 `CORE-BROKER-STARTUP-PRECONDITION` 的前提（实测三种编排都没给 core 注入 `BROKER_URL`，先后顺序问题排在接线之后）并给 `CORE-BROKER-RUNTIME-RECHECK` 补行号；2026-11-10 data-service 部署面收口（compose 改跨仓镜像 + `DATABASE_URL`/`DATA_MARKET_SCHEMA`，e2e 删死覆盖，k8s configmap/deployment 补 schema 与 DSN，`check_deploy_consistency.py` 新增 5e + 跨仓读取点；checker `exit 0`，四条破坏验证真做真还原；Docker daemon 不可达，未跑容器腿）；2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-in `cmd/analysis/wiring/strategy_asset_live_test.go`：对真 `assetservice` 进程走 create → source → 登记 artifact → validate → promote(`X-Actor`) → `promotions` 审计读 → `CheckStrategyRef` 放行 `{id}@{v1}` 与 latest；拒绝两条真实路径 = v2 版本 hash 404 `strategy_not_found` / v2 artifact hash 409 `strategy_not_promoted`；`ASSET_SERVICE_URL=http://127.0.0.1:18090 go test ./cmd/analysis/wiring -run TestStrategyAssetGate_LiveAssetService -count=1 -v` PASS，未设 env 时 SKIP；破坏验证把状态位判定临时 `&& false` ⇒ 红，按备份还原本文件 `sha256=E2CBBAC6…712DFF4A` 一致、复跑绿）；2026-11-10 有库腿实测 + `QT-82` 收口（独立 PG 16.15 `:5433` 库 `tellurion_core`：先补 `NewPostgresStore` 运行时迁移、再按序 psql 应用 `migrations/0000000{1,2,3}/up.sql`，`pkg/storage` 11 条有库用例全绿；`pkg/marketdata` 3 条 / `pkg/backtest` 1 条 / `pkg/expression` 1 条原因 `ohlcv_minute`、`market_activity`、`stock_sector_map` 已随数据面退役且全仓无 DDL 而红，裁决 ①a 后新增 `pkg/testenv/market_tables.go` 形状镜像夹具并接入三处测试，5 条全绿（`EXIT=0`），破坏验证删表 + 撤夹具 ⇒ 重回 42P01 红、还原后复绿；`docs/SPEC.md` §数据归属 与 `AGENTS.md` 第 3 条已写跨仓只读表清单）；`QT-32` K11 执行侧闸门（2026-11-10：`strategy_ref` 非空先在资产服务过「`status=promoted` + promote 审计留痕」闸门，同步 handler / worker 旁路 / provenance 身份覆盖三处落地，空 ref 内置路径逐字节不变；三条破坏验证真做真还原、`gofmt -l` 空、`go vet ./...` = 0、`go test ./... -count=1` = 0（ok=70）；strategy 侧读面 `SVC-STRAT-G3-B` 同步 commit `92573b5`）；`QT-32` 收口（2026-11-10 晚：dsl 载体 promote 代裁 B = 不开放无 artifact 载体的版本级 promote，strategy `Promote` 对 builtin/dsl/external 显式 400 `unsupported_carrier` + 两条测试腿 + 破坏验证真做真还原；core 侧闸门无需改动——这三类版本 resolve 恒 404、不会被假放行；`tellurion-strategy` 全套 `gofmt -l` 空 / `go vet` = 0 / `go test ./... -count=1` = 0）；`QT-78` 收口（2026-11-10：真栈真 run `203ae0a198dd02f0530aeb70dfc0c036` 产出 portfolio-snapshot / factor-exposures 两类载荷且 hash 非空、analytics 两条归因恒等式 |Δ|=0、删持仓反证腿真跑出 409 `missing=holdings`；同批修掉「收尾强平清空期末持仓」与「发布期误读引擎级因子缓存」两条生产路径缺陷，`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-AI-RETIRE` 收口（2026-11-10：七表 DDL/索引/读写实现/启动 seed 清零，当场实测 ①写点 6→0 ②seed 3→0 ③DDL 7→0；core 新增 `internal/repoguard/storage_ai_tables_retired_test.go` 三条反向护栏 + agent 侧缺表尝试，三处破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-RISK-G3` 跨仓收口证据（2026-11-10：core 侧新增 `pkg/risk` 新旧限额对拍测试；真 PG + 真 risk 进程的告警投递演练跑出真实行、停服后 outbox 转 `failed/attempts=3` 不静默丢；演练痕迹已清、生产代码零改动）；`SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并冻结；生产侧 import 冻结为 3 条、repoguard 新增/减少均红、破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-RISK-RETIRE` 收口（2026-11-09：14 个 `risk_manager.*` 读点归零、5 个 `alert.*` 阈值改代码常量、`resolve_enabled` 出厂 true、新增 `pkg/risk` 快照换算与 wiring 装配测试、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-STRAT-RETIRE` 收口（2026-11-09：三条 grep 生产侧归零 0/0/0、删 DDL / storage 5 方法 / `pkg/strategy/db.go` DB 腿、新建退役护栏 + 两条破坏腿真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-RUN-RETIRE` WF 半边收口（2026-11-09）；`SVC-CORE-DATA-RETIRE` 收口（2026-11-08：④ 四条 grep 生产侧归零 0/0/0/0、新建退役护栏 + 破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0；库侧用例因未设 `TEST_DATABASE_DSN` 按既有约定 skip）；`SVC-DEPLOY-01` 收口（2026-11-08：聚合 compose 栈 `up -d --build --wait` EXITCODE=0、7/7 容器 healthy；同轮修 `strategy` 缺 `JWT_SECRET` 的启动闸缺陷；宿主机 PG 占 5432 ⇒ postgres 宿主端口用临时 override 5433，已在正文如实登记）；跨仓补裁 #11~#13 落档（2026-11-08）；QT-77 结案（2026-11-07 晚：真 PG + 真服务补齐风险 resolve 200 / data ingest 200 / 无 token 401 与空 token 破坏腿；同批在 risk 修 PG approve 撞主键缺陷，见 QT-77 ⑥/⑥b/⑦）；QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase 到本地 `main@b3f100e` → 唯一冲突 `docs/TASKS.md`（保留 main 侧）→ ff merge `a2e388a`；回滚点 tag `archive/qt51-execution-port`；四道门禁真退出码全 0、`ok`=70 / `FAIL`=0；等价性摘要 `60a2713b…` 与归档报告同值；破坏验证真做真还原）；第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务、G0/G1/G2 并行、G3 切读串行、旧实现退役总单）；第四轮·目的对齐审计（2026-10-26，见 `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`；不改既有单状态，只加审计指针）。第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
+verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 新立 12 条 core 六字段单（`CORE-PG-BACKUP-DR` / `CORE-CI-IMAGE-GATE` / `CORE-REDIS-EXIT` / `CORE-MIGRATION-REPLAY-GUARD` / `CORE-K8S-EXIT` / `CORE-DEAD-PROXY-SCREEN-VERIFY` / `CORE-CI-ARCHIVE-LINKS-FIX` / `CORE-DEPLOY-DRIFT-PARAM` / `CORE-RUNNER-FLAKE-RESIDUAL` / `CORE-FEE-ROUNDING-ASSERT` / `CORE-RESULT-RETENTION` / `CORE-REFS-TRAILER-RULE`），新增 §四 5 条跨仓批次伞（`X-DEP-BUMP-CONSUMERS` / `X-AGENTS-DEPENDENCY-TABLE` / `X-CI-RACE-STATICCHECK` / `X-PROBE-NAMING` / `X-LOW-CLEANUP`）；证据坐标引 ODR-068~073（`tellurion-docs:docs/archive/odr/`）；本轮只立单不修复，施工另逐单授权；2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新立 `CORE-FACTOR-DERIVED-GUARD` / `CORE-FACTOR-DEAD-PROXY` / `CORE-SPEC-FACTOR-ENDPOINTS-STALE` / `CORE-COMPOSE-FACTOR-COMMENT` / `CORE-ANALYSISARTIFACT-RETENTION` / `CORE-MARKET-INDEX-DAILY-EXCEPTION`；跨仓裁决 ADR-038~041）；2026-11-11 `CORE-FACTOR-CACHE-WRITER` 裁决（ADR-037：`factor_cache` 是分析上下文的读模型，owner=core、形态=消费点按需实时，不新增数据库写者；否决 core 预热作业与归 data，四条落地卡点与重开条件已写入任务单，本轮不实现）；2026-11-11 本地编排收敛为单一 `docker-compose.yml`（撤销 QT-79 代裁 `D-DEPLOY-1 = A`，见下方 `CORE-COMPOSE-UNIFY`）：默认 4 服务 + `--profile full` 4 服务、broker 进默认栈、数据库走宿主机原生 16.15、e2e 高额度改命令行 env；2026-11-11 登记 `CORE-RISK-REMOTE-FALLBACK-DEAD`（`risk_service.url` 的三处远程回落恒不可达，本轮只文档化：`config/analysis-service.yaml` 注释 + `docs/SPEC.md` §主要配置段 写实，代码零改动，待裁决删 or 接线）；改写 `CORE-BROKER-STARTUP-PRECONDITION` 的前提（实测三种编排都没给 core 注入 `BROKER_URL`，先后顺序问题排在接线之后）并给 `CORE-BROKER-RUNTIME-RECHECK` 补行号；2026-11-10 data-service 部署面收口（compose 改跨仓镜像 + `DATABASE_URL`/`DATA_MARKET_SCHEMA`，e2e 删死覆盖，k8s configmap/deployment 补 schema 与 DSN，`check_deploy_consistency.py` 新增 5e + 跨仓读取点；checker `exit 0`，四条破坏验证真做真还原；Docker daemon 不可达，未跑容器腿）；2026-11-10 晚 `QT-32` 真资产服务端到端取证（新增 opt-in `cmd/analysis/wiring/strategy_asset_live_test.go`：对真 `assetservice` 进程走 create → source → 登记 artifact → validate → promote(`X-Actor`) → `promotions` 审计读 → `CheckStrategyRef` 放行 `{id}@{v1}` 与 latest；拒绝两条真实路径 = v2 版本 hash 404 `strategy_not_found` / v2 artifact hash 409 `strategy_not_promoted`；`ASSET_SERVICE_URL=http://127.0.0.1:18090 go test ./cmd/analysis/wiring -run TestStrategyAssetGate_LiveAssetService -count=1 -v` PASS，未设 env 时 SKIP；破坏验证把状态位判定临时 `&& false` ⇒ 红，按备份还原本文件 `sha256=E2CBBAC6…712DFF4A` 一致、复跑绿）；2026-11-10 有库腿实测 + `QT-82` 收口（独立 PG 16.15 `:5433` 库 `tellurion_core`：先补 `NewPostgresStore` 运行时迁移、再按序 psql 应用 `migrations/0000000{1,2,3}/up.sql`，`pkg/storage` 11 条有库用例全绿；`pkg/marketdata` 3 条 / `pkg/backtest` 1 条 / `pkg/expression` 1 条原因 `ohlcv_minute`、`market_activity`、`stock_sector_map` 已随数据面退役且全仓无 DDL 而红，裁决 ①a 后新增 `pkg/testenv/market_tables.go` 形状镜像夹具并接入三处测试，5 条全绿（`EXIT=0`），破坏验证删表 + 撤夹具 ⇒ 重回 42P01 红、还原后复绿；`docs/SPEC.md` §数据归属 与 `AGENTS.md` 第 3 条已写跨仓只读表清单）；`QT-32` K11 执行侧闸门（2026-11-10：`strategy_ref` 非空先在资产服务过「`status=promoted` + promote 审计留痕」闸门，同步 handler / worker 旁路 / provenance 身份覆盖三处落地，空 ref 内置路径逐字节不变；三条破坏验证真做真还原、`gofmt -l` 空、`go vet ./...` = 0、`go test ./... -count=1` = 0（ok=70）；strategy 侧读面 `SVC-STRAT-G3-B` 同步 commit `92573b5`）；`QT-32` 收口（2026-11-10 晚：dsl 载体 promote 代裁 B = 不开放无 artifact 载体的版本级 promote，strategy `Promote` 对 builtin/dsl/external 显式 400 `unsupported_carrier` + 两条测试腿 + 破坏验证真做真还原；core 侧闸门无需改动——这三类版本 resolve 恒 404、不会被假放行；`tellurion-strategy` 全套 `gofmt -l` 空 / `go vet` = 0 / `go test ./... -count=1` = 0）；`QT-78` 收口（2026-11-10：真栈真 run `203ae0a198dd02f0530aeb70dfc0c036` 产出 portfolio-snapshot / factor-exposures 两类载荷且 hash 非空、analytics 两条归因恒等式 |Δ|=0、删持仓反证腿真跑出 409 `missing=holdings`；同批修掉「收尾强平清空期末持仓」与「发布期误读引擎级因子缓存」两条生产路径缺陷，`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-AI-RETIRE` 收口（2026-11-10：七表 DDL/索引/读写实现/启动 seed 清零，当场实测 ①写点 6→0 ②seed 3→0 ③DDL 7→0；core 新增 `internal/repoguard/storage_ai_tables_retired_test.go` 三条反向护栏 + agent 侧缺表尝试，三处破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-RISK-G3` 跨仓收口证据（2026-11-10：core 侧新增 `pkg/risk` 新旧限额对拍测试；真 PG + 真 risk 进程的告警投递演练跑出真实行、停服后 outbox 转 `failed/attempts=3` 不静默丢；演练痕迹已清、生产代码零改动）；`SVC-CORE-AN-RETIRE` 收口（2026-11-09：归属裁决 = 保留并冻结；生产侧 import 冻结为 3 条、repoguard 新增/减少均红、破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-RISK-RETIRE` 收口（2026-11-09：14 个 `risk_manager.*` 读点归零、5 个 `alert.*` 阈值改代码常量、`resolve_enabled` 出厂 true、新增 `pkg/risk` 快照换算与 wiring 装配测试、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-STRAT-RETIRE` 收口（2026-11-09：三条 grep 生产侧归零 0/0/0、删 DDL / storage 5 方法 / `pkg/strategy/db.go` DB 腿、新建退役护栏 + 两条破坏腿真做真还原、`go build/vet/test ./... -count=1` 全 0）；`SVC-CORE-RUN-RETIRE` WF 半边收口（2026-11-09）；`SVC-CORE-DATA-RETIRE` 收口（2026-11-08：④ 四条 grep 生产侧归零 0/0/0/0、新建退役护栏 + 破坏验证真做真还原、`go build/vet/test ./... -count=1` 全 0；库侧用例因未设 `TEST_DATABASE_DSN` 按既有约定 skip）；`SVC-DEPLOY-01` 收口（2026-11-08：聚合 compose 栈 `up -d --build --wait` EXITCODE=0、7/7 容器 healthy；同轮修 `strategy` 缺 `JWT_SECRET` 的启动闸缺陷；宿主机 PG 占 5432 ⇒ postgres 宿主端口用临时 override 5433，已在正文如实登记）；跨仓补裁 #11~#13 落档（2026-11-08）；QT-77 结案（2026-11-07 晚：真 PG + 真服务补齐风险 resolve 200 / data ingest 200 / 无 token 401 与空 token 破坏腿；同批在 risk 修 PG approve 撞主键缺陷，见 QT-77 ⑥/⑥b/⑦）；QT-51 收口合入（2026-11-07：`task/qt51-execution-port` rebase 到本地 `main@b3f100e` → 唯一冲突 `docs/TASKS.md`（保留 main 侧）→ ff merge `a2e388a`；回滚点 tag `archive/qt51-execution-port`；四道门禁真退出码全 0、`ok`=70 / `FAIL`=0；等价性摘要 `60a2713b…` 与归档报告同值；破坏验证真做真还原）；第五轮·ADR-036 并行服务化 MVP（2026-10-26：六仓=服务、G0/G1/G2 并行、G3 切读串行、旧实现退役总单）；第四轮·目的对齐审计（2026-10-26，见 `docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`；不改既有单状态，只加审计指针）。第 4 代换代（2026-10-20）；**2026-10-20 补分仓批次（ADR-D29 / QT-05~09）与改名批次（ADR-D30 / QT-60）**。来由：ADB-029 abi v2 裁决（D24/D25/D26/D28）+ P0 第二轮深度审查（`docs/design/qt-decoupling/p0-round2-review.md`，N1~N9）。本代 30 张新工单**全部可追溯到设计文档的具体节**（无一条来自猜测）；第 3 代 6 项（DBT-13~18）经前提复核后原样延续。第 3 代正文已归档到 `archive/TASKS-2026-10-20-archived.md`。**2026-10-21 任务台账批量重分布**：QT-05 主单 → `tellurion-contracts`（kit 腿拆 QT-05-B → `tellurion-kit`）、QT-17 → `tellurion-agent`、QT-40~45 + QT-41b → X 线 6 个服务仓（各自 `docs/TASKS.md` 正式六字段单，「占位仓不写正式任务单」旧约定作废）、QT-61 按腿拆分登记（agent/ui 各留本腿记录，core 本文件为完整四腿权威版）；本仓台账收缩为**总序 + 指针**，迁出单正文不镜像。**2026-10-23 B6**：QT-10/11/22 落点已核（只加「落点已核」注记，不改六字段语义），W1 七单仓归属见 `docs/design/qt-decoupling/w1-repo-ownership.md`。**2026-10-23 C1**：QT-07 S2 ①~⑤ 与 QT-09 ①~⑤ 落地（双仓 tag、pin/仓边护栏 18 腿、契约语料 33 条三侧自检、`make contracts-conformance`）；⑥ S3 仍等 QT-50 + QT-17。**2026-10-25 B6-1**：QT-07 ⑥ **S3 结案**——agent 侧已删 `replace tellurion => ../tellurion`（三查：零 import / `go.mod` 无 require 无 `=>` / CI 不 checkout core），core 侧同批清空两条为它开的过期容忍（`check_contract_pin.py` 的 `LOCAL_REPLACE_WHITELIST` 清空 + `check_repo_autonomy.py` 的 `KNOWN_GAPS` R1 行），夹具腿翻成「不在白名单 → 红」；18 腿自证、9 pin 实扫、12 仓全量三查全绿，取证与破坏验证见 QT-07 ⑥ 结案两条。**同日 裁-17**：B6-2「服务间凭证传递」的派工前提经源码实测订正为三条面（只有 `core→risk` 与 `analytics→上游` 是真 401；本仓 `authz` 不管读面；compose 里 `data-service` 未接 `JWT_SECRET`；`tellurion-data` 那四条路径没进策略表 ⇒ 403，token 不解决）—— 0 代码，落 QT-50 未落第 5 条。
 ---
 
 # TASKS — tellurion 未完成项
@@ -42,6 +42,7 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **⑥ 边界**：因子定义与公式在本仓 `pkg/domain` + `pkg/expression`（过渡期；ADR-028 §6 的目标是随定义迁往 strategy）；求值与读面在本仓 `pkg/backtest`；`tellurion-data` 不参与，`GET /api/factors/:name` 的死链（转发到 data 已撤路由）不在本条修复。
 - **裁决**：**owner = core；形态 = (c) 按需实时；依据 ADR-037**。否决 (a)：把可选物化升级为常驻批处理，且必须先重写已删的 5 个 `KernelCode`；否决 (b)：data 无算法载体，落地必然双实现，并推翻裁-14。
 - **重开条件**：① 决定让 `multi_factor` 在真栈可用；或 ② 有外部预计算缓存愿意按同一口径灌入（此时只做 Warm 读面验证）；或 ③ 出现 ADR-028 §11 的实测证据「多消费者需要同一份重计算因子且缓存命中率低」，重新评估物化写者。**本轮不满足以上任一条，故不实现。**
+- **审查复核（2026-11-11，不另立单）**：全面审查 W2 独立复核 `SaveFactorCacheBatch` 全仓零调用方属实，与本条前提一致；见 ODR-069（`tellurion-docs:docs/archive/odr/odr-069-audit-wave2-core-architecture.md`）。去重：不新建任务，以本条为唯一落点。
 
 ### CORE-FACTOR-DERIVED-GUARD · 因子派生表零写者时，产物组装必须说清「为什么缺」 [P1] ✅
 
@@ -166,6 +167,7 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **⑤ 验收**：删除方向 = 三处回落与 `risk_service.url` 读点 grep 归零、`go build/vet/test ./... -count=1` 全绿、破坏验证（把回落加回来 ⇒ 护栏红并真还原）；接线方向 = 真 risk 进程跑通三条端点 200 且有契约测试。
 - **⑥ 边界**：core 侧消费面归本仓；端点形状若新增归 `tellurion-risk` + `tellurion-contracts`。
 - **重开条件**：一次明确裁决（删 or 接线）；或有人要部署一个真提供这三条路径的旧 risk 服务。
+- **审查复核（2026-11-11，不另立单）**：全面审查 W2 独立复核「三处 `rm == nil` 回落恒不可达 + 缺省 `:8083` 无对端（今 risk 在 `:8089`）」属实，与本条前提一致；见 ODR-069。去重：不新建任务，以本条为唯一落点。
 
 ### CORE-DATA-MIGRATIONS-EXIT · `public.data_migrations` 过渡态的退出条件 [P2] ⏸
 
@@ -208,6 +210,130 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **⑥ 边界**：审查证据、ODR 立案、各仓立单；修复施工归各修复单。
 - **施工记录（W0 基线，2026-11-11）**：12 仓工作树全干净（in-place = 干净 checkout），HEAD 锚定：core `27e0c15` / agent `8ace9b9` / analytics `cc440f0` / broker `fbaa9fe` / contracts `fb19870` / data `2fdf48b` / docs `975a403` / kit `7d7c3a8` / orchestration `ab2ee94` / risk `693f590` / strategy `03a5d91` / ui `90d0a2c`。**基线红名单 = 空**：10 Go 仓 gofmt/build/vet/test 全 EXIT=0；contracts 5 护栏 + conformance 全 0；kit 2 护栏全 0；core 4 Python 检查器全 0；docs 3 检查器 + 38 条自测全 0（guide_refs 首跑 GBK 假红，UTF-8 复跑绿）；ui lint/typecheck/vitest 全 0（**945 条 eslint warnings 不红**，T-1/K-7 候选发现留 W6 立案；vitest 38 文件全过）。agent 两条历史红（QT-17 ③ 端点字面量）已随数据面退役消解（grep 零命中）。DB 依赖腿无 DSN 按设计 skip，留 W3/W5/W6；-race 本机无 gcc，只认 CI。**W0-3 C2 核实**：research_tool vault 镜像回落有契约授权（legacy §3.3/§3.5 + agent db-schema.md:73 + hermes tools yaml:445），不构成违规；治理观察一条（C2 规范文本住归档层）留 W1 G-4。日志：`C:\Users\ruoxi\.qoder-cn\plans\audit-w0\<repo>.log`。
 
+### CORE-PG-BACKUP-DR · 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 [P0] ⬜
+
+- **① 目标**：给本机唯一活库 `quant_trading` 一份**可恢复**的备份方案，覆盖全部 schema（含不可重建的 `ai.experiments` / `ai.*promotions` / `risk` 规则），并真跑一次恢复演练。
+- **② 上下文**：审查发现 W5-F4（`tellurion-docs:docs/archive/odr/odr-072-audit-wave5-security-reliability-deps.md`）。本机 `quant_trading` 是唯一活库，承载 22 张 `market.*` + `quant.*` / `ai.*` / `strategy.*` / `risk.*` / `broker.*` / `run.*` / `analysis.*`；`deploy/k8s/README.md:88-90` 的 `pg_dumpall` 口径只覆盖非活跃面，`docs/archive/TASKS-2026-10-16-archived.md:888` 把备份记为「另议」至今未落。`ai.experiments` / promote 审计 / risk 规则属**不可重建**数据（丢了无法从行情重算）。
+- **③ 要求**：① 备份覆盖全 schema（`pg_dump -Fc` 整库或逐 schema，二选一并写死）；② 恢复演练在**独立 `_test` 库或快照**上真跑一次，行数逐表对拍；③ 不可重建数据单独标注「丢失即不可恢复」；④ 步骤写进 `docs/runbook.md`（与 `CORE-RUNBOOK-GAP` 同批或其后）。
+- **④ 约束与非目标**：不改任何 schema；**禁止在 `quant_trading` 活库上跑破坏性恢复**（DATA-09：演练只走 `_test` 库/快照）；不引入托管备份服务。
+- **⑤ 验收**：一次真备份 + 一次真恢复到独立库，逐表行数对拍一致；破坏验证 = 恢复时故意漏一个 schema ⇒ 对拍红。真退出码 + 行数证据。
+- **⑥ 边界**：备份/恢复方案与演练归本单；生产库定时执行归运维。
+- **owner**：待定
+- **重开条件**：无外部前置（A1/A4 已授权 `_test` 库演练）；生产定时备份须运维接入。
+
+### CORE-CI-IMAGE-GATE · 9 仓 CI 无镜像构建门，compose 引用的镜像可能从未被构建验证 [P2] ⬜
+
+- **① 目标**：让「compose/k8s 引用的镜像真能构建出来」成为 CI 可判定门，而不是只在本地 `docker build` 碰运气。
+- **② 上下文**：审查发现 W5-F5（ODR-072）。9 仓 `.github/workflows` grep `docker`/`buildx`/`build-push` 零命中；core 已登记同类缺口（`docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md:135` + `tools/check_deploy_consistency.py:672`/`:727` + AUD-48）。历史上 `Dockerfile.service` 曾 build 已删除的 `cmd/strategy`（2026-10-26 才修），证明无构建门时退役会悄悄断镜像。
+- **③ 要求**：① core CI 增一条 `docker build` 门（至少构建 analysis-service 镜像，不 push）；② 与 `check_deploy_consistency.py` 的镜像引用核对联动；③ 其余 8 仓的镜像门归 `X-CI-RACE-STATICCHECK` 同批或各仓自持，本单只做 core。
+- **④ 约束与非目标**：不 push 镜像到 registry；不改 compose 服务定义；不引入 buildx 多平台（本机单平台即可）。
+- **⑤ 验收**：CI 镜像构建步骤真跑（E2）；破坏验证 = 临时把 Dockerfile 的 build 目标改成不存在的 cmd ⇒ 该步红。
+- **⑥ 边界**：core CI 与 Dockerfile；其余仓镜像门见 `X-CI-RACE-STATICCHECK`。
+- **owner**：待定
+
+### CORE-REDIS-EXIT · Redis 已退役但死代码/依赖/k8s 清单仍在 [P1] ⬜
+
+- **① 目标**：把已退役的 Redis 从 core 彻底清出（死代码 + `go.mod` 依赖 + k8s 清单 + 启动脚本），消除「看起来还在用」的误导。
+- **② 上下文**：审查发现 W2-F3（ODR-069）。`pkg/storage/redis.go:39` / `redis_order_store.go:24` / `cached_provider.go:47` 零生产调用方；`go.mod:12` 仍 `go-redis v9.7.3`；`deploy/k8s/redis-deployment.yaml` 与 `deploy/wait-for-deps.sh:48` 仍等 Redis。AGENTS §5 已写「Redis 已退役」，代码与清单未跟上。
+- **③ 要求**：① 删三处死代码（先 grep 确认零调用，含测试）；② `go mod tidy` 去掉 go-redis（若无其它消费者）；③ 删 `redis-deployment.yaml` 与 `wait-for-deps.sh` 的 Redis 等待段；④ 与 `CORE-K8S-EXIT` 撞 k8s 文件时按单号串行。
+- **④ 约束与非目标**：不删任何仍在用的缓存路径（先证伪「零调用」）；不改 `go.mod` 其它依赖版本。
+- **⑤ 验收**：`go build/vet/test ./... -count=1` 全绿；grep `go-redis`/`redis` 生产侧零命中；破坏验证 = 恢复一处死代码引用 ⇒ build 或 grep 护栏红。
+- **⑥ 边界**：core 死代码/依赖/k8s/脚本；kit `db` 的 Redis 连接能力是否保留归 kit 自裁。
+- **owner**：待定
+
+### CORE-MIGRATION-REPLAY-GUARD · `migrate()` 无事务、无重放指纹，迁移半途失败不可判定 [P1] ⬜
+
+- **① 目标**：给 core 内联迁移一个**可重放、可判定**的护栏，对齐 data 仓已有的三指纹重放腿，让「迁移半途失败/重复执行」不再静默。
+- **② 上下文**：审查发现 W2-F2（ODR-069，A1 已授权真库腿）。`pkg/storage/postgres.go:655-699` 的 `migrate()` 无事务包裹；`data_migrations` 哨兵（`:338-341`）置位后不可重放；`supply_chain_test.go:274-278` 只测子集。对照 `tellurion-data:internal/schema/replay_pg_test.go` 的「连跑两遍 DDL，行数/列集 sha256/pg_indexes sha256 三指纹不变」。
+- **③ 要求**：① 在 `_test` 库上补一条重放腿（同库连跑两遍 `migrationStatements()`，断言三指纹不变）；② 评估 `migrate()` 是否需事务包裹（DDL 多数不可回滚，如实登记取舍，不强行套事务）；③ 无 `TEST_DATABASE_DSN` 自动 skip，不假绿。
+- **④ 约束与非目标**：**不改 `migrationStatements()` 的 DDL 形状与编号**；不在 `quant_trading` 活库上跑（DATA-09）；不引入版本表/down（既有有意取舍，见 `migrations/README.md`）。
+- **⑤ 验收**：`_test` 库重放腿真跑两遍指纹一致（E1）；破坏验证 = 重放间故意改一列 ⇒ 指纹红。真退出码 + 指纹值。
+- **⑥ 边界**：core 迁移护栏；DDL 内容变更另立单并走冻结 schema 评审。
+- **owner**：待定
+
+### CORE-K8S-EXIT · 退役 k8s 清单（D7=a，本地单一 compose 已是唯一编排）[P2] ⬜
+
+- **① 目标**：把已被本地单一 `docker-compose.yml` 取代的 k8s 清单退役，消除「两套编排各说各话」与 readiness/liveness 探针口径漂移。
+- **② 上下文**：审查发现 W2-F5（ODR-069）+ 裁决 D7=a。`deploy/k8s/analysis-deployment.yaml` 的 readiness+liveness 均 `/api/health`、`data-deployment.yaml` 均 `/health`（与 compose 探针口径不一致）；`CORE-COMPOSE-UNIFY`（2026-11-11 ✅）已定本地单一 compose，k8s 形态不在本轮范围。退役是破坏性施工，**另逐单授权**。
+- **③ 要求**：① 先确认 k8s 清单零生产消费者（grep + 问运维）；② 删除或移入 `deploy/k8s/archive/` 并加退役说明；③ 与 `CORE-REDIS-EXIT`（redis-deployment.yaml）撞文件按单号串行；④ 探针口径差异在退役说明里留痕。
+- **④ 约束与非目标**：不删 compose；**破坏性删除须主任逐单授权**（D7 施工授权未含在本轮 A5）；不引入新编排。
+- **⑤ 验收**：退役后 `python tools/check_deploy_consistency.py` 仍绿；grep 无悬空 k8s 引用；破坏验证 = 恢复一个被引用的清单 ⇒ 检查器红。
+- **⑥ 边界**：core k8s 清单；其余仓 k8s（若有）归各仓。
+- **owner**：待定
+- **重开条件**：主任授权破坏性退役施工；若将来真上 k8s，另立 ADR 重建。
+
+### CORE-DEAD-PROXY-SCREEN-VERIFY · 核验主任 8c5272d 对 `/screen` 等死反代的修复（D2 失效→VERIFY）[P1] ⬜
+
+- **① 目标**：核验主任 `8c5272d` 已落的修复（screen 本地供数 / count 派生 502 / ingest/raw 410）真把 W2-F8 的死反代消解，而不是再修一遍。
+- **② 上下文**：审查发现 W2-F8（ODR-069）原指 `cmd/analysis/handlers_proxy.go:143-155` 死反代 + ui `market.ts:13,21`（Screener+DataQualityPanel）消费。主任 `8c5272d` 已改 screen 本地供数、count 派生 502、ingest/raw 410 ⇒ 原「修复」单 D2 失效，转为**核验**单。ui 侧消费连带见 `tellurion-ui:UI-SCREEN-CONSUMER`。
+- **③ 要求**：① 读 `8c5272d` diff + 现码，确认三条路径不再反代到已撤上游；② 真栈各跑一次（screen 200 本地供数 / count 502 / ingest/raw 410）；③ 若仍有死反代残留，停下回报 + 给拆法，不硬扩。
+- **④ 约束与非目标**：不重复主任已落的修复；不改 ui（归 `UI-SCREEN-CONSUMER`）；不新造端点。
+- **⑤ 验收**：三条路径真栈状态码符合预期（E1）；grep 确认无悬空反代；核验结论写进本条施工记录。
+- **⑥ 边界**：core 反代核验；ui 消费归 `UI-SCREEN-CONSUMER`。
+- **owner**：待定
+
+### CORE-CI-ARCHIVE-LINKS-FIX · 归档层 ~17 处 cross-repo 相对链接缺层级 + 2 失效配置引用 [P2] ⬜
+
+- **① 目标**：修掉 `c06770e` 归档引入的相对链接层级错误，让归档层可检索（死链会让归档失去价值）。
+- **② 上下文**：审查发现 W7-F1①（ODR-069）。`c06770e` 归档约 17 处 `cross-repo-*` 链接缺 `../`、`../deploy/README.md` 应为 `../../`、2 处失效配置引用。AGENTS §4 唯一例外：**失效的相对链接可以修**（保留原结论、加注说明，不改写历史判断）。
+- **③ 要求**：① 逐处修相对链接层级（只改链接，不改正文结论）；② 2 处失效配置引用指向现路径或加「已退役」注记；③ `python tools/check_doc_links.py --include-archive` 复核。
+- **④ 约束与非目标**：**不改归档正文的历史判断**（只修链接 + 加注）；不新增跨仓相对链接（用 `repo:path`）。
+- **⑤ 验收**：`check_doc_links.py --include-archive` 归档层断链归零（历史断链「只统计不判红」口径下，本次新修部分须真绿）；破坏验证 = 改回一处错误层级 ⇒ 检查器报该链。
+- **⑥ 边界**：core 归档层链接；活跃层链接本就 0 断链。
+- **owner**：待定
+
+### CORE-DEPLOY-DRIFT-PARAM · `${DATABASE_NAME:-tellurion}` 4 处参数漂移（检查器不展开 default）[P2] ⬜
+
+- **① 目标**：订正主任 `13c4b40` 在飞的 `${DATABASE_NAME:-tellurion}` 4 处漂移，并让检查器能展开 `:-default`，消除「文档默认值与真连库不一致」的假阳性/假阴性。
+- **② 上下文**：审查发现 W7-F1②（ODR-069，D7 联动）。`13c4b40`（主任在飞 commit）引入 `${DATABASE_NAME:-tellurion}` 4 处；**非真连错库**（本机活库是 `quant_trading`），但 `check_deploy_consistency.py` 不展开 `:-default` ⇒ 口径漂移。本单提供该修复的**单号**（主任在飞改动须有单号 + 授权）。
+- **③ 要求**：① 与主任确认 `13c4b40` 意图后订正 4 处默认值口径（或统一为 `quant_trading`）；② 检查器增 `:-default` 展开（先证伪「不展开」前提）；③ 不擅自改主任在飞 commit，须授权。
+- **④ 约束与非目标**：不真改连库 DSN（活库名是 `quant_trading`，见项目记忆）；**主任在飞改动须授权**；不扩到其它 env 展开。
+- **⑤ 验收**：`check_deploy_consistency.py` 绿且能展开 default；破坏验证 = 改回不展开 ⇒ 漂移用例红。
+- **⑥ 边界**：core compose 参数 + 检查器；与 `CORE-K8S-EXIT` 撞 deploy 文件按单号串行。
+- **owner**：待定
+- **重开条件**：主任授权订正其在飞 `13c4b40`。
+
+### CORE-RUNNER-FLAKE-RESIDUAL · runner 计时断言墙钟残留（施工前先证伪：kit 7d7c3a8 已修同族）[P2] ⬜
+
+- **① 目标**：消除 core runner 计时断言对墙钟的依赖残留，让全量门禁下不再假红。
+- **② 上下文**：审查发现 W7-F2（ODR-069）。`runner_test.go:338`/`:578` 用墙钟；历史 `6156dda` 红 → `9d58238` 绿 → `02d1847` 红。**注意**：kit `7d7c3a8` 刚修同族 runner（相对 spawn 基线），core 前提可能已部分消解 ⇒ **施工前先读码证伪**，不符就停下回报。GitHub logs API 持续 502，CI 历史红绿暂不可取证（E2 降级标注）。
+- **③ 要求**：① 先核 core runner 现码是否仍依赖墙钟（kit 修复是否已覆盖）；② 若仍有残留，改相对基线/结构判据（对齐 `9d58238`/`02d1847` 方向）；③ logs API 恢复后补 CI 历史取证。
+- **④ 约束与非目标**：不删断言换绿；不改 runner 生产语义；前提不符不硬做。
+- **⑤ 验收**：受影响测试 `-count=1` 真绿（E1）；破坏验证 = 改回墙钟 ⇒ 负载下红（或结构判据红）。
+- **⑥ 边界**：core runner 测试；kit 侧已修部分不重复。
+- **owner**：待定
+- **重开条件**：logs API 恢复后补 W7-F2 根因取证。
+
+### CORE-FEE-ROUNDING-ASSERT · 费用五字段 float64 无舍入断言（D9=a，保留 float64 + 补断言）[P2] ⬜
+
+- **① 目标**：给费用计算的 float64 路径补**舍入不变量断言**，钉住「四舍五入到分/厘」的口径，而不是迁 decimal。
+- **② 上下文**：审查发现 W3-F1（ODR-070）+ 裁决 D9=a。`tellurion-contracts:fees/ashare.go:181-185` 五字段 float64；`kit/decimal` 零消费者；`pkg/execution/price_cage.go:288` 用 `math.Round(x*1e4)/1e4`；不变量网 6/6 绿。D9=a：保留 float64（迁 decimal 是 breaking，另立 ADR），补舍入断言。
+- **③ 要求**：① 在 core 费用/撮合路径补舍入不变量断言（绝对数值，非阈值推导）；② 覆盖边界（半分位、负值、极大值）；③ 不迁 decimal、不改 contracts 字段类型。
+- **④ 约束与非目标**：不改 `fees/ashare.go` 字段类型（contracts 冻结面，改它走 breaking 评审）；不引入 kit/decimal 消费者；断言用绝对数值。
+- **⑤ 验收**：`go test ./pkg/execution/... ./pkg/backtest/... -count=1` 绿；破坏验证 = 把 `math.Round` 改成截断 ⇒ 舍入断言红（跑「调大舍入位」腿）。
+- **⑥ 边界**：core 费用舍入断言；contracts 字段类型与 kit/decimal 迁移另立单。
+- **owner**：待定
+
+### CORE-RESULT-RETENTION · `run.backtest_results` / `quant.run_provenance` 无保留期清理 [P3] ⬜
+
+- **① 目标**：给回测结果与 provenance 表一个保留期/清理口径，避免无限增长（对照 broker `order_acks` 90 天、data evidence 保留期）。
+- **② 上下文**：审查发现 I-4（ODR-073）。grep `DELETE`/`vacuum`/`retention` 对 `run.backtest_results` / `quant.run_provenance` 零命中；对照 `tellurion-broker:broker.order_acks` 90 天保留、`tellurion-data:internal/store/evidence.go:22` 保留期清理。结果表 owner=core（`backtest_results.go:40`）。
+- **③ 要求**：① 定保留期口径（天数/按 run 终态，写死可判定）；② 清理只删可重建结果，**provenance 身份坐标不可删**（审计链）；③ 单批上限 + 进程内周期清理（对齐 broker 形状）；④ 写进 `db-schema`/runbook。
+- **④ 约束与非目标**：不删 provenance 审计坐标；不改表结构；不在活库上跑破坏性清理（演练走 `_test`）。
+- **⑤ 验收**：`_test` 库清理腿真跑（过期删、未过期留、provenance 不动）；破坏验证 = 把保留期判据改反 ⇒ 用例红。
+- **⑥ 边界**：core 结果表保留期；provenance 永久保留是设定。
+- **owner**：待定
+
+### CORE-REFS-TRAILER-RULE · 承认散文引用，`Refs:` trailer 改可选（D8=b）[P3] ⬜
+
+- **① 目标**：把 AGENTS §8.5 规范3 的 `Refs:` 硬 trailer 改为**可选**，承认实际普遍用散文引用任务号的现状，消除「规范说必须、实际零命中」的漂移。
+- **② 上下文**：审查发现 W1-F1（ODR-068）+ 裁决 D8=b。6 仓 120 commit `grep -c '^Refs:'` = 0；core AGENTS §8.5 规范3 写 `Refs: <任务 ID>` 为格式必填。实际任务号写在正文散文里。D8=b：承认散文引用，`Refs:` 可选（不强制 trailer，但任务号仍须可追溯）。
+- **③ 要求**：① 改 AGENTS §8.5 规范3 的 commit 格式说明：`Refs:` 可选，任务号可在正文；② 保留「一 task 一 commit + 任务号可追溯」的硬约束；③ 不改历史 commit。
+- **④ 约束与非目标**：不强制补历史 trailer；不放松「任务号可追溯」；不改 atomic commit 原则。
+- **⑤ 验收**：AGENTS §8.5 文本与现状一致；`check_doc_links.py` 绿。
+- **⑥ 边界**：core AGENTS 规范文本；其余仓 AGENTS 同句归 `X-AGENTS-DEPENDENCY-TABLE` 同批或各仓。
+- **owner**：待定
+
 ## 二、跨仓指针（不在本仓，勿双写）
 
 | 事项 | 去哪 |
@@ -242,6 +368,61 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 **判定「不存在」的条目**：无。13 条全部有代码或文档证据，无一条因前提不成立而关单。
 
 **清单外的顺手发现**：只登记、不实现；本轮未新增此类条目（如后续发现，追加到本表末尾并标注「清单外」）。
+
+## 四、跨仓批次（X-，本仓为协调伞）
+
+> 这些是**跨多仓的协调批次**，不是 core 单仓施工。本仓台账是总序伞（docs 仓 AGENTS §4 禁止施工单进 docs），故登记在此；**每仓的实际改动落该仓自己的 commit**，按单号串行。批次内各仓的子项在各仓台账以指针引用本批，不双写正文。
+
+### X-DEP-BUMP-CONSUMERS · 7 消费仓 bump kit pin + govulncheck 门（W5-F1 连带）[P0] ⬜
+
+- **① 目标**：kit 安全 bump（`KIT-DEP-SECURITY-BUMP`）发版后，7 个消费仓把 kit pin 升到安全版并各补一条 `govulncheck` CI 门，让 GO-2026-5004（pgx SQLi）等漏洞在消费侧真闭合。
+- **② 上下文**：审查发现 W5-F1（ODR-072）+ 裁决 D1=b（pgx 一步收敛 v5.11.0）。GO-2026-5004 影响 7 仓（core/agent/data/strategy/risk/orch/broker），fixed v5.9.2；x/net×4（fixed v0.60.0）8 仓、x/text×2 9 仓。kit 是依赖底座，bump 后消费仓须跟升 pin 才真生效。前置 = `KIT-DEP-SECURITY-BUMP` + `BROKER-DEP-BUMP` + `UI-NPM-AUDIT-FIX`。
+- **③ 要求**：① kit 发安全版后，7 消费仓 `go get tellurion-kit@vX` + `go mod tidy`（只升 tag，禁 replace）；② 各仓 CI 增 `govulncheck ./...` 门；③ 各仓 AGENTS §4 依赖表同批更新（与 `X-AGENTS-DEPENDENCY-TABLE` 联动）；④ pgx 收敛到 v5.11.0 一步到位（D1=b），登记三档并存的代价。
+- **④ 约束与非目标**：不手改版本号、不加 replace；不在本批顺手升无关依赖；analytics 已 v5.11.0 安全，不重复 bump。
+- **⑤ 验收**：7 仓 `govulncheck` 真跑 EXIT=0（E2）；破坏验证 = 临时 pin 回旧版 ⇒ govulncheck 红。各仓 `go build/vet/test` 绿。
+- **⑥ 边界**：协调伞在 core；各仓 pin/CI/AGENTS 改动落各仓 commit。前置 kit 发版归 `KIT-DEP-SECURITY-BUMP`。
+- **owner**：待定
+- **重开条件**：`KIT-DEP-SECURITY-BUMP` 发版（tag 推远端 + proxy 可解析）。
+
+### X-AGENTS-DEPENDENCY-TABLE · 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐（W1-F4）[P2] ⬜
+
+- **① 目标**：把 6 仓 AGENTS §4 的契约/工具版本列订正到 `go.mod` 实测值，消除「文档说 v0.9.0、实际 v0.10.0」的传播源。
+- **② 上下文**：审查发现 W1-F4（ODR-068）。六仓 AGENTS §4 写 contracts `v0.9.0` vs `go.mod` 实测 `v0.10.0`；core AGENTS:20 写 kit `v0.1.4` vs `go.mod:16` `v0.3.0`；broker AGENTS kit 列待核；core AGENTS:152/:862 的 `:8081` 归属句需订正（data-service 由 tellurion-data 提供）。risk `go.mod:35` indirect 问题归 `RISK-GOMOD-DIRECT`。
+- **③ 要求**：① 6 仓 AGENTS §4 contracts 列改 `v0.10.0`（以各仓 go.mod 实测为准，逐仓核）；② core kit 列改 `v0.3.0`；③ core :8081 归属句订正；④ 与 `X-DEP-BUMP-CONSUMERS` 撞 AGENTS §4 时按单号串行。
+- **④ 约束与非目标**：只改文档版本列，不改 go.mod（go.mod 是真相）；不逐仓抄同一版本号（各仓实测可能不同）。
+- **⑤ 验收**：各仓 AGENTS §4 与 go.mod 逐行一致；`check_doc_links.py`（docs 仓）绿。
+- **⑥ 边界**：协调伞在 core；各仓 AGENTS 改动落各仓 commit。
+- **owner**：待定
+
+### X-CI-RACE-STATICCHECK · 6 服务仓 + agent + contracts CI 补 -race/staticcheck（W6 连带）[P2] ⬜
+
+- **① 目标**：让 6 服务仓 + agent + contracts 的 CI 真跑 `-race` 与 `staticcheck`，对齐 core/kit 已有的竞态门，消除「本机无 gcc 跑不动、CI 也没装」的覆盖空洞。
+- **② 上下文**：审查发现 W6（ODR-073）。core/kit CI 已有 `-race`（**不要动**）；6 服务仓 + agent + contracts 的 CI 缺 `-race`/`staticcheck`；ui 缺 build 步骤门。本机无 gcc，`-race` 结论一律以 CI 为准（E2）。
+- **③ 要求**：① 6 服务仓 + agent + contracts CI 增 `-race`（CGO_ENABLED=1）+ `staticcheck` 步骤；② ui CI 增 `npm run build` 门；③ core/kit 已有 `-race` 不重复加；④ 各仓 AGENTS §2 测试命令同批注明 -race 覆盖面。
+- **④ 约束与非目标**：不改 core/kit 的 CI；不缩小 -race 覆盖面（全仓所有包）；不拿本地绿当 -race 证据。
+- **⑤ 验收**：各仓 CI `-race`/`staticcheck` 步骤真跑（E2）；破坏验证 = 注入一处竞态/静态错误 ⇒ 该步红。
+- **⑥ 边界**：协调伞在 core；各仓 CI 改动落各仓 commit。
+- **owner**：待定
+
+### X-PROBE-NAMING · data `/health`→`/healthz` 统一探针命名（D12=a）[P3] ⬜
+
+- **① 目标**：把 data 的 `/health` 统一为 `/healthz`（对齐其余服务仓），并同批改所有消费者，消除探针命名分叉。
+- **② 上下文**：审查发现 W6（ODR-073）+ 裁决 D12=a。data 用 `/health`，其余服务仓用 `/healthz`；compose/k8s/core 反代多处消费 data `/health`。改名是 breaking，须同批改消费者。
+- **③ 要求**：① data 增 `/healthz`（保留 `/health` 过渡或直删，二选一写死）；② grep 全工作区 data `/health` 消费者同批改；③ data AGENTS/api-schema/runbook 同批；④ 与 `CORE-K8S-EXIT`（data-deployment.yaml 探针）联动。
+- **④ 约束与非目标**：不改其余服务仓探针；不静默删 `/health` 而漏改消费者（先 grep 全量）。
+- **⑤ 验收**：data `/healthz` 真栈 200（E1）；grep 无悬空 `/health` 消费；破坏验证 = 漏改一处消费者 ⇒ 该处探针红。
+- **⑥ 边界**：协调伞在 core；data 改名落 data commit，消费者落各仓 commit。
+- **owner**：待定
+
+### X-LOW-CLEANUP · 低优先整洁度残留打包（W6/W2 清单外顺手发现）[P3] ⬜
+
+- **① 目标**：把审查中登记的 5 处低优先整洁度残留一次清掉，各落各仓 commit，不混进功能单。
+- **② 上下文**：审查发现 W6/W2（ODR-073/069）清单外顺手发现：① strategy Dockerfile 退役名残留；② contracts `fees` 死注释；③ agent `/api/health` 豁免注册口径；④ 分页 offset 登记缺失；⑤ ui openapi「不复制」守卫。各条证据坐标见对应 ODR 发现摘要。
+- **③ 要求**：① strategy 删 Dockerfile 退役 cmd 名；② contracts 删 fees 死注释（不改字段）；③ agent 核 `/api/health` 豁免注册并订正；④ 补分页 offset 登记；⑤ ui 补「openapi 不复制」守卫（grep 护栏）。各条独立 commit。
+- **④ 约束与非目标**：不顺手扩到功能改动；contracts 不改冻结字段；ui 不复制 openapi。
+- **⑤ 验收**：各仓 build/test 绿；⑤ 的守卫破坏验证 = 复制一份 openapi ⇒ 护栏红。
+- **⑥ 边界**：协调伞在 core；5 处各落各仓 commit。
+- **owner**：待定
 
 ## 维护本文件
 
