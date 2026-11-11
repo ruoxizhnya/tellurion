@@ -161,14 +161,24 @@ strategy_asset:
   resolve_timeout: 10s
 
 # P1-15 (Sprint 6, ODR-021): risk + execution services merged into
-# analysis service. The `risk_service.url` and the
-# `STRATEGY_SERVICE_URL` env on docker-compose still work for backward
-# compat (in case someone deploys a separate risk service), but the
-# canonical runtime is in-process — `trading` below is the single source
-# of truth for execution. **风控限额不在这里**：真相源是 tellurion-risk
-# 的规则快照（见下面 resolve_* 与本文件 §限额说明）。
+# analysis service. The canonical runtime is in-process — `trading` below
+# is the single source of truth for execution. **风控限额不在这里**：
+# 真相源是 tellurion-risk 的规则快照（见下面 resolve_* 与本文件 §限额说明）。
+#
+# `risk_service.url` 今天只剩一处读者，而且是**死回落**：
+#   - `pkg/backtest/engine.go` 在 `riskManager == nil` 时用它拼三条远程请求
+#     （`/detect_regime`、`/calculate_position`、`/check_stoploss`；该键为空时
+#     字段缺省为 `http://localhost:8083`）。
+#   - 这两条入口（`cmd/analysis`、`cmd/worker`）装配期无条件注入进程内
+#     RiskManager，所以该分支在生产路径上**不可达**。
+#   - 即便人为置空：缺省 8083 上没有任何服务（tellurion-risk 默认
+#     127.0.0.1:8089，且只提供 `/api/risk/*`，没有这三个路径）；只有把 url
+#     写成 :8085 才会打到 core 自己的同名 legacy 别名 —— 那正是被进程内实现
+#     取代的同一段逻辑，绕一圈回到自己。
+#   - **它不是 risk 服务地址**：risk 在下面的 `resolve_url`（:8089）。
+# 处置（删掉回落 / 接到真实端点）见 TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`。
 risk_service:
-  url: "http://localhost:8085"  # legacy fallback only
+  url: "http://localhost:8085"  # legacy fallback only（活读但恒不可达，见上）
   # QT-66（裁-10 / 裁-11）：run 提交时向 tellurion-risk 取规则快照 hash。
   # resolve_enabled=false ⇒ 本部署视为「未接入 risk 服务」，provenance 的
   # risk_rules_hash 记空串 + not_configured（唯一允许空串的情形）。

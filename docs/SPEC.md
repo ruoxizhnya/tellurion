@@ -3714,8 +3714,9 @@ AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存�
 | `auth` | `jwt_secret`（env `JWT_SECRET` 或 `AUTH_JWT_SECRET`）/ `allow_insecure`（env `AUTH_INSECURE`）/ `insecure_exposure`（env `AUTH_INSECURE_EXPOSURE`，只认 `loopback-published`）/ `issuer` / `access_token_ttl` / `refresh_token_ttl` | `cmd/analysis` 的 `decideAuthStartup`（P0-4 启动门）+ `pkg/auth` |
 | `rate_limit` | `per_minute`（env `RATE_LIMIT_PER_MINUTE`） | 网关限流中间件 |
 | `database` | `url`（整串 DSN 覆盖点）/ `host` / `port` / `user` / `password` / `database` / `sslmode` | `pkg/storage.BuildDSN` |
-| `redis` | `url` | `pkg/storage.NewCache` |
-| `data_service` / `strategy_service` / `risk_service` | `url` | 服务间 HTTP 调用（`risk_service` 仅 analysis，legacy 回落） |
+| `redis` | `url` | **本仓已无运行时读取点**（2026-11-10 起）：`pkg/storage.NewCache` 零调用方，compose / k8s 的 `REDIS_URL` 同批删除；键保留只为历史口径，缓存接线回来时再补读点 |
+| `data_service` | `url` / `token` | 服务间 HTTP 调用（`pkg/bootstrap` 启动期要求绝对 URL） |
+| `risk_service.url` | `url` | **只有一处读者**：`pkg/backtest/engine.go` 的远程回落（`riskManager == nil` 时拼 `/detect_regime`、`/calculate_position`、`/check_stoploss`，键空则缺省 `http://localhost:8083`）。该分支在生产路径上不可达（两个入口都无条件注入进程内 RiskManager），且缺省基址无服务、tellurion-risk（:8089）也不提供这三个路径 —— 是**活读但恒不可用的死回落**，处置见 TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`。**它不是 risk 服务的地址**，risk 在 `risk_service.resolve_url` |
 | `risk_service.resolve_*` | `enabled` / `url` / `token` / `timeout` | `cmd/analysis/wiring.LoadRiskPolicy`（SVC-CORE-RISK-RETIRE）：14 个风控限额的**真相源**是 tellurion-risk 的规则快照，启动期 `POST /api/risk/resolve` → `risk.PolicyFromSnapshot`；`enabled=false` = 未接入，用 `risk.BuiltinPolicy()` 代码常量兜底（日志 `risk_policy_source=builtin_default`）。**`config/*.yaml` 不再有 `risk_manager:` 段** |
 | `alert` | `enabled` / `interval_sec` / `history_limit` / `recorder_capacity` / `webhook_url` / `webhook_timeout_sec` | `pkg/alert`。**5 个探测器阈值不在配置里**：它们是 `cmd/analysis/setup.go` 的代码常量（U7：检测器留进程内；与快照限额不是同一个量，见 SVC-CORE-RISK-RETIRE 的代裁记录） |
 | `backtest` | `initial_capital` / `commission_rate` / `slippage_rate` / `risk_free_rate` | 回测引擎 |
