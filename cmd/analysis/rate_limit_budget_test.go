@@ -3,9 +3,10 @@ package main
 // AUD-58 的窄测试：**证明那个旋钮真的有效**。
 //
 // 为什么需要这一条：AUD-58 的落地方式是「给 e2e 栈显式设一个高额度」
-// （`RATE_LIMIT_PER_MINUTE`，走 docker-compose.e2e.yml 覆盖层）。如果这个 env
+// （`RATE_LIMIT_PER_MINUTE`）。2026-11-11 单一 compose 定案后不再有
+// docker-compose.e2e.yml 覆盖层，高额度改由命令行 env 覆盖表达。如果这个 env
 // 覆盖根本没接上，e2e 会继续拿到 429，而**看起来**问题已经处理过了 ——
-// 覆盖层里明明写着 high。那就是一个安慰剂。
+// 命令里明明写着 high。那就是一个安慰剂。
 //
 // 四条腿，各自独立（故意写成互不依赖，因为「兜底值恰好等于配置值」会让
 // 「读了配置」和「用了兜底」长得一模一样 —— 一种会假绿的形状）：
@@ -19,8 +20,9 @@ package main
 // 的捷径 —— 那等于把限流从本地开发里静默删掉，比拿到 429 更糟（429 至少看得见）。
 
 import (
+	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -79,10 +81,10 @@ func TestRateLimitPerMinute_ShippedDefaultIsStillARealLimit(t *testing.T) {
 		"config/analysis-service.yaml 必须给出一个正的限额（0 或负数等于关掉限流）")
 
 	// 上界不是审美判据，是**反捷径**判据：AUD-58 不能靠「把默认调高」来修。
-	// 真要让整套 e2e 跑得动，走 docker-compose.e2e.yml 那个显式覆盖层。
+	// 真要让整套 e2e 跑得动，走命令行 env 覆盖（`RATE_LIMIT_PER_MINUTE=100000`）。
 	assert.LessOrEqual(t, shipped, 600,
 		"默认限额被调大了 —— 那是把限流从本地开发里静默删掉。"+
-			"抬高额度必须是 e2e 专用覆盖层（docker-compose.e2e.yml），不是改默认值（AUD-58）")
+			"抬高额度必须是 e2e 专用命令行 env 覆盖，不是改默认值（AUD-58）")
 }
 
 // C. shipped 值确实流过 rateLimitPerMinute。
@@ -108,37 +110,65 @@ func TestRateLimitPerMinute_EnvOverrideActuallyTakesEffect(t *testing.T) {
 			"问题会看起来已经处理过，实际仍在 429")
 }
 
-// E. 最后一块：**覆盖层本身**必须真的把 analysis-service 抬起来。
+// E. 最后一块：**默认值必须是 100、且必须可被 env 覆盖**。
 //
-// 上面四条腿证明的是「旋钮有效」，但 AUD-58 的修法落在
-// `docker-compose.e2e.yml` 这个部署产物上 —— 如果它漏了 analysis-service、或者
-// 写的值不比默认大，测试全绿而 e2e 依然 429。所以这里直接读那个文件。
+// 2026-11-11 单一 compose 定案后，e2e 不再有覆盖层文件：高额度改由命令行
+// `RATE_LIMIT_PER_MINUTE=100000 docker compose up ...` 表达。所以这条腿钉两件事：
+//  1. 主文件里的默认值是 `${RATE_LIMIT_PER_MINUTE:-100}`（不是死值）；
+//  2. 部署面（*.yml / *.yaml）里**不得**再出现把 100000 写死的赋值 ——
+//     一旦硬编码，env 覆盖就会失效而测试仍绿。
 //
-// data-service **有意不在覆盖层里**：2026-11-10（`8fd415d`）起它的镜像由
+// data-service **有意不接这个旋钮**：2026-11-10（`8fd415d`）起它的镜像由
 // `tellurion-data` 仓发布，限流是数据仓内的固定档（50 rps / 突发 200），**不读**
-// `RATE_LIMIT_PER_MINUTE` —— 此前那行 env 是零读取者的死配置。所以这里显式断言
-// 它缺席：后人若把它当「漏配」补回来，只会得到一条看起来可调、实际不生效的配置。
-func TestE2EComposeOverride_RaisesTheLimitForAnalysisService(t *testing.T) {
-	composeE2E, err := filepath.Abs(filepath.Join("..", "..", "docker-compose.e2e.yml"))
+// `RATE_LIMIT_PER_MINUTE` —— 补回去只会得到一条看起来可调、实际不生效的配置。
+func TestCompose_DefaultRateLimitIs100AndOverridable(t *testing.T) {
+	composePath, err := filepath.Abs(filepath.Join("..", "..", "docker-compose.yml"))
 	require.NoError(t, err)
 
 	raw := viper.New()
-	raw.SetConfigFile(composeE2E)
+	raw.SetConfigFile(composePath)
 	raw.SetConfigType("yaml")
-	require.NoError(t, raw.ReadInConfig(), "docker-compose.e2e.yml 必须存在且可解析")
+	require.NoError(t, raw.ReadInConfig(), "docker-compose.yml 必须存在且可解析")
 
-	shipped := shippedRateLimit(t)
+	assert.Equal(t, "${RATE_LIMIT_PER_MINUTE:-100}",
+		raw.GetString("services.analysis-service.environment.RATE_LIMIT_PER_MINUTE"),
+		"默认限流必须是可覆盖的 100（`${RATE_LIMIT_PER_MINUTE:-100}`），不能写死")
 
-	got := raw.GetString("services.analysis-service.environment.rate_limit_per_minute")
-	require.NotEmpty(t, got,
-		"analysis-service 没拿到 e2e 覆盖 —— 它会在 429 里继续红（Playwright 打 :8085）")
+	assert.False(t, raw.IsSet("services.data-service.environment.RATE_LIMIT_PER_MINUTE"),
+		"data-service 不该接 RATE_LIMIT_PER_MINUTE：它的限流是 tellurion-data 仓内的固定档")
 
-	n, err := strconv.Atoi(got)
-	require.NoError(t, err, "analysis-service 的覆盖值必须是整数，实际 %q", got)
-	assert.Greater(t, n, shipped,
-		"analysis-service 的 e2e 覆盖(%d) 不比默认(%d) 大 —— 那这个覆盖层等于没写", n, shipped)
+	// 只查「YAML 赋值」形态的硬编码；文档与命令行示例里的 `=100000` 不算 ——
+	// 那个值正是必须能被覆盖的东西，禁掉它等于禁掉 e2e 姿势。
+	hardcoded := regexp.MustCompile(`(?m)^\s*(?:RATE_LIMIT_PER_MINUTE|rate_limit_per_minute)\s*:\s*["']?100000\b`)
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
 
-	assert.False(t, raw.IsSet("services.data-service"),
-		"data-service 不该回到 e2e 覆盖层：它的限流是 tellurion-data 仓内的固定档，"+
-			"不读 RATE_LIMIT_PER_MINUTE（补回去只会得到一条零读取者的死配置）")
+	var offenders []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "reports", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".yml" && ext != ".yaml" {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if hardcoded.Match(body) {
+			rel, _ := filepath.Rel(root, path)
+			offenders = append(offenders, rel)
+		}
+		return nil
+	}))
+	assert.Empty(t, offenders,
+		"部署面里出现了写死的 100000：env 覆盖会失效。e2e 高额度请用命令行 RATE_LIMIT_PER_MINUTE=100000")
 }

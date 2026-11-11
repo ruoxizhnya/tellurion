@@ -1,6 +1,33 @@
-# 本地部署形态（2026-09-25 定案）──────────────────────────────────────
+# 本地统一部署形态（2026-11-11 定案；撤销 QT-79 / D-DEPLOY-1 = A）───────
 #
-# **数据库与缓存用宿主机原生安装，应用服务用容器。**
+# **全工作区本地只留这一个 compose。** 数据库与缓存仍用宿主机原生安装，应用
+# 服务用容器。原 docker-compose.services.yml / .e2e.yml / .nt.yaml 三份已并入
+# 本文件，差异改由 profile 与 env 表达；跨仓的 7 份 deploy/compose.yaml 是
+# **各仓自证资产**（验各自 Dockerfile / health），不属于本地统一栈，也不参与
+# 联调 —— 联调一律用本文件的 profile。
+#
+#   profile 划分
+#     默认（无 profile）  data-service:8081 / broker:8091 /
+#                         analysis-service:8085 / ai-service:8086
+#     full                risk:8089 / strategy:8090 / analytics:8087 /
+#                         orchestration:8088（补齐分析 / 风控 / 编排面）
+#     orchestration-worker worker（无监听；编排不可达时 fail-closed 退出）
+#     tools               dualrun（一次性验收门）
+#     nt                  nt-sidecar（可选旁路样本，host 网络）
+#
+#   docker compose up -d                 # 默认四服务，开箱即起（broker 是 mock）
+#   docker compose --profile full up -d  # 再加 risk / strategy / analytics / orchestration
+#   RATE_LIMIT_PER_MINUTE=100000 docker compose up -d --force-recreate \
+#       --no-deps analysis-service data-service
+#                                        # e2e 限流姿势（原 e2e 覆盖层）
+#
+# ⚠️ **交易通道是 mock，订单永不触达真实柜台。** 默认栈的 broker 以
+# `-account-id mock` 起；analysis 侧用 BROKER_CHANNEL=mock +
+# BROKER_ALLOW_MOCK=true **双键**确认，装配期还会 GET 对端 `/version` 并要求它
+# 自报 mock（pkg/brokerhttp.verifyPeerChannel）。要接真实柜台必须**显式**把
+# BROKER_CHANNEL 改成 live（同时清掉 BROKER_ALLOW_MOCK），且对端 `/version`
+# 必须自报 live；任一条不满足，analysis-service 在装配期直接拒起 ——
+# 没有"降级为 mock"这种中间态，也不许在文档里写成"建议"。
 #
 #   宿主机原生
 #     PostgreSQL 16.15  127.0.0.1:5432   —— 本机在跑的是 Windows 服务
@@ -16,8 +43,13 @@
 #
 #   Docker 容器（本文件）
 #     data-service     :8081   多源数据接入
+#     broker           :8091   执行网关（mock 通道，ADR-036 G0）
 #     analysis-service :8085   回测 + 风控 + 执行 + 鉴权（ODR-021 合并后）
 #     ai-service       :8086   AI 服务（独立仓 tellurion-agent）
+#     risk             :8089   profile full
+#     strategy         :8090   profile full
+#     analytics        :8087   profile full
+#     orchestration    :8088   profile full
 #   strategy-service :8082 于 REV-16 删除（ADR-012 关闭，standby 无占位价值）
 #   （web :8080 前端已拆仓 → tellurion-ui，2026-10-09）
 #
@@ -40,7 +72,7 @@
 # 端口绑定约定（AUD-13 的推广，2026-09-25）：**本栈里没有任何东西绑 0.0.0.0
 # 在宿主机上**。数据库/缓存那半由原生进程的配置承担（postgresql.conf 的
 # listen_addresses、redis.conf 的 bind，真身由 tools/local-infra.sh 的 netstat
-# 断言守着）；应用服务这半由本文件的 ports 映射承担 —— 四条映射**全部**带
+# 断言守着）；应用服务这半由本文件的 ports 映射承担 —— 八条映射**全部**带
 # 127.0.0.1: 前缀。
 #
 # 为什么应用端口也必须回环：analysis-service 以 **open-access** 运行
@@ -52,8 +84,8 @@
 # 不靠记得：
 #   静态 —— tools/check_deploy_consistency.py 的检查 3c（双向：非回环映射
 #           必须配 JWT_SECRET；AUTH_INSECURE 为真则每条映射都必须回环）
-#   运行时 —— tools/local-stack.sh 读宿主机 netstat，断言 8081/8085/8086
-#           只监听回环
+#   运行时 —— tools/local-stack.sh 读宿主机 netstat，断言
+#           8081/8085/8086/8091 只监听回环（full 的四个端口由静态检查覆盖）
 #
 # tools/check_deploy_consistency.py 的检查 3 已随之改写为「宿主机监听地址」的
 # 等价断言 + 破坏验证。
@@ -61,13 +93,41 @@
 # 启动顺序：analysis-service 连不上 PG 会直接 Fatal 退出、**没有重试**；此前靠
 # `depends_on + service_healthy` 保证，postgres 不再是 compose 成员后改由镜像内的
 # deploy/wait-for-deps.sh 承担 —— **是替换不是删除**，等的是宿主机真实端口。
-# data-service 不用这个脚本：它的连接池是惰性的（store.Open 不拨号，DDL 失败后台
-# 重试），且镜像由数据仓发布、不含本仓的 wait-for-deps.sh。
+# 2026-11-11 起它同时等 `BROKER_URL` 的 host:port（broker 未起来就装配必然失败，
+# 不让默认栈靠重启碰运气）。data-service 不用这个脚本：它的连接池是惰性的
+# （store.Open 不拨号，DDL 失败后台重试），且镜像由数据仓发布、不含本仓脚本。
 #
-# (ai-service 已删除：2026-09-18，TASKS P2-5。它零调用方且建在待废弃的
-# pkg/ai/agents 上；AI 能力现在走 cmd/analysis 的 MCP 工具层。)
+# 注：ai-service 仍在（源码 tellurion-agent，入口 :8086）。旧注释"2026-09-18
+# 已删除"与本文件的服务定义矛盾，2026-11-11 按事实纠正。
 
 services:
+  # ── broker :8091（执行网关，ADR-036 G0；从 docker-compose.services.yml 并入）──
+  # analysis 装配期无条件构造执行通道（cmd/analysis/kernel_wiring.go 的
+  # BuildExecutionTrader），所以 broker 必须在默认栈里 —— 否则 `docker compose up`
+  # 的默认结果就是 analysis-service 拒起，那不是"预期行为"，是坏的默认值。
+  # image 由 ../tellurion-broker 构建；`-account-id mock` + `BROKER_CHANNEL=mock`
+  # + `BROKER_ALLOW_MOCK=true` 三处一致，订单永不触达真实柜台。
+  # 写侧 token：broker 未设 BROKER_SERVICE_TOKEN 时写端点关闭（503
+  # writes_disabled，不是不校验）。本地 mock 栈两边注入同一个 dev 值，
+  # 让「下单→记账→查询」整条链能跑通；真实柜台必须换成正式签发的 token。
+  broker:
+    build:
+      context: ../tellurion-broker
+      dockerfile: Dockerfile
+    image: tellurion-broker:dev
+    command: ["-addr", "0.0.0.0:8091", "-account-id", "mock", "-cash", "100000000"]
+    ports:
+      - "127.0.0.1:8091:8091"
+    environment:
+      BROKER_SERVICE_TOKEN: ${BROKER_SERVICE_TOKEN:-dev-only-mock-token}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8091/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
   data-service:
     # 镜像由 tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08）。本地开发
     # 用 --build 现建，部署侧（k8s）拉同一个 image；本仓 Dockerfile.service 已不再
@@ -112,8 +172,9 @@ services:
       # ── SVC-ORCH-G3：异步任务面切到编排服务 ─────────────────────────
       # 设置了 ORCHESTRATION_URL 时，POST /api/backtest 的异步分支提交给编排
       # 服务（core 不再新增 backtest_jobs）；未设置 = 维持本地旧路径。
-      # 本 core 栈不含编排服务，默认留空；与服务仓聚合栈（127.0.0.1:8088）
-      # 联调时显式设置，例如 ORCHESTRATION_URL=http://host.docker.internal:8088。
+      # 编排服务在 `full` profile（compose 服务名 orchestration:8088）。默认留空
+      # 是为了不让 core 因编排缺席而拒起；联调时先 `--profile full up`，再设
+      # ORCHESTRATION_URL=http://orchestration:8088。
       ORCHESTRATION_URL: ${ORCHESTRATION_URL:-}
       ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
       # ── P0-4 鉴权：两种模式**二选一**，默认是本地 open-access ──────────
@@ -137,7 +198,7 @@ services:
       # 基础不变量仍然保留（这是 P0-4 的要点，没有被削弱）：**open-access
       # 绝不能从其他主机到达**。改动只是把判据从「绑定地址」换成「发布层」——
       # 容器必须绑 0.0.0.0 才能被转发，所以对外可达性由上面的 ports 映射决定，
-      # 而四条映射全都带 127.0.0.1: 前缀。
+      # 而八条映射全都带 127.0.0.1: 前缀。
       #
       #   AUTH_INSECURE=true 且 AUTH_INSECURE_EXPOSURE=loopback-published
       #     → cmd/analysis/setup.go 的 decideAuthStartup 才放行（取值必须逐字
@@ -168,9 +229,10 @@ services:
       # 四族全部 503「ai-service unreachable」，而 ai-service 自己健康得很。
       # 2026-10-14 拉起本地栈时实测到这条，补上。
       AI_SERVICE_URL: http://ai-service:8086
-      # 资产服务（tellurion-strategy，默认 :8090）不在本 compose 栈内。
+      # 资产服务（tellurion-strategy，:8090）在 `full` profile 里，默认栈不起它。
       # yaml 默认是宿主机视角 http://localhost:8090；容器里 localhost 是它
-      # 自己，必须显式指向宿主网关（与 DATABASE_HOST 同一约定）。
+      # 自己，所以缺省指向宿主网关（与 DATABASE_HOST 同一约定）。开了 full
+      # 可改 http://strategy:8090。
       STRATEGY_ASSET_RESOLVE_URL: ${STRATEGY_ASSET_RESOLVE_URL:-http://host.docker.internal:8090}
       # P1-15 (Sprint 6, ODR-021): risk + execution merged into
       # analysis. RISK_SERVICE_URL kept as a legacy fallback only
@@ -192,7 +254,19 @@ services:
       LOGGING_LEVEL: info
       # AUD-58：见 data-service 里同一行的注释。缺省 100 与
       # config/analysis-service.yaml 的 rate_limit.per_minute 一致。
+      # e2e 用 RATE_LIMIT_PER_MINUTE=100000 在命令行覆盖（原 e2e 覆盖层）。
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+      # ── 执行通道（2026-11-11 接线；broker 已是默认栈成员）──────────────
+      # 装配期无条件构造（cmd/analysis/kernel_wiring.go 的 BuildExecutionTrader），
+      # 缺任一项都直接拒起：BROKER_URL 必填 → BROKER_CHANNEL 必填 → mock 还要
+      # BROKER_ALLOW_MOCK=true → 启动时 GET {BROKER_URL}/version，对端自报通道
+      # 必须与声明一致（pkg/brokerhttp.verifyPeerChannel）。
+      # 默认是 mock：订单永不触达真实柜台。改 live 见文件头红字。
+      BROKER_URL: ${BROKER_URL:-http://broker:8091}
+      BROKER_CHANNEL: ${BROKER_CHANNEL:-mock}
+      BROKER_ALLOW_MOCK: ${BROKER_ALLOW_MOCK:-true}
+      BROKER_SERVICE_TOKEN: ${BROKER_SERVICE_TOKEN:-dev-only-mock-token}
+      BROKER_ACCOUNT_ID: ${BROKER_ACCOUNT_ID:-mock}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8085/health || exit 1"]
       interval: 10s
@@ -201,6 +275,10 @@ services:
       start_period: 10s
     depends_on:
       data-service:
+        condition: service_healthy
+      # broker 在默认 profile，跨 profile 依赖约束不适用；等它 healthy 再装配，
+      # 避免 wait-for-deps 之外的启动竞态。
+      broker:
         condition: service_healthy
 
   # ── ai-service :8086（AI 拆仓阶段 1，ADR-027 §5 第 8 步前置切片）────────
@@ -252,13 +330,14 @@ services:
       analysis-service:
         condition: service_healthy
 
-  # QT-79（D-DEPLOY-1 = A，2026-11-07 代裁）：core 自有的本地开发栈只放本仓进程，
-  # 服务仓联调仍用 docker-compose.services.yml 且**不与本文件合并**。
+  # QT-79 / D-DEPLOY-1 = A 已于 2026-11-11 **撤销**（主任指令：本地编排必须
+  # 单一文件，避免三份各说各话）。原代裁担心「data 与 data-service 双发布
+  # 8081」——新方案只保留 data-service 一份，聚合栈的 data 服务已删除。
   #
   # worker 是**无监听**的长驻进程（向 orchestration 注册 + 心跳 + 领活），因此：
   #   - 不给它造 HTTP /healthz（验收原文：「心跳成功 + 能领到活」才是健康判据）；
-  #   - 编排服务不在 core 栈里 ⇒ 默认 profile 不启动它；显式起而编排不可达时，
-  #     cmd/worker 是 fail-closed 退出（非 0），不是「空跑成功」。
+  #   - 编排服务在 `full` profile ⇒ 默认不启动 worker；只开 worker 而不开 full
+  #     时，cmd/worker 对不可达编排是 fail-closed 退出（非 0），不是「空跑成功」。
   worker:
     profiles: ["orchestration-worker"]
     build:
@@ -272,8 +351,8 @@ services:
       DATABASE_USER: postgres
       DATABASE_DATABASE: tellurion
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      # 编排服务在服务仓聚合栈（127.0.0.1:8088）或宿主机上；容器内用 host 网关。
-      ORCHESTRATION_URL: ${ORCHESTRATION_URL:-http://host.docker.internal:8088}
+      # 编排服务在 `full` profile，容器内直接用 compose 服务名。
+      ORCHESTRATION_URL: ${ORCHESTRATION_URL:-http://orchestration:8088}
       # 全量 R5（SVC-ORCH-G1）后编排面的每条路由都要 service 凭证；
       # 只给发送方注入，仓库里只有空占位（签法见 docs/SPEC.md#服务间凭证）。
       ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
@@ -312,6 +391,145 @@ services:
     volumes:
       - ./reports:/app/reports
     restart: "no"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # full profile：分析 / 风控 / 编排面（2026-11-11 从 docker-compose.services.yml
+  # 并入）。数据库统一走宿主机原生 16.15 —— 不再起容器 PG：那会与 5432 抢端口，
+  # 并制造第二份数据（旧聚合栈因此根本起不来）。
+  # 四个服务都是**验签方**：JWT_SECRET 与 analysis 同源（不设 = 全栈 open-access）；
+  # 容器必须绑 0.0.0.0 才能发端口，无 secret 时靠 AUTH_INSECURE_EXPOSURE 显式声明
+  # 「只发布到回环」，缺它会被各自的启动闸拒绝（kit DecideStartup）。
+  # ══════════════════════════════════════════════════════════════════════
+  risk:
+    profiles: ["full"]
+    build:
+      context: ../tellurion-risk
+      dockerfile: Dockerfile
+    image: tellurion-risk:dev
+    command: ["-addr", "0.0.0.0:8089"]
+    ports:
+      - "127.0.0.1:8089:8089"
+    environment:
+      # 要换库改 .env 的 DATABASE_PASSWORD（或直接改本行）。
+      RISK_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      # 与 analysis 同源：不设 = 全栈 open-access（仅回环可达）；设了则四个
+      # full 服务一起开鉴权。容器绑 0.0.0.0，无 secret 时必须显式声明
+      # loopback-published 才让启动闸（kit DecideStartup）放行。
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+      # G4：monitor 的 configured 判别位是**部署声明**，必须与 core 的
+      # risk_service.events_enabled 一致；缺省 false 与 core 出厂值对齐。
+      RISK_EVENTS_EXPECTED: ${RISK_EVENTS_EXPECTED:-false}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  strategy:
+    profiles: ["full"]
+    build:
+      context: ../tellurion-strategy
+      dockerfile: Dockerfile
+    image: tellurion-strategy:dev
+    command: ["-addr", "0.0.0.0:8090", "-cache-dir", "/data/artifacts"]
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      STRATEGY_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-}
+      # 容器内绑 0.0.0.0 才能发端口，但只发布在宿主回环 —— 无 secret 时靠这一项
+      # 让启动闸放行；缺它则按设计拒绝启动。
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+    volumes:
+      - strategy-artifacts:/data/artifacts
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8090"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  analytics:
+    profiles: ["full"]
+    build:
+      context: ../tellurion-analytics
+      dockerfile: Dockerfile
+    image: tellurion-analytics:dev
+    command: ["-addr", "0.0.0.0:8087"]
+    ports:
+      - "127.0.0.1:8087:8087"
+    environment:
+      ANALYTICS_DATABASE_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      # core / data / orchestration 都是 compose 成员，直接用服务名（原聚合栈
+      # 因为没有 core，才不得不走 host.docker.internal）。
+      ANALYTICS_CORE_URL: ${ANALYTICS_CORE_URL:-http://analysis-service:8085}
+      ANALYTICS_DATA_URL: ${ANALYTICS_DATA_URL:-http://data-service:8081}
+      # QT-78：artifact 读面（portfolio-snapshot / factor-exposures）由 core 自持，
+      # 路径是 `{base}/runs/{id}/{kind}` ⇒ base 必须带 /api。
+      ANALYTICS_ARTIFACT_URL: ${ANALYTICS_ARTIFACT_URL:-http://analysis-service:8085/api}
+      ANALYTICS_ORCHESTRATION_URL: ${ANALYTICS_ORCHESTRATION_URL:-http://orchestration:8088}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+      # 发送方持有三个 service token（空占位；签发见 docs/SPEC.md「服务间凭证」）。
+      DATA_SERVICE_TOKEN: ${DATA_SERVICE_TOKEN:-}
+      ANALYTICS_CORE_TOKEN: ${ANALYTICS_CORE_TOKEN:-}
+      ANALYTICS_ARTIFACT_TOKEN: ${ANALYTICS_ARTIFACT_TOKEN:-}
+      # 全量 R5（SVC-ORCH-G1）后 `/api/runs/parents` 需要 service 角色。
+      ANALYTICS_ORCHESTRATION_TOKEN: ${ANALYTICS_ORCHESTRATION_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8087/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  orchestration:
+    profiles: ["full"]
+    build:
+      context: ../tellurion-orchestration
+      dockerfile: Dockerfile
+    image: tellurion-orchestration:dev
+    command: ["-addr", "0.0.0.0:8088"]
+    ports:
+      - "127.0.0.1:8088:8088"
+    environment:
+      # DSN 为空时本服务按设计拒绝启动（fail-closed）。
+      ORCHESTRATION_DSN: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/tellurion?sslmode=disable
+      # 验签方：SVC-ORCH-G1 起 /api/* 全量 service 角色；/healthz /readyz 公开。
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8088/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # nt-sidecar：可选旁路样本（原 docker-compose.nt.yaml）。默认不起。
+  # 回环约束（ADR-031 D5）要求容器共享宿主网络命名空间，否则 127.0.0.1 不可达；
+  # host 网络在 Linux 上开箱可用，Docker Desktop 支持有限 —— Windows 下直接在
+  # 宿主机 `python -m sidecar`。绝不要把 --host 改成 0.0.0.0（会被启动守卫拒绝）。
+  nt-sidecar:
+    profiles: ["nt"]
+    build:
+      context: ./nt-sidecar
+      dockerfile: Dockerfile
+    image: tellurion/nt-sidecar:2.0.0rc6
+    network_mode: host
+    volumes:
+      - ./nt-sidecar/catalog:/catalog:ro
+    restart: unless-stopped
+
+volumes:
+  # strategy 的编译产物。旧项目 tellurion-services 下的同名卷不会自动迁移
+  # （产物可重建）；需要旧数据时手工 docker volume 拷出，不要用 prune。
+  strategy-artifacts:
 
 # 注意：web 服务已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
 # 前端现在由 tellurion-ui 仓独立构建/托管（该仓的 Dockerfile 与

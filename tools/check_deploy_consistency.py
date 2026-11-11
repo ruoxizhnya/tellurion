@@ -97,6 +97,14 @@ ALLOWED_MISSING_IN_K8S = {
     # AI 拆仓阶段 1：k8s 侧暂不部署 ai-service（本地 compose 先行验证；
     # k8s 清单随阶段 2 搬仓一并补 —— 到时本条移除）。
     "ai-service": "AI 拆仓阶段 1，k8s 清单待阶段 2 补",
+    # 2026-11-11 单一 compose 合并：full profile / 默认栈的执行网关是跨仓服务，
+    # core 的 k8s 清单不托管它们（各自成仓部署）。它们进 compose 是为了本地
+    # 一条命令起全栈，不代表 k8s 要补这五个 Service。
+    "broker": "跨仓 tellurion-broker；k8s 清单不托管执行网关",
+    "risk": "跨仓 tellurion-risk；k8s 清单不托管风控服务",
+    "strategy": "跨仓 tellurion-strategy；k8s 清单不托管策略服务",
+    "analytics": "跨仓 tellurion-analytics；k8s 清单不托管分析服务",
+    "orchestration": "跨仓 tellurion-orchestration；k8s 清单不托管编排服务",
 }
 
 # 两边都可能不配的最小集合（比如只在本地跑的辅助容器）
