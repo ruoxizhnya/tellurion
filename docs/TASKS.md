@@ -216,16 +216,16 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 | # | 冲突（一句话） | 处置 | 落点 | 状态 |
 |---|---|---|---|---|
 | C1 | agent 三个因子工具打向 core 不存在的端点 | 改代码：显式「未提供」，不补端点 | 跨仓 ADR-041；`tellurion-agent:AGENT-FACTOR-TOOLS-UNAVAILABLE` | ✅ 2026-11-11 |
-| C2 | data `db-schema` 的 SPEC-R-02 把因子域 owner 写成 data | 改文档（已改） | `tellurion-data:docs/db-schema.md` §1.3/SPEC-R-02 + `ARCHITECTURE.md` | ✅ 2026-11-11 |
+| C2 | data `db-schema` 的 SPEC-R-02 把因子域 owner 写成 data | 改文档（已改） | `tellurion-data:DATA-FACTOR-OWNER-DOC`（`docs/db-schema.md` §1.3/SPEC-R-02 + `docs/ARCHITECTURE.md` §2.1；收口记录在该仓 `docs/archive/tasks-archive-2026-11.md`） | ✅ 2026-11-11 |
 | C3 | `factor_returns`/`ic_analysis` 孤儿表、产物组装静默跳过 | 裁决归 core + 改代码（说明缺失原因） | 跨仓 ADR-038；`CORE-FACTOR-DERIVED-GUARD` | ✅ 2026-11-11 |
 | C4 | core 与 analytics 指标双实现、无权威条款 | 新建 ADR + 漂移检测 | 跨仓 ADR-039；`tellurion-analytics:ANALYTICS-METRIC-DRIFT` | ✅ 2026-11-11（真实 run artifact 腿 ⏸，见 Analytics 归档重开条件） |
 | C5 | risk 自持 `Snapshot`，与 `contracts/risk` 双定义 | 改代码：别名引用 contracts | 跨仓 ADR-040；`tellurion-risk:RISK-CONTRACTS-SNAPSHOT-MIGRATION` | ✅ 2026-11-11（真栈 hash 对拍腿 ⏸，见 Risk 归档重开条件） |
 | C6 | core `internal/analysisartifact` 生产分析产物 | 保留 + 记退出条件（本轮不改代码） | `CORE-ANALYSISARTIFACT-RETENTION` | ⏸ 挂起 |
-| C7 | core ↔ agent 运行期「双向调用」的文档口径 | 改文档：core→agent 是 HTTP 反代，无领域语义 | `tellurion-docs:docs/REPO-MAP.md` 依赖图脚注 | ✅ 2026-11-11 |
+| C7 | core ↔ agent 运行期「双向调用」的文档口径 | 改文档：core→agent 是 HTTP 反代，无领域语义 | `tellurion-docs:DOC-15`（`DOC-CORE-AGENT-PROXY-NOTE`，`docs/REPO-MAP.md` 依赖图脚注；收口记录在该仓 `docs/archive/tasks-archive-2026-11.md`） | ✅ 2026-11-11 |
 | C8 | `GET /api/factors/:name` 死链（反代 data 已撤路由） | 改代码：显式退役 | `CORE-FACTOR-DEAD-PROXY`；UI 消费方登记为 `tellurion-ui:UI-FACTOR-CITATION-RETIRED` | ✅ 2026-11-11 |
 | C9 | compose/agent 注释称 `/api/factor/*` 已注册 | 改注释（事实订正） | `CORE-COMPOSE-FACTOR-COMMENT` + agent 同批 | ✅ 2026-11-11 |
 | C10 | `analysis.benchmarks` 零写者（K7） | 不改（维持挂起，重开=出现写消费者） | `tellurion-analytics` K7 条目 | ⏸ 已挂起 |
-| C11 | contracts 版本列 v0.9.0 与 `go.mod` 实测 v0.10.0 不一致 | 改文档（已改） | `tellurion-docs:docs/REPO-MAP.md` 版本列与推进顺序 | ✅ 2026-11-11 |
+| C11 | contracts 版本列 v0.9.0 与 `go.mod` 实测 v0.10.0 不一致 | 改文档（已改） | `tellurion-docs:DOC-16`（`DOC-REPO-MAP-VERSION-CORRECTION`，`docs/REPO-MAP.md` 版本列与推进顺序；收口记录在该仓 `docs/archive/tasks-archive-2026-11.md`） | ✅ 2026-11-11 |
 | C12 | `market.index_daily` 由 core 建表（跨 schema 例外） | 不改（第三轮裁决 ⑰ + guard test 已固化） | `CORE-MARKET-INDEX-DAILY-EXCEPTION` | 不改（已裁） |
 | C13 | `public.factor_cache` 无写者、表未收尾 | 已裁 + 退出条件 | 跨仓 ADR-037 §6；`CORE-FACTOR-CACHE-WRITER` | ✅ 已裁（实现挂起重开条件） |
 
