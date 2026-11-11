@@ -24,6 +24,10 @@ package main
 // GET —— 反代必须在网关就把两种形态都接住。
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -43,21 +47,25 @@ func aiServiceURL(v *viper.Viper) string {
 
 // registerAIProxyRoutes 把四族 AI 路由反代到 ai-service。
 func registerAIProxyRoutes(router *gin.Engine, v *viper.Viper, logger zerolog.Logger) {
-	target, err := url.Parse(aiServiceURL(v))
-	if err != nil {
-		logger.Error().Err(err).Str("url", aiServiceURL(v)).
-			Msg("invalid ai_service.url; AI proxy routes not registered")
+	raw := aiServiceURL(v)
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		logger.Error().Err(err).Str("url", raw).Str("env", "AI_SERVICE_URL").
+			Msg("invalid AI_SERVICE_URL; AI proxy routes not registered")
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.FlushInterval = -1 // SSE 逐写直通，不缓冲
 
 	// ai-service 未起时返回 503 并点名，而不是网关 502 说不清谁挂了。
+	// 主机名解析失败（Boot 期已不再预检，见 endpoints.go）在这里第一次暴露：
+	// 错误正文点名 AI_SERVICE_URL 与主机名，不做「跳过 AI 功能」的静默降级。
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		logger.Error().Err(err).Str("path", r.URL.Path).Msg("ai-service unreachable")
+		msg := aiProxyUnreachableMessage(target, err)
+		logger.Error().Err(err).Str("path", r.URL.Path).Msg(msg)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"error":"ai-service unreachable (is cmd/ai running?)"}`))
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 	}
 
 	for _, family := range []string{"copilot", "pipeline", "explore", "tools"} {
@@ -71,4 +79,19 @@ func registerAIProxyRoutes(router *gin.Engine, v *viper.Viper, logger zerolog.Lo
 	}
 	logger.Info().Str("target", target.String()).
 		Msg("AI proxy routes registered: /api/{copilot,pipeline,explore,tools} → ai-service")
+}
+
+// aiProxyUnreachableMessage 把反代失败翻译成可执行的提示。
+// DNS 解析失败时点名 env 与主机名 —— 这是「配置错」；其余（拒绝连接、超时）
+// 是「下游还没起」，保留原有措辞。
+func aiProxyUnreachableMessage(target *url.URL, err error) string {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return fmt.Sprintf(
+			"ai-service unreachable: host %q does not resolve (AI_SERVICE_URL=%s): %v. "+
+				"Compose service names only work inside the container network — "+
+				"for a host-side run set AI_SERVICE_URL=http://localhost:8086",
+			target.Hostname(), target.String(), err)
+	}
+	return fmt.Sprintf("ai-service unreachable (AI_SERVICE_URL=%s; is cmd/ai running?)", target.String())
 }
