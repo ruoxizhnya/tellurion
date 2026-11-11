@@ -84,6 +84,9 @@ var analysisRoutePolicy = authz.Policy{
 		// 消费方是 analytics 的服务间读取，与上面的 X0 读面同档：已认证即可。
 		"GET /api/runs/:id/portfolio-snapshot",
 		"GET /api/runs/:id/factor-exposures",
+		// 归属裁决（2026-11-12）：基本面读面读回 core 自己的
+		// public.stock_fundamentals（只读、不写库），与选股读面同档。
+		"GET /api/fundamental/:symbol",
 	},
 
 	// ── Service：服务间调用（裁-17，第五档）──

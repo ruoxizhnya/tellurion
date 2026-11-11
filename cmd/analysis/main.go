@@ -310,6 +310,14 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		screenReader = deps.Store
 	}
 	registerScreenRoutes(router, screenReader, deps.Logger)
+	// 基本面读面（归属裁决 2026-11-12）：`stock_fundamentals` 是 core 自己的表，
+	// 读回 public；数据服务那条 `market.stock_fundamentals` 读路径已删除。
+	// 未接库时路由照常注册、请求 503。
+	var fundamentalReader fundamentalReader
+	if deps.Store != nil && deps.Store.DB() != nil {
+		fundamentalReader = deps.Store
+	}
+	registerFundamentalRoutes(router, fundamentalReader)
 	// QT-72：X0 读面端口。与下面 factorRegistrationStore / referenceDataStore
 	// 同一约束 —— nil *PostgresStore 装进接口会变成「非 nil 接口 + nil 指针」，
 	// 到 handler 里才 panic；未接库时路由照常注册、请求时 503。

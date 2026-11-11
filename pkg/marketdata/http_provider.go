@@ -92,21 +92,13 @@ func (p *httpProvider) GetOHLCV(ctx context.Context, symbol string, start, end t
 }
 
 func (p *httpProvider) GetFundamental(ctx context.Context, symbol string, date time.Time) (*domain.Fundamental, error) {
-	path := fmt.Sprintf("/fundamental/%s?date=%s", symbol, date.Format("20060102"))
-
-	resp, err := p.get(ctx, path)
-	if err != nil {
-		return nil, apperrors.Unavailable("data", err)
-	}
-
-	var result struct {
-		Fundamental *domain.Fundamental `json:"fundamental"`
-	}
-	if err := json.Unmarshal(resp.Body, &result); err != nil {
-		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal, "failed to decode fundamental response", "GetFundamental")
-	}
-
-	return result.Fundamental, nil
+	// 归属裁决（2026-11-12）：基本面数据是 core 自己的表（public.stock_fundamentals），
+	// 不再经 HTTP 从数据服务读取 —— 数据服务的 `market.stock_fundamentals`
+	// 从未建立，这条读链只会把空态冒充成 500。生产装配用
+	// NewLocalFundamentalProvider 覆盖本方法；走到这里说明装配漏了。
+	return nil, fmt.Errorf(
+		"marketdata: fundamentals are served by the local stock_fundamentals table, " +
+			"not by the data service (wrap the provider with NewLocalFundamentalProvider)")
 }
 
 func (p *httpProvider) GetStocks(ctx context.Context, exchange string) ([]domain.Stock, error) {

@@ -217,8 +217,9 @@ func TestRoutePolicy_ReadRoutesAreRegisteredSeparately(t *testing.T) {
 		"GET /api/backtest/:id/provenance",
 		"GET /api/runs/:id/portfolio-snapshot",
 		"GET /api/runs/:id/factor-exposures",
+		"GET /api/fundamental/:symbol",
 	}, analysisRoutePolicy.ReadOnlyGET,
-		"QT-72 X0 读面 + QT-78 R2 分析产物读面：两条 R2 端点必须登记在只读 GET 档")
+		"QT-72 X0 读面 + QT-78 R2 分析产物读面 + 2026-11-12 基本面读面：必须登记在只读 GET 档")
 }
 
 // TestRoutePolicy_ViewerIsForbidden：行为腿——viewer 打 trader/admin 端点必须 403。

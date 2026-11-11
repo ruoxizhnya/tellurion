@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"tellurion/pkg/domain"
 )
+
+// ErrFundamentalNotFound 表示截至请求时点没有任何可用财报记录。
+//
+// 归属裁决（2026-11-12）：`stock_fundamentals` 是 core 自己的表（DDL 在
+// pkg/storage/postgres.go，写者/读者都在本仓）。「没同步过」是一个**业务
+// 空态**，不是内部错误 —— HTTP 面按 404 `fundamental_not_found` 表达，
+// 不允许冒成 500。
+var ErrFundamentalNotFound = errors.New("storage: fundamental record not found")
 
 // nullableDate 把零值时间转成 NULL（P1-4）。
 //
@@ -294,6 +303,9 @@ func (s *PostgresStore) GetFundamental(ctx context.Context, symbol string, date 
 		&f.GrossMargin, &f.NetMargin, &f.Revenue, &f.NetProfit, &f.TotalAssets, &f.TotalLiab,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrFundamentalNotFound
+		}
 		return nil, fmt.Errorf("failed to get fundamental: %w", err)
 	}
 	return &f, nil

@@ -15,7 +15,10 @@ import (
 
 // BuildBacktestEngine 构造回测引擎与 HTTP 行情 provider。HTTP provider
 // 单独返回，供 DataAdapter 的多源回退路径复用。
-func BuildBacktestEngine(v *viper.Viper, logger zerolog.Logger) (*backtest.Engine, marketdata.Provider) {
+//
+// fundamentals 非 nil 时，基本面读口切回 core 自己的 public.stock_fundamentals
+// （归属裁决 2026-11-12）；其余行情能力仍走数据服务。
+func BuildBacktestEngine(v *viper.Viper, fundamentals marketdata.FundamentalQuerier, logger zerolog.Logger) (*backtest.Engine, marketdata.Provider) {
 	dataServiceURL := v.GetString("data_service.url")
 	if dataServiceURL == "" {
 		dataServiceURL = "http://localhost:8081"
@@ -23,11 +26,12 @@ func BuildBacktestEngine(v *viper.Viper, logger zerolog.Logger) (*backtest.Engin
 	// data 服务已上鉴权闸（裁-15）：配了 secret 的部署必须带服务间凭证，
 	// 否则取数全线 401。token 为空时不发头（回环 + 无 secret 的开发态）。
 	httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL, v.GetString("data_service.token"), logger)
-	engine, err := backtest.NewEngine(v, httpProvider, logger)
+	provider := marketdata.NewLocalFundamentalProvider(httpProvider, fundamentals)
+	engine, err := backtest.NewEngine(v, provider, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize backtest engine")
 	}
-	return engine, httpProvider
+	return engine, provider
 }
 
 // BuildRiskManager 从显式配置构造进程内风控管理器（P1-15，ODR-021 合并形态），

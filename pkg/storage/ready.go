@@ -12,6 +12,9 @@ import (
 //   - audit.message_log   —— 内核事件落审计（shutdown 也要写）
 //   - run.backtest_results —— run 终态与报告读取
 //   - quant.strategy_state —— 策略状态读写
+//   - public.stock_fundamentals —— 基本面读面（`/api/fundamental/{symbol}`、
+//     选股与回测的 PIT 取数）。归属裁决（2026-11-12）：这张表是 core 自己的，
+//     缺表必须在就绪期暴露，而不是等请求时 500。
 //
 // 就绪探针只在「池能 ping 通 + 这些表在」时算 ready。空库能 ping 通但
 // 一条请求都服务不了（所有写路径 500），把它当 ready 会让负载均衡把流量
@@ -21,6 +24,7 @@ var requiredRelations = []string{
 	"audit.message_log",
 	"run.backtest_results",
 	"quant.strategy_state",
+	"public.stock_fundamentals",
 }
 
 // Ready 是**就绪**判据（区别于 Ping 的存活语义）：连接可用且启动 DDL 的

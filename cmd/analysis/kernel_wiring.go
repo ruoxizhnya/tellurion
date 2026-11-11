@@ -108,9 +108,14 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		// SVC-CORE-DATA-RETIRE（2026-11-08）：PG 直读 provider 随数据面退役，
 		// core 的行情读面只剩 HTTP（数据服务）。fallback 显式为 nil —— 不再
 		// 有「HTTP 挂了就回落直查共享库」的暗通道。
+		//
+		// 归属裁决（2026-11-12）：基本面是 core 自己的表
+		// （public.stock_fundamentals），由 NewLocalFundamentalProvider 把
+		// GetFundamental 切回本地；其余行情能力仍走 HTTP。
 		httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL(v), v.GetString("data_service.token"), logger)
-		adapter := marketdata.NewDataAdapter(nil, httpProvider, nil, logger)
-		return httpProvider, adapter, nil
+		provider := marketdata.NewLocalFundamentalProvider(httpProvider, store)
+		adapter := marketdata.NewDataAdapter(nil, provider, nil, logger)
+		return provider, adapter, nil
 	})
 
 	// risk-engine（第 5 位）。SVC-CORE-RISK-RETIRE（2026-11-09）：14 个限额

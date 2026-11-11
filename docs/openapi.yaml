@@ -2375,6 +2375,84 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/fundamental/{symbol}:
+    get:
+      tags: [Data]
+      summary: Latest available fundamental snapshot (served locally by core)
+      description: |
+        归属裁决（2026-11-12）：`stock_fundamentals` 是 core 自己的表
+        （DDL/写者/读者都在本仓），本端点读 `public.stock_fundamentals`，
+        不再经数据服务的 `/fundamental/{symbol}`（其 `market.stock_fundamentals`
+        从未建立）。
+
+        取「`date` 当日已可用的最新一期」：过滤
+        `COALESCE(available_date, trade_date) <= date`，按可用日倒序取第一条。
+        无记录 = **业务空态**，返回 404 `fundamental_not_found`（不是 500）；
+        表缺失由 `/readyz` 的就绪检查暴露。
+      operationId: getFundamental
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 600519.SH
+        - name: date
+          in: query
+          required: false
+          description: YYYY-MM-DD 或 YYYYMMDD；缺省 = 今天。
+          schema:
+            type: string
+            example: '20240628'
+      responses:
+        '200':
+          description: Latest fundamental snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [fundamental]
+                properties:
+                  fundamental:
+                    type: object
+                    nullable: true
+                    properties:
+                      symbol:
+                        type: string
+                      date:
+                        type: string
+                        format: date-time
+                      ann_date:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      pe: { type: number, nullable: true }
+                      pb: { type: number, nullable: true }
+                      ps: { type: number, nullable: true }
+                      roe: { type: number, nullable: true }
+                      roa: { type: number, nullable: true }
+                      debt_to_equity: { type: number, nullable: true }
+                      gross_margin: { type: number, nullable: true }
+                      net_margin: { type: number, nullable: true }
+                      revenue: { type: number, nullable: true }
+                      net_profit: { type: number, nullable: true }
+                      total_assets: { type: number, nullable: true }
+                      total_liab: { type: number, nullable: true }
+        '400':
+          description: Invalid symbol or date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No fundamental record on or before the requested date (`fundamental_not_found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Storage not wired (service started without a database)
+
   /api/screen:
     post:
       tags: [Data]

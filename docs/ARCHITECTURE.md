@@ -112,7 +112,7 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 | 分区 | 内容 | 写入方 |
 |---|---|---|
 | A 原始源响应 `ingest.raw` | 外部响应的逐字节归档（class A） | **`tellurion-data` 唯一 writer**（摄取时自动归档）。唯一外部写端点是它的 `POST /ingest/points`（data ADR-0006，G-03）；core 侧 `POST /api/ingest/raw` 已随 `SVC-CORE-DATA-RETIRE` 删除，只剩契约测试里的历史例外条目 |
-| B 规范化行情 `market.*`（`stocks`/`ohlcv_daily_qfq`/`stock_fundamentals`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | **`tellurion-data` 唯一 writer**（2026-11-08 起这些表从 `public` 迁到 `market`，G-04）；core 只读四张裸表（清单见 [SPEC.md](SPEC.md) 的「跨仓只读表依赖清单」） |
+| B 规范化行情 `market.*`（`stocks`/`ohlcv_daily_qfq`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | **`tellurion-data` 唯一 writer**（2026-11-08 起这些表从 `public` 迁到 `market`，G-04）；core 只读四张裸表（清单见 [SPEC.md](SPEC.md) 的「跨仓只读表依赖清单」）。**例外：`stock_fundamentals` 不在此分区** —— 第 142 行已如实登记它仍是 core 的 `public` 表（归属裁决 2026-11-12：DDL/写者/读者都在 core，读面是 `GET /api/fundamental/{symbol}`） |
 | C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 与「实验日志」已退役：前者零读取点（见 §4），后者随 `SVC-CORE-AI-RETIRE` 删除 |
 | ~~E 研究结构化投影 `research.*`~~ **已退役** | vault markdown 的可重建投影 | 三表（`profile`/`conclusion`/`question`）与 5 条索引随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`migrate()` 不再建 `research` schema |
 
