@@ -321,8 +321,10 @@ services:
       DATABASE_DATABASE: tellurion
       # REDIS_URL 于 2026-11-10 移除（ai-service 的代码也不读 redis）。
       DATA_SERVICE_URL: http://data-service:8081
-      # factor.compute / factor.evaluate / compute_factor_ic 三个工具经
-      # HTTP 打 analysis 的 /api/factor/*（只在那里注册）。
+      # factor.compute / factor.evaluate / compute_factor_ic 在当前栈上不可用：
+      # core 只注册 POST /api/factor/registrations 与反代 GET /api/factors/:name，
+      # 没有 /api/factor/compute|evaluate（ADR-041）。三个工具显式返回「能力未提供」，
+      # 不发请求；该 URL 保留仅用于将来重新接线。
       AI_SERVICE_FACTOR_API_URL: http://analysis-service:8085
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/chat/completions}
