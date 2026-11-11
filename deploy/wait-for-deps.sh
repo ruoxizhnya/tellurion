@@ -19,6 +19,7 @@
 #   DATABASE_HOST + DATABASE_PORT  →  等 <host>:<port>
 #   REDIS_URL                      →  去 scheme 后等 <host>:<port>
 #   BROKER_URL                     →  去 scheme 后等 <host>:<port>（2026-11-11 起）
+#   RISK_SERVICE_RESOLVE_URL       →  仅当 RISK_SERVICE_RESOLVE_ENABLED=true 时等
 #
 # 这样「等的」与「连的」在结构上不可能不一致。
 #
@@ -53,6 +54,12 @@ if [ -n "${BROKER_URL:-}" ]; then
     # analysis 装配期无条件构造执行通道，broker 不在就必然拒起 —— 这里等它，
     # 让默认栈一次起来，而不是靠 crash-loop 碰运气。
     targets="$targets $(printf '%s' "$BROKER_URL" | sed -E 's|^[A-Za-z]+://||; s|/.*$||')"
+fi
+if [ "${RISK_SERVICE_RESOLVE_ENABLED:-false}" = "true" ] && [ -n "${RISK_SERVICE_RESOLVE_URL:-}" ]; then
+    # 只有显式打开 risk 快照时才等：resolve_enabled=true 是 fail-closed
+    # （取不到规则即拒起），所以 full 里开真规则必须等 risk 真就绪。
+    # 默认 false 不产生任何等待，也不影响默认栈。
+    targets="$targets $(printf '%s' "$RISK_SERVICE_RESOLVE_URL" | sed -E 's|^[A-Za-z]+://||; s|/.*$||')"
 fi
 # 显式覆盖优先（也给「等一个不在配置里的东西」留出口）
 targets="${WAIT_FOR_DEPS:-$targets}"

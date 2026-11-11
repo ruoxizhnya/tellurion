@@ -149,6 +149,10 @@ services:
       # QT-71 / 裁-17：data-service 也是 service token 的验证方（analytics 调
       # GET /datasets/*）。空值 = 回环发布下的本地 open-access。
       JWT_SECRET: ${JWT_SECRET:-}
+      # 与其余七个服务同构：容器必须绑 0.0.0.0，无 secret 时**显式声明**
+      # 「只发布到回环」才放行（取值逐字匹配，拼错即拒起）。映射已带
+      # 127.0.0.1: 前缀，声明与事实一致。
+      AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
       interval: 10s
@@ -251,6 +255,13 @@ services:
       # -sub service:analysis -ttl 720h；口径见 docs/SPEC.md 的「服务间凭证」节。
       RISK_SERVICE_RESOLVE_TOKEN: ${RISK_SERVICE_RESOLVE_TOKEN:-}
       RISK_SERVICE_EVENTS_TOKEN: ${RISK_SERVICE_EVENTS_TOKEN:-}
+      # risk 快照（2026-11-11 冷启动实测）：resolve_enabled=true 是「开着就必须
+      # 取到，取不到即拒起」的 fail-closed 语义，而 risk 只在 full profile。
+      # 默认 false = 内置限额兜底（启动日志 source=builtin_default），四个服务
+      # 才可能开箱即起；full 里要用真规则，up 前显式 RISK_SERVICE_RESOLVE_ENABLED=true，
+      # wait-for-deps.sh 会按 RISK_SERVICE_RESOLVE_URL 等 risk 就绪。
+      RISK_SERVICE_RESOLVE_ENABLED: ${RISK_SERVICE_RESOLVE_ENABLED:-false}
+      RISK_SERVICE_RESOLVE_URL: ${RISK_SERVICE_RESOLVE_URL:-http://risk:8089}
       LOGGING_LEVEL: info
       # AUD-58：见 data-service 里同一行的注释。缺省 100 与
       # config/analysis-service.yaml 的 rate_limit.per_minute 一致。
@@ -327,6 +338,8 @@ services:
     depends_on:
       data-service:
         condition: service_healthy
+      # 方向单向：ai 等 analysis 就绪（ai 的 Boot 要解析 analysis 主机名），
+      # 而 analysis 不再在 Boot 期解析 ai（可选下游改为首次调用时解析）。
       analysis-service:
         condition: service_healthy
 
