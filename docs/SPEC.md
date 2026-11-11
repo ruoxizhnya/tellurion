@@ -2897,8 +2897,6 @@ GET  /api/market/index            - Get market index data (core 本地供数，2
      date 只认 YYYY-MM-DD，语义是「该日或之前最近一根 bar」，**不是 PIT 快照**。
      响应仍是 `{"indices":[...]}`：pct 百分数刻度，turnover/prev_close 缺失给 null
      （不补零），库里没有行的 code 不产条目；未接库时路由仍注册、请求 503。
-GET  /api/factors/:factor_name    - Read a factor_cache row (citation 五元组，见 §AI 实验员实验室)
-     ?symbol=&date=
 ANY  /api/sync/*path              - Streaming reverse proxy to data-service
                                     `/api/sync/*` (job CRUD, workers, schedules).
                                     SSE at /api/sync/jobs/:id/progress is
@@ -2907,6 +2905,10 @@ ANY  /api/sync/*path              - Streaming reverse proxy to data-service
 
 **Removed — do not re-document these as live:**
 
+- `GET /api/factors/:factor_name` — **已退役（2026-11-11，C8 / ADR-037 §5 / ADR-041）**。
+  路径仍注册（保持与 `openapi.yaml` 一一对应），但一律返回 `410 Gone` +
+  机器码 `factor_http_surface_retired`，**不再反代** data 的 `/factors/:name`
+  （该上游路由已随数据面退役）。调用方按 code 分支，别把它当「因子不存在」。
 - `GET /ohlcv/:symbol`, `POST /screen`, `GET /stocks/count`, `GET /market/index`
   — the 4 no-prefix mirrors, removed by **AUD-33 (2026-09-22)**. They existed
   only to serve the legacy HTML pages in `cmd/analysis/static/`, retired in the
@@ -2922,8 +2924,8 @@ ANY  /api/sync/*path              - Streaming reverse proxy to data-service
 `docs/openapi.yaml`（`go:embed` 成 `docs.OpenAPISpec`）是 analysis-service 的
 **唯一契约源**。但在此之前没有任何机制把这份 yaml 和真实注册的路由放在一起
 看，双向漂移都没人管：代码里在跑的端点从未登记（`GET /api/health`、
-`GET /api/factors/:factor_name`、对账 4 条、`/api/explore` · `/api/tools`
-反代族），yaml 里写着的端点早已不在（退役的 `/api/v1/trading/calendar`，
+`GET /api/factors/:factor_name`（该路由已于 2026-11-11 退役为 410，见上文 Removed）、
+对账 4 条、`/api/explore` · `/api/tools` 反代族），yaml 里写着的端点早已不在（退役的 `/api/v1/trading/calendar`，
 以及只在 `:8081` 注册的 `POST /api/ingest/*` 被错记在 `:8085` 的 servers 下）。
 
 **执法者**：`cmd/analysis/routes_contract_rev13_test.go`，四条断言：
@@ -2964,7 +2966,9 @@ REV-13 从 `main()` 抽出的 alerts / reconciliation 第二批接线），与�
 
 agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不是示例；
 第 7 类于 2026-10-24 由用户裁-04 确认、第 8 类于 2026-10-25 由用户裁-12 确认，
-两类各落两条端点 ⇒ 动作条目 10 条）。
+两类各落两条端点 ⇒ 动作条目 10 条；2026-11-08 `SVC-CORE-DATA-RETIRE` 撤掉
+第 7 类两条与 `query_factor_evaluation` 后，**现役 7 条**，`agent_actions.go`
+的 `coarseActionCount = 7` 与下表一一对应）。
 声明处：`cmd/analysis/agent_actions.go`；每条的 openapi operation 带
 `x-agent-coarse-action: <name>`，与 `docs/openapi.yaml` 双向对拍
 （`cmd/analysis/agent_coarse_actions_test.go`）。
@@ -2973,7 +2977,7 @@ agent ↔ core 的 wire 面**只有八类粗粒度动作**（D24 白名单，不
 |---|---|---|---|
 | `submit_backtest` | `POST /api/backtest` | trader | 一次请求一个 RunSpec，universe 在 core 内展开 |
 | `submit_batch_backtest` | `POST /api/batch` | trader | 一次请求一批参数组合 |
-| `query_factor_evaluation` | `GET /api/factor/returns/{factor}` | 已认证（GET） | 日期区间整段返回，不按交易日逐次调用 |
+| ~~`query_factor_evaluation`~~ | ~~`GET /api/factor/returns/{factor}`~~ | — | **已撤销（`SVC-CORE-DATA-RETIRE`，2026-11-08）**：端点从未实现；因子求值不新造端点（ADR-041），agent 侧三个因子工具显式返回「该能力当前未提供」 |
 | `query_market_data` | `POST /api/v1/ohlcv/bulk` | 已认证（readonly-post） | 多 symbol × 区间一次取回 |
 | `fetch_strategy_definitions` | `GET /api/strategies` | 已认证（GET） | 运行时注册表清单/详情（定义真相源在 `tellurion-strategy`）；执行与逐 bar 信号留在 core |
 | `register_factor` | `POST /api/factor/registrations` | admin | 一版定义一次登记（治理账本，非行情写） |
@@ -3196,18 +3200,25 @@ GET  /api/datasource/health       - Health check of all registered adapters
 
 #### Factor Analysis
 ```
-GET  /api/factor/returns/:factor  - Get factor returns time series
-     ?start_date=20240101&end_date=20241231
-                                     （日期只认 YYYYMMDD，坏格式 400；DATA-13〔归档 docs/archive/TASKS-2026-10-16-archived.md〕一并核过）
-GET  /api/factor/ic/:factor       - Get factor IC time series
-POST /api/factor/compute-returns  - Compute factor returns for given universe
-POST /api/factor/compute-ic       - Compute IC for factor × returns cross-section
-GET  /api/factor/list             - List all available factors
 POST /api/factor/registrations    - 登记一版因子定义（QT-50 第 6 类粗粒度动作）   [admin]
      {"definition": { ... }, "registrar": "仅鉴权关闭时采纳"}
                                      version_hash 由服务端从 definition 派生；登记人取自 JWT；
                                      四样（公式/哈希/登记人/生效日）缺一 400；同 (name, hash) 幂等
 ```
+
+> **历史契约，当前未实现（2026-11-11 订正，C9 / ADR-041）**：下列五条曾在本文与旧版
+> openapi 里写成现役，但 `cmd/analysis/main.go` 从未注册、`routes_contract` 对拍也不认。
+> **不要按它们接线**；`POST /api/factor/registrations` 是本节唯一现役端点。
+>
+> - `GET /api/factor/returns/:factor`（历史：Get factor returns time series）
+> - `GET /api/factor/ic/:factor`（历史：Get factor IC time series）
+> - `POST /api/factor/compute-returns`（历史：Compute factor returns for given universe）
+> - `POST /api/factor/compute-ic`（历史：Compute IC for factor × returns cross-section）
+> - `GET /api/factor/list`（历史：List all available factors）
+>
+> 裁决：**不新造端点**（ADR-041）。派生表 `factor_returns` / `ic_analysis` 归 core
+> 所有（ADR-038），但读面/求值面在真实需求出现前不提供；agent 侧三个因子工具
+> 显式返回「该能力当前未提供」，而不是让测试变绿去补空壳端点。
 
 #### Reference Data (QT-67 — D24 第 7 类) — 已退役（2026-11-08）
 

@@ -55,7 +55,15 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **⑥ 边界**：`internal/analysisartifact` 与 `pkg/storage` 的只读注释/表清单；DDL 删除不在本单。
 - **重开条件**：本条无外部前置。若将来按需实时计算落地（ADR-037 D2），本单的 `no_writer` 分支应随之删除并在同单更新用例。
 
-### CORE-FACTOR-DEAD-PROXY · `GET /api/factors/:factor_name` 转发到 data 已撤路由 [P2] ⬜
+### CORE-FACTOR-DEAD-PROXY · `GET /api/factors/:factor_name` 转发到 data 已撤路由 [P2] ✅
+
+> **施工记录（2026-11-11）**：
+> - **代码**：`cmd/analysis/handlers_proxy.go` 删除反代实现，改为 `httpserver.FailCode(c, 410, "factor_http_surface_retired", ...)`；路由仍注册（保持 openapi↔路由一一对应），文案指向 ADR-037 §5 / ADR-041。
+> - **测试**：原 4 条转发用例替换为 `TestFactorCitationProxy_Retired_Returns410WithoutUpstream` / `_IgnoresSelectors`；假上游计数器断言 **0 次请求**，响应含机器码。
+> - **文档**：`docs/openapi.yaml` 该 path 改为 410 + 退役说明（operationId `getFactorCacheRowRetired`）；`docs/SPEC.md` 从现役块移到 `Removed`，并在 REV-13 段落补注退役。
+> - **门禁（真实退出码）**：`gofmt -l` 空；`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全绿；`python tools/check_doc_links.py` exit 0。
+> - **破坏验证（真做真还原）**：临时把 handler 恢复成 `proxyRequest(..., dataURL, nil)` ⇒ 两条退役用例 **FAIL**（状态 200 而非 410、上游计数 1）；还原后 PASS。
+> - **消费者检查**：`web/src` 与 `scripts/` grep `api/factors/` 仅命中 SPEC/测试注释，无 UI/脚本调用方。
 
 - **① 目标**：让这条路由**明确退役**（返回可判定的 `410/404` + 机器码），而不是把请求转发到一个已删除的上游路由、再把上游的 404 原样透传。
 - **② 上下文**：`cmd/analysis/handlers_proxy.go:158-180` 把 `GET /api/factors/:factor_name` 反代到 data `/factors/:name`；data 已在裁-14 撤掉该路由（`tellurion-data/internal/httpapi/server.go:183-186` 原文「不要重新引入」）。ADR-037 §5 已把这条死链登记为已知后果；ADR-041 又把「因子求值面」判为未提供。当前对外语义是「404 但来源不明」——调用方无法区分「因子不存在」与「能力已退役」。
@@ -65,7 +73,9 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 - **⑥ 边界**：core 路由与 openapi/SPEC 的三处同步；data 仓不改。
 - **重开条件**：若将来 core 真的提供按需求值的因子读面（需先有 ADR），本路由可重新设计为真实读面，而不是恢复反代。
 
-### CORE-SPEC-FACTOR-ENDPOINTS-STALE · `docs/SPEC.md` 因子端点节列了从未实现的 5 条路由 [P2] ⬜
+### CORE-SPEC-FACTOR-ENDPOINTS-STALE · `docs/SPEC.md` 因子端点节列了从未实现的 5 条路由 [P2] ✅
+
+> **施工记录（2026-11-11）**：`docs/SPEC.md` 的 Factor Analysis 节只保留 `POST /api/factor/registrations` 为现役；5 条陈旧路由逐条标为「历史契约 / 当前未实现」并指向 ADR-041；同节顺带订正 Agent 粗粒度动作表（`query_factor_evaluation` 2026-11-08 已撤销、现役 7 条），以及 REV-13 段落对退役反代的注释。未改 `docs/openapi.yaml`（它本来就没有这 5 条）。`python tools/check_doc_links.py` exit 0；`grep -n 'compute-returns\|compute-ic\|factor/returns\|factor/ic\|factor/list' docs/SPEC.md` 仅剩历史标注。
 
 - **① 目标**：把 `SPEC.md` 的因子分析端点节从「现行契约」改为「历史契约 / 当前未实现」，消除「文档说有、代码没有」的传播源。
 - **② 上下文**：`docs/SPEC.md:3197-3210` 列 `POST /api/factor/compute-returns`、`/compute-ic`、`GET /api/factor/returns/:factor`、`/ic/:factor`、`/api/factor/list`；实测 `cmd/analysis` 只注册 `POST /api/factor/registrations`（`handlers_factor_registration.go:65`）与 `GET /api/factors/:factor_name`（`handlers_proxy.go:167`），`docs/openapi.yaml` 同样只有两条。agent 的端点契约测试正是因为这段陈旧文档才把 `compute-returns` 当成「core 已有」。
@@ -81,7 +91,7 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 
 - **① 目标**：订正 `docker-compose.yml` 里的错误事实注释，避免下一位读者据此认为 core 已有因子求值面。
 - **② 上下文**：compose 与 `tellurion-agent:cmd/ai/main.go:100-101` 的注释称「`/api/factor/*` 只在 core 注册」；实测 core 只有 registrations + 死链反代（ADR-041 §2）。该注释是 agent 侧把 `compute-returns` 当成现役的直接诱因之一。
-- **③ 要求**：注释改为「core 只注册 `/api/factor/registrations` 与反代 `/api/factors/:name`；求值面未提供（ADR-041）」。
+- **③ 要求**：注释改为「core 只注册 `/api/factor/registrations`；`GET /api/factors/:name` 已退役为 410（C8 / ADR-037 §5）；求值面未提供（ADR-041）」。
 - **④ 约束与非目标**：只改注释，不改任何 env / 依赖 / 端口。
 - **⑤ 验收**：`docker compose config` 仍可解析（无行为变化）；grep 不到「`/api/factor/*` 只在 core 注册」。
 - **⑥ 边界**：`docker-compose.yml` 注释；agent 仓的同类注释由 `AGENT-FACTOR-TOOLS-UNAVAILABLE` 同批改。
@@ -208,11 +218,11 @@ verified-by: 2026-11-11 DDD 边界审查落单（新增 §三 13 条台账；新
 | C1 | agent 三个因子工具打向 core 不存在的端点 | 改代码：显式「未提供」，不补端点 | 跨仓 ADR-041；`tellurion-agent:AGENT-FACTOR-TOOLS-UNAVAILABLE` | ✅ 2026-11-11 |
 | C2 | data `db-schema` 的 SPEC-R-02 把因子域 owner 写成 data | 改文档（已改） | `tellurion-data:docs/db-schema.md` §1.3/SPEC-R-02 + `ARCHITECTURE.md` | ✅ 2026-11-11 |
 | C3 | `factor_returns`/`ic_analysis` 孤儿表、产物组装静默跳过 | 裁决归 core + 改代码（说明缺失原因） | 跨仓 ADR-038；`CORE-FACTOR-DERIVED-GUARD` | ✅ 2026-11-11 |
-| C4 | core 与 analytics 指标双实现、无权威条款 | 新建 ADR + 漂移检测 | 跨仓 ADR-039；`tellurion-analytics:ANALYTICS-METRIC-DRIFT` | ⬜ 待做 |
-| C5 | risk 自持 `Snapshot`，与 `contracts/risk` 双定义 | 改代码：别名引用 contracts | 跨仓 ADR-040；`tellurion-risk:RISK-CONTRACTS-SNAPSHOT-MIGRATION` | ⬜ 待做 |
+| C4 | core 与 analytics 指标双实现、无权威条款 | 新建 ADR + 漂移检测 | 跨仓 ADR-039；`tellurion-analytics:ANALYTICS-METRIC-DRIFT` | ✅ 2026-11-11（真实 run artifact 腿 ⏸，见 Analytics 归档重开条件） |
+| C5 | risk 自持 `Snapshot`，与 `contracts/risk` 双定义 | 改代码：别名引用 contracts | 跨仓 ADR-040；`tellurion-risk:RISK-CONTRACTS-SNAPSHOT-MIGRATION` | ✅ 2026-11-11（真栈 hash 对拍腿 ⏸，见 Risk 归档重开条件） |
 | C6 | core `internal/analysisartifact` 生产分析产物 | 保留 + 记退出条件（本轮不改代码） | `CORE-ANALYSISARTIFACT-RETENTION` | ⏸ 挂起 |
 | C7 | core ↔ agent 运行期「双向调用」的文档口径 | 改文档：core→agent 是 HTTP 反代，无领域语义 | `tellurion-docs:docs/REPO-MAP.md` 依赖图脚注 | ✅ 2026-11-11 |
-| C8 | `GET /api/factors/:name` 死链（反代 data 已撤路由） | 改代码：显式退役 | `CORE-FACTOR-DEAD-PROXY` | ⬜ 待做 |
+| C8 | `GET /api/factors/:name` 死链（反代 data 已撤路由） | 改代码：显式退役 | `CORE-FACTOR-DEAD-PROXY`；UI 消费方登记为 `tellurion-ui:UI-FACTOR-CITATION-RETIRED` | ✅ 2026-11-11 |
 | C9 | compose/agent 注释称 `/api/factor/*` 已注册 | 改注释（事实订正） | `CORE-COMPOSE-FACTOR-COMMENT` + agent 同批 | ✅ 2026-11-11 |
 | C10 | `analysis.benchmarks` 零写者（K7） | 不改（维持挂起，重开=出现写消费者） | `tellurion-analytics` K7 条目 | ⏸ 已挂起 |
 | C11 | contracts 版本列 v0.9.0 与 `go.mod` 实测 v0.10.0 不一致 | 改文档（已改） | `tellurion-docs:docs/REPO-MAP.md` 版本列与推进顺序 | ✅ 2026-11-11 |

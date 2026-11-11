@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -155,28 +154,19 @@ func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.V
 		proxyRequest(c, http.MethodGet, dataServiceURL+"/stocks/count", nil)
 	})
 
-	// TASKS.md P5-3: the citation-coordinate read. GET /api/factors/:name is
-	// the factor_cache read whose rows carry the ADR-022 §5 five-tuple
-	// {source, dataset, key, as_of, content_hash} (cmd/data/handlers_factor.go).
-	// The L0 route has no /api prefix (/factors/:factor_name, cmd/data/main.go),
-	// so this facade both supplies the prefix the SPA uses and forwards
-	// symbol/date verbatim. Status is passed through unchanged because 404 is
-	// the first-class "no such factor_cache row" answer, and a hash-only
-	// citation (response never archived) must reach the SPA intact rather than
-	// being rewritten into an error here.
+	// C8 / CORE-FACTOR-DEAD-PROXY：这条反代已显式退役。
+	//
+	// 背景：上游 data `/factors/:name` 早被裁-14 撤掉（`tellurion-data` 原文
+	// 「不要重新引入」），继续反代只会把「能力已退役」伪装成上游 404，调用方
+	// 无法区分「因子不存在」与「读面不存在」。ADR-037 §5 已把死链记为已知
+	// 后果，ADR-041 又裁「不新造因子求值端点」——所以这里不再转发，直接回
+	// 可判定的 410 + 机器码。
+	//
+	// 保留路由注册（而不是删掉变 gin 404）：让 `docs/openapi.yaml` 的 path 与
+	// 真实路由继续一一对应，也让旧调用方拿到明确原因。
 	router.GET("/api/factors/:factor_name", func(c *gin.Context) {
-		query := url.Values{}
-		if symbol := c.Query("symbol"); symbol != "" {
-			query.Set("symbol", symbol)
-		}
-		if date := c.Query("date"); date != "" {
-			query.Set("date", date)
-		}
-		dataURL := fmt.Sprintf("%s/factors/%s", dataServiceURL, url.PathEscape(c.Param("factor_name")))
-		if encoded := query.Encode(); encoded != "" {
-			dataURL += "?" + encoded
-		}
-		proxyRequest(c, http.MethodGet, dataURL, nil)
+		httpserver.FailCode(c, http.StatusGone, "factor_http_surface_retired",
+			"GET /api/factors/:factor_name is retired: the factor_cache read surface was removed with the data plane (ADR-037 §5), and no factor evaluation endpoint is provided (ADR-041)")
 	})
 
 	// ODR-062 (S-C): removed as dead code (zero consumers across web/src,

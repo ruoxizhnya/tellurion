@@ -3185,12 +3185,13 @@ paths:
   /api/factors/{factor_name}:
     get:
       tags: [Factor]
-      summary: Read a factor_cache row by factor name
+      summary: Retired (410) — factor_cache read surface removed
       description: |
-        前端引用因子数值时用它取「值 + 口径」五元组（值 / 日期 / 复权口径 /
-        universe / 计算版本），供 citation 展示。缓存未命中返回 404 与空态
-        ——这是正常回答，不是错误。
-      operationId: getFactorCacheRow
+        **已退役**：这条反代曾把请求转给 data 的 `/factors/:name`，上游路由随
+        数据面退役（ADR-037 §5）；ADR-041 又裁「不新造因子求值端点」。现在一律
+        返回 `410 Gone` 与机器码 `factor_http_surface_retired`，不再发出上游
+        请求。调用方应按该 code 分支，而不是把它当成「因子不存在」。
+      operationId: getFactorCacheRowRetired
       parameters:
         - name: factor_name
           in: path
@@ -3198,10 +3199,10 @@ paths:
           schema:
             type: string
       responses:
-        '200':
-          description: Factor cache row
-        '404':
-          description: No cached row for this factor
+        '410':
+          description: |
+            Retired. Error body `code` = `factor_http_surface_retired`
+            (see ADR-037 §5 / ADR-041).
 
   # ---- Reconciliation（K16 ⑤：对账 worker 未启用时统一 503，与 alerts 同姿态）----
 
