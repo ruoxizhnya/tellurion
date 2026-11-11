@@ -29,7 +29,7 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 | `tellurion-broker` | 交易通道网关：`XTPTrader` / `MockTrader` 同一 port 两实现；默认 `127.0.0.1:8091`，`/version.channel` 暴露通道性质；幂等映射落 `broker` schema（配 DSN 时） | 不做风控、不做策略、不做撮合、不持有订单真相、不做资金划转 | `[代码]` `cmd/brokergateway/main.go`、`internal/httpapi/httpapi.go` |
 | `tellurion-risk` | 风控规则真相源 + 聚合监控与熔断；同步裁决仍在 core 进程内；默认 `127.0.0.1:8089` | 不做同步裁决服务、不持有订单/持仓、不做券商对接、不做回测 | `[代码]` `cmd/riskservice/main.go`、`internal/httpapi/api.go` |
 | `tellurion-strategy` | 策略资产服务：定义/版本/artifact/resolve/promote；默认 `127.0.0.1:8090`；执行不在这里 | 不做策略运行时、不做回测 | `[代码]` `cmd/assetservice/main.go`、`internal/httpapi/api.go` |
-| `tellurion-agent` | AI 实验员层：实验循环、基因池、验证与因果判定、工具编排、Copilot；默认 `0.0.0.0:8086`；拥有 `ai` schema | 不做引擎、不做数据抓取、不做前端、不做策略版本管理、不做实盘下单 | `[代码]` `cmd/ai/main.go`、`config/ai-service.yaml` |
+| `tellurion-agent` | AI 实验员层：实验循环、基因池、验证与因果判定、工具编排、Copilot；默认 `0.0.0.0:8086`；拥有 `ai` schema | 不做引擎、不做数据抓取、不做前端、不做策略版本管理、不做实盘下单 | `[代码]` `cmd/ai/main.go`；配置在 agent 仓 `config` 目录（`ai-service.yaml`） |
 | `tellurion-orchestration` | 编排服务：只派活不裁决；artifacts/parents/provenance/workers HTTP 面；无固定默认端口，由部署注入 | 不执行回测、不生成 AI 内容、不写业务表 | `[文档]` `docs/adr/0001`；路由无 `api-schema.md`，`[文档]` |
 | `tellurion-contracts` | 跨仓 DTO / 枚举 / ABI 定义（domain、broker、run、risk、engine、fees） | 契约只增不破且零实现；不提供服务、不暴露路由、不写库 | `[文档]` `docs/adr/0001` |
 | `tellurion-kit` | 通用基础设施库：鉴权/授权、HTTP client/server、DB 连接与迁移、日志、观测、沙箱 | 无业务概念、无业务表、无业务路由 | `[文档]` `docs/adr/0001-零业务概念` |
@@ -48,7 +48,7 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 | core analysis → strategy | HTTP resolve | `strategy_asset.resolve_url`（`STRATEGY_ASSET_RESOLVE_URL`） | `http://localhost:8090`，enabled=true | `[代码]` `config/analysis-service.yaml:154-161` |
 | core analysis → broker | HTTP 下单/查单/持仓 | `BROKER_URL`、`BROKER_CHANNEL`、`BROKER_SERVICE_TOKEN`、`BROKER_ACCOUNT_ID` | 无默认，构造期 fail-closed | `[代码]` `README.md:91`、`[文档]` `pkg/brokerhttp/trader.go` |
 | core worker → orchestration | HTTP 领取任务 + 回写结果 | `ORCHESTRATION_URL` / `-orchestration-url`；`ORCHESTRATION_SERVICE_TOKEN` | 无默认，两者皆空即拒绝启动 | `[代码]` `cmd/worker/main.go:48-59,194-197` |
-| agent → core | HTTP（回测/walk-forward/表达式/因子） | `ai_service.factor_api_url` | `http://127.0.0.1:8085` | `[文档]` agent `docs/ARGITECTURE.md`/`config/ai-service.yaml` |
+| agent → core | HTTP（回测/walk-forward/表达式/因子） | `ai_service.factor_api_url` | `http://127.0.0.1:8085` | `[文档]` agent `docs/ARGITECTURE.md` 与 agent 仓 `config` 目录的 `ai-service.yaml` |
 | analytics → core / data / orchestration / artifact | HTTP | `ANALYTICS_CORE_URL`、`ANALYTICS_DATA_URL`、`ANALYTICS_ORCHESTRATION_URL`、`ANALYTICS_ARTIFACT_URL` | 代码有默认，见各仓配置 | `[代码]` `cmd/analyticsservice/main.go:31-57` |
 | data → 外部数据源 | HTTP（Tushare 等） | `DATA_*` / token 键 | — | `[文档]` |
 

@@ -42,6 +42,10 @@
      （+ DATA_MARKET_SCHEMA），因此它移出 5a/5b/5c 的逐服务循环，改由 5e 守：
      compose 的 DSN 必须引用 ${DATABASE_PASSWORD}、k8s 的 DSN 必须由五个
      `$(...)` 字段拼出、两边的 DATA_MARKET_SCHEMA 必须同值且非空。
+     2026-11-11：ai-service 的 YAML 随 AI 拆仓归 tellurion-agent（本仓那份已删），
+     5c 对它改走两条 —— 本仓 config/ai-service.yaml 若重新出现即报错；同工作区
+     存在 agent 仓时对拍它的 yaml 与 compose 里 ai-service 自己的 env，找不到
+     agent 仓时打 note 明说跳过（不静默）。
   6. 注入到应用容器的每个 env 名都必须有读取点（AUD-39）。读取点从 Go 源码
      的 Get*/UnmarshalKey/BindEnv/Sub 调用点推导，不是维护一张手写清单。
   7. config/*.yaml 里不得出现 ${...}（AUD-39）。本仓没有 env 展开器，占位符
@@ -262,6 +266,12 @@ IDENTITY_ENV_KEYS = ["DATABASE_USER", "DATABASE_DATABASE", "DATABASE_PORT"]
 # 这组键去要求它会逼它把已删的键加回来；它的口径由 5e 单独守，地址段由 3b 守。
 APP_ENV_SERVICES = ["analysis-service", "ai-service"]
 
+# 5c 逐服务对拍 config/*.yaml 的清单：**本仓自带 YAML** 的那些。
+# 2026-11-11：ai-service 移出 —— 它的 YAML 随 AI 拆仓归 tellurion-agent，本仓
+# 那份已删。5c-2 单独守「本仓那份不许回来」+「与 agent 仓那份对拍」。
+# 注意 5a/5b 仍用 APP_ENV_SERVICES：它们只比 compose ↔ k8s，不读本仓 yaml。
+CONFIG_YAML_SERVICES = ["analysis-service"]
+
 # 在部署配置里**不许出现**的 env 名 —— 每一条都是「曾经存在过的死键」。
 BANNED_ENV_NAMES = {
     "POSTGRES_HOST": "零读取者：应用读 database.host → DATABASE_HOST，"
@@ -430,6 +440,7 @@ def check_env_wiring(
     errors: list[str],
     compose_env: dict[str, dict[str, str]],
     k8s_config_text: str,
+    notes: list[str],
 ) -> None:
     """AUD-39 的检查 5~8：env 口径一致、可达、无占位符、死键不许回来。"""
     cm_keys = parse_configmap_keys(k8s_config_text)
@@ -477,7 +488,10 @@ def check_env_wiring(
     # `compose_env.get("analysis-service")` 当对比值 —— 于是 data-service
     # 的 yaml 永远在跟 **analysis-service 的 env** 比，而不是跟它自己的。
     # 现在各比各的。破坏验证（2026-09-25）验证过改坏能被抓到。
-    for name in APP_ENV_SERVICES:
+    #
+    # 2026-11-11：循环清单收窄到 CONFIG_YAML_SERVICES —— core 只剩
+    # analysis-service 这一份自带 YAML；ai-service 的 YAML 归 agent 仓，见 5c-2。
+    for name in CONFIG_YAML_SERVICES:
         text = (ROOT / "config" / f"{name}.yaml").read_text(encoding="utf-8")
         for yaml_key, env_key in (("user", "DATABASE_USER"),
                                   ("database", "DATABASE_DATABASE")):
@@ -487,6 +501,37 @@ def check_env_wiring(
                 errors.append(
                     f"config/{name}.yaml 的 database.{yaml_key}={value} 与它自己的部署 env "
                     f"{env_key}={want} 不一致 —— 应用会去连不存在的库/用户（AUD-39）")
+
+    # 5c-2) ai-service 的 YAML 已不在本仓（AI 拆仓阶段 1）。
+    #
+    # 留着 core 那份不只是「冗余」：运行期没人读，却会被顺手改一下，然后与
+    # agent 仓那份**静默**漂移 —— compose 起的 ai-service 镜像来自
+    # `../tellurion-agent`，它读的是 agent 那份。所以两条：
+    #   a) core 的 config/ai-service.yaml 不许回来；
+    #   b) 同工作区存在 agent 仓时，对拍它的 yaml 与 compose 里 ai-service
+    #      自己的 env（库名/用户名）。
+    # 找不到 agent 仓时**明说**跳过：静默 skip 会让这条护栏在「只 checkout 单仓」
+    # 的环境里无声失效，那比没有护栏更糟。
+    if (ROOT / "config" / "ai-service.yaml").exists():
+        errors.append(
+            "本仓 config/ai-service.yaml 又出现了 —— AI 拆仓后它的唯一读者与真相都在 "
+            "tellurion-agent/config/ai-service.yaml；本仓留一份会与那份静默漂移（AUD-39）")
+    agent_yaml = ROOT.parent / "tellurion-agent" / "config" / "ai-service.yaml"
+    if agent_yaml.is_file():
+        text = agent_yaml.read_text(encoding="utf-8")
+        for yaml_key, env_key in (("user", "DATABASE_USER"),
+                                  ("database", "DATABASE_DATABASE")):
+            value = find_nested_value(text, "database", yaml_key)
+            want = compose_env.get("ai-service", {}).get(env_key)
+            if value and want and value != want:
+                errors.append(
+                    f"tellurion-agent/config/ai-service.yaml 的 database.{yaml_key}={value} "
+                    f"与 docker-compose.yml 的 ai-service env {env_key}={want} 不一致 —— "
+                    f"compose 起的 ai-service 会去连不存在的库/用户（AUD-39）")
+    else:
+        notes.append(
+            f"未找到 {agent_yaml} —— 跳过 ai-service 的 config↔compose 身份对拍"
+            f"（同工作区没有 agent 仓时判不了）")
 
     # 5d) 密码只能有**一个**变量（2026-09-25 改写）。
     #
@@ -906,7 +951,7 @@ def main() -> int:
                 f"server.gin_mode（AUD-29）；gin 会自己读 GIN_MODE，写在这里会绕过它")
 
     # 5~8) env 口径（AUD-39）
-    check_env_wiring(errors, compose_env, k8s_config_text)
+    check_env_wiring(errors, compose_env, k8s_config_text, notes)
 
     # 9) Dockerfile 的 COPY 源路径必须存在（AUD-48）
     check_dockerfile_copy_sources(errors)
@@ -927,7 +972,8 @@ def main() -> int:
           "对外发布 ⟹ 有 JWT_SECRET）（AUD-52 / P0-4）")
     print("✓ gin mode 无 GIN_MODE 旁路（唯一来源 server.gin_mode）")
     print("✓ env 口径一致（compose ↔ k8s 的库名/用户名/端口相同 —— 地址按环境各写"
-          "一份，刻意不比；且与 config/*.yaml 的库名/用户名一致）")
+          "一份，刻意不比；config/analysis-service.yaml 与 compose 一致，agent 仓的 "
+          "ai-service.yaml 在工作区时同样对拍）")
     print("✓ 注入的每个 env 都有读取点（configmap 键 + 应用 deployment 的 env）")
     print("✓ config/*.yaml 无 ${...} 占位符（本仓没有 env 展开器）")
     print("✓ 死键负向钉（POSTGRES_HOST/PORT、REDIS_HOST/PORT、"

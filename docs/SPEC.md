@@ -3678,17 +3678,22 @@ Turnover，就是文档与实现静默漂移的标本）。
 
 **本仓运行期只读一份 YAML：`config/analysis-service.yaml`**（`cmd/analysis` 与
 `cmd/worker` 共用）。`config/data-service.yaml` 已随数据面退役删除
-（SVC-CORE-DATA-RETIRE，2026-11-08）；`config/ai-service.yaml` 自 AI 服务拆仓后
-本仓没有运行期读者，仅 `tools/check_deploy_consistency.py` 用它做 DB 身份对拍。
+（SVC-CORE-DATA-RETIRE，2026-11-08）；`config/ai-service.yaml` 已随 AI 拆仓删除
+（2026-11-11）—— ai-service 的 YAML 只有一份，在 `tellurion-agent:config/ai-service.yaml`，
+本仓不再保留副本：它在本仓没有运行期读者，留着只会与那份静默漂移。
 没有 `config/global.yaml`，也没有把多份合成一份的加载器。
 
 | 文件 | 谁读 | 定位方式 | 默认端口 |
 |---|---|---|---|
 | `config/analysis-service.yaml` | `cmd/analysis`、`cmd/worker` | `CONFIG_PATH` env（默认 `config/analysis-service.yaml`） | 8085 |
-| `config/ai-service.yaml` | 仅部署一致性检查器（DB 身份对拍），运行期无读者 | — | — |
 
 ⚠️ `CONFIG_PATH` 只对 `cmd/analysis` 与 `cmd/worker` 生效（worker 的 `-config`
 会转写成该 env）。不要把它当成全仓通用开关。
+
+`tools/check_deploy_consistency.py` 对上表这一份做 DB 身份对拍（`database.user` /
+`database.database` 必须与 compose 的 analysis-service env 一致）。ai-service 的
+那份它跨仓对拍：本仓 `config/ai-service.yaml` 一旦重新出现即报错（该文件已删除）；同工作区存在
+agent 仓时，还会比它的 `database.*` 与 compose 的 `ai-service` env。
 
 ### 键名 → env 名
 
