@@ -327,6 +327,9 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/chat/completions}
       AI_MODEL: ${AI_MODEL:-}
+      # LLM 请求超时（Go duration 或裸秒数）。出厂 180s：真栈实测 30s 在一次
+      # copilot 代码生成上恒 `context deadline exceeded`；重试次数不由此改。
+      AI_HTTP_TIMEOUT: ${AI_HTTP_TIMEOUT:-180s}
       LOGGING_LEVEL: info
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
     healthcheck:
