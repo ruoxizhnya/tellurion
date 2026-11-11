@@ -103,7 +103,7 @@ ALLOWED_MISSING_IN_K8S = {
 IGNORED_SERVICES = {"equitydeep-research"}
 
 # AUD-13（2026-09-25 改写）：数据库/缓存不再由 compose 托管，改由宿主机原生
-# 安装提供（PostgreSQL 17.5 / Redis 7.4.11，见 docker-compose.yml 文件头）。
+# 安装提供（PostgreSQL 16.15 运行实例 / Redis 7.4.11，见 docker-compose.yml 文件头）。
 #
 # 原来这里有一对常量（LOOPBACK_ONLY / LOOPBACK_BINDS）守的是 compose 的 ports
 # 映射 —— 那两个服务已从 compose 移除，**检查对象不存在了**。留着不改的后果不是

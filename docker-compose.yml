@@ -2,8 +2,13 @@
 #
 # **数据库与缓存用宿主机原生安装，应用服务用容器。**
 #
-#   宿主机原生（由 tools/local-infra.sh 启停）
-#     PostgreSQL 17.5   127.0.0.1:5432   —— 无 TimescaleDB（只是 Warn，已实测可建表）
+#   宿主机原生
+#     PostgreSQL 16.15  127.0.0.1:5432   —— 本机在跑的是 Windows 服务
+#                                          postgresql-x64-16（data\PG_VERSION=16）；
+#                                          无 TimescaleDB（只是 Warn，已实测可建表）。
+#                                          ⚠️ tools/local-infra.sh 默认指向
+#                                          .workbuddy/binaries/postgres（17.5，当前
+#                                          未运行）；两者抢 5432，不能同时起
 #     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass；⚠️ 2026-11-10 起
 #                                          **本栈已无消费者**（data 面退役后
 #                                          REDIS_URL 全链路无读取点，已移除；
