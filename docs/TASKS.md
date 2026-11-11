@@ -25,6 +25,12 @@ verified-by: 2026-11-11 本地编排收敛为单一 `docker-compose.yml`（撤�
 - **④ 约束与非目标**：跨仓 7 份 `<repo>/deploy/compose.yaml` **不动**（各仓自证 Dockerfile / health 的资产，不属于本地统一栈）；不改 `pkg/brokerhttp` 的 fail-closed；不引入服务发现；k8s 形态不在本轮范围。
 - **⑤ 验收**：`docker compose config` 与 `docker compose --profile full config` 均 exit 0；`--services` 展开默认 4 项 / `full` 8 项；`python tools/check_deploy_consistency.py`、`python tools/check_doc_links.py`、`go build/vet/test ./... -count=1` 全绿。容器腿（冷启动 `up --wait`）并入 `CORE-BROKER-STARTUP-PRECONDITION` 的验收，不在本条重复计。
 - **⑥ 边界**：本仓编排与文档；broker 镜像、`/version` 的 `channel` 与探针归 `tellurion-broker`；七个服务仓各自 `deploy/` 下的 compose 文件归各仓自持。
+- **施工记录（2026-11-11 真冷启动）· 合并暴露的三个启动期缺陷**：单文件不是把三份文件拼起来就完事，抹平差异时逐一暴露了下面三条，**都属于同一类坑**（某份文件里存在、合并时被另一份覆盖或漏抄）：
+  1. **`data-service` 漏 `AUTH_INSECURE_EXPOSURE`**：其余七个服务都有，只有它没有；容器绑 `0.0.0.0` 且无 `JWT_SECRET` 时启动闸 fail-closed，`data-service` 第一个退出（`up` 直接 `dependency failed`）。修法 = 补 `${AUTH_INSECURE_EXPOSURE:-loopback-published}`；加之前核过八个服务的 `ports:` **全部**已是 `127.0.0.1:` 前缀，声明与事实一致，不是用 env 让检查闭嘴。
+  2. **ai ↔ analysis 双向 Boot 期解析环**：`ai-service` `depends_on analysis-service: service_healthy`，而 `analysis` 在 Boot 期硬校验 `ai_service.url` 的主机名；ai 尚未创建 → Docker DNS 不注册 → analysis 解析超时拒起 → ai 永远等不到 analysis healthy。修法 = 把 `ai_service.url` 降级为**首次反代调用时解析**（可选下游不应成为 core 的启动门；失败返回点名 `AI_SERVICE_URL` 与主机名的 503，不静默跳过），并恢复 ai 单向等 analysis。数据面 / risk / strategy 资产的 Boot 期硬校验保留，有单测钉住（`cmd/analysis/endpoints_test.go`、`handlers_ai_proxy_test.go`）。
+  3. **`RISK_SERVICE_RESOLVE_URL` 未注入且 `resolve_enabled` 出厂 true**：容器里的 `localhost:8089` 是 analysis 自己，`risk-engine Init` 拒起。修法 = 默认 `RISK_SERVICE_RESOLVE_ENABLED=false`（内置限额兜底，启动日志 `risk_policy_source=builtin_default`）+ 注入 `RISK_SERVICE_RESOLVE_URL=http://risk:8089`；full 里显式 `RISK_SERVICE_RESOLVE_ENABLED=true` 时 `wait-for-deps.sh` 按该 URL 等 risk 就绪。**fail-closed 语义不变**：开着就必须取到，取不到即拒起。
+  - 另有一条**非配置缺陷**：本机 `tellurion-broker:dev` 镜像旧于源码（`/version` 没有 `channel`），core 按契约拒起；重建镜像后 `broker peer channel verified`。冷启动前必须先 `build`。
+  - 验收：`--profile full` 连续三次 `down → up -d --wait` 全绿（八服务 healthy）；默认栈日志 `risk_policy_source=builtin_default`；`RISK_SERVICE_RESOLVE_ENABLED=true` 时日志 `risk_policy_source=risk_snapshot`（`risk_rules_hash=84a95d7d…`）；八服务探针全 200（strategy 是 `/healthz` + `/readyz`，`/health` 不存在）。
 
 ### CORE-BROKER-RUNTIME-RECHECK · broker 通道性质只在启动期核对一次 [P1] ⏸
 
@@ -36,13 +42,13 @@ verified-by: 2026-11-11 本地编排收敛为单一 `docker-compose.yml`（撤�
 - **⑥ 边界**：只改 core 消费面；对端 `/version` 的内容归 `tellurion-broker`。
 - **重开条件**：交易面进入「多环境共用一套 core」，或 `X6c` 真钱通道重开（真钱场景下运行期换端不可接受）。
 
-### CORE-BROKER-STARTUP-PRECONDITION · broker 不可达时 core 拒起（部署前置）[P1] ⏸
+### CORE-BROKER-STARTUP-PRECONDITION · broker 不可达时 core 拒起（部署前置）[P1] 🔶
 
 - **① 目标**：把「core 起得来」与「broker 先就绪」的先后关系写成部署约束，避免编排侧误判为 core 缺陷。
-- **② 上下文（2026-11-11 二次前提改写）**：`cmd/analysis` 的 exec-engine 模块在 `Boot` 期无条件构造 broker 通道（`cmd/analysis/kernel_wiring.go:130` → `pkg/bootstrap.BuildExecutionTrader` → `pkg/brokerhttp.NewTraderFromEnv`），`BROKER_URL` 缺失即 `kernel assembly failed`、服务拒起。原前提「实测三种编排都没给 core 注入 `BROKER_URL`」**现已部分不成立**：core `docker-compose.yml` 的**默认栈**已含 `broker`（`127.0.0.1:8091:8091`）并给 `analysis-service` 注入 `BROKER_URL=http://broker:8091` / `BROKER_CHANNEL=mock` / `BROKER_ALLOW_MOCK=true` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID`，且 `depends_on: broker: service_healthy`（`CORE-COMPOSE-UNIFY`）；`docker-compose.services.yml` 已并入并删除。**剩余缺口**：① 容器腿冷启动 `up --wait` 尚未真跑（本轮只验到 `docker compose config`）；② `deploy/k8s/` 8 份清单仍无 broker、也无 `BROKER_*` 注入；③ `deploy/README.md` 与 runbook 尚未写失败原文。
+- **② 上下文（2026-11-11 三次前提改写）**：`cmd/analysis` 的 exec-engine 模块在 `Boot` 期无条件构造 broker 通道（`cmd/analysis/kernel_wiring.go:130` → `pkg/bootstrap.BuildExecutionTrader` → `pkg/brokerhttp.NewTraderFromEnv`），`BROKER_URL` 缺失即 `kernel assembly failed`、服务拒起。原前提「实测三种编排都没给 core 注入 `BROKER_URL`」**已不成立**：core `docker-compose.yml` 的**默认栈**已含 `broker`（`127.0.0.1:8091:8091`）并给 `analysis-service` 注入 `BROKER_URL=http://broker:8091` / `BROKER_CHANNEL=mock` / `BROKER_ALLOW_MOCK=true` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID`，且 `depends_on: broker: service_healthy`（`CORE-COMPOSE-UNIFY`）；`docker-compose.services.yml` 已并入并删除。**剩余缺口**：① ~~容器腿冷启动未真跑~~ **2026-11-11 已补：`--profile full` 连续三次 `down → up -d --wait` 全绿**；② `deploy/k8s/` 8 份清单仍无 broker、也无 `BROKER_*` 注入；③ `deploy/README.md` 与 runbook 尚未写失败原文。
 - **③ 要求**：①（前置，**已于 2026-11-11 完成**：单一 compose 默认栈真接上 broker + 启动依赖 + `wait-for-deps.sh` 等 `BROKER_URL`）；② `deploy/README.md` 与 runbook 写明失败时的原文（`kernel assembly failed` → `BROKER_URL is required` / `broker peer channel` 两类）；③ 保留 fail-closed，不改「先起后连」；④ 若产品上要支持「只做分析、不下单」的部署形态，那是**另一个决定**（把 exec-engine 改成可选模块），须单独立单，并说明不接交易时对账 / 风控覆盖口子由谁负责；⑤ k8s 形态接 broker 另立部署单（本单只管本仓编排资产）。
 - **④ 约束与非目标**：不改 `pkg/brokerhttp` 的 fail-closed 行为；不引入跨服务的就绪协商。
-- **⑤ 验收**：冷启动整套栈 `up --wait` 一次成功、core 重启计数为 0；破坏验证 = 拔掉 broker 或反序起，core 必失败且日志点名 `BROKER_URL` / `/version`。
+- **⑤ 验收**：冷启动整套栈 `up --wait` 一次成功、core 重启计数为 0 —— **2026-11-11 实测三次全绿**，启动日志含 `broker peer channel verified`（`channel=mock`）与 `execution channel is MOCK`；破坏验证（拔掉 broker 或反序起，core 必失败且日志点名 `BROKER_URL` / `/version`）**尚未做**。
 - **⑥ 边界**：部署资产归本仓；broker 侧镜像、`/version` 的 `channel` 与探针归 `tellurion-broker`。
 - **重开条件**：出现第一个需要 core 真下单的部署形态（X6c 真钱通道或 mock 演练），或决定「接入 broker」与「exec-engine 可选化」两条路线中的任一条。
 

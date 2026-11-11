@@ -87,6 +87,20 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 > **AI 拆仓（ADR-027，2026-10-09）**：`pkg/ai` + CopilotService + cmd/ai 物理
 > 迁入 `tellurion-agent`（独立 module，单向依赖 agent→core）。core 不许
 > import `pkg/ai`——`internal/repoguard/ai_boundary_test.go` 白名单护栏钉住。
+>
+> **出站地址的启动期体检（2026-11-11）**：data-service / risk / strategy 资产
+> 是**启动必需**，`cmd/analysis/endpoints.go` 在 Boot 期解析主机名，失败即点名
+> env 拒起；`ai_service.url` 是**可选下游**，Boot 期只校验 URL 形状、不解析主机，
+> 首次反代调用时才解析，失败返回点名 `AI_SERVICE_URL` 与主机名的 503
+> （`cmd/analysis/handlers_ai_proxy.go`）。动机：ai 的 Boot 需要解析 analysis，
+> 若 analysis 的 Boot 也要求解析 ai，两者互相等 DNS，冷启动必然死锁；可选下游
+> 不应成为 core 的启动门。**不静默跳过 AI 功能**——调用方拿到的是明确错误。
+>
+> **risk 快照的开关口径**：`risk_service.resolve_enabled` 的 fail-closed 语义
+> 不变（开着就必须取到，取不到即拒起），但统一 compose 默认 `false`（内置限额
+> 兜底，启动日志 `source=builtin_default`），因为 risk 只在 `full` profile；
+> full 里要用真规则，`up` 前显式 `RISK_SERVICE_RESOLVE_ENABLED=true`，
+> `deploy/wait-for-deps.sh` 会按 `RISK_SERVICE_RESOLVE_URL` 等 risk 就绪。
 
 ---
 
