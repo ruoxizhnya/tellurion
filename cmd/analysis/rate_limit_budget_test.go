@@ -108,12 +108,17 @@ func TestRateLimitPerMinute_EnvOverrideActuallyTakesEffect(t *testing.T) {
 			"问题会看起来已经处理过，实际仍在 429")
 }
 
-// E. 最后一块：**覆盖层本身**必须真的把两个服务都抬起来。
+// E. 最后一块：**覆盖层本身**必须真的把 analysis-service 抬起来。
 //
 // 上面四条腿证明的是「旋钮有效」，但 AUD-58 的修法落在
-// `docker-compose.e2e.yml` 这个部署产物上 —— 如果它漏了一个服务、或者写的值
-// 不比默认大，测试全绿而 e2e 依然 429。所以这里直接读那个文件。
-func TestE2EComposeOverride_RaisesTheLimitForBothServices(t *testing.T) {
+// `docker-compose.e2e.yml` 这个部署产物上 —— 如果它漏了 analysis-service、或者
+// 写的值不比默认大，测试全绿而 e2e 依然 429。所以这里直接读那个文件。
+//
+// data-service **有意不在覆盖层里**：2026-11-10（`8fd415d`）起它的镜像由
+// `tellurion-data` 仓发布，限流是数据仓内的固定档（50 rps / 突发 200），**不读**
+// `RATE_LIMIT_PER_MINUTE` —— 此前那行 env 是零读取者的死配置。所以这里显式断言
+// 它缺席：后人若把它当「漏配」补回来，只会得到一条看起来可调、实际不生效的配置。
+func TestE2EComposeOverride_RaisesTheLimitForAnalysisService(t *testing.T) {
 	composeE2E, err := filepath.Abs(filepath.Join("..", "..", "docker-compose.e2e.yml"))
 	require.NoError(t, err)
 
@@ -124,14 +129,16 @@ func TestE2EComposeOverride_RaisesTheLimitForBothServices(t *testing.T) {
 
 	shipped := shippedRateLimit(t)
 
-	for _, svc := range []string{"analysis-service", "data-service"} {
-		got := raw.GetString("services." + svc + ".environment.rate_limit_per_minute")
-		require.NotEmpty(t, got,
-			"%s 没拿到 e2e 覆盖 —— 它会在 429 里继续红（Playwright 同时打 :8085 与 :8081）", svc)
+	got := raw.GetString("services.analysis-service.environment.rate_limit_per_minute")
+	require.NotEmpty(t, got,
+		"analysis-service 没拿到 e2e 覆盖 —— 它会在 429 里继续红（Playwright 打 :8085）")
 
-		n, err := strconv.Atoi(got)
-		require.NoError(t, err, "%s 的覆盖值必须是整数，实际 %q", svc, got)
-		assert.Greater(t, n, shipped,
-			"%s 的 e2e 覆盖(%d) 不比默认(%d) 大 —— 那这个覆盖层等于没写", svc, n, shipped)
-	}
+	n, err := strconv.Atoi(got)
+	require.NoError(t, err, "analysis-service 的覆盖值必须是整数，实际 %q", got)
+	assert.Greater(t, n, shipped,
+		"analysis-service 的 e2e 覆盖(%d) 不比默认(%d) 大 —— 那这个覆盖层等于没写", n, shipped)
+
+	assert.False(t, raw.IsSet("services.data-service"),
+		"data-service 不该回到 e2e 覆盖层：它的限流是 tellurion-data 仓内的固定档，"+
+			"不读 RATE_LIMIT_PER_MINUTE（补回去只会得到一条零读取者的死配置）")
 }

@@ -8,12 +8,18 @@ package backtest
 // QT-21 读的那一句裁决）。两处各写各的，迟早漂移；而漂了的那一份会直接决定 QT-21
 // 实现哪条规则 —— 选错的代价是「14 个内置策略当场全挂」或「契约里躺一条永不触发的规则」。
 //
-// 这条测试不参与扫描，只读三份已提交的文件，把「证据说的」和「裁决记的」钉成同一个字面量。
+// 这条测试不参与扫描，只读已提交的文件（扫描报告、设计集、台账活卷 + 归档），
+// 把「证据说的」和「裁决记的」钉成同一个字面量。
 // 改裁决必须同时改证据（重跑扫描器），改证据必须同时改裁决 —— 单边改动当场红。
+//
+// 台账会周期性瘦身：已完成项从 `docs/TASKS.md` 移进 `docs/archive/*.md`。
+// 那是主任明确要求的动作，互锁不能跟着断 —— 所以「QT-21 的派工文本」按
+// **活卷 ∪ 归档** 检索，不变量是「结论仍可检索到」，位置不构成不变量。
 
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -33,15 +39,76 @@ func qt04ReadRepoFile(t *testing.T, rel string) string {
 	p := filepath.Join(append([]string{"..", ".."}, strings.Split(rel, "/")...)...)
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		t.Fatalf("读 %s 失败（QT-04 的结论互锁需要这三份文件都在）: %v", rel, err)
+		t.Fatalf("读 %s 失败（QT-04 的结论互锁需要这些文件都在）: %v", rel, err)
 	}
 	return string(raw)
+}
+
+// qt04LedgerSource 是一份台账文本：活卷 `docs/TASKS.md` 或某份归档。
+type qt04LedgerSource struct {
+	rel  string
+	text string
+}
+
+// qt04ReadLedgerSources 读「活卷 + 全部归档」。归档目录为空不算错：那时判断
+// 就退化成只看活卷，与瘦身前的行为一致。
+func qt04ReadLedgerSources(t *testing.T) []qt04LedgerSource {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	sources := []qt04LedgerSource{{rel: qt04LedgerRel, text: qt04ReadRepoFile(t, qt04LedgerRel)}}
+
+	archives, err := filepath.Glob(filepath.Join(root, "docs", "archive", "*.md"))
+	if err != nil {
+		t.Fatalf("枚举 docs/archive/*.md 失败: %v", err)
+	}
+	sort.Strings(archives)
+	for _, abs := range archives {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			t.Fatalf("计算归档相对路径失败（%s）: %v", abs, err)
+		}
+		sources = append(sources, qt04LedgerSource{
+			rel:  filepath.ToSlash(rel),
+			text: qt04ReadRepoFile(t, filepath.ToSlash(rel)),
+		})
+	}
+	return sources
+}
+
+// qt04FindQT21 在活卷或归档里定位 QT-21 一节，返回出处与正文（到下一个 `### QT-` 为止）。
+// 找不到就 Fatal：结论的落点被删/改名，互锁本身失去意义，不能静默跳过。
+func qt04FindQT21(t *testing.T, sources []qt04LedgerSource) (string, string) {
+	t.Helper()
+	for _, src := range sources {
+		start := strings.Index(src.text, "### QT-21")
+		if start < 0 {
+			continue
+		}
+		section := src.text[start:]
+		if end := strings.Index(section, "### QT-22"); end > 0 {
+			section = section[:end]
+		}
+		return src.rel, section
+	}
+	t.Fatalf("docs/TASKS.md 与 docs/archive/*.md 里都找不到 QT-21 条目 —— 互锁的落点没了" +
+		"（被删或被改名），先恢复台账再谈结论落档")
+	return "", ""
+}
+
+// qt04LedgerContains 判断某段字面量是否出现在活卷或任一归档里。
+func qt04LedgerContains(sources []qt04LedgerSource, needle string) bool {
+	for _, src := range sources {
+		if strings.Contains(src.text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestQT04_ConclusionInterlock_ScanReportDesignDocLedger(t *testing.T) {
 	report := qt04ReadRepoFile(t, qt04ScanReportRel)
 	review := qt04ReadRepoFile(t, qt04Round2ReviewRel)
-	ledger := qt04ReadRepoFile(t, qt04LedgerRel)
+	sources := qt04ReadLedgerSources(t)
 
 	// 腿 1：报告里必须有「由测量决定的分支」，且与期望值一致。
 	branchLine := ""
@@ -79,29 +146,24 @@ func TestQT04_ConclusionInterlock_ScanReportDesignDocLedger(t *testing.T) {
 
 	// 腿 3：QT-21 是这条结论的执行者 —— 它的派工文本必须已经带上落点，
 	// 否则下一个 agent 拿到的还是「二选一待定」，结论等于没落档。
-	qt21Start := strings.Index(ledger, "### QT-21")
-	if qt21Start < 0 {
-		t.Fatalf("%s 里找不到 QT-21 条目 —— 互锁的落点没了，先恢复台账再谈结论落档", qt04LedgerRel)
-	}
-	qt21 := ledger[qt21Start:]
-	if end := strings.Index(qt21, "### QT-22"); end > 0 {
-		qt21 = qt21[:end]
-	}
+	// 已完成项会从活卷移进归档，所以按「活卷 ∪ 归档」检索。
+	qt21Rel, qt21 := qt04FindQT21(t, sources)
 	if !strings.Contains(qt21, "QT04_DUPLICATE_SIGNAL_SCAN.md") {
 		t.Errorf("QT-21 的 ②上下文没引扫描报告 —— QT-04 的结论要交给它执行，"+
-			"指针不落在派工文本里就等于没交出去（%s）", qt04LedgerRel)
+			"指针不落在派工文本里就等于没交出去（%s）", qt21Rel)
 	}
 	if strings.Contains(qt21, "trap 或 `close` 优先合并") {
 		t.Errorf("QT-21 的 ③-③ 还写着「trap 或 close 优先合并」这个二选一 —— " +
 			"QT-04 已经把它量成一条规则了，派工文本不能还停在待定")
 	}
 
-	// 腿 4：QT-04 自己的台账条目要引到证据，并点名合并规则的可见性。
-	if !strings.Contains(ledger, "QT04_DUPLICATE_SIGNAL_SCAN.md") {
-		t.Errorf("%s 的 QT-04 条目没引用扫描报告 —— 结论落档必须带着证据指针", qt04LedgerRel)
+	// 腿 4：QT-04 自己的台账条目要引到证据，并点名合并规则的可见性（活卷或归档）。
+	if !qt04LedgerContains(sources, "QT04_DUPLICATE_SIGNAL_SCAN.md") {
+		t.Errorf("台账（docs/TASKS.md 与 docs/archive/*.md）的 QT-04 条目都没引用扫描报告 —— " +
+			"结论落档必须带着证据指针")
 	}
-	if !strings.Contains(ledger, "duplicate_signals_merged") {
-		t.Errorf("%s 的 QT-04 结论没写诊断计数名 `duplicate_signals_merged` —— "+
-			"那是 §8.3 步 3 要求的可见性，QT-21 照台账实现", qt04LedgerRel)
+	if !qt04LedgerContains(sources, "duplicate_signals_merged") {
+		t.Errorf("台账（docs/TASKS.md 与 docs/archive/*.md）的 QT-04 结论都没写诊断计数名 " +
+			"`duplicate_signals_merged` —— 那是 §8.3 步 3 要求的可见性，QT-21 照台账实现")
 	}
 }
