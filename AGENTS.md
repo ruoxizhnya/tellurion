@@ -74,13 +74,13 @@
 
 - **语言**: Go 1.25（本仓）。TypeScript + Vue 3 在 `tellurion-ui` 仓 —— **本仓没有前端代码**
 - **当前版本**: Phase 4 (AI-Native Evolution)；ADR-023 三层模型已落盘 —
-  AI 编排层（`pkg/ai/loop` 循环控制器 + `experiments` / `factor_hypothesis` 实验日志表）、
+  AI 编排层（`pkg/ai/loop` 循环控制器 + `ai.experiments` / `ai.factor_hypothesis` 实验日志表，位于 agent 仓）、
   能力层（MCP 工具桥 + 五维确定性校验器 + 因果维）——**这三块代码 2026-10-09 起在 `tellurion-agent` 仓**
   （`agent:pkg/ai/loop`、`agent:pkg/ai/validation`、`agent:pkg/ai/tools`、`agent:pkg/ai/causal`）；
   数据层（行情 / 财务 / 产业链 / 研究洞察）
 - **状态**: 底座核心功能已完成；**执行载体已定型为表达式**（ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`））——
   LLM 生成的 Go 代码只是**可审阅 artifact**，不加载、不执行
-- **入口**: `cmd/analysis/main.go`（:8085 主 API）, `cmd/data/main.go`（:8081 数据服务）, `cmd/worker/`（编排 worker：领 tellurion-orchestration 的 run，无监听）, `cmd/dualrun/`（双跑对账）
+- **入口**: `cmd/analysis/main.go`（:8085 主 API）, `cmd/worker/`（编排 worker：领 tellurion-orchestration 的 run，无监听）, `cmd/dualrun/`（双跑对账）
   —— 前端入口 `web/src/main.ts` 已随前端拆到 `tellurion-ui` 仓，本仓没有它
   - `cmd/ai` (AI 服务 :8086) —— **2026-10-09 起 AI 层整体迁往 `tellurion-agent` 仓**（AI 拆仓，ADR-027 §5 第 8 步前置切片）：`pkg/ai` + `CopilotService` + 四族 AI handler（copilot/pipeline/explore/tools）现在住在 agent 仓；本仓的 analysis-service 对这四族路由做纯反代（`handlers_ai_proxy.go`），前端与 openapi 契约不变。依赖方向单向 agent→core（repoguard 钉住）
 - **构建**: `go build ./...`（本仓）。前端构建（`npm run build`）在 `tellurion-ui` 仓
@@ -91,7 +91,7 @@
 |------|------|----------|
 | 后端 API | Go + Gin | :8085 |
 | 前端 SPA | Vue 3 + Naive UI | :5173 (dev) —— **不在本仓**（`tellurion-ui`） |
-| 数据服务 | Go + Gin | :8081 |
+| 数据服务 | Go + Gin | :8081（源码在 `tellurion-data` 仓） |
 | **AI 服务** | Go + Gin | :8086（**源码在 `tellurion-agent` 仓**，2026-10-09 AI 拆仓；compose 直接以 agent 仓为构建上下文，无需 core 命名上下文） |
 | **风控 + 执行** | **in-process** | **合并到 analysis (per ODR-021, P1-15)** |
 | 数据库 | PostgreSQL | :5432 |
@@ -181,7 +181,7 @@ Browser (Vue SPA :5173)
 ```
 
 > **数据归属（禁止双写）**: 可重建数据物理唯一于 PG —— A 原始源响应 `ingest.raw` /
-> B 规范化 `market.*` / C 派生计算 `quant.*` + Redis `factor_cache`；
+> B 规范化 `market.*` / C 派生计算 `quant.*` + PostgreSQL `public.factor_cache`（当前无写者，见 ADR-037）；
 > 不可重建的研究叙事唯一于 vault markdown；`research.*` 是 markdown 的可重建投影
 > （可 DROP 重建）。共享靠**同一份数据 + `content_hash` 坐标**，不靠复制。
 >
@@ -206,7 +206,7 @@ Browser (Vue SPA :5173)
 | ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`） | **AI 实验员 + 人类监督者实验室** — 三层模型（AI 编排 / 能力 / 数据）+ EquityDeep 降为数据底座 + 挖掘/红队双 agent + **校准优于准确率** | 编排者从 2 个收敛到 1 个；可监督性成为一等需求 |
 | ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`） | **策略执行载体是表达式，LLM 生成的代码只是 artifact** — 意图类型 → 确定性默认表达式映射；不做 `plugin.Open` | 起点确定、可审阅、可复现；**自由度在这里是负债** |
 
-详见: ADR.md（`tellurion-docs:docs/ADR.md`）（**累计 36 条** ADR，编号 ADR-001~036 全部存在；**现行 30 条**：009/010/012 已归档、014 由 ADR-020 §6 取代、021/022 由 ADR-023 取代）
+详见: ADR.md（`tellurion-docs:docs/ADR.md`）（**累计 37 条** ADR，编号 ADR-001~037 全部存在；现行条数以该索引为准：009/010/012 已归档、014 由 ADR-020 §6 取代、021/022 由 ADR-023 取代）
 
 ---
 
@@ -216,7 +216,6 @@ Browser (Vue SPA :5173)
 tellurion/                        # core —— 热路径全在这里，不出进程
 ├── cmd/
 │   ├── analysis/                 # 主 HTTP 服务 (:8085)：API + 内嵌前端静态资源 + AI 四族路由纯反代
-│   ├── data/                     # 数据服务 (:8081)：同步 / connector / ETL
 │   ├── worker/                   # 编排 worker：用 core 引擎领 tellurion-orchestration 的 run（QT-44 core 腿）
 │   └── dualrun/                  # K15 双跑对账 = 引擎对齐门禁（2026-10-20 裁决**留 core**，见 repo-inventory §3）
 ├── pkg/
@@ -229,7 +228,7 @@ tellurion/                        # core —— 热路径全在这里，不出�
 │   ├── portfolio/ settlement/    # 组合 / 结算（留 core）
 │   ├── risk/                     # RiskPolicy 同步裁决（留 core，永不出仓）
 │   ├── compliance/ alert/        # 合规检测 + 告警编排（→ tellurion-risk，X3）
-│   ├── data/ marketdata/ sync/   # 数据管道（→ tellurion-data，X1）
+│   ├── marketdata/               # 只读行情客户端（数据管道已迁 tellurion-data）
 │   ├── domain/                   # CT-06-B（2026-11-10）迁回的 core-only 形状（52 根名）；`market` 与 ≥2 使用方形状仍在 tellurion-contracts:domain/
 │   ├── trading/                  # 纸交易 / 实盘运行域（原 pkg/live，2026-11-10 改名；通道客户端 = brokerhttp/）
 │   ├── marketimpact/ indicator/ expression/   # 冲击模型 / 指标 / 表达式 DSL（留 core）
@@ -319,7 +318,6 @@ tellurion/                        # core —— 热路径全在这里，不出�
 go build ./...                          # Build all packages
 go vet ./...                            # Static analysis
 go test ./pkg/backtest/... -v           # Run backtest engine tests
-go test ./pkg/data/... -v               # Run data pipeline tests
 go test ./pkg/storage/... -v            # Run PostgreSQL storage tests
 ```
 
@@ -382,9 +380,9 @@ docker compose down                     # Stop all services
 - 使用 `context.Context` 作为 I/O 函数的第一个参数
 - 错误处理：返回 error，生产代码中绝不 panic
 - 命名：导出符号用 PascalCase，未导出用 camelCase
-- 包结构：`pkg/domain`（core-only 形状，CT-06-B 2026-11-10）+ `tellurion-contracts:domain/`（≥2 使用方契约，版本依赖）→ `pkg/data` → `pkg/strategy` → `pkg/backtest` → `pkg/storage`。例外：`pkg/backtest` **不依赖** `pkg/storage`（SVC-CORE-RUN-RETIRE ③，2026-11-10）：持久化只经 `backtest.Storage` 端口注入，共用行形状在叶子包 `pkg/persistence`；`pkg/storage` 用类型别名导出旧名。护栏 `internal/repoguard/backtest_storage_decoupling_test.go`。
+- 包结构：`pkg/domain`（core-only 形状，CT-06-B 2026-11-10）+ `tellurion-contracts:domain/`（≥2 使用方契约，版本依赖）→ `pkg/strategy` → `pkg/backtest` → `pkg/storage`。例外：`pkg/backtest` **不依赖** `pkg/storage`（SVC-CORE-RUN-RETIRE ③，2026-11-10）：持久化只经 `backtest.Storage` 端口注入，共用行形状在叶子包 `pkg/persistence`；`pkg/storage` 用类型别名导出旧名。护栏 `internal/repoguard/backtest_storage_decoupling_test.go`。
 - 使用 `logrus` 或标准 `log` 包记录日志（与现有代码一致）
-- **库侧测试用 `storage.NewPostgresStoreConnected`（连库 + ping，不迁移），不用 `NewPostgresStore`**。`migrate()` 只由 `NewPostgresStore` 承载，那是**启动 / 部署路径**（`cmd/data/setup.go`、`pkg/bootstrap/engine.go`、`cmd/dualrun`，以及 `//go:build integration` 下 dockertest 一次性容器套件）。DATA-09 的实测代价（2026-10-15）：默认构建的测试直连开发库调迁移入口，一条 `go test ./pkg/data/...` 就把 Migration 054 的整表 ×1000 真的作用在 3,926,510 行上，无授权无提示，且 `data_migrations` 哨兵置位后**不可重放**。双向护栏在 `internal/repoguard/store_migration_isolation_test.go`（测试不许调迁移入口 / 生产不许调不迁移入口 / 两个入口的函数体形状也钉住）。代价如实登记：库侧测试从此**预设库已迁移**，新库先起一次服务或跑一次 tagged 集成套件。
+- **库侧测试用 `storage.NewPostgresStoreConnected`（连库 + ping，不迁移），不用 `NewPostgresStore`**。`migrate()` 只由 `NewPostgresStore` 承载，那是**启动 / 部署路径**（`pkg/bootstrap/engine.go`、`cmd/dualrun`，以及 `//go:build integration` 下 dockertest 一次性容器套件）。DATA-09 的实测代价（2026-10-15）：默认构建的测试直连开发库调迁移入口，一条 `go test ./pkg/data/...` 就把 Migration 054 的整表 ×1000 真的作用在 3,926,510 行上，无授权无提示，且 `data_migrations` 哨兵置位后**不可重放**。双向护栏在 `internal/repoguard/store_migration_isolation_test.go`（测试不许调迁移入口 / 生产不许调不迁移入口 / 两个入口的函数体形状也钉住）。代价如实登记：库侧测试从此**预设库已迁移**，新库先起一次服务或跑一次 tagged 集成套件。
 
 **Canonical Strategy Interface**（单一事实来源）：
 ```go
