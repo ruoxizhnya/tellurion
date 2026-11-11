@@ -105,53 +105,13 @@ var (
 // 类型（非别名声明）。key 形如 "<相对路径>:<类型名>"，每条写清撞的是什么、以及
 // 收敛归哪条单。
 //
-// 保留条目是 B1 之前就存在的既成事实（迁移只是把「core 的 pkg/domain vs core
-// 的本地包」换成「契约包 vs core 的本地包」），本基线守的是不要再长新的。
 // 2026-10-23 逐条实测过形状（见 docs/TASKS.md QT-05 core 腿结案段的缺口登记）。
 //
-// CT-06-B（2026-11-10）：原 Portfolio / RiskManager / Signal 三条随形状迁回
-// `tellurion:pkg/domain` 后，契约仓已不再导出这三个名字，撞名前提消失；按反向
-// 棘轮规则删除条目（白名单不许替已消失的撞名打掩护）。只剩 Provider 一条。
+// CT-06-B（2026-11-10）迁回的 core-only 形状，与 Portfolio / RiskManager / Signal
+// 三条 B1 遗留条目，都随本仓 pin 升到 `tellurion-contracts v0.10.0`（2026-11-11）
+// 而消失撞名前提：契约仓已不再导出这些名字，按反向棘轮规则删除条目（白名单不许
+// 替已消失的撞名打掩护）。只剩 Provider 一条。
 var shadowContractNameBaseline = map[string]string{
-	// ─── CT-06-B（2026-11-10）迁回的 core-only 形状 ────────────────────
-	//
-	// 契约仓**工作区**已删掉这些同名导出（CT-06-B ①），但本仓 go.mod 仍 pin
-	// `tellurion-contracts v0.9.0`，本护栏按 pin 从 module cache 读，那里还导出。
-	// 因此这批条目是「版本滞后」而非双份真相：bump 到含 CT-06-B 的契约版本后
-	// 它们全部变成 stale，反向棘轮会逼删——这正是本条腿要的行为。
-	"pkg/domain/backtest.go:BacktestParams":                    ct06bMoved("BacktestParams"),
-	"pkg/domain/execution.go:ExecutionConfig":                  ct06bMoved("ExecutionConfig"),
-	"pkg/domain/factor.go:FactorCacheEntry":                    ct06bMoved("FactorCacheEntry"),
-	"pkg/domain/factor.go:FactorReturn":                        ct06bMoved("FactorReturn"),
-	"pkg/domain/factor.go:ICEntry":                             ct06bMoved("ICEntry"),
-	"pkg/domain/factor_def.go:FactorDefinition":                ct06bMoved("FactorDefinition"),
-	"pkg/domain/factor_def.go:FactorKernel":                    ct06bMoved("FactorKernel"),
-	"pkg/domain/factor_output.go:FactorCaliber":                ct06bMoved("FactorCaliber"),
-	"pkg/domain/factor_output.go:FactorOutput":                 ct06bMoved("FactorOutput"),
-	"pkg/domain/factor_registration.go:FactorRegistration":     ct06bMoved("FactorRegistration"),
-	"pkg/domain/factor_registration.go:RegistrationAction":     ct06bMoved("RegistrationAction"),
-	"pkg/domain/factor_registration.go:RegistrationAuditEntry": ct06bMoved("RegistrationAuditEntry"),
-	"pkg/domain/factor_registration.go:RegistrationStatus":     ct06bMoved("RegistrationStatus"),
-	"pkg/domain/fundamentals_detail.go:FundamentalsDetailRow":  ct06bMoved("FundamentalsDetailRow"),
-	"pkg/domain/mining.go:FactorMiningRecord":                  ct06bMoved("FactorMiningRecord"),
-	"pkg/domain/screen.go:ScreenFilters":                       ct06bMoved("ScreenFilters"),
-	"pkg/domain/screen.go:ScreenRequest":                       ct06bMoved("ScreenRequest"),
-	"pkg/domain/screen.go:ScreenResult":                        ct06bMoved("ScreenResult"),
-	"pkg/domain/supply_chain.go:ETFConstituent":                ct06bMoved("ETFConstituent"),
-	"pkg/domain/supply_chain.go:IndustryVitality":              ct06bMoved("IndustryVitality"),
-	"pkg/domain/supply_chain.go:SWIndustryNode":                ct06bMoved("SWIndustryNode"),
-	"pkg/domain/supply_chain.go:SupplyChainEdge":               ct06bMoved("SupplyChainEdge"),
-	"pkg/domain/types.go:Order":                                ct06bMoved("Order"),
-	"pkg/domain/types.go:OrderType":                            ct06bMoved("OrderType"),
-	"pkg/domain/types.go:Portfolio":                            ct06bMoved("Portfolio"),
-	"pkg/domain/types.go:Position":                             ct06bMoved("Position"),
-	"pkg/domain/types.go:PositionSize":                         ct06bMoved("PositionSize"),
-	"pkg/domain/types.go:RiskManager":                          ct06bMoved("RiskManager"),
-	"pkg/domain/types.go:RiskMetrics":                          ct06bMoved("RiskMetrics"),
-	"pkg/domain/types.go:Signal":                               ct06bMoved("Signal"),
-	"pkg/domain/types.go:StopLossEvent":                        ct06bMoved("StopLossEvent"),
-	"pkg/domain/types.go:TargetPosition":                       ct06bMoved("TargetPosition"),
-
 	// ─── B1 之前就存在的刻意分型（契约 pin 里仍有同名类型）────────────
 	//
 	// 实测（2026-10-23，逐条读了签名）：core 这 11 个方法里有 5 个与契约
@@ -160,18 +120,7 @@ var shadowContractNameBaseline = map[string]string{
 	// 就是 market.OHLCV 的别名），另 6 个是 core 多的（Name / CheckConnectivity /
 	// CheckCalendarExists / GetStock / GetTradingDays / BulkLoadOHLCV）
 	// ⇒ 超集关系，且两者之间没有编译期断言钉住。收敛属数据面（X1 / QT-40）。
-	"pkg/marketdata/provider.go:Provider":   "取数 Provider 接口，是契约 market.Provider 的**超集**（同名 5 方法签名逐字相同 + 另 6 个）；今天靠实现体同时满足两边，没有 var _ market.Provider = ... 这类断言 —— 已登记缺口，不在本护栏裁",
-	"pkg/portfolio/interfaces.go:Portfolio": "组合域自己的接口（ApplyFill / Value / Positions / Snapshot）；契约 domain.Portfolio 是可变的内存持仓载体（struct），两者关系已在该文件注释里写清",
-	"pkg/risk/manager.go:RiskManager":       "契约 domain.RiskManager 那个 port 的**实现体**（struct）；实现者与被实现的接口同名是刻意的（同步裁决留 core 进程内）",
-	// 实测 51 个 .go 里出现 strategy.Signal（`git grep -l 'strategy\.Signal' -- '*.go' | wc -l`；
-	// 去掉 _test.go 是 24 个）。
-	"pkg/strategy/strategy.go:Signal": "策略插件的产出形状（Action string / Price / Date interface{}），在 pkg/backtest/engine.go 的 convertStrategySignals 显式映射成契约 domain.Signal（Direction / CompositeScore / Factors）；要不要收敛属策略面的单，不由本护栏裁",
-}
-
-// ct06bMoved 生成「版本滞后」条目的统一理由。
-func ct06bMoved(name string) string {
-	return name + " 自契约仓迁回 core（CT-06-B 补裁 #12）；契约仓工作区已删同名导出，" +
-		"本仓 pin 的 v0.9.0 仍含 —— bump 到含 CT-06-B 的契约版本后删本条目"
+	"pkg/marketdata/provider.go:Provider": "取数 Provider 接口，是契约 market.Provider 的**超集**（同名 5 方法签名逐字相同 + 另 6 个）；今天靠实现体同时满足两边，没有 var _ market.Provider = ... 这类断言 —— 已登记缺口，不在本护栏裁",
 }
 
 // TestLegacyContractPackagesNotRebuilt 腿 A：旧契约包不得在本仓重建，也不得再
