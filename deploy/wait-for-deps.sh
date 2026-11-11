@@ -18,6 +18,7 @@
 #
 #   DATABASE_HOST + DATABASE_PORT  →  等 <host>:<port>
 #   REDIS_URL                      →  去 scheme 后等 <host>:<port>
+#   BROKER_URL                     →  去 scheme 后等 <host>:<port>（2026-11-11 起）
 #
 # 这样「等的」与「连的」在结构上不可能不一致。
 #
@@ -47,11 +48,17 @@ if [ -n "${REDIS_URL:-}" ]; then
     # redis://host:6379/0 → host:6379（去掉 scheme 与 path）
     targets="$targets $(printf '%s' "$REDIS_URL" | sed -E 's|^[A-Za-z]+://||; s|/.*$||')"
 fi
+if [ -n "${BROKER_URL:-}" ]; then
+    # http://broker:8091 → broker:8091（去掉 scheme 与 path）。
+    # analysis 装配期无条件构造执行通道，broker 不在就必然拒起 —— 这里等它，
+    # 让默认栈一次起来，而不是靠 crash-loop 碰运气。
+    targets="$targets $(printf '%s' "$BROKER_URL" | sed -E 's|^[A-Za-z]+://||; s|/.*$||')"
+fi
 # 显式覆盖优先（也给「等一个不在配置里的东西」留出口）
 targets="${WAIT_FOR_DEPS:-$targets}"
 
 if [ -z "$targets" ]; then
-    echo "wait-for-deps: 没有可推导的依赖（DATABASE_HOST / REDIS_URL 都为空），直接启动" >&2
+    echo "wait-for-deps: 没有可推导的依赖（DATABASE_HOST / REDIS_URL / BROKER_URL 都为空），直接启动" >&2
     exec "$@"
 fi
 
@@ -62,7 +69,8 @@ for target in $targets; do
     while ! nc -z "$host" "$port" 2>/dev/null; do
         if [ "$waited" -ge "$TIMEOUT" ]; then
             echo "wait-for-deps: 等 ${host}:${port} 超过 ${TIMEOUT}s 仍不可达，放弃启动。" >&2
-            echo "wait-for-deps: 宿主机上的数据库/缓存起了吗？本机用 tools/local-infra.sh start 启停。" >&2
+            echo "wait-for-deps: 宿主机上的数据库/缓存起了吗？本机用 tools/local-infra.sh start 启停；" >&2
+            echo "wait-for-deps: broker 由 docker compose 的默认栈提供（--profile full 不影响它）。" >&2
             exit 1
         fi
         sleep 1

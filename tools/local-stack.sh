@@ -19,9 +19,13 @@
 # ⚠️ **AUD-13 的运行时那一半住在这里**：analysis 以 open-access 运行，
 #    而容器必须绑 0.0.0.0 —— 「不可从其他主机到达」这条不变量因此完全由
 #    **发布层**承担。静态那一半在 tools/check_deploy_consistency.py 的检查 3c
-#    （读 compose 文件）；这里读**真实 netstat**，断言四个端口只监听回环。
+#    （读 compose 文件）；这里读**真实 netstat**，断言默认栈四个端口只监听回环。
 #    两者缺一不可：静态管不到 override 文件与运行时改动，运行时管不到未来
-#    还没起的那次提交。
+#     还没起的那次提交。
+#    默认栈的四个端口（8081/8085/8086/8091）在这里断言；
+#     full profile 的四个端口（8087/8088/8089/8090）只在 `--profile full` 下
+#     存在，本脚本默认栈不启动它们；需要时手工 `docker compose --profile full up`,
+#     静态检查 3c 仍覆盖它们的回环前缀。
 set -eu
 
 ROOT_WIN="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +34,8 @@ cd "$ROOT_WIN"
 # 容器服务 → 宿主端口（与 docker-compose.yml 的 127.0.0.1: 映射一一对应）
 # REV-16：strategy-service(:8082) 已删除；:8080 是前端（拆仓后由 tellurion-ui 的
 # nginx 提供），不在本栈的容器清单里——两者都不再断言，否则脚本会永远等不到它们。
-SERVICES="data-service:8081 analysis-service:8085 ai-service:8086"
+# 2026-11-11：broker(:8091) 进入默认栈 —— analysis 装配期依赖它，必须一起体检。
+SERVICES="data-service:8081 broker:8091 analysis-service:8085 ai-service:8086"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
 COMPOSE="docker-compose"
@@ -68,12 +73,20 @@ http_ok() {
     [ "$code" = "200" ]
 }
 
+# broker 的健康端点是 /healthz，其余服务是 /health（+ `/` 兜底）。
+health_path() {
+    case "$1" in
+        broker) echo /healthz ;;
+        *)      echo /health ;;
+    esac
+}
+
 # ── 容器健康状态（compose 的 healthcheck 结论）────────────────────────
 container_health() {
     docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null || echo missing
 }
 
-# ── AUD-13 运行时断言：四个端口只许监听回环 ───────────────────────────
+# ── AUD-13 运行时断言：默认栈四个端口只许监听回环 ───────────────────────
 check_host_loopback() {
     rc=0
     for pair in $SERVICES; do
@@ -133,7 +146,7 @@ start() {
             cname="$(docker ps --filter "name=${svc}" --format '{{.Names}}' | head -1)"
             h="missing"
             [ -n "$cname" ] && h="$(container_health "$cname")"
-            if http_ok "$port" /health || http_ok "$port" /; then
+            if http_ok "$port" "$(health_path "$svc")" || http_ok "$port" /; then
                 detail="$detail ${svc}=up"
             else
                 all_ok=0
@@ -184,7 +197,7 @@ status() {
             fi
             h="$(container_health "$cname")"
             http="down"
-            { http_ok "$port" /health || http_ok "$port" /; } && http="200"
+            { http_ok "$port" "$(health_path "$svc")" || http_ok "$port" /; } && http="200"
             echo "  ${svc} :${port}  容器=${h}  HTTP=${http}"
         done
     fi
