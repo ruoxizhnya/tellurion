@@ -1,7 +1,7 @@
 ---
 status: evergreen
-last-verified: 2026-10-23
-verified-by: 文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-23）
+last-verified: 2026-11-11
+verified-by: 2026-11-11 阶段 B core 对齐（B5-1）：服务拓扑按三种部署形态写实、data/ai 拆仓后的入口与端口、`public` 13 张 / `quant`·`audit` 启用 / `research` 退役、Redis 面退役（保留历史）、TimescaleDB 归 data；口径与实测数据见 `docs/design/cross-repo-architecture-baseline-2026-11-11.md` §5/§6；文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.md 尾注 _ARCHITECTURE.md 建文件纳入_）；R1 frontmatter 由 DOCS-02 补齐；QT-05 B3 契约迁移路径对拍（2026-10-23）
 ---
 
 # Quant Lab — 架构总览
@@ -16,14 +16,22 @@ verified-by: 文档拆仓后重建 core 文档入口（2026-10-12，见 AGENTS.m
 ## 1. 服务拓扑
 
 微服务架构，Analysis Service 作为 API 网关协调 Data Service 与 AI
-Service。**PG 与 Redis 不在容器内**——各服务经 `host.docker.internal` 连
-宿主机实例（compose 只编排 3 个 Go 服务；前端已拆仓，见下）。
+Service。**部署形态有三种，别把三者的配置混着读**（G-05）：
+
+| 形态 | 编排来源 | 服务集合 | PG / Redis 在哪 |
+|---|---|---|---|
+| core 容器栈（本地默认） | 本仓 `docker-compose.yml` | 5 个：data-service / analysis-service / ai-service / worker / dualrun | **都不在容器内**：各服务经 `host.docker.internal` 连宿主机原生安装的 PG（Redis 键与部署已退役，见 §4） |
+| 跨仓聚合栈 | 本仓 `docker-compose.services.yml` | postgres + data / risk / strategy / analytics / orchestration / broker | postgres 在容器内；**无 Redis 服务** |
+| k8s | `deploy/k8s/`（**跨仓部署资产**，处置见 `deploy/k8s/README.md`） | analysis / data / web 三个 Deployment + postgres StatefulSet + redis Deployment | 两者都在集群内 |
+
+前端已拆仓至 `tellurion-ui`（2026-10-09）；data-service 已拆仓至
+`tellurion-data`（`SVC-CORE-DATA-RETIRE`，2026-11-08）—— 两者都只是**拓扑上
+的邻居**，不产出本仓代码。
 
 ```
 Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │  只经 /api/* 打后端（AUD-32：nginx 托管在宿主 8080）
   ├──► analysis-service :8085 ──► PostgreSQL :5432（唯一数据面）
-  │                             ──► Redis :6379（缓存）
   │                             ──► risk-service :8089（源码在 tellurion-risk 仓，X3；
   │                                `cmd/riskservice -addr` 的默认值 127.0.0.1:8089，
   │                                与 core 的 `risk_service.resolve_url` 一致；8086
@@ -39,8 +47,13 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │                               ADR-027 拆仓；compose 直接以 agent 仓
   │                               为构建上下文；analysis 对 copilot/pipeline/
   │                               explore/tools 四族路由纯反代）
-  ├──► data-service :8081 ──────► tushare.pro 摄取（唯一外部数据入口）
+  ├──► data-service :8081 ──────► tushare.pro 摄取（源码在 tellurion-data 仓，
+  │                               SVC-CORE-DATA-RETIRE；本仓只经 HTTP 反代，
+  │                               `market`/`ingest` schema 的唯一 writer 在那边）
 ```
+
+> **本图不含 Redis**：缓存面已退役（data 面退役后 `redis.url` 零读取点），
+> 历史设计见 §4。
 
 > **REV-16（2026-10-17）**：`strategy-service`（:8082）已删除——OBS-11 删掉信号端点后
 > 它只剩 `/health` 与恒空的 `/strategies`，零调用方；ADR-012 已关闭。`pkg/strategy`
@@ -49,9 +62,9 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 | 服务 | 端口 | 入口 | 职责 |
 |---|---|---|---|
 | analysis-service | 8085 | `cmd/analysis` | API 网关 + 回测/batch/walkforward + 风控/执行（in-process，ODR-021 合并）+ 信号/证据/产业链只读门 |
-| data-service | 8081 | `cmd/data` | tushare 摄取、同步任务队列（sync jobs/SSE）、因子计算 |
-| ai-service | 8086 | agent 仓 | Hermes AI 实验员（L3 编排层，源码不在本仓） |
-| orchestration worker | 无监听 | `cmd/worker` | 用 core 引擎领 `tellurion-orchestration` 的 run（出站到 :8088）；结果落 `backtest_jobs`，三 hash 回传仍未落 |
+| data-service | 8081 | `tellurion-data` 仓（**本仓无 `cmd/data`**） | tushare 摄取、同步任务队列、`market`/`ingest` 的唯一 writer；本仓只经 `data_service.url` 反代 |
+| ai-service | 8086 | `tellurion-agent` 仓（**本仓无 `cmd/ai`**） | Hermes AI 实验员（L3 编排层，源码不在本仓） |
+| orchestration worker | 无监听 | `cmd/worker` | 用 core 引擎领 `tellurion-orchestration` 的 run（出站 `ORCHESTRATION_URL` 或 `-orchestration-url`，**两者都空即拒绝启动**）；结果落 `backtest_jobs`，三 hash 回传仍未落 |
 
 > **orchestration worker（2026-10-25，QT-44 core 腿）**：`cmd/worker` 不是常驻 HTTP 服务，也不在本仓 compose 的默认清单里；它按部署需要单独起（可多个副本）。它与 orchestration 只经 HTTP 交互，本仓不 import 对方的代码；`internal/orchestrationworker` 的 run_spec 解析 / 执行 / 上报循环见 `docs/TASKS.md` 的 QT-44 指针记录。
 >
@@ -68,10 +81,10 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 
 | 分区 | 内容 | 写入方 |
 |---|---|---|
-| A 原始源响应 `ingest.raw` | 外部响应的逐字节归档（class A） | data-service 摄取时自动归档（`TushareClient.call`）；`POST /api/ingest/raw` 是唯一外部写入门 |
-| B 规范化行情 `public`（`stocks`/`ohlcv_daily_qfq`/`stock_fundamentals`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | data-service 摄取 |
-| C 派生计算 `quant.*` + Redis `factor_cache` | 因子/回测/IC/信号/产业链静态层/实验日志 | 各计算路径（可 DROP 重建） |
-| E 研究结构化投影 `research.*` | vault markdown 的可重建投影 | 投影写入（可 DROP 重建） |
+| A 原始源响应 `ingest.raw` | 外部响应的逐字节归档（class A） | **`tellurion-data` 唯一 writer**（摄取时自动归档）。唯一外部写端点是它的 `POST /ingest/points`（data ADR-0006，G-03）；core 侧 `POST /api/ingest/raw` 已随 `SVC-CORE-DATA-RETIRE` 删除，只剩契约测试里的历史例外条目 |
+| B 规范化行情 `market.*`（`stocks`/`ohlcv_daily_qfq`/`stock_fundamentals`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | **`tellurion-data` 唯一 writer**（2026-11-08 起这些表从 `public` 迁到 `market`，G-04）；core 只读四张裸表（清单见 [SPEC.md](SPEC.md) 的「跨仓只读表依赖清单」） |
+| C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 与「实验日志」已退役：前者零读取点（见 §4），后者随 `SVC-CORE-AI-RETIRE` 删除 |
+| ~~E 研究结构化投影 `research.*`~~ **已退役** | vault markdown 的可重建投影 | 三表（`profile`/`conclusion`/`question`）与 5 条索引随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`migrate()` 不再建 `research` schema |
 
 ---
 
@@ -96,11 +109,11 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 
 分区结构：
 
-- `public`：规范化市场数据（ stocks / ohlcv_daily_qfq【唯一 hypertable，migrate 内 `create_hypertable`】/ stock_fundamentals / trading_calendar / splits / dividends / index_constituents / factor_cache / factor_returns / ic_analysis / backtest_jobs【Migration 009；**Migration 059 增 `result_status`**，三值 `completed/invalid/failed`，CHECK 与 orchestration `run.backtest_jobs` 对齐】/ sync_jobs / sync_schedules / strategies / users / audit_logs 等）
-- `ingest.raw`：类 A 原始响应归档（唯一键 `content_hash`）
+- `public`：**13 张，全是 core 自己的簿记 / 因子 / 回测元数据**（2026-11-11 实测，证据口径见[跨仓基线](design/cross-repo-architecture-baseline-2026-11-11.md) §6 第 4 项）—— `stock_fundamentals` / `factor_cache` / `factor_returns` / `ic_analysis` / `backtest_adjustment_anchors` / `users` / `audit_logs` / `fundamentals_detail` / `data_migrations` / `factor_definitions` / `factor_registrations` / `factor_registration_audit` / `factor_mining_records`。行情类表（`ohlcv_daily_qfq` / `ohlcv_minute` / `stocks` / `splits` / `dividends` / `trading_calendar` / `index_constituents` / `stock_sector_map` / `market_activity`）的 DDL 与 hypertable 调用**都已不在本仓**（`SVC-CORE-DATA-RETIRE`，owner = `tellurion-data`，落在它的 `market` schema）；`backtest_jobs` / `sync_jobs` / `sync_schedules` / `strategies` 同样已退役（任务面归 orchestration 的 `run.backtest_jobs`），`migrate()` 里留有对应的 `DROP TABLE IF EXISTS`
+- `ingest.raw`：类 A 原始响应归档（唯一键 `content_hash`）—— **归 `tellurion-data`**：本仓 `migrate()` 不建该表，唯一写端点是它的 `POST /ingest/points`（data ADR-0006）
 - `quant.*`：派生计算。信号面 `external_signals`（K8，Migration 048）；产业链静态层 `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent`（P2-2，Migration 049，统一 `source`/`as_of` 溯源列 + 幂等唯一约束）；run 留痕 `run_provenance`（QT-63，Migration 056，**只存输入身份、不存 status** —— status 的唯一权威是 `backtest_jobs`，查询用 join/视图；`risk_rules_hash` 由 QT-66 每次 run 提交时向 tellurion-risk 的 `POST /api/risk/resolve` 取一次，未接入记空串 + `not_configured`，取不到即 run `failed` + `risk_rules_unavailable`）；告警发件箱 `alert_outbox`（QT-42 X3c，Migration 060；**Migration 061 增 `lease_until`（QT-76）**，relay 领取走 `ClaimPendingAlertOutbox` = `FOR UPDATE SKIP LOCKED` + 租约，多进程不重领、进程崩掉靠租约到期回收，投递状态机 `pending → sent | failed` —— `failed` 是**终态但保留行**，那行是唯一能回答「这条告警为什么没进 risk」的东西；`Alert.ID` 带进程级 nonce（重启同秒不再撞主键），`attempts` 触 `events_max_attempts` 才判死，关停期只剩一个总预算（`events_shutdown_budget`，到点即弃、行仍 pending）。注意它**不是**第二个告警真相源：告警内容仍由 `pkg/alert` 产出，这里只存投递留痕）；内核模块表 `strategy_state` 等由各模块 store 的 `EnsureSchema` 幂等兜底（未并入 migrate 的以模块注释为准）
-- `research.*`：研究投影（conclusion / question / profile）
-- `market.*`：指数行情独立分区（`market.index_daily`，Migration 057，migrate 内建——指数不与个股混表）
+- ~~`research.*`~~：**已退役**（`SVC-CORE-AI-RETIRE`，2026-11-10）—— `profile` / `conclusion` / `question` 三表与 5 条索引删净，本仓已无 `CREATE SCHEMA research`
+- `market.*`：本仓只建一张 `market.index_daily`（Migration 057：指数行情独立分区，指数不与个股混表）；其余 `market.*` 表由 `tellurion-data` 建
 - `audit.*`：内核事件存储（`audit.message_log`，`pkg/eventstore/schema.go` 的 `EnsureSchema` 幂等建，未并入 migrate）
 
 > **migrate 之外的模块内自建表（3 处，存量如实登记）**：`pkg/eventstore/schema.go`
@@ -115,25 +128,34 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 
 ### TimescaleDB
 
-仅 `ohlcv_daily_qfq` 建 hypertable（`migrate()` 内 `create_hypertable(...,
-if_not_exists => TRUE)`，TimescaleDB 不可用时 Warn 降级不阻断启动）。
-`factor_cache` 等时序表按 022 迁移注释**刻意不建** hypertable（需要时单独加）。
+本仓 `migrate()` 今天**不建任何 hypertable**：唯一一处 `create_hypertable`（针对
+`ohlcv_daily_qfq`）已随 `SVC-CORE-DATA-RETIRE`（2026-11-08）删除，owner 是
+`tellurion-data`。`market.index_daily` 与 `factor_cache` 都是普通表（后者按 022
+迁移注释**刻意不建** hypertable，需要时单独加）。
 
 ---
 
-## 4. 缓存设计（Redis :6379）
+## 4. 缓存设计（Redis :6379）—— ⚠️ **已退役，本节保留历史**
 
-`pkg/storage/cache.go`（`storage.Cache` 接口，`RedisCache` 实现）：
+> **2026-11-10 起本仓没有 Redis 读取点**：`pkg/storage.NewCache` 零调用方，
+> `redis.url` 与部署侧的 `REDIS_URL` 同批删除（口径见 `tools/check_deploy_consistency.py`
+> 的 `INFRA_ENV_REQUIRED` 注与 [SPEC.md](SPEC.md) §主要配置段）。k8s 里仍有一份
+> `redis-deployment.yaml`（跨仓部署资产，见 `deploy/k8s/README.md`），但今天没有
+> 任何服务读它 —— 那是**部署侧存量**，不是本仓的依赖。下面是退役前的设计，
+> 留作缓存接线回来时的参照。
+
+`pkg/storage/cache.go`（`storage.Cache` 接口，`RedisCache` 实现，**今天零调用方**）：
 
 | 用途 | 说明 |
 |---|---|
 | `factor_cache` | 因子计算缓存（PG 表 + Redis 双层；Redis miss 回表） |
 | session store | JWT 会话（auth） |
-| `sync_job_cache` | data-service 同步任务状态热数据 |
-| `DataCache` | data-service 读路径缓存装饰（stocks 等热点查询） |
+| `sync_job_cache` | data-service 同步任务状态热数据（随数据面退役） |
+| `DataCache` | data-service 读路径缓存装饰（随数据面退役） |
 
-Redis 不可用时服务不启动即失败（连接在装配期建立）——缓存是必需依赖，
-不是可选装饰。
+~~Redis 不可用时服务不启动即失败~~ —— 该约束随读取点一起失效：今天既没有装配期
+建连，也没有 `REDIS_URL` 注入。缓存若要回来，必须先接上读点，再恢复这条
+fail-closed 断言，否则「Redis 是必需依赖」只是一句无人执行的声称。
 
 ---
 
@@ -142,17 +164,18 @@ Redis 不可用时服务不启动即失败（连接在装配期建立）——�
 ```
 tellurion/
 ├── cmd/analysis/     # 主服务 :8085（API 网关 + 风控/执行 in-process）；wiring/ 是装配层
-├── cmd/data/         # 数据服务 :8081（tushare 摄取 + sync 队列）
+├── cmd/worker/       # 编排 worker（无监听；缺 ORCHESTRATION_URL / -orchestration-url 即拒绝启动）
+├── cmd/dualrun/      # 双跑对齐实验编排（工具，非服务）
+├── cmd/recon/        # 表级 writer 对拍工具（QT-81，非服务）
 ├── pkg/
 │   ├── backtest/     # 回测引擎 + job/batch/walkforward（RunSpec/ResultSpec 四契约与 kernel/market 路由表 2026-10-23 起在 `tellurion-contracts:engine/`，本仓经 `aliases.go` 门面引用，DBT-06 / QT-05）
-│   ├── data/         # 数据管道（tushare 客户端、因子、产业链导入）
 │   ├── domain/       # CT-06-B（2026-11-10）从 tellurion-contracts 迁回的 core-only 形状（52 根名）；market 子包与 ≥2 使用方形状仍在契约仓
 │   ├── kernel/       # 模块化内核**框架**（Module/BootOrder/生命周期/槽位，K1–K12 线）；
 │   │                 # 业务模块包装与取数接线在 cmd/analysis/wiring（QT-50 ①：框架零业务 import）
 │   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
-│   ├── live/         # 实盘/纸交易引擎
+│   ├── trading/      # 交易运行域 + paper/live 执行编排（LiveTrader 抽象券商；含回放 feed 与价格笼子）
 │   ├── risk/         # 风控（in-process 并入 analysis）
-│   ├── storage/      # PG/Redis 存储——DDL 主真相在 postgres.go（3 处模块内自建表除外，见 §3）
+│   ├── storage/      # PG 存储——DDL 主真相在 postgres.go（3 处模块内自建表除外，见 §3）；Redis 实现零调用方（见 §4）
 │   ├── strategy/     # 策略框架 + 插件 + 表达式 + SignalProvider/信号面
 │   └── validation/   # 验证器链（五维纯计算）
 ├── web/              # Vue 3 前端——⚠️ 已拆仓至 tellurion-ui（2026-10-09），本目录历史遗留

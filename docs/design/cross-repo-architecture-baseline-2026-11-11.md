@@ -1,7 +1,7 @@
 ---
 status: active
 last-verified: 2026-11-11
-verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话并行；本文件只覆盖 12 仓级事实与 core 深读，证据口径见 §0）
+verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话并行；本文件只覆盖 12 仓级事实与 core 深读，证据口径见 §0）；2026-11-11 阶段 B core 回填：§6 第 4 项（schema/表清单实测）与第 8 项（`market.index_daily` 归属）已按代码核对，其余仍为 `[文档]`
 ---
 
 # 12 仓架构基线（2026-11-11）
@@ -102,15 +102,15 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 
 | ID | 矛盾 | 可能过错方 | 处置 |
 |---|---|---|---|
-| G-01 | core `docs/ARCHITECTURE.md:51-52,144-145,222`、`README.md:26,179` 把 `data-service :8081`（`cmd/data`）写成运行中进程；实际 `cmd/` 无 `data` 目录 | **文档过期**（代码已完成 `SVC-CORE-DATA-RETIRE`） | B5 修 core 文档；不改代码 |
+| G-01 | core `docs/ARCHITECTURE.md:51-52,144-145,222`、`README.md:26,179` 把 `data-service :8081`（`cmd/data`）写成运行中进程；实际 `cmd/` 无 `data` 目录 | **文档过期**（代码已完成 `SVC-CORE-DATA-RETIRE`） | B5 修 core 文档；不改代码。**已处置 2026-11-11**：ARCHITECTURE §1/§5 与 README 均按 data 拆仓写实（`cmd/data` 不存在） |
 | G-02 | `config/data-service.yaml` 仍存在，但 Go 代码零读取（搜索模式：`data-service\.yaml`、`data_service\.yaml`，**命中仅 SPEC 与 yaml 自身注释**）；`docs/SPEC.md:3677` 仍指向 `cmd/data` | **两者都过时（退役时漏删）** | 已处置 2026-11-11：删除该文件并同步 SPEC 配置表；Git 历史可查 |
-| G-03 | core `docs/ARCHITECTURE.md:71` 称 `POST /api/ingest/raw` 是 class A「唯一外部写入门」；data ADR-0006 称 `POST /ingest/points` 是唯一写端点，且 `ingest` schema 归 data | **跨仓契约争议** | 只报方案，不擅自改；需三组会签 |
-| G-04 | core `docs/ARCHITECTURE.md:72` 称 data-service 写 `public` 规范化表（stocks/trading_calendar/splits/dividends/index_constituents）；data 仓称这些表在 `market` schema 且自己是唯一 writer | **跨仓契约争议** | 报方案；以 data `db-schema.md` + 迁移真实 schema 为准 |
-| G-05 | core `docs/ARCHITECTURE.md`/`README.md` 称「compose 只编排 3 个服务、PG 不在容器内」；`docker-compose.services.yml` 已含 6~7 个服务与 postgres | **文档过期** | B5 修 core 文档，写清两个 compose 文件各自的职责 |
+| G-03 | core `docs/ARCHITECTURE.md:71` 称 `POST /api/ingest/raw` 是 class A「唯一外部写入门」；data ADR-0006 称 `POST /ingest/points` 是唯一写端点，且 `ingest` schema 归 data | **跨仓契约争议** | 裁决：以 data ADR-0006 为准（`POST /ingest/points` 是唯一外部写端点）。**已处置 2026-11-11**：core ARCHITECTURE §2 写实；本仓 `POST /api/ingest/raw` 已随数据面退役删除，不再声称写门 |
+| G-04 | core `docs/ARCHITECTURE.md:72` 称 data-service 写 `public` 规范化表（stocks/trading_calendar/splits/dividends/index_constituents）；data 仓称这些表在 `market` schema 且自己是唯一 writer | **跨仓契约争议** | 裁决：这些表归 `market`、唯一 writer = `tellurion-data`。**已处置 2026-11-11**：core ARCHITECTURE §2/§3 写实；core 侧相应 DDL 已删（`public` 只剩 13 张 core 自有表） |
+| G-05 | core `docs/ARCHITECTURE.md`/`README.md` 称「compose 只编排 3 个服务、PG 不在容器内」；`docker-compose.services.yml` 已含 6~7 个服务与 postgres | **文档过期** | **已处置 2026-11-11**：ARCHITECTURE §1 按三种形态（core compose / 聚合栈 / k8s）制表说明，并写清各自含哪些服务、PG/Redis 在哪；README 拓扑同步 |
 | G-06 | 同一批路由（`/api/copilot/*`、`/api/pipeline/*`、`/api/explore`、`/api/tools`）同时被 core `openapi.yaml` 与 agent `docs/api-schema.md` 声明；agent 又称 core `openapi.yaml` 是权威 | **双真相源** | 报方案：core openapi 只保留「反代入口 + `x-served-by`」，详细 schema 指向 agent 仓 |
-| G-07 | `config/analysis-service.yaml:171` 保留 `risk_service.url: http://localhost:8085`（legacy fallback，指向自身）；文档未说明其与 `resolve_url:8089` 的关系 | **文档缺口** | B2 核实该键是否仍被读取；无读取点则标注 legacy |
-| G-08 | core `cmd/worker` 无 `ORCHESTRATION_URL` 即拒绝启动，但 core 文档未把该部署前置写成约束 | **文档缺口** | B4/B5 写入 dataflow 与部署说明 |
-| G-09 | core `docs/TASKS.md` 已记 `SVC-CORE-DATA-RETIRE` 收口，但同仓 `ARCHITECTURE.md` 仍把 data 面列为本仓组件 | **同仓自相矛盾** | B5 一次修净 |
+| G-07 | `config/analysis-service.yaml:171` 保留 `risk_service.url: http://localhost:8085`（legacy fallback，指向自身）；文档未说明其与 `resolve_url:8089` 的关系 | **文档缺口** | **已核实并处置 2026-11-11**：该键仍有 1 个读者（`pkg/backtest/engine.go` 的三处远程回落），但分支恒不可达（`cmd/analysis` / `cmd/worker` 装配期无条件注入进程内 RiskManager），且缺省 8083 无服务、`tellurion-risk`（:8089）不提供那三条路径 ⇒ **活读但恒不可用的死回落**。已写实于 yaml 注释 + SPEC §主要配置段 + TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`（本轮只文档化） |
+| G-08 | core `cmd/worker` 无 `ORCHESTRATION_URL` 即拒绝启动，但 core 文档未把该部署前置写成约束 | **文档缺口** | **已处置 2026-11-11**：README「运行前置」与 ARCHITECTURE §1 的 worker 行写明「`ORCHESTRATION_URL` / `-orchestration-url` 两者都空即拒绝启动」 |
+| G-09 | core `docs/TASKS.md` 已记 `SVC-CORE-DATA-RETIRE` 收口，但同仓 `ARCHITECTURE.md` 仍把 data 面列为本仓组件 | **同仓自相矛盾** | **已处置 2026-11-11**：ARCHITECTURE §1–§5 按 `SVC-CORE-DATA-RETIRE` 写实（服务表、数据归属、分区清单、目录树），与 TASKS 收口口径一致 |
 | G-10 | QT-67 的 `GET /api/v1/trading-calendar` / `POST /api/v1/listing-windows` 已于 2026-11-08 随 `SVC-CORE-DATA-RETIRE` 删除（`cmd/analysis/main.go:340-342` 不注册、`agent_actions.go:78-80` 条目已移、`coarseActionCount=7`），但 core `docs/SPEC.md` 仍按「已落地」描述，agent `pkg/ai/client/reference_data_client.go` 仍调用旧路径、其 `openapi_contract_test.go:114` 又要求 core openapi 登记这两条路径 | **core 文档过期 + agent 客户端漂移（两个过错方）** | 2026-11-11 core 侧：`docs/SPEC.md` §Reference Data 改为「已退役 + 真身指向」、`docs/openapi.yaml` 五个 orphan schema 加退役注释且明确不加 path（ghost-endpoint 护栏会拦）；agent 侧 repoint 进移交清单，不越仓改 |
 
 ## §6 仅文档声称、未代码核实（不计为已验证）
@@ -118,11 +118,16 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 1. orchestration 的全部 HTTP 路由与 `run` schema 表清单（该仓无 `api-schema.md` / `db-schema.md` 细目）。
 2. broker `broker` schema 的具体表名与幂等键。
 3. risk `risk` schema 的具体表名（规则、快照、审计、事件 outbox）。
-4. core 的 `quant` / `research` / `audit` schema 是否仍启用及其表清单。
+4. ~~core 的 `quant` / `research` / `audit` schema 是否仍启用及其表清单~~ → **已回填（2026-11-11，core 阶段 B 实测）**：
+   - 建 schema 语句只有三条：`market`（`pkg/storage/postgres.go:584`）、`audit`（`:708`）、`quant`（`:735`；另有 `:798`/`:831`/`:927` 三处幂等重复，供模块级 DDL 自带）。
+   - **`research` 不启用**：`CREATE SCHEMA research` 在本仓不存在；`profile` / `conclusion` / `question` 三表与 5 条索引已随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`:276-278` 与 `:687` 是删除留痕注释。
+   - `CREATE TABLE IF NOT EXISTS` 共 **22** 条：`public` **13 张** —— `stock_fundamentals` / `factor_cache` / `factor_returns` / `ic_analysis` / `backtest_adjustment_anchors` / `users` / `audit_logs` / `fundamentals_detail` / `data_migrations` / `factor_definitions` / `factor_registrations` / `factor_registration_audit` / `factor_mining_records`；其余 9 张为 `market.index_daily`（core 唯一的 `market.*` DDL，Migration 057）、`audit.message_log`、`quant.strategy_state` / `external_signals` / `sw_industry_tree` / `supply_chain_edge` / `industry_vitality` / `etf_constituent` / `macro_series`。
+   - **行情类表 DDL 不在本仓**：`ohlcv_daily_qfq` / `ohlcv_minute` / `stocks` / `splits` / `dividends` / `trading_calendar` / `index_constituents` / `stock_sector_map` / `market_activity` 的建表与 hypertable 调用均已随 `SVC-CORE-DATA-RETIRE` 删除（owner = `tellurion-data`）；`backtest_jobs` / `sync_jobs` / `sync_schedules` / `strategies` 亦退役，`migrate()` 里留有 `DROP TABLE IF EXISTS`。
+   - 证据口径：`grep -n "CREATE SCHEMA IF NOT EXISTS\|CREATE TABLE IF NOT EXISTS" pkg/storage/postgres.go`（28 条命中，其中 22 条建表）；模块内 `EnsureSchema`（`pkg/eventstore`、`pkg/strategy`、`pkg/storage/alert_outbox.go` 等）另计，不在上述 22 条内。
 5. ADR-036 的 G0~G3 就绪闸门在运行期是否有强制点（本会话只读到文档描述）。
 6. data 的 G3 只读兼容路由的实际行为（是否只读、是否返回 410）。
 7. agent `ai.research_*` 三张表的读写权限划分。
-8. `tellurion-data` 的 `market.index_daily` 例外归属仅在文档中出现，未核对 core 侧 DDL 是否真的唯一写。
+8. ~~`tellurion-data` 的 `market.index_daily` 例外归属仅在文档中出现，未核对 core 侧 DDL 是否真的唯一写~~ → **已核实（2026-11-11）**：DDL 在 core（`pkg/storage/postgres.go:585`，Migration 057），写面也在 core（`pkg/storage/index_daily.go:31` 的 `INSERT INTO market.index_daily`）。`tellurion-data` 侧 `docs/db-schema.md`（裁决 ⑰）已明确「不建表、不登记、不认领」并有守卫 `TestIndexDaily_IsNotOwnedByThisRepo`；两侧口径一致，双份 DDL 已结束。
 
 > 上述每项在阶段 B（core 部分）能核实的会回填；不属于 core 的保持 `[文档]`，交由对应组会话核实。
 

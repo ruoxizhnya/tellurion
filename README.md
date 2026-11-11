@@ -1,9 +1,10 @@
 # Quant Lab (tellurion)
 
-> **A股多因子量化交易系统** — Go 后端（analysis / data / ai）+ PostgreSQL + Redis
+> **A股多因子量化交易系统** — Go 后端（analysis 网关 + 回测 / 风控 / 执行）+ PostgreSQL；
+> data / ai / ui 各自成仓（`tellurion-data` / `tellurion-agent` / `tellurion-ui`）
 >
 > 本文每条声明都可以用一条命令核实；不可核实的细节（端口 / 表数 / 文件清单）
-> 一律指向「怎么查」，不抄数字。核对日期：**2026-10-17**。
+> 一律指向「怎么查」，不抄数字。核对日期：**2026-11-11**。
 
 ## 系统拓扑
 
@@ -26,14 +27,18 @@
 │ data-service  :8081   │         │ ai-service  :8086            │
 │ Tushare 同步 / OHLCV  │         │ 独立仓 tellurion-agent    │
 │ 选股 / 行情路由 / ingest│         │ 因子发现 / 策略生成 / Copilot  │
+│ 独立仓 tellurion-data │         │                              │
 └───────┬───────────────┘         └──────────────┬───────────────┘
         │                                        │
         └────────────┬───────────────────────────┘
                      ▼
         ┌────────────────────────────┐
-        │ PostgreSQL :5432   Redis :6379 │   ← 宿主机 / 外部托管
+        │ PostgreSQL :5432            │   ← 宿主机原生 / 外部托管（唯一硬依赖）
         └────────────────────────────┘
 ```
+
+> **Redis 已不在拓扑里**：缓存面随数据面退役（2026-11-10），本仓零读取点。
+> 历史设计见 [ARCHITECTURE.md](docs/ARCHITECTURE.md) §4。
 
 `cmd/dualrun` 是双跑对齐实验的编排工具，不是常驻服务。（此前的
 `cmd/strategy`（`:8082`）standby 服务已于 REV-16 删除，ADR-012 关闭。）
@@ -47,19 +52,35 @@ grep -n "ports:" -A2 docker-compose.yml # compose 发布端口
 
 ## 快速开始
 
-前置：**Go 1.25**、**Docker**、**宿主机 PostgreSQL 17.x 与 Redis 7**（compose
-只编服务，不编数据库）、**ai-service 所在仓**（Copilot / pipeline / explore /
-tools 四个族路由由它服务；不起它则这四个族返回 503，其余功能不受影响）。
+**运行前置（启动期 fail-closed，缺一条就起不来）**：
+
+- **PostgreSQL**（宿主机原生或任意可达实例）—— 今天**唯一**的基础设施硬依赖；
+  `config/analysis-service.yaml` 是宿主机视角，容器内由 compose 的 env 覆盖。
+- **Redis 不是前置**：缓存面已退役（2026-11-10），本仓零读取点；不用装、不用连。
+- **`DATA_SERVICE_URL`（若注入）必须是绝对 URL 且主机名可解析**：启动期
+  `pkg/bootstrap.ValidateServiceEndpoint` 会解析它，宿主机上误留容器 DNS
+  （`http://data-service:8081`）会**启动即报错**并被点名。
+- **`cmd/worker` 没有 `ORCHESTRATION_URL`（或 `-orchestration-url`）直接拒起**
+  （它无监听、也没法「空跑成功」）。
+- **`BROKER_URL` 若配置，对端必须已就绪**：启动期核对 `GET <BROKER_URL>/version`
+  的 `channel`，不可达 / 非 2xx / 缺字段一律拒绝启动。
+
+还需要两个**平级 clone** 的仓（镜像来自它们，不是本仓构建产物）：`tellurion-data`
+（不起则 `/api/sync/*` 与行情读路径失败）与 `tellurion-agent`（不起则
+copilot / pipeline / explore / tools 四个族返回 503，其余功能不受影响）。
 
 ```bash
-# 1) 起宿主机 PG + Redis（compose 不提供，需自备；连接串见 config/*.yaml 的 database.*）
-psql  "postgres://postgres:postgres@localhost:5432/quant_trading?sslmode=disable" -c '\dt'
+# 1) 起 PG（compose 不提供，需自备；连接串见 config/analysis-service.yaml 的 database.*）
+psql "postgres://postgres:postgres@localhost:5432/tellurion?sslmode=disable" -c '\dt'
 
-# 2) 克隆 AI 服务（与 core 平级）
+# 2) 克隆两个服务仓（与 core 平级）
+git clone <tellurion-data 仓地址>  ../tellurion-data
 git clone <tellurion-agent 仓地址> ../tellurion-agent
 
-# 3) 起后端三服务
-docker compose up -d                 # data-service :8081 / analysis-service :8085 / ai-service :8086
+# 3) 起默认栈（3 个 service：data-service :8081 / analysis-service :8085 / ai-service :8086）
+docker compose up -d
+#    可选 profile：--profile orchestration-worker（cmd/worker，需 ORCHESTRATION_URL）
+#                  --profile tools（cmd/dualrun，一次性验收门，跑完即退）
 
 # 4) 冒烟
 curl -s localhost:8085/health | jq
@@ -119,6 +140,11 @@ compose / k8s 的 env 覆盖成服务名。启动期会解析这些主机名（
 不会拖到第一条业务请求才 `no such host`。完整键 ↔ env ↔ 默认值映射见 yaml
 的「地址口径」注释块。
 
+⚠️ 同段里的 `risk_service.url` **不在此列**：它是 `pkg/backtest/engine.go` 的远程
+回落（`riskManager == nil` 时拼 `/detect_regime` 等三条），今天恒不可达，也不是
+risk 的地址；risk 的实际地址是 `risk_service.resolve_url`（默认 `:8089`）。
+详见 [SPEC.md](docs/SPEC.md) §主要配置段与 TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`。
+
 ai-service（`tellurion-agent` 仓）同样只从 env 取 `DATABASE_PASSWORD` 与
 `JWT_SECRET`，探针是 `/health`（存活）与 `/readyz`（就绪，校验 `ai.*` 迁移）；
 服务地址口径与 core 一致，见该仓 README。
@@ -127,7 +153,7 @@ ai-service（`tellurion-agent` 仓）同样只从 env 取 `DATABASE_PASSWORD` �
 
 ```bash
 go build ./...
-TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5432/quant_trading?sslmode=disable" \
+TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5432/tellurion?sslmode=disable" \
   go test ./... -count=1            # 不设 TEST_DATABASE_DSN 时 DB 用例显式跳过并汇总
 make test                           # = -count=1 -race -coverprofile + 覆盖率门禁
 bash tools/local-stack.sh           # 起/停本地栈并断言端口
@@ -164,11 +190,11 @@ bash tools/local-stack.sh           # 起/停本地栈并断言端口
 | 语言 | **Go 1.25.0**（`go.mod`） |
 | HTTP | Gin v1 + `net/http`；SSE 直通（`FlushInterval = -1`） |
 | 数据库访问 | **pgx v5**（`pgxpool`）+ 手写 SQL；**无 ORM**（仓内零 GORM 依赖） |
-| 缓存 / 事件 | go-redis v9；PG 版事件总线（`pkg/msgbus`）+ 事件存储 |
-| 数据库 | PostgreSQL 17.x（宿主机），`ohlcv_daily_qfq` 为 TimescaleDB hypertable |
+| 缓存 / 事件 | ~~go-redis v9~~（`RedisCache` 零调用方，缓存面已退役，见 ARCHITECTURE §4）；PG 版事件总线（`pkg/msgbus`）+ 事件存储 |
+| 数据库 | PostgreSQL（宿主机原生或外部托管）；本仓 `migrate()` **不建 hypertable** —— 行情表 owner = `tellurion-data` |
 | 前端 | 独立仓 `tellurion-ui`：Vue 3 + TypeScript + Vite + Naive UI + Pinia |
 | 可观测 | Prometheus `/metrics`、结构化 zerolog、请求 ID 透传 |
-| 基础设施 | Docker Compose（仅服务）、K8s 清单（`deploy/k8s/`）、Playwright E2E（`e2e/`） |
+| 基础设施 | Docker Compose（仅服务）、K8s 清单（`deploy/k8s/`，**跨仓部署资产**，见其 README）、Playwright E2E（`e2e/`） |
 
 ## 项目结构
 
@@ -176,13 +202,14 @@ bash tools/local-stack.sh           # 起/停本地栈并断言端口
 tellurion/
 ├── cmd/
 │   ├── analysis/        # API 网关 + 回测/因子/策略/风控/执行/合规/对账/告警（:8085）
-│   ├── data/            # 数据服务：Tushare 同步、行情路由、选股、ingest（:8081）
-│   └── dualrun/         # 双跑对齐实验编排（工具，非服务）
-├── pkg/                 # 核心库：backtest / data / domain / storage / strategy / risk / live / …
+│   ├── worker/          # 编排 worker：无监听，缺 ORCHESTRATION_URL 即拒绝启动
+│   ├── dualrun/         # 双跑对齐实验编排（工具，非服务）
+│   └── recon/           # 表级 writer 对拍（QT-81，工具，非服务）
+├── pkg/                 # 核心库：backtest / marketdata / storage / strategy / risk / trading / …（数据管道与 AI 分别在各仓）
 ├── docs/                # SPEC / ARCHITECTURE / TASKS / openapi.yaml / migrations 镜像 / design
 ├── e2e/                 # Playwright 端到端用例
-├── config/              # 各服务 yaml 配置（端口、DB、限流、告警阈值）
-├── deploy/              # k8s 清单与依赖等待脚本
+├── config/              # 唯一运行期 yaml：analysis-service.yaml（data / ai 的配置已随拆仓移出）
+├── deploy/              # k8s 清单（跨仓部署资产，见 deploy/k8s/README.md）与依赖等待脚本
 ├── tools/               # 本地栈脚本、文档死链检查、覆盖率门禁、双跑工具
 └── docker-compose.yml   # 服务编排（不含 PG / Redis / 前端）
 ```
