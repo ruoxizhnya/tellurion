@@ -1,7 +1,7 @@
 ---
 status: active
 last-verified: 2026-11-12
-verified-by: 2026-11-12 综合测试前起栈验收——用当前 HEAD（`87cc583`）构建 `tellurion-core:head`，以隔离卷 `tellurion-next_next-pgdata` + 独立容器 `tellurion-next-pg-1` 起 `--profile full` 完整栈（9 容器全 healthy，宿主部署库 `tellurion` 未触碰）。逐服务 `/health` 与 `/readyz` 实测；新库 `core_schema_migrations` 首启 85 行、三次启动 `max(applied_at)` 不变（零重放）；执行面 6 条与读面 5 条端点逐个实测（见 §5）。覆盖层落在 `deploy/compose/isolated-test.override.yml`，一键重建命令见 §2。
+verified-by: 2026-11-12 综合测试前起栈验收——用当前 HEAD（`87cc583`）构建 `tellurion-core:head`，以隔离卷 `tellurion-next_next-pgdata` + 独立容器 `tellurion-next-pg-1` 起 `--profile full` 完整栈（9 容器全 healthy，宿主部署库 `tellurion` 未触碰）。逐服务 `/health` 与 `/readyz` 实测；新库 `core_schema_migrations` 首启 85 行、三次启动 `max(applied_at)` 不变（零重放）；执行面 6 条与读面 5 条端点逐个实测（见 §5）。覆盖层落在 `deploy/compose/isolated-test.override.yml`，一键重建命令见 §2。2026-11-12 追补：ai-service 必须用 agent HEAD 重建（旧镜像早于 `787f9ff`，上游 `/api/explore/review/pending` 404 会让 core 聚合退化为 `unavailable`）；重建后上游 200、core `/api/review/pending` 转 `available`，§2 已固化「重建全部服务镜像」与陈旧镜像自检。
 ---
 
 # 起栈与测试前提
@@ -29,20 +29,32 @@ verified-by: 2026-11-12 综合测试前起栈验收——用当前 HEAD（`87cc5
 ## 2. 一键重建 / 一键起栈
 
 ```bash
-# ① 重建当前 HEAD 镜像（每次都做；tag 固定 tellurion-core:head）
+# ① 重建 core 镜像（每次都做；tag 固定 tellurion-core:head）
 docker build -f Dockerfile.service -t tellurion-core:head .
 
-# ② 让出端口（旧栈指向宿主部署库，必须先停；stop 不删容器，随时可恢复）
+# ② 同批重建六个兄弟服务镜像 —— 不能只重建 core！
+#    镜像 tag 必须与根 compose 里的一致，否则 compose 会静默沿用旧镜像。
+( cd ../tellurion-data          && docker build -t tellurion/data:latest . )
+( cd ../tellurion-broker        && docker build -t tellurion-broker:dev . )
+( cd ../tellurion-agent         && docker build -t tellurion-ai-service:latest . )
+( cd ../tellurion-risk          && docker build -t tellurion-risk:dev . )
+( cd ../tellurion-strategy      && docker build -t tellurion-strategy:dev . )
+( cd ../tellurion-analytics     && docker build -t tellurion-analytics:dev . )
+( cd ../tellurion-orchestration && docker build -t tellurion-orchestration:dev . )
+
+# ③ 让出端口（旧栈指向宿主部署库，必须先停；stop 不删容器，随时可恢复）
 docker compose --profile full stop
 
-# ③ 起隔离栈（9 个服务，--wait 等全部 healthy）
+# ④ 起隔离栈（9 个服务，--wait 等全部 healthy）
 docker compose -p tellurion-next -f docker-compose.yml \
     -f deploy/compose/isolated-test.override.yml --profile full up -d --wait
 
-# ④ 冒烟
+# ⑤ 冒烟
 curl -s http://127.0.0.1:8085/readyz
 ```
 
+- **陈旧镜像自检**（比时间，不比 tag）：每仓 `git log -1 --format='%h %cI'` 的提交时间必须早于对应镜像的 `docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}'`。2026-11-12 实测过一次教训：只重建 core 时 ai-service 仍是 01:44 的旧镜像，而 agent 的 `787f9ff`（`GET /api/explore/review/pending`）是 16:25 提交——上游 404，core 的 `/api/review/pending` 就退化成 `ai_explore: unavailable`，看起来像"真缺实现"。
+- 镜像 tag 变了（或 image ID 变了）compose 才会自动重建容器；拿不准就在 ④ 后加 `--force-recreate`。
 - 覆盖层只做三件事：加独立 PG、把七个有库服务的 DSN 指过去、把 core 换成 HEAD 镜像并放大限流/打开 kill-switch。**它必须叠加在根 `docker-compose.yml` 上**，不是第二份部署形态。
 - 删库重来：`docker compose -p tellurion-next -f docker-compose.yml -f deploy/compose/isolated-test.override.yml down -v`（`-v` 会删测试卷，不会碰部署库）。
 
@@ -104,7 +116,7 @@ docker exec tellurion-next-pg-1 psql -U postgres -d tellurion -tAc \
 | POST | `/api/execution/orders/:id/cancel` | 200 | `{"status":"cancelled"}`（mock 通道 pending 单可撤） |
 | POST | `/api/execution/emergency-flatten` | 200 | 需 `Authorization: Bearer dev-only-emergency-token` + body `{"reason":...,"confirmation_token":...}`；无 token = 401，token 不符 = 403 |
 | GET | `/api/signals` | 200 | `{"signals":[],"count":0,"limit":100}` |
-| GET | `/api/review/pending` | 200 | `{"pending":null,"sources":[{"name":"ai_explore","status":"unavailable","error":"...404"}]}` —— ai-service 尚未实现该上游（agent 仓），core 按设计降级 |
+| GET | `/api/review/pending` | 200 | `{"pending":0,"as_of":"...","sources":[{"name":"ai_explore","status":"available","pending":0}]}` —— 前提是 ai-service 用 agent HEAD 重建（上游 `GET /api/explore/review/pending`）；旧镜像会 404 并让该源退化为 `unavailable` |
 | GET | `/api/factor-analytics/factors` | 200 | `{"factors":[],"supported":["momentum","value","quality"]}` |
 | GET | `/api/factor-analytics/factors/{factor}/returns` | 200 | 空库返回 `points:[]` + `start_date/end_date`（默认 90 天窗口） |
 | GET | `/api/factor-analytics/factors/{factor}/ic` | 200 | 同上 |
@@ -115,7 +127,7 @@ docker exec tellurion-next-pg-1 psql -U postgres -d tellurion -tAc \
 ## 6. 已知限制
 
 - `broker` 无 `/readyz`（G4 已裁不补）；就绪判据用 `/healthz` + core 的 `readyz`。
-- `GET /api/review/pending` 的 `ai_explore` 源恒 `unavailable`，UI 需按「pending 为 null + sources 状态」渲染，而不是当失败。
+- `GET /api/review/pending` 的 `ai_explore` 源依赖 ai-service 镜像与 agent HEAD 一致：旧镜像（早于 agent `787f9ff`）没有 `/api/explore/review/pending`，该源退化 `unavailable`。2026-11-12 实测踩过这条，已固化为 §2 ② 的必做步。
 - 隔离栈数据全部在 `tellurion-next_next-pgdata`，`down -v` 即回到零；部署库不受影响。
 
 ## 7. 恢复旧栈
