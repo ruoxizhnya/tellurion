@@ -28,9 +28,26 @@ type MultiFactorConfig struct {
 type rankedStock struct {
 	symbol         string
 	compositeScore float64
-	valueScore     float64
 	qualityScore   float64
 	momentumScore  float64
+}
+
+// renormalizeWithoutValue 把 value 权重从分母里去掉，返回 quality/momentum
+// 两个分量的有效权重（和恒为 1）。
+//
+// 本地价量路径没有基本面输入：这里原先用「回看窗口内的价格分位」冒充
+// value 分，再按 value_weight（默认 0.4）加权 —— 等于把 4 成权重压在一个
+// 纯价格区间指标上，和 value_screen 里那处「标着价值、算的是价格」同类，
+// 只是藏得更深（Signal 不暴露分量，事后看不出来）。价值维度缺席时正确
+// 的做法是让它不参与加权、其余权重重新归一化，而不是用价格顶名。
+func renormalizeWithoutValue(qw, mw float64) (float64, float64) {
+	total := qw + mw
+	if total <= 0 {
+		// 用户把 quality/momentum 都关掉了：没有可归一的分量，
+		// 不要凭空给 quality 造一个权重。
+		return 0, 0
+	}
+	return qw / total, mw / total
 }
 
 // multiFactorStrategy implements a weighted multi-factor ranking strategy.
@@ -308,15 +325,21 @@ func (s *multiFactorStrategy) GenerateSignals(
 	// 该路由从未在 tellurion-data 注册，调用必然失败后被静默吞掉并回落到
 	// 价量计算，等价于从未生效，只多打一次注定失败的请求。
 	var ranked []rankedStock
+	// valueAbsent 标记本次排序是否走本地价量路径（无基本面输入）。
+	// 走这条路时 value 维度不参与加权，provenance 必须能把这件事说清楚，
+	// 否则事后无法判断某个信号到底用没用价值条件。
+	valueAbsent := false
 
 	if s.factorReader != nil {
 		ranked = s.generateSignalsFromFactorCache(bars, screenDate, vw, qw, mw)
 		// If factor cache returns no results (e.g., cache is empty), fallback to price data
 		if len(ranked) == 0 {
-			ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
+			ranked = s.generateSignalsFromPriceData(bars, lookback, qw, mw)
+			valueAbsent = true
 		}
 	} else {
-		ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
+		ranked = s.generateSignalsFromPriceData(bars, lookback, qw, mw)
+		valueAbsent = true
 	}
 
 	// Sort by composite score descending
@@ -332,6 +355,7 @@ func (s *multiFactorStrategy) GenerateSignals(
 
 	var signals []strategy.Signal
 	topNSymbols := make(map[string]bool)
+	effQ, effM := renormalizeWithoutValue(qw, mw)
 	for i := 0; i < n; i++ {
 		// Require at least some fundamental score
 		if ranked[i].compositeScore <= 0 {
@@ -340,13 +364,36 @@ func (s *multiFactorStrategy) GenerateSignals(
 
 		price := getLatestPrice(bars[ranked[i].symbol])
 
-		signals = append(signals, strategy.Signal{
+		sig := strategy.Signal{
 			Symbol:   ranked[i].symbol,
 			Action:   "buy",
 			Strength: ranked[i].compositeScore,
 			Price:    price,
 			Date:     screenDate,
-		})
+		}
+		if valueAbsent {
+			// 本地价量路径：只有 quality/momentum 两个分量参与排序。
+			// Factors 写实际参与的分量（不含 value），Metadata 写明缺席原因
+			// 与重分配后的有效权重 —— 这是事后判断「这个信号用没用价值
+			// 条件」的唯一出口。
+			sig.Factors = map[string]float64{
+				"quality":  ranked[i].qualityScore,
+				"momentum": math.Max(ranked[i].momentumScore, 0),
+			}
+			sig.Metadata = map[string]interface{}{
+				"factor_source":        "price_data",
+				"value_dimension":      "absent",
+				"value_absent_reason":  "no fundamental input on local price/volume path",
+				"weights_renormalized": true,
+				"requested_weights": map[string]float64{
+					"value": vw, "quality": qw, "momentum": mw,
+				},
+				"effective_weights": map[string]float64{
+					"quality": effQ, "momentum": effM,
+				},
+			}
+		}
+		signals = append(signals, sig)
 		topNSymbols[ranked[i].symbol] = true
 	}
 
@@ -417,7 +464,6 @@ func (s *multiFactorStrategy) generateSignalsFromFactorCache(
 		ranked = append(ranked, rankedStock{
 			symbol:         symbol,
 			compositeScore: composite,
-			valueScore:     valZ,
 			qualityScore:   quaZ,
 			momentumScore:  momZ,
 		})
@@ -432,12 +478,18 @@ func (s *multiFactorStrategy) generateSignalsFromFactorCache(
 }
 
 // generateSignalsFromPriceData computes multi-factor scores purely from price/volume data.
-// Used as fallback when screen API is unavailable or for single-stock mode.
+// Used as fallback when the factor cache is unavailable or for single-stock mode.
+//
+// 这里**没有 value 分量**：没有基本面输入时，价值维度不参与加权，
+// quality/momentum 权重在内部重新归一化（见 renormalizeWithoutValue）。
+// 入参因此不再接收 value 权重。
 func (s *multiFactorStrategy) generateSignalsFromPriceData(
 	bars map[string][]domain.OHLCV,
 	lookback int,
-	vw, qw, mw float64,
+	qw, mw float64,
 ) []rankedStock {
+	qw, mw = renormalizeWithoutValue(qw, mw)
+
 	var ranked []rankedStock
 	for symbol, data := range bars {
 		if len(data) < lookback+1 {
@@ -456,21 +508,6 @@ func (s *multiFactorStrategy) generateSignalsFromPriceData(
 		// Momentum: price return over lookback
 		momentumScore := (endPrice - startPrice) / startPrice
 
-		// Value: inverse of price level relative to range (lower price = higher value)
-		var minPrice, maxPrice float64
-		for i := endIdx - lookback; i <= endIdx; i++ {
-			if i == endIdx-lookback || sorted[i].Low < minPrice {
-				minPrice = sorted[i].Low
-			}
-			if i == endIdx-lookback || sorted[i].High > maxPrice {
-				maxPrice = sorted[i].High
-			}
-		}
-		valueScore := 0.5
-		if maxPrice > minPrice {
-			valueScore = 1.0 - (endPrice-minPrice)/(maxPrice-minPrice)
-		}
-
 		// Quality: consistency of upward movement (low volatility + positive trend)
 		closes := make([]float64, lookback+1)
 		for i := endIdx - lookback; i <= endIdx; i++ {
@@ -486,7 +523,7 @@ func (s *multiFactorStrategy) generateSignalsFromPriceData(
 
 		// Composite score: only reward positive momentum, ignore negative momentum
 		// Use math.Max to ensure negative momentum does not artificially boost score
-		composite := vw*valueScore + qw*qualityScore + mw*math.Max(momentumScore, 0)
+		composite := qw*qualityScore + mw*math.Max(momentumScore, 0)
 		if composite < 0.1 {
 			composite = 0.1
 		}
@@ -494,7 +531,6 @@ func (s *multiFactorStrategy) generateSignalsFromPriceData(
 		ranked = append(ranked, rankedStock{
 			symbol:         symbol,
 			compositeScore: composite,
-			valueScore:     valueScore,
 			qualityScore:   qualityScore,
 			momentumScore:  momentumScore,
 		})

@@ -324,5 +324,118 @@ func TestMultiFactorAutoRegister(t *testing.T) {
 	}
 }
 
+// TestMultiFactorPricePathExcludesValueDimension 锁住「本地价量路径不许出现
+// 名为 value 的分量」这件事：没有基本面输入时价值维度不参与加权，
+// quality/momentum 重新归一化，并在 Signal 的 Factors/Metadata 里可见。
+func TestMultiFactorPricePathExcludesValueDimension(t *testing.T) {
+	now := time.Now()
+	lookback := 20
+	makeBars := func(symbol string, endPrice float64) []domain.OHLCV {
+		bars := make([]domain.OHLCV, lookback+2)
+		for i := range bars {
+			ratio := float64(i) / float64(len(bars)-1)
+			closePrice := 100.0 + (endPrice-100.0)*ratio
+			bars[i] = domain.OHLCV{
+				Symbol: symbol,
+				Date:   now.AddDate(0, 0, -len(bars)+i),
+				Close:  closePrice,
+				High:   closePrice * 1.01,
+				Low:    closePrice * 0.99,
+			}
+		}
+		return bars
+	}
+
+	bars := map[string][]domain.OHLCV{
+		"A": makeBars("A", 105.0),
+		"B": makeBars("B", 102.0),
+		"C": makeBars("C", 98.0),
+	}
+	s := &multiFactorStrategy{
+		params: MultiFactorConfig{
+			ValueWeight:        0.4,
+			QualityWeight:      0.3,
+			MomentumWeight:     0.3,
+			LookbackDays:       lookback,
+			TopN:               10,
+			RebalanceFrequency: "daily",
+		},
+	}
+
+	portfolio := &domain.Portfolio{UpdatedAt: now, Positions: map[string]domain.Position{}}
+	signals, err := s.GenerateSignals(context.Background(), bars, portfolio)
+	if err != nil {
+		t.Fatalf("GenerateSignals failed: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected buy signals")
+	}
+
+	for _, sig := range signals {
+		if sig.Action != "buy" {
+			continue
+		}
+		if _, ok := sig.Factors["value"]; ok {
+			t.Errorf("%s: local price path must not expose a value factor, got %v", sig.Symbol, sig.Factors)
+		}
+		if _, ok := sig.Factors["quality"]; !ok {
+			t.Errorf("%s: expected quality factor, got %v", sig.Symbol, sig.Factors)
+		}
+		if _, ok := sig.Factors["momentum"]; !ok {
+			t.Errorf("%s: expected momentum factor, got %v", sig.Symbol, sig.Factors)
+		}
+		if got := sig.Metadata["value_dimension"]; got != "absent" {
+			t.Errorf("%s: expected value_dimension=absent, got %v", sig.Symbol, got)
+		}
+		if got := sig.Metadata["weights_renormalized"]; got != true {
+			t.Errorf("%s: expected weights_renormalized=true, got %v", sig.Symbol, got)
+		}
+		eff, ok := sig.Metadata["effective_weights"].(map[string]float64)
+		if !ok {
+			t.Fatalf("%s: expected effective_weights map, got %T", sig.Symbol, sig.Metadata["effective_weights"])
+		}
+		if math.Abs(eff["quality"]-0.5) > 1e-9 || math.Abs(eff["momentum"]-0.5) > 1e-9 {
+			t.Errorf("%s: expected quality/momentum renormalized to 0.5/0.5, got %v", sig.Symbol, eff)
+		}
+	}
+}
+
+// TestMultiFactorPricePathRenormalizesComposite 直接校验复合分公式：
+// 只有 quality/momentum 两项，权重是去掉 value 后重新归一化的结果。
+func TestMultiFactorPricePathRenormalizesComposite(t *testing.T) {
+	now := time.Now()
+	lookback := 20
+	bars := map[string][]domain.OHLCV{}
+	for i, endPrice := range []float64{104.0, 99.0, 101.0} {
+		symbol := fmt.Sprintf("S%d", i)
+		series := make([]domain.OHLCV, lookback+2)
+		for j := range series {
+			ratio := float64(j) / float64(len(series)-1)
+			series[j] = domain.OHLCV{
+				Symbol: symbol,
+				Date:   now.AddDate(0, 0, -len(series)+j),
+				Close:  100.0 + (endPrice-100.0)*ratio,
+			}
+		}
+		bars[symbol] = series
+	}
+
+	s := &multiFactorStrategy{}
+	ranked := s.generateSignalsFromPriceData(bars, lookback, 0.3, 0.3)
+	if len(ranked) != len(bars) {
+		t.Fatalf("expected %d ranked stocks, got %d", len(bars), len(ranked))
+	}
+	// 0.3/0.3 各占一半 => 有效权重 0.5/0.5，value 权重不参与。
+	for _, r := range ranked {
+		want := 0.5*r.qualityScore + 0.5*math.Max(r.momentumScore, 0)
+		if want < 0.1 {
+			want = 0.1
+		}
+		if math.Abs(r.compositeScore-want) > 1e-12 {
+			t.Errorf("%s: expected composite %v from quality/momentum only, got %v", r.symbol, want, r.compositeScore)
+		}
+	}
+}
+
 var _ strategy.Strategy = (*multiFactorStrategy)(nil)
 var _ strategy.Strategy = (*valueScreeningStrategy)(nil)
