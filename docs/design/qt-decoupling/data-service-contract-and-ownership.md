@@ -40,13 +40,16 @@
 | **编排服务** | `run` | backtest_jobs（~~strategy_state（断点）~~ ⚠️ 2026-10-21 H5 裁决不归 `run`，见下） | ✅ |
 | **内核** | `run`（结果面） | 回测结果表 `backtest_results`（`BacktestResult` / `Trade` 等） | ✅ **owner = core（2026-10-21 裁决，单一写者；orchestration 只经 API 读结果）**；其余数据只读写通过 port |
 | **内核（回测域）** | 无 schema 前缀（`public`） | `backtest_adjustment_anchors`（回测复权锚点） | ✅ **owner = core 回测域（2026-10-21 裁决）**；写者 `tellurion:pkg/backtest/adjustment_snapshot.go` |
-| **数据服务（因子域）** | 无 schema 前缀（`public`，现状） | `factor_hypothesis` / `factor_returns` / `ic_analysis` | ✅ **owner = tellurion-data（SPEC-R-02）**；DDL 文本在 core `pkg/storage/postgres.go`，写者 `tellurion:pkg/storage/factor_hypothesis.go` 与 `cache.go` |
+| **内核（因子派生域）** | 无 schema 前缀（`public`） | `factor_returns` / `ic_analysis` | ✅ **owner = core（ADR-038 D1，2026-11-11 已裁决归 core；原「owner = tellurion-data（SPEC-R-02）」作废）**；DDL 在 core `pkg/storage/postgres.go`。现行实现 = **零生产写者、消费点按需求值**：`cache.go` 的 `SaveFactorReturnBatch` / `SaveICEntryBatch` 非测试零调用，`factor_returns` 仅 `internal/analysisartifact/builder.go` 一处读者、`ic_analysis` 零读者；按 ADR-038 D2 不新增数据库写者，缺失按 `CORE-FACTOR-DERIVED-GUARD` 显式报错而非静默读空（D3）；不升格为跨仓契约（D4） |
+| **实验（agent）** | `ai` | `factor_hypothesis` | ✅ **owner = agent（`ai.factor_hypothesis`，ADR-038 §2；原与 data 因子域同列的写法作废）**；DDL 与读写都在 `tellurion-agent:pkg/aistore/schema.go`，是「待验证的假设」、不是因子收益/IC；core 的 `public.factor_hypothesis` 已随 `SVC-CORE-AI-RETIRE` 删除 |
 | **内核（strategy-runtime）** | `quant` | `quant.strategy_state` / `quant.external_signals` | ✅ **owner = core strategy-runtime 模块（H5 + SPEC-R-02）**；DDL 文本在 core `pkg/storage/postgres.go`（Migration 055 / 048），模块侧 `EnsureSchema` 仅幂等兜底 |
 | **内核（鉴权域）** | 无 schema 前缀（`public`） | `users`（含会话/角色） | ✅ **owner = core（ADR-017 鉴权域，SPEC-R-02）**；写者 `tellurion:pkg/auth/auth.go` |
 
 > ⚠️ **2026-10-21 订正（H5 裁决，`tellurion:docs/design/system-spec-review-2026-10-21.md`）**：`strategy_state` 归 **strategy-runtime 模块**（K0 冻结契约 `contracts/kernel_modules.schema.sql`），core 继续写 `quant.strategy_state`——本文「`strategy_state` 归编排服务 / 迁 `run`」的旧口径**作废**（含上表编排行、下方第 3 条与风险表对应行）；`backtest_jobs` 迁 `run` 不受影响。
 
 > ⚠️ **2026-11-12 订正（基本面归属裁决）**：上表原列的 `fundamentals` **归 core，不在数据服务**。取证：core 的 `pkg/storage/postgres.go` 建 `public.stock_fundamentals`、`pkg/storage/fundamentals.go` 是唯一读写点（含 PIT 的 `available_date` 逻辑）；data 的 `internal/store/write.go` 把 `fundamentals` 放进 `writeExcludedTypes` 拒绝写，`market` schema 里也没有这张表。读面是 core 的 `GET /api/fundamental/{symbol}`（空态 404 `fundamental_not_found`，缺表由 `/readyz` 暴露）；data 侧的 `/fundamental/{symbol}` 已删除。事实口径以 `tellurion-data:docs/db-schema.md` §9.1 与 `tellurion:docs/ARCHITECTURE.md` §2 为准。
+
+> ⚠️ **2026-11-12 订正（因子域归属，ADR-037 / ADR-038）**：上表原「数据服务（因子域）｜`factor_hypothesis` / `factor_returns` / `ic_analysis`｜owner = tellurion-data（SPEC-R-02）；写者 `tellurion:pkg/storage/factor_hypothesis.go` 与 `cache.go`」整行**作废**，按 ADR-038 拆为两行——`factor_returns` / `ic_analysis` **已裁决归 core**（D1；data 无表达式引擎、无因子算法，`TableNames()` 实测零 `factor_*` 表），`factor_hypothesis` **归 agent 的 `ai.*`**（§2；假设 ≠ 已验证的度量）。写者/形态按 ADR-037 D2、ADR-038 D2：**因子在消费点按需求值、不新增数据库写者、无第二写者**；`public.factor_cache` 已随 `CORE-FACTOR-CACHE-RETIRE`（2026-11-12）删除；两张派生表仍是「有表无写者」的已知中间态，缺失按 `CORE-FACTOR-DERIVED-GUARD` 显式报错。代码复核对齐（2026-11-12）：DDL 在 core `pkg/storage/postgres.go`，`SaveFactorReturnBatch` / `SaveICEntryBatch` 非测试零调用，`factor_returns` 仅 `internal/analysisartifact/builder.go` 一处生产读者、`ic_analysis` 零读者 —— 与 ADR-038 §2/§4.4 一致，无冲突。与 `tellurion-docs` 的 `SYSTEM-DESIGN.md` / `ARCHITECTURE.md`（`16b1968`）同口径。
 
 三条纪律（参考库 §七）：
 1. **每张表只归一个服务写**，其他服务只读（走接口/视图，不直接摸表）；
