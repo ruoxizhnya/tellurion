@@ -96,6 +96,7 @@
 | CORE-FACTOR-CACHE-RETIRE | `public.factor_cache` 空表无写者，真正删表并清读写面 | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-RETIRE) |
 | CORE-MIGRATION-REPLAY-GUARD | `migrate()` 无事务、无重放指纹 ⇒ 逐条事务 + 账本表（版本+指纹），指纹不符/账本领先拒绝启动 | 2026-11-12 | 见原文 | [原文](#CORE-MIGRATION-REPLAY-GUARD) |
 | CORE-DEAD-PROXY-SCREEN-VERIFY | 核验 `/screen` 等死反代修复：前后各打一次 + 装配级用例 + 静态护栏（残留 `pkg/strategy` 已立项） | 2026-11-12 | 见原文 | [原文](#CORE-DEAD-PROXY-SCREEN-VERIFY) |
+| CORE-FEE-ROUNDING-ASSERT | 费用分项逐位断言 + 对抗夹具自检（未取整）；破坏=注入截断 ⇒ 红 | 2026-11-12 | 见原文 | [原文](#CORE-FEE-ROUNDING-ASSERT) |
 
 ---
 
@@ -3259,3 +3260,24 @@
 > - **破坏验证（真实输出，逐字节还原；`handlers_proxy.go` 基线 SHA256 = `DF6EA5941785E698837B9035D3AA18973393D959FE1EE708032ECD10C2E0A26E`）**：临时加回 `proxyRequest(c, http.MethodPost, dataServiceURL+"/screen", nil)` ⇒
 >   `dead_proxy_upstream_test.go:82: cmd\analysis\handlers_proxy.go 仍把请求拼向已退役的上游 "+\"/screen\"" …` ⇒ FAIL；
 >   还原后哈希回到 `DF6EA594…E0A26E`，`ok tellurion/internal/repoguard`。
+
+## 十八、2026-11-12 CORE-FEE-ROUNDING-ASSERT 费用分精度断言
+
+<a id="CORE-FEE-ROUNDING-ASSERT"></a>
+### CORE-FEE-ROUNDING-ASSERT · 费用五字段 `float64` 无舍入断言（D9=a：只补断言不改类型）[P2] ✅（2026-11-12）
+
+- **① 目标**：给费用算术加「一分钱级」判据：分项之和与总额一致、单笔佣金不低于最低收费、任何一项被悄悄取整都会红。
+- **② 上下文**：任务原文指向 `pkg/execution/price_cage.go`，经核实不存在（价格笼子在 `pkg/trading/price_cage.go`，与费用无关）。实际费用逻辑：`pkg/portfolio.ComputeFees`（佣金/过户费/印花税 + `Total()`）与 `pkg/execution.CostModel.Commission`。**实现里没有任何 `math.Round`/`Trunc`**（全仓 grep 确认），已有的 `portfolio_test.go` 用 `InDelta(…, 0.001)` 比总额，抓不住分项漂移。
+- **③ 要求**：补断言不改 `float64`；断言要能抓住「恰好差一分钱」；破坏验证把某处舍入改成截断 ⇒ 红。
+- **④ 约束与非目标**：不把费用改成 decimal/整数分；不改费率与公式；不在 `pkg/backtest` 动刀（另有会话在写）。
+- **⑤ 验收**：新增断言在默认构建生效；破坏验证真做真还原并留哈希。
+- **⑥ 边界**：`pkg/portfolio` 的费用算术；`pkg/execution.CostModel` 的佣金公式沿用同一闭式，不重复造轮子。
+- **重开条件**：将来若裁决「费用按分入账」（改为整数分或 decimal），本组断言需整体改写为新口径。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **夹具与判据**（新增 `pkg/portfolio/portfolio_fee_precision_test.go`，5 条）：① 分项和逐位等于 `Total()` 且等于闭式重算（小额/整额/零头/一分钱四组）；② 对抗样例 `33335` 元卖出 —— 佣金 `10.0005`、过户费 `0.33335`、印花税 `16.6675`、总额 `27.00135`，并**自检**「三项截断到分后与未取整差 1.135 分（>1 分）」，证明夹具真能抓住一分钱漂移；③ 500 个确定性成交额逐点比对分项 ≡ `notional×rate`（任何分支的 Round/Trunc 都会红）；④ 低于下限时佣金**恰好**等于 `MinCommission`；⑤ `tradeValue<=0` 全零且不产生 `-0.0`。
+> - **破坏验证（真实输出，逐字节还原；`portfolio.go` 基线 SHA256 = `D284E578995A9FDD72BBAF20BE5FFBF13C900BE74D29537153506D3F2DAE9206`）**：把 `transferFee := tradeValue * f.TransferFeeRate` 临时改成 `math.Trunc(tradeValue*f.TransferFeeRate*100)/100`（模拟「舍入改截断」）⇒
+>   `TestComputeFees_NeverQuantizesAcrossRange` 大面积 FAIL（`tradeValue=68290.73999999999 的过户费被改写` expected `0.6829074` actual `0.68`；总额同步对不上），`TestComputeFees_HalfCentBoundaryIsDetectable` 的分项逐位断言 FAIL；
+>   还原后哈希回到 `D284E578…2DAE9206`，`ok tellurion/pkg/portfolio`。
+> - **与任务原文的偏差（如实登记）**：core 仓没有「`Round(x, 2)` 的舍入点」可改，所以破坏验证的做法是**向费用算式注入截断**，而不是「把已有舍入改成截断」——两者对断言的检验等价（都是让某一项偏离真值），但前提描述需要修正。
