@@ -85,6 +85,7 @@
 | SPEC-R-03 | 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-03) |
 | QT-82 | 数据面退役后 5 条 core 有库用例在「空库 + 官方迁移」上必红（`ohlcv_minute` / `market_activity` 已无 DDL） | 2026-11-10 | —（原文未记） | [原文](#QT-82) |
 | CORE-DATA-IMAGE-NAME-ALIGNMENT | data 镜像名跨仓口径未统一（⏸ → **撤销** 2026-11-11，未施工） | 2026-11-11 | `8483bca`（data 仓） | [撤销记录](#CORE-DATA-IMAGE-NAME-ALIGNMENT) |
+| CORE-RUNBOOK-GAP | 本仓没有 runbook，起停与装配失败只有 README 零散说明 | 2026-11-12 | 见原文 | [原文](#CORE-RUNBOOK-GAP) |
 
 ---
 
@@ -2963,3 +2964,28 @@
 - **撤销依据**：`tellurion-data@8483bca`（2026-11-11，`chore(data): 统一镜像名并随 CT-06-ALIAS-EXIT 升 contracts pin 至 v0.9.0`）把 data 仓 `deploy/compose.yaml` 的镜像名改为 `tellurion/data:${DATA_IMAGE_TAG:-latest}`，与 core `docker-compose.yml:70` 完全同式；core `deploy/k8s/data-deployment.yaml` 的 `tellurion/data:latest` 正是该表达式的默认 tag（k8s 清单不做 shell 变量展开，故写死，2026-11-11 注释已更新）。
 - **结论**：镜像名分歧已消除，无剩余动作。原「未确认前不得单边改名」的约束随本条撤销失效。
 - **残余（不属本条）**：同一 commit 把 data 仓 contracts pin 从 v0.6.0 升到 v0.9.0，这是 `CT-06-ALIAS-EXIT` 删除前置的一步，与镜像名无耦合。
+
+---
+
+## 十一、2026-11-12 收口记录
+
+<a id="CORE-RUNBOOK-GAP"></a>
+### CORE-RUNBOOK-GAP · 本仓没有 runbook，起停与装配失败只有 README 零散说明 [P1] ✅（2026-11-12）
+
+- **① 目标**：给 core 一份可与六个服务仓同构的最小 runbook，让「起不来 / readyz 503 / 装配期拒起」有固定入口，而不是在 README、TASKS 与日志之间拼接。
+- **② 上下文**：`SERVICE.md` 落地时实测——本仓 `docs/` 无 `runbook.md`；起停步骤写在 `README.md` 快速开始，装配期失败原文分散在 `docs/TASKS.md`（`CORE-BROKER-STARTUP-PRECONDITION`）与 `cmd/analysis` 启动日志。六个服务仓都有 `docs/runbook.md`，core / agent / ui 三个仓没有。
+- **③ 要求**：① 覆盖起停、`/health` 与 `/readyz` 的语义差异、DB 不可达、迁移未执行、`kernel assembly failed` / `BROKER_URL is required` / `broker peer channel` / `risk_policy_source` 四类装配判决；② 每节写「现象 → 先看什么 → 常见原因 → 对应日志原文」，不重复 `docs/openapi.yaml` 与 `config/` 的内容；③ 完成后把 `SERVICE.md` 的 `truth.runbook` 从 `null` 改为该文件路径，并把「排查」段改为指向具体小节。
+- **④ 约束与非目标**：不写 SLO / 告警规则 / 值班表（本项目没有对应观测体系）；不改任何启动期 fail-closed 行为；不把 `config/` 的键值清单抄进 runbook。
+- **⑤ 验收**：按 runbook 从冷机起一次默认栈成功；三条破坏场景（停 PG / 不给 `BROKER_URL` / 反序起 broker）都命中文中登记的日志原文与处置步骤。`python tools/check_doc_links.py` 仍为 0。
+- **⑥ 边界**：本仓起停与装配失败的排查归本仓；broker 通道性质、risk 快照内容、data 的 503 排查归各服务仓自己的 runbook。
+- **owner**：待定
+- **重开条件**：出现第二次「起不来但只能翻 TASKS 找原因」的排障经历，或接手人变更。
+
+> **✅ 施工记录（2026-11-12，本条即施工 commit）**
+>
+> - **新增 `docs/runbook.md`**：§1 起停（统一栈 / 本机直跑 / worker 与一次性工具）、§2 `/health` 与 `/readyz` 语义差异（含 `checks.database` 三类原文）、§3 DB 不可达与迁移（`invalid database configuration` / `Failed to initialize postgres store` / `failed to run migrations`）、§4 `kernel assembly failed` 逐类 `error=` 原文（`BROKER_URL is required` / `BROKER_CHANNEL is required` / `BROKER_ALLOW_MOCK` / invalid / `cannot verify peer channel` / `channel mismatch` / risk / strategy）并附正常对照日志（`broker peer channel verified`、`risk_policy_source=builtin_default|risk_snapshot`）、§5 鉴权三态与拒启原文、§6 现象速查、§7 备份恢复占位（由 `CORE-PG-BACKUP-DR` 补入）、§8 排查边界。
+> - **原文核对方式**：逐条对照 `cmd/analysis/main.go`（`kernel assembly failed`）、`pkg/brokerhttp/trader.go`（四类通道判决与 `peer channel verified`）、`pkg/bootstrap/engine.go`（Store 初始化 Fatal）、`pkg/bootstrap/auth.go`（四态启动日志）、`pkg/storage/ready.go`（`storage: schema check ...` / `required relation ... is missing` / `connection pool is not configured`），未凭记忆写日志串。
+> - **`SERVICE.md` 回填**：`truth.runbook: docs/runbook.md`；§6 升级路径与 runbook 句改指向该文件；§7 排查表首行改指 runbook。
+> - **验收**：`python tools/check_doc_links.py` → `✓ 未发现坏链`、`扫描 67 个 Markdown 文件`、`EXIT=0`。
+> - **破坏验证**：在 `docs/runbook.md` 临时加一行 `[broken](does-not-exist.md)` → 检查器输出 `docs\runbook.md -> does-not-exist.md`、`EXIT=1`；删掉该行后复跑 `EXIT=0`。
+> - **未落（如实）**：⑤ 的三条破坏场景（停 PG / 不给 `BROKER_URL` / 反序起 broker）需真栈冷启动，本轮容器栈正在运行、按纪律未 `down`，该腿并入 `CORE-BROKER-STARTUP-PRECONDITION` 同批冷启动执行；本单只完成静态原文核对与链接门禁。

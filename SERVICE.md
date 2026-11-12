@@ -29,7 +29,7 @@ truth:
   api: docs/openapi.yaml
   db: docs/SPEC.md
   dataflow: null
-  runbook: null
+  runbook: docs/runbook.md
   tasks: docs/TASKS.md
 
 status: evergreen
@@ -107,7 +107,7 @@ verified-by: 2026-11-11 实读 README / AGENTS / ARCHITECTURE / SPEC / openapi.y
   1. `GET /health` 是否 200；不是则看进程日志与启动参数。
   2. `GET /readyz` 是否 200；503 时看 DB 连通与启动迁移是否执行完。
   3. 日志里是否出现 `kernel assembly failed` / `BROKER_URL is required` / `risk_policy_source` / `broker peer channel` 这几类启动期判决。
-- **升级路径与 runbook**：`owner` → 跨仓争议 → 本仓 `docs/TASKS.md`；本仓暂无 runbook（缺口已登记为 `CORE-RUNBOOK-GAP`），起停先看 `README.md` 快速开始。
+- **升级路径与 runbook**：`owner` → 跨仓争议 → 本仓 `docs/TASKS.md`；起停与逐类失败的原文、处置步骤见 [`docs/runbook.md`](docs/runbook.md)。
 
 ## 7. 5 分钟后去哪
 
@@ -116,5 +116,5 @@ verified-by: 2026-11-11 实读 README / AGENTS / ARCHITECTURE / SPEC / openapi.y
 | 知道它承诺什么接口 | `docs/openapi.yaml` |
 | 知道它拥有哪些表、哪些表已迁出 | `docs/SPEC.md`、`docs/ARCHITECTURE.md` §3 |
 | 知道运行期 schema 怎么建 | `pkg/storage/postgres.go` 的 `migrationStatements()` |
-| 起停 / 装配失败怎么查 | `README.md` 快速开始、`cmd/analysis` 启动日志 |
+| 起停 / 装配失败怎么查 | [`docs/runbook.md`](docs/runbook.md) |
 | 当前在做什么 / 架构决策 | `docs/TASKS.md`、`docs/ARCHITECTURE.md`、`tellurion-docs:docs/adr/` |

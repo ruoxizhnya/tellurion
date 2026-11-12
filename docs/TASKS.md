@@ -189,17 +189,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：运维/生产动作；schema 定义归 `tellurion-data`。
 - **重开条件**：生产变更窗口 + 本机重放证据复核（已有）。
 
-### CORE-RUNBOOK-GAP · 本仓没有 runbook，起停与装配失败只有 README 零散说明 [P1] ⬜
-
-- **① 目标**：给 core 一份可与六个服务仓同构的最小 runbook，让「起不来 / readyz 503 / 装配期拒起」有固定入口，而不是在 README、TASKS 与日志之间拼接。
-- **② 上下文**：`SERVICE.md` 落地时实测——本仓 `docs/` 无 `runbook.md`；起停步骤写在 `README.md` 快速开始，装配期失败原文分散在 `docs/TASKS.md`（`CORE-BROKER-STARTUP-PRECONDITION`）与 `cmd/analysis` 启动日志。六个服务仓都有 `docs/runbook.md`，core / agent / ui 三个仓没有。
-- **③ 要求**：① 覆盖起停、`/health` 与 `/readyz` 的语义差异、DB 不可达、迁移未执行、`kernel assembly failed` / `BROKER_URL is required` / `broker peer channel` / `risk_policy_source` 四类装配判决；② 每节写「现象 → 先看什么 → 常见原因 → 对应日志原文」，不重复 `docs/openapi.yaml` 与 `config/` 的内容；③ 完成后把 `SERVICE.md` 的 `truth.runbook` 从 `null` 改为该文件路径，并把「排查」段改为指向具体小节。
-- **④ 约束与非目标**：不写 SLO / 告警规则 / 值班表（本项目没有对应观测体系）；不改任何启动期 fail-closed 行为；不把 `config/` 的键值清单抄进 runbook。
-- **⑤ 验收**：按 runbook 从冷机起一次默认栈成功；三条破坏场景（停 PG / 不给 `BROKER_URL` / 反序起 broker）都命中文中登记的日志原文与处置步骤。`python tools/check_doc_links.py` 仍为 0。
-- **⑥ 边界**：本仓起停与装配失败的排查归本仓；broker 通道性质、risk 快照内容、data 的 503 排查归各服务仓自己的 runbook。
-- **owner**：待定
-- **重开条件**：出现第二次「起不来但只能翻 TASKS 找原因」的排障经历，或接手人变更。
-
 ### CORE-AUDIT-FULLSTACK-2026-11 · 12 仓全面审查（产品→DDD→整洁度→最佳实践，W0~W7）[P1] 🔶
 
 - **① 目标**：按主任批准的计划完成 12 仓全维度审查，产出逐项判定表（P-1…X-3，每项带证据坐标），发现全部走 ODR（自 068 起编）+ 各仓六字段立单；Critical/High 当场修复或当场立单。
