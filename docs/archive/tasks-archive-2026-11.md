@@ -106,6 +106,8 @@
 | CORE-K8S-EXIT | 退役 k8s 清单：移入 archive/ + 检查器「活跃层必须零清单」守卫 | 2026-11-12 | `480aab9` | [原文](#CORE-K8S-EXIT) |
 | CORE-REFS-TRAILER-RULE | 承认散文引用：`Refs:` trailer 改可选，任务号可追溯仍是硬约束（D8=b） | 2026-11-12 | `cca11ec` | [原文](#CORE-REFS-TRAILER-RULE) |
 | CORE-RESULT-RETENTION | 回测结果/provenance 保留期：明细 90 天、汇总与 provenance 365 天、被引用永不删 | 2026-11-12 | `f50affe`、`1d07a39`、`5af46cb` | [原文](#CORE-RESULT-RETENTION) |
+| CORE-RISK-REMOTE-FALLBACK-DEAD | `risk_service.url` 三处远程回落恒不可用（裁决 = 删，改 fail-closed） | 2026-11-12 | `5729395` | [原文](#CORE-RISK-REMOTE-FALLBACK-DEAD) |
+| X-PROBE-NAMING | data `/healthz` 统一探针命名，摘 `/health` 别名并复验 consumers | 2026-11-12 | data `3a40867`（core 侧无代码改动） | [原文](#X-PROBE-NAMING) |
 
 ---
 
@@ -3492,3 +3494,40 @@
 > - **破坏验证（真做真还原）**：明细判据 `<` 改 `<=` ⇒ 恰 90 天用例翻红（`detail_runs=3`、90 天行被误清）；还原后 `run_retention.go` SHA256 = `D02C0C678AFACF8FD7841708B68ED914D7D0D7A11E074DE0120342B994567F50`，与破坏前一致，复跑绿。
 > - **回归（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；`docker compose config --quiet` / `--profile full config --quiet` / `python tools/check_doc_links.py` / `python tools/check_deploy_consistency.py` 全 exit 0；`check_doc_links.py --include-archive` 见本轮收口复跑。
 > - **残余**：`quant.run_analysis_artifacts` 自身保留期归 `CORE-ANALYSISARTIFACT-RETENTION`；无结果行的孤儿 provenance 无 `finished_at` 可判，按保守原则不自动删。
+
+### CORE-RISK-REMOTE-FALLBACK-DEAD · `risk_service.url` 的三处远程回落恒不可用 [P2] ✅（2026-11-12）
+
+- **① 目标**：给 `pkg/backtest/engine.go` 里「进程内 RiskManager 为空 → 回落到 HTTP risk 服务」这条路径一个明确归宿：删掉，或接到真实的 tellurion-risk 端点。不让它继续以「配置里留着、读点也在、却永远走不通」的形态存在。
+- **② 上下文**：`engine.go` 在三处用 `e.riskServiceURL` 拼 URL（`/detect_regime`、`/calculate_position`、`/check_stoploss`）；该字段来自 `risk_service.url`，键为空时缺省 `http://localhost:8083`。三个 `if rm == nil` 分支在 `cmd/analysis` 与 `cmd/worker` 里**不可达**——两个入口装配期都无条件 `SetRiskManager(bootstrap.BuildRiskManager(...))`。即使人为置空：8083 上没有任何服务（tellurion-risk 默认 `127.0.0.1:8089`，且只提供 `/api/risk/*`，**不提供**这三个路径）；只有把 url 写成 `:8085` 才会打到 core 自己的同名 legacy 别名，即被进程内实现取代的同一段逻辑。结论：**活读、恒不可达、且没有正确对端**。
+- **③ 要求**：① 先定方向 —— 删（连 `riskServiceURL` 字段与 8083 缺省一起删，`config/*.yaml` 的 `risk_service.url` 一并退役）或接线（先要有这三条端点的契约，`contracts/risk` 里今天没有）；② 删除方向须补护栏：三处回落 grep 归零 + 一条反向测试钉住「不许回来」；③ 接线方向须写清端口与前缀口径，不许再出现「指向 analysis 自己 :8085」这种绕回自身的配置。
+- **④ 约束与非目标**：本轮**只文档化**（`config/analysis-service.yaml` 注释 + `docs/SPEC.md` §主要配置段），不动代码、不改 `pkg/risk` 的进程内风控、不动 `tellurion-risk` 的路由。
+- **⑤ 验收**：删除方向 = 三处回落与 `risk_service.url` 读点 grep 归零、`go build/vet/test ./... -count=1` 全绿、破坏验证（把回落加回来 ⇒ 护栏红并真还原）；接线方向 = 真 risk 进程跑通三条端点 200 且有契约测试。
+- **⑥ 边界**：core 侧消费面归本仓；端点形状若新增归 `tellurion-risk` + `tellurion-contracts`。
+- **重开条件**：一次明确裁决（删 or 接线）；或有人要部署一个真提供这三条路径的旧 risk 服务。
+- **审查复核（2026-11-11，不另立单）**：全面审查 W2 独立复核「三处 `rm == nil` 回落恒不可达 + 缺省 `:8083` 无对端（今 risk 在 `:8089`）」属实，与本条前提一致；见 ODR-069。去重：不新建任务，以本条为唯一落点。
+
+> **施工记录（2026-11-12，commit `5729395`；主任裁决 = 删，非接线）**
+>
+> - **前提复核（真做）**：两个生产入口 `cmd/analysis` 与 `cmd/worker` 装配期都无条件 `SetRiskManager`，三处 `rm == nil` 回落不可达；`risk_service.url` 无其它读者；缺省 `:8083` 无对端（risk 在 `:8089`，只提供 `/api/risk/*`），写成 `:8085` 只会打到 analysis 自己的 legacy 别名。
+> - **为什么删而不是接线**：接线需要 `/detect_regime`、`/calculate_position`、`/check_stoploss` 三条端点的契约，`contracts/risk` 里没有；且引擎内核不应直连外部（BE-10）。删后无 RiskManager 即 `ErrCodeInternal` + 「no remote fallback」，不再有静默兜底。
+> - **改动面**：`pkg/backtest/engine.go`（删两字段、三处回落、`NewEngine` 的 8083 缺省）；`config/analysis-service.yaml`、`README.md`、`docs/SPEC.md`（配置表改为「已移除 + fail-closed」）；`cmd/analysis/wiring/{risk_events,risk_rules}` 及其测试（注释/错误消息改口径，删已不存在的配置设置，断言未放宽）；`engine_bench_test.go` / `fixture_gen_test.go`（改为注入 `risk.BuiltinPolicy()` 的进程内 RM）；`internal/repoguard/engine_run_state_test.go`（字段白名单去掉两字段）。
+> - **护栏（不许回来）**：`pkg/backtest/risk_remote_fallback_guard_test.go` 用 AST 扫生产源码（不用文本 grep —— 注释里正解释这些名字，文本扫会在正确状态下误报），六个名字（`risk_service.url`、三条路径、`riskServiceURL`、`httpClient`）出现即红；三条入口在无 RM 时必须返回 `ErrCodeInternal` 且消息含 `CORE-RISK-REMOTE-FALLBACK-DEAD`。
+> - **破坏验证（真做真还原）**：向 `engine.go` 注入一个 `"risk_service.url"` 字面量 ⇒ 护栏红；删除后复跑绿。
+> - **回归（真实退出码）**：`go build ./...` = 0；`go vet`（backtest / wiring / repoguard）= 0；`go test ./... -count=1` = 0；四道门禁 `docker compose config --quiet`、`--profile full config --quiet`、`check_doc_links.py`、`check_deploy_consistency.py` 全 exit 0。
+
+### X-PROBE-NAMING · data `/healthz` 统一探针命名（D12=a）[P3] ✅（2026-11-12）
+
+- **① 目标**：把 data 的存活探针统一为 `/healthz`（对齐其余服务仓），并同批改所有消费者，消除探针命名分叉。
+- **② 上下文**：审查发现 W6（ODR-073）+ 裁决 D12=a。data 已落 `/healthz` 规范名，`/health` 保留为带 `Deprecation` / `Link` / `Warning` 三信号的过渡别名（见 data `docs/api-schema.md` §1.1）；摘别名前须确认消费者已全部切到 `/healthz`。
+- **③ 要求**：① data 保持 `/healthz` 规范名，`/health` 过渡别名按 §1.1 条件摘除；② grep 全工作区 data `/healthz` 消费者同批改（core 侧 2026-11-12 已清零）；③ data AGENTS/api-schema/runbook 同批；④ 与 `CORE-K8S-EXIT`（data-deployment.yaml 探针）联动。
+- **④ 约束与非目标**：不改其余服务仓探针；不静默摘 `/health` 别名而漏改消费者（先 grep 全量）。
+- **⑤ 验收**：data `/healthz` 真栈 200（E1）；grep 无悬空 `/health` 消费；破坏验证 = 漏改一处消费者 ⇒ 该处探针红。
+- **⑥ 边界**：协调伞在 core；data 改名落 data commit，消费者落各仓 commit。
+- **owner**：待定
+
+> **施工记录（2026-11-12，data 提交 `3a40867`；core 侧无代码改动）**
+>
+> - **data 侧**：删除 `/health` 过渡别名路由（mux 级 `404 page not found`，非 405、无别名响应）、API schema/runbook 同步、重建镜像并重启。实测：`GET :8081/healthz` → 200、`GET :8081/readyz` → 200 `{"status":"ready","store":"postgres"}`、`GET :8081/health` → **404**；容器 healthy，两份 healthcheck 都打 `/healthz`。
+> - **consumer 清零（core）**：data 探针在 `e2e/tests/integration_test.go`、`tools/local-stack.sh`、`docker-compose.yml`、`tools/sync_all.sh` 均已是 `/healthz`；全仓 grep `*.go/*.sh/*.ps1/*.py/*.yaml/*.yml/*.js/*.ts` 后，剩余的 `/health` 命中均为 analysis / agent 自己的探针或归档层 `deploy/k8s/archive/data-deployment.yaml`（随 `CORE-K8S-EXIT` 已退役，不改）。
+> - **e2e 复验（data 摘别名后）**：`go test ./e2e/tests -run 'TestHealthCheck_AllServices|TestDockerComposeServicesConnectivity' -count=1 -v` ⇒ `PASS`；`TestHealthCheck_AllServices/Analysis_Service_Health`、`/Data_Service_Health` 与 `TestDockerComposeServicesConnectivity` 四个子用例全部 PASS（无 SKIP），无隐式依赖 `/health` 的失败。
+> - **收口**：别名已摘、e2e 复验通过。
