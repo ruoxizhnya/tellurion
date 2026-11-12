@@ -3252,6 +3252,70 @@ paths:
           description: Authenticated but role is not trader/admin
         '503':
           description: Signal store unavailable (not wired / no database)
+    get:
+      tags: [Signals]
+      summary: Recent external signal feed (A-09 observatory read door)
+      description: |
+        A-09: read-only feed for the UI paper-trading observatory's「外部信号流」.
+        Returns the most recent signals across models/symbols in **descending**
+        `as_of` order (same-day ties broken by symbol, then model_id), so the
+        newest injection is first.
+
+        Defence in depth is the same boundary as the consumer side:
+        `as_of <= up_to` — the observatory cannot see future signals either.
+
+        No RBAC (read-only face, same posture as the other read doors).
+        An empty feed is `200` with an empty array; a backend that cannot page
+        (write-only store) answers `503` instead of pretending to be empty.
+      operationId: listSignals
+      parameters:
+        - name: model_id
+          in: query
+          schema:
+            type: string
+          description: 精确过滤某个外部模型；省略 = 不过滤。
+        - name: symbol
+          in: query
+          schema:
+            type: string
+          description: 精确过滤某个标的；省略 = 不过滤。
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+          description: 返回条数；后端硬上限 500。
+        - name: up_to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 只返回 as_of <= up_to 的信号；默认今天（UTC）。
+      responses:
+        '200':
+          description: Signal feed (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExternalSignal'
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+        '400':
+          description: Invalid limit or up_to format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Signal feed unavailable (no store / backend cannot page)
 
   # ============================================================
   # Industry (P2-2 产业链静态数据层)

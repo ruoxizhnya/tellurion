@@ -161,6 +161,64 @@ func (s *PGSignalStore) ListFor(ctx context.Context, modelID, symbol string, upT
 	return sigs, nil
 }
 
+// listRecentSignalsSQL —— 观测台信号流（A-09）：as_of <= $3 的最近 limit 条，
+// 倒序。model_id / symbol 为空串表示不过滤（$1 = ” / $2 = ” 走恒真分支）。
+// 「as_of <= upTo」与 ListFor 同一防前视主边界：观测台也看不到未来信号。
+// tie-break 用 symbol / model_id 升序，保证同一 as_of 下分页结果确定。
+const listRecentSignalsSQL = `SELECT model_id, symbol, direction, strength, as_of, factors
+	FROM quant.external_signals
+	WHERE ($1 = '' OR model_id = $1)
+	  AND ($2 = '' OR symbol = $2)
+	  AND as_of <= $3
+	ORDER BY as_of DESC, symbol, model_id
+	LIMIT $4`
+
+// defaultSignalFeedLimit 是 ListRecent 的默认条数（handler 未传 limit 时）。
+const defaultSignalFeedLimit = 100
+
+// maxSignalFeedLimit 是 ListRecent 的硬上限，防止一次读把整表拉满。
+const maxSignalFeedLimit = 500
+
+// ListRecent 实现 SignalFeedStore：全局最近信号流（观测台读面）。
+func (s *PGSignalStore) ListRecent(ctx context.Context, modelID, symbol string, upTo time.Time, limit int) ([]ExternalSignal, error) {
+	if limit <= 0 {
+		limit = defaultSignalFeedLimit
+	}
+	if limit > maxSignalFeedLimit {
+		limit = maxSignalFeedLimit
+	}
+
+	ctx, cancel := mergeTimeout(ctx, signalListTimeout)
+	defer cancel()
+
+	rows, err := s.pool.Query(ctx, listRecentSignalsSQL, modelID, symbol, DayOf(upTo), limit)
+	if err != nil {
+		return nil, fmt.Errorf("strategy: PGSignalStore.ListRecent 查询失败 (model=%s symbol=%s limit=%d): %w",
+			modelID, symbol, limit, err)
+	}
+	defer rows.Close()
+
+	sigs := make([]ExternalSignal, 0, limit)
+	for rows.Next() {
+		var (
+			sig       ExternalSignal
+			direction string
+			factors   map[string]float64
+		)
+		if err := rows.Scan(&sig.ModelID, &sig.Symbol, &direction, &sig.Strength, &sig.AsOf, &factors); err != nil {
+			return nil, fmt.Errorf("strategy: PGSignalStore.ListRecent 扫描失败: %w", err)
+		}
+		sig.Direction = domainDirection(direction)
+		sig.Factors = factors
+		sig.AsOf = sig.AsOf.UTC()
+		sigs = append(sigs, sig)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("strategy: PGSignalStore.ListRecent 遍历失败: %w", err)
+	}
+	return sigs, nil
+}
+
 // domainDirection 把落库的 TEXT 方向还原为 domain.Direction。列值由 Save 侧
 // 校验过（ValidateExternalSignal 只放行 long/short/close），这里不做二次校验，
 // 直接转换——写侧的单一口径保证读侧不会遇到非法值。
@@ -172,3 +230,6 @@ func domainDirection(s string) domain.Direction {
 //
 // PGSignalStore 必须满足 SignalStore，否则它不是合法的信号后端。
 var _ SignalStore = (*PGSignalStore)(nil)
+
+// PGSignalStore 同时是观测台信号流的读后端（A-09）。
+var _ SignalFeedStore = (*PGSignalStore)(nil)

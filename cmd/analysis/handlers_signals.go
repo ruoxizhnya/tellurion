@@ -5,6 +5,8 @@ package main
 // 端点：
 //   POST /api/signals —— 批量写入 ExternalSignal（外部 ML 模型进程外产出，
 //   经此门注入内核；消费侧是 strategy.SignalStrategy，按 as_of 防前视拉取）。
+//   GET  /api/signals —— 外部信号流读面（A-09）：倒序、可过滤、限量，供 UI
+//   纸交易观测台展示最近注入的信号；不带 RBAC（只读面）。
 //
 // 防御口径（fail-loud，与 pkg/strategy 契约同一份口径）：
 //   - ValidateExternalSignal 逐条校验（带索引 400，脏行不落库）；
@@ -23,6 +25,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,9 +36,11 @@ import (
 	"tellurion/pkg/strategy"
 )
 
-// SignalsHandler serves the POST /api/signals write door.
+// SignalsHandler serves POST /api/signals (write door) and GET /api/signals
+// (observatory feed, A-09).
 type SignalsHandler struct {
 	store   strategy.SignalStore
+	feed    strategy.SignalFeedStore // nil = 后端不支持翻页读（GET 返回 503）
 	authSvc *auth.Service
 	logger  zerolog.Logger
 }
@@ -60,15 +65,22 @@ func NewSignalsHandler(store strategy.SignalStore, logger zerolog.Logger, opts .
 		store:  store,
 		logger: logger.With().Str("component", "signals_handler").Logger(),
 	}
+	if feed, ok := store.(strategy.SignalFeedStore); ok {
+		h.feed = feed
+	}
 	for _, opt := range opts {
 		opt(h)
 	}
 	return h
 }
 
-// RegisterRoutes wires POST /api/signals.
+// RegisterRoutes wires POST /api/signals and GET /api/signals.
+//
+// GET 是只读观测面（A-09）：UI 纸交易观测台的「外部信号流」。读面不进
+// route_policy 表（那张表只管变更端点），也不挂 RBAC —— 与其余读面同姿态。
 func (h *SignalsHandler) RegisterRoutes(router *gin.Engine) {
 	router.POST("/api/signals", h.requireTrader(), h.createSignals)
+	router.GET("/api/signals", h.listSignals)
 }
 
 // requireTrader returns the RBAC middleware for the signal write door,
@@ -139,4 +151,63 @@ func (h *SignalsHandler) createSignals(c *gin.Context) {
 
 	h.logger.Info().Int("accepted", len(req.Signals)).Msg("external signals accepted")
 	c.JSON(http.StatusCreated, createSignalsResponse{Accepted: len(req.Signals)})
+}
+
+// listSignalsResponse 是 GET /api/signals 的响应：倒序信号流 + 实际生效的
+// limit（后端会 clamp 到上限，回显给 UI 便于分页对齐）。
+type listSignalsResponse struct {
+	Signals []strategy.ExternalSignal `json:"signals"`
+	Count   int                       `json:"count"`
+	Limit   int                       `json:"limit"`
+}
+
+// listSignals handles GET /api/signals (A-09 observatory feed).
+//
+// 参数：model_id / symbol 可选过滤，limit 默认 100（上限 500，后端硬 clamp），
+// up_to 可选（YYYY-MM-DD，默认今天）——「as_of <= up_to」与消费侧 ListFor
+// 同一防前视边界，观测台也看不到未来信号。
+//
+// 空流返回 200 + 空数组（空是合法结果）；后端不具备翻页读能力时 503，
+// 明确告知「读面未接」，而不是伪装成空流。
+func (h *SignalsHandler) listSignals(c *gin.Context) {
+	if h.feed == nil {
+		httpserver.Fail(c, http.StatusServiceUnavailable, "signal feed unavailable")
+		return
+	}
+
+	limit := 100
+	if raw := c.Query("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			httpserver.Fail(c, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+
+	upTo := time.Now()
+	if raw := c.Query("up_to"); raw != "" {
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			httpserver.Fail(c, http.StatusBadRequest, "up_to must be YYYY-MM-DD")
+			return
+		}
+		upTo = parsed
+	}
+
+	signals, err := h.feed.ListRecent(c.Request.Context(), c.Query("model_id"), c.Query("symbol"), upTo, limit)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("external signal feed query failed")
+		httpserver.Fail(c, http.StatusInternalServerError, "signal feed query failed")
+		return
+	}
+	if signals == nil {
+		signals = []strategy.ExternalSignal{}
+	}
+
+	c.JSON(http.StatusOK, listSignalsResponse{
+		Signals: signals,
+		Count:   len(signals),
+		Limit:   limit,
+	})
 }

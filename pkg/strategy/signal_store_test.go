@@ -194,6 +194,49 @@ func TestPGSignalStoreListForEmptyIsNotError(t *testing.T) {
 	require.Empty(t, got, "无匹配信号应返回空切片而非 error")
 }
 
+// ─── A-09：观测台信号流（ListRecent）────────────────────────────────
+
+// TestPGSignalStoreListRecentOrdersFiltersAndCaps 覆盖观测台读面的三条口径：
+// ① as_of 倒序（最近在前）；② model_id / symbol 空串不过滤、非空精确过滤；
+// ③ upTo 防前视 + limit 截断。
+func TestPGSignalStoreListRecentOrdersFiltersAndCaps(t *testing.T) {
+	store, _, modelID := sigNewStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, store.Save(ctx, sigSig(modelID, "600000.SH", domain.DirectionLong, 0.1, sigDay(1))))
+	require.NoError(t, store.Save(ctx, sigSig(modelID, "600000.SH", domain.DirectionLong, 0.3, sigDay(5))))
+	require.NoError(t, store.Save(ctx, sigSig(modelID, "000001.SZ", domain.DirectionShort, 0.4, sigDay(4))))
+	require.NoError(t, store.Save(ctx, sigSig(modelID, "600000.SH", domain.DirectionLong, 0.2, sigDay(3))))
+
+	// ① 全局（限本 model）倒序：day5 → day4 → day3 → day1。
+	got, err := store.ListRecent(ctx, modelID, "", sigDay(9), 10)
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	for i := 1; i < len(got); i++ {
+		require.False(t, got[i].AsOf.After(got[i-1].AsOf),
+			"ListRecent 必须按 as_of 倒序：第 %d 条 %s 晚于第 %d 条 %s",
+			i, got[i].AsOf, i-1, got[i-1].AsOf)
+	}
+
+	// ② symbol 过滤 + limit 截断。
+	got, err = store.ListRecent(ctx, modelID, "600000.SH", sigDay(9), 2)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "symbol 过滤后 3 条，limit=2 应截断")
+	require.Equal(t, "600000.SH", got[0].Symbol)
+	require.True(t, got[0].AsOf.Equal(sigDay(5)), "倒序首条应是最近的 day5，got=%s", got[0].AsOf)
+
+	// ③ upTo 防前视：day2 之前只有 day1。
+	got, err = store.ListRecent(ctx, modelID, "", sigDay(2), 10)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.True(t, got[0].AsOf.Equal(sigDay(1)))
+
+	// limit <= 0 走默认值（不报错、不返回 nil error）。
+	got, err = store.ListRecent(ctx, modelID, "", sigDay(9), 0)
+	require.NoError(t, err)
+	require.Len(t, got, 4, "limit<=0 应回落默认 100，不是 0 条")
+}
+
 // ─── Save 的 fail-loud 拒绝 ────────────────────────────────────────
 
 // TestPGSignalStoreSaveRejectsBadInput 非法输入必须被挡在库外，而不是落一行

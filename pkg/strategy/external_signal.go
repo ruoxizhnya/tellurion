@@ -154,3 +154,18 @@ type SignalStore interface {
 	// 防前视的主边界：内核回放到时刻 upTo 时，只能看到 <= upTo 的信号。
 	ListFor(ctx context.Context, modelID, symbol string, upTo time.Time) ([]ExternalSignal, error)
 }
+
+// SignalFeedStore 是「信号流」读面（A-09）：按时间倒序翻最近注入的信号，
+// 供 UI 纸交易观测台的「外部信号流」展示。
+//
+// 与 SignalStore 分开的裁决：ListFor 是**消费侧**契约（按 model+symbol 精确
+// 拉取、防前视），而观测台要的是**全局最近流**（跨模型跨标的、倒序、限量）。
+// 把后者塞进 SignalStore 会让每个消费侧替身（测试里的内存 store）都被迫实现
+// 一个与消费无关的方法；分开后，handler 对后端做能力断言，缺能力就明确 503，
+// 不伪装成空流。
+type SignalFeedStore interface {
+	// ListRecent 返回 as_of <= upTo 的最近 limit 条信号，按 as_of 倒序
+	// （同日按 symbol / model_id 升序做确定性 tie-break）。
+	// modelID / symbol 为空表示不过滤；limit <= 0 由实现回落默认值。
+	ListRecent(ctx context.Context, modelID, symbol string, upTo time.Time, limit int) ([]ExternalSignal, error)
+}

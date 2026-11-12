@@ -122,6 +122,7 @@
 | OPS-X1D-PROD-MIGRATION | X1d 物理搬迁 + `visible_at` 回填（执行形态 = 整库重建） | 2026-11-12 | —（原文未记） | [原文](#OPS-X1D-PROD-MIGRATION) |
 | CORE-MEMORY-HARDENING-2026-11 | 共享内存/竞态硬化批次补登：getter 深拷贝、`Load` 深拷贝、dualrun 日志 `SyncWriter`、qt31 预算分档 | 2026-11-12 | `5e8b433`、`fac3a3f`、`b25fb6a`、`4054f52`（后接 `d50249c`） | [原文](#CORE-MEMORY-HARDENING-2026-11) |
 | CORE-FACTOR-ANALYTICS-SURFACE | B-05 后端腿：`factor_returns` / `ic_analysis` 的写者与横截面聚合读面（因子列表 / 分位收益 / IC / 计算触发） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-FACTOR-ANALYTICS-SURFACE) |
+| CORE-SIGNAL-FEED-READ | A-09 后端腿：`GET /api/signals` 外部信号流读面（倒序 / 过滤 / 限量，读能力缺失 503） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-SIGNAL-FEED-READ) |
 
 ---
 
@@ -3847,7 +3848,7 @@
 
 ---
 
-## 二十四、2026-11-12 B-05 后端腿：因子分析写者与读面（`CORE-FACTOR-ANALYTICS-SURFACE`）
+## 二十四、2026-11-12 core 收尾批次（B-05 因子分析面 / A-09 信号流读面 / A-04 待审阅聚合）
 
 <a id="CORE-FACTOR-ANALYTICS-SURFACE"></a>
 ### CORE-FACTOR-ANALYTICS-SURFACE · `factor_returns` / `ic_analysis` 的写者与横截面聚合读面 [P0] ✅（2026-11-12）
@@ -3869,3 +3870,21 @@
   - 护栏：`internal/repoguard` 的 `TestNoBypassOfFactorRegistry` 对 `internal/factoranalytics/computer.go` 报「名册常量聚集」；处置不是吞掉，而是把可算因子收敛成单一 `SupportedFactors()` 并登记基线（理由：能力子集声明，权威仍在 `pkg/domain/factor_def_seed.go`；收敛条件：种子出现「可算横截面收益」显式标记时改读种子）。
 - **⑥ 边界**：core 本仓；UI 因子页的消费形状与 contracts 仓的 openapi 同步属于跨仓契约定稿，需在该仓收口后接线。
 - **重开条件**：ADR-041 D1 放开横截面之外的因子求值面，或口径（因子定义 / 前向收益 / 分位划分）需要与新增因子对齐时。
+
+<a id="CORE-SIGNAL-FEED-READ"></a>
+### CORE-SIGNAL-FEED-READ · `/api/signals` 的外部信号流读面（A-09 后端腿）[P1] ✅（2026-11-12）
+
+- **① 目标**：`/api/signals` 原本只有 POST 写门；UI 纸交易观测台的「外部信号流」需要一条只读、按时间倒序、可过滤的读面。
+- **② 上下文**：信号消费侧契约是 `strategy.SignalStore.ListFor(modelID, symbol, upTo)`——按 model+symbol 精确拉取、防前视，不适合观测台的「全局最近流」。硬塞进同一接口会让每个消费侧替身都被迫实现一个无关方法。
+- **③ 要求（实际落地）**：
+  1. `pkg/strategy` 新增**独立**读面契约 `SignalFeedStore{ListRecent(ctx, modelID, symbol, upTo, limit)}`；`PGSignalStore` 实现之（SQL `as_of <= $3` 保持同一防前视边界，`ORDER BY as_of DESC, symbol, model_id` 保证同刻确定性，limit 默认 100 / 硬上限 500）。
+  2. `cmd/analysis/handlers_signals.go` 注册 `GET /api/signals`：`model_id` / `symbol` 可选精确过滤，`limit` 非法 400，`up_to` 非 `YYYY-MM-DD` 400；后端不具备读能力或 store 为 nil 时 **503**（不伪装空流）；空流是合法 200 + `[]`。
+  3. 读面不挂 RBAC、不进 `route_policy`（与其余只读面同姿态）。
+  4. `docs/openapi.yaml` 在既有 `/api/signals` 下补 `get`（参数、200/400/503）。
+- **④ 约束与非目标**：不改变 POST 写门的校验与幂等语义；不把 `ListRecent` 塞进 `SignalStore`；不做跨模型聚合统计（观测台只展示流）。
+- **⑤ 验收（真实输出）**：
+  - `gofmt -l ./cmd ./pkg` → 空；`go build ./...` → exit 0。
+  - `go test ./cmd/analysis ./pkg/strategy -count=1` → `ok` ×2。新增用例：倒序、`model_id`/`symbol` 过滤、`up_to` 截断、`limit` 与 `up_to` 非法 400、无读能力 store 与 nil store 均 503。
+  - 真库腿：`TEST_DATABASE_DSN=… go test ./pkg/strategy -run TestPGSignalStoreListRecent -v` → `PASS`（倒序、过滤、limit 截断、`up_to` 防前视、`limit<=0` 回落默认）。
+- **⑥ 边界**：core 本仓；UI 侧把「信号流 disabled」改成接 `GET /api/signals` 属 UI 仓改动，跨仓契约已由本仓 openapi 给出。
+- **重开条件**：观测台需要跨模型聚合（按模型/标的分组计数）或需要历史分页游标时。
