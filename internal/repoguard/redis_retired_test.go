@@ -9,7 +9,8 @@ package repoguard
 //     `pkg/trading/redis_order_store.go` / `pkg/marketdata/cached_provider.go`；
 //     `go.mod` 与任意 `.go` 都不得再出现 `github.com/redis/go-redis`。
 //  2. 部署面不得再宣称 Redis 依赖：`deploy/k8s/redis-deployment.yaml` 不存在，
-//     `docker-compose.yml` / `deploy/k8s/configmap.yaml` / `deploy/wait-for-deps.sh`
+//     `docker-compose.yml` / `deploy/k8s/archive/configmap.yaml`（k8s 清单已于
+//     CORE-K8S-EXIT 退役归档）/ `deploy/wait-for-deps.sh`
 //     不再出现 `REDIS_URL`。
 //  3. 配置面不得留幽灵键：`config/analysis-service.yaml` 无 `redis:` 段。
 //  4. 正向对照（防止护栏因文件被删空/改名而假绿）：同一批文件里必须仍能看到
@@ -94,7 +95,7 @@ func TestDeployAndConfigSurfacesHaveNoRedis(t *testing.T) {
 	root := repoRoot(t)
 	files := []string{
 		filepath.Join("docker-compose.yml"),
-		filepath.Join("deploy", "k8s", "configmap.yaml"),
+		filepath.Join("deploy", "k8s", "archive", "configmap.yaml"),
 		filepath.Join("deploy", "wait-for-deps.sh"),
 		filepath.Join("config", "analysis-service.yaml"),
 	}

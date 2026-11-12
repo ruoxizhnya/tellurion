@@ -22,7 +22,7 @@ Service。**部署形态有两种，别把两者的配置混着读**（G-05；20
 |---|---|---|---|
 | 本地统一栈（默认，无 profile） | 本仓 `docker-compose.yml` | 4 个：data-service / broker / analysis-service / ai-service | PG **不在容器内**：各服务经 `host.docker.internal` 连宿主机原生 PostgreSQL 16.15；**Redis 已于 2026-11-12 彻底移除**（见 §4） |
 | 本地统一栈 `--profile full` | 同上 | 再加 4 个：risk / strategy / analytics / orchestration | 同上（DSN 同样走 `host.docker.internal:5432`） |
-| k8s | `deploy/k8s/`（**跨仓部署资产**，处置见 `deploy/k8s/README.md`） | analysis / data / web 三个 Deployment + postgres StatefulSet（`redis-deployment.yaml` 已于 2026-11-12 删除） | PG 在集群内 |
+| k8s（**已退役**，2026-11-12） | `deploy/k8s/` —— 清单整体移入 `archive/`，活跃层 0 份；见 `deploy/k8s/README.md` | 历史：analysis / data / web 三个 Deployment + postgres StatefulSet | 不参与部署 |
 
 > **2026-11-11 定案：本地只留一个 compose。** 主任指令要求单一文件，避免三份
 > 各说各话；QT-79 的代裁 `D-DEPLOY-1 = A`（core compose 与
@@ -34,6 +34,10 @@ Service。**部署形态有两种，别把两者的配置混着读**（G-05；20
 >
 > 跨仓的 7 份 `<repo>/deploy/compose.yaml` **不动**：它们是各仓自证 Dockerfile /
 > health 的资产，不属于本地统一栈，联调一律用本仓 `docker-compose.yml` 的 profile。
+>
+> **2026-11-12：k8s 形态退役（`CORE-K8S-EXIT` / D7=a）。** `deploy/k8s/` 的 7 份
+> YAML 与说明整体移入 `archive/`，唯一编排是 `docker-compose.yml`；活跃层出现
+> 清单即被 `tools/check_deploy_consistency.py` 判红。恢复 k8s 须另立 ADR。
 
 前端已拆仓至 `tellurion-ui`（2026-10-09）；data-service 已拆仓至
 `tellurion-data`（`SVC-CORE-DATA-RETIRE`，2026-11-08）—— 两者都只是**拓扑上

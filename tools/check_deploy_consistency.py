@@ -5,6 +5,12 @@
 忘了另一边就会漂移，而且漂移往往是**静默**的：服务起得来，只在某个调用
 跨服务时才失败（比如 analysis 找不到 data-service）。
 
+**2026-11-12 起 k8s 形态已退役（CORE-K8S-EXIT / D7=a）**：`deploy/k8s/` 只留
+`README.md`（退役说明）与 `archive/`（历史清单），唯一编排是仓根
+`docker-compose.yml`。因此 1 / 2 的 k8s 半边、5~8 的 k8s 断言在退役状态下
+整段跳过（main 会打 note 明说跳过的是**已退役的对象**），compose 侧断言一条
+不减；活跃层一旦出现清单即报错 —— 「重新采用 k8s」要立 ADR，不能靠放回文件。
+
 本脚本只比对**会互相影响**的关键项：
   1. 服务名 → 端口（公共服务必须一致）
   2. DATA_SERVICE_URL：compose 的 environment 与 k8s configmap 必须一致，
@@ -208,6 +214,41 @@ def parse_k8s_ports() -> dict[str, int]:
             if name and port:
                 ports[name.group(1)] = int(port.group(1))
     return ports
+
+
+# ── CORE-K8S-EXIT：k8s 形态已退役（D7=a）───────────────────────────────
+#
+# 2026-11-12 起唯一编排是仓根 `docker-compose.yml`（CORE-COMPOSE-UNIFY）；k8s 清单
+# 整体移入 `deploy/k8s/archive/`，只作复盘物证。本函数只认两种状态：
+#   - 退役完成：archive/ 存在 **且** 活跃层 0 份清单 → 返回 True，所有
+#     compose↔k8s 对比整段跳过（并打一条 note 明说跳过的是「已退役的对象」，
+#     不是静默失效）；
+#   - 未退役：有活跃清单 → 返回 False，原有对比照跑。
+#
+# 活跃层一旦出现清单就**报错**而不是恢复对比：那等于两套编排悄悄回来，正确做法
+# 是另立 ADR（`deploy/k8s/README.md` 的「重新采用 k8s 的流程」）。同理，
+# 「没有清单也没有 archive/」是半退役状态，也不许默认放行。
+def k8s_is_retired(errors: list[str], notes: list[str]) -> bool:
+    active = sorted(p.name for p in K8S_DIR.glob("*.yaml"))
+    archived = K8S_DIR / "archive"
+    if archived.is_dir():
+        if active:
+            errors.append(
+                f"deploy/k8s 活跃层仍有 {len(active)} 份清单（{', '.join(active)}）"
+                f"—— k8s 已于 CORE-K8S-EXIT（2026-11-12 / D7=a）退役，唯一编排是 "
+                f"docker-compose.yml；恢复 k8s 须另立 ADR，不能把清单直接放回来")
+        else:
+            notes.append(
+                "deploy/k8s 清单已退役（CORE-K8S-EXIT / D7=a，2026-11-12）：活跃层 "
+                "0 份，compose↔k8s 的端口/URL/Schema/身份对比整段跳过；"
+                "历史清单只读在 deploy/k8s/archive/")
+        return True
+    if not active:
+        errors.append(
+            "deploy/k8s 既没有活跃清单也没有 archive/ 退役标记 —— 半退役状态无法判定"
+            "（要么按 CORE-K8S-EXIT 退役，要么把清单放回来）")
+        return True
+    return False
 
 
 def find_env_value(text: str, key: str) -> str | None:
@@ -477,9 +518,14 @@ def check_env_wiring(
     compose_text: str,
     k8s_config_text: str,
     notes: list[str],
+    k8s_retired: bool = False,
 ) -> None:
-    """AUD-39 的检查 5~8：env 口径一致、可达、无占位符、死键不许回来。"""
-    cm_keys = parse_configmap_keys(k8s_config_text)
+    """AUD-39 的检查 5~8：env 口径一致、可达、无占位符、死键不许回来。
+
+    `k8s_retired=True` 时跳过全部 k8s 侧断言（清单已归档，没有对比对象）；
+    compose 侧断言一条不减。跳过范围由 main 的 note 显式说明，避免静默失效。
+    """
+    cm_keys = {} if k8s_retired else parse_configmap_keys(k8s_config_text)
 
     # 5a) 应用侧必备键
     for svc in APP_ENV_SERVICES:
@@ -488,11 +534,12 @@ def check_env_wiring(
             if key not in env:
                 errors.append(
                     f"docker-compose.yml 的 {svc} 缺 {key} —— 应用读的是这个 env 名（AUD-39）")
-    for key in APP_DB_ENV_KEYS:
-        if key not in cm_keys:
-            errors.append(
-                f"deploy/k8s/configmap.yaml 缺 {key} —— 应用读的是这个 env 名；"
-                f"缺了它会静默回落到镜像内的 config/*.yaml（AUD-39）")
+    if not k8s_retired:
+        for key in APP_DB_ENV_KEYS:
+            if key not in cm_keys:
+                errors.append(
+                    f"deploy/k8s/configmap.yaml 缺 {key} —— 应用读的是这个 env 名；"
+                    f"缺了它会静默回落到镜像内的 config/*.yaml（AUD-39）")
 
     # 5b) compose ↔ k8s 的**身份**字段必须相等；**地址不比**（2026-09-25 放宽）
     #
@@ -507,6 +554,8 @@ def check_env_wiring(
     # 护栏只守一半比不守更容易让人放心，所以改成对每个应用服务都比。
     for svc in APP_ENV_SERVICES:
         env = compose_env.get(svc, {})
+        if k8s_retired:
+            continue
         for key in IDENTITY_ENV_KEYS:
             raw = env.get(key)
             if raw is None:
@@ -614,32 +663,39 @@ def check_env_wiring(
             "静默失配（AUD-39）")
 
     compose_schema = data_env.get("DATA_MARKET_SCHEMA", "")
-    k8s_schema = cm_keys.get("DATA_MARKET_SCHEMA", "")
-    if not compose_schema or not k8s_schema:
-        errors.append(
-            f"DATA_MARKET_SCHEMA 缺失 —— compose {compose_schema or '(缺失)'} vs "
-            f"k8s {k8s_schema or '(缺失)'}；数据服务回落 public 后与 market.* 的表"
-            f"全部错开，症状是「表不存在」而不是配置错误")
-    elif compose_schema != k8s_schema:
-        errors.append(
-            f"DATA_MARKET_SCHEMA 不一致 —— compose {compose_schema} vs k8s {k8s_schema}")
-
-    k8s_dsn = parse_deployment_env_values(K8S_DIR / "data-deployment.yaml").get(
-        "DATABASE_URL", "")
-    if not k8s_dsn:
-        errors.append(
-            "deploy/k8s/data-deployment.yaml 缺字面量 DATABASE_URL —— 数据服务的镜像"
-            "只读这一个 DSN，没有它起来后连不到库（configmap 的 DATABASE_* 是给 "
-            "analysis / ai 用的，不是给它的）")
+    if k8s_retired:
+        if not compose_schema:
+            errors.append(
+                f"docker-compose.yml 的 data-service 缺 DATA_MARKET_SCHEMA —— 数据"
+                f"服务回落 public 后与 market.* 的表全部错开，症状是「表不存在」"
+                f"而不是配置错误")
     else:
-        for placeholder in ("$(DATABASE_USER)", "$(DATABASE_PASSWORD)",
-                            "$(DATABASE_HOST)", "$(DATABASE_PORT)",
-                            "$(DATABASE_DATABASE)"):
-            if placeholder not in k8s_dsn:
-                errors.append(
-                    f"deploy/k8s/data-deployment.yaml 的 DATABASE_URL 缺 "
-                    f"{placeholder} —— DSN 必须由 configmap/Secret 的身份字段拼出，"
-                    f"写死值会在改密码/换库时静默失配")
+        k8s_schema = cm_keys.get("DATA_MARKET_SCHEMA", "")
+        if not compose_schema or not k8s_schema:
+            errors.append(
+                f"DATA_MARKET_SCHEMA 缺失 —— compose {compose_schema or '(缺失)'} vs "
+                f"k8s {k8s_schema or '(缺失)'}；数据服务回落 public 后与 market.* 的表"
+                f"全部错开，症状是「表不存在」而不是配置错误")
+        elif compose_schema != k8s_schema:
+            errors.append(
+                f"DATA_MARKET_SCHEMA 不一致 —— compose {compose_schema} vs k8s {k8s_schema}")
+
+        k8s_dsn = parse_deployment_env_values(K8S_DIR / "data-deployment.yaml").get(
+            "DATABASE_URL", "")
+        if not k8s_dsn:
+            errors.append(
+                "deploy/k8s/data-deployment.yaml 缺字面量 DATABASE_URL —— 数据服务的镜像"
+                "只读这一个 DSN，没有它起来后连不到库（configmap 的 DATABASE_* 是给 "
+                "analysis / ai 用的，不是给它的）")
+        else:
+            for placeholder in ("$(DATABASE_USER)", "$(DATABASE_PASSWORD)",
+                                "$(DATABASE_HOST)", "$(DATABASE_PORT)",
+                                "$(DATABASE_DATABASE)"):
+                if placeholder not in k8s_dsn:
+                    errors.append(
+                        f"deploy/k8s/data-deployment.yaml 的 DATABASE_URL 缺 "
+                        f"{placeholder} —— DSN 必须由 configmap/Secret 的身份字段拼出，"
+                        f"写死值会在改密码/换库时静默失配")
 
     # 5f) `${DATABASE_NAME:-...}` 的默认值必须全仓同一个，且与 k8s 的库名同值
     #
@@ -653,7 +709,7 @@ def check_env_wiring(
     # 错了。展开 default 只解决「比不出来」，这一项才提供「比」。
     exprs = _DATABASE_NAME_EXPR.findall(_strip_compose_comment_lines(compose_text))
     defaults = sorted({d.strip() for d in exprs})
-    k8s_db = cm_keys.get("DATABASE_DATABASE", "")
+    k8s_db = "" if k8s_retired else cm_keys.get("DATABASE_DATABASE", "")
     if not exprs:
         # 库名写死也合法，但那意味着这一项失去对象 —— 明说，不静默失效
         # （同 5b-2 / 3a 的教训：检查对象没了，脚本照常打勾就是假护栏）。
@@ -677,24 +733,25 @@ def check_env_wiring(
 
     # 6) env 可达性：注入的每个 env 名都要有读取点
     names, prefixes = derive_readable_env_names()
-    for key in sorted(cm_keys):
-        if not is_readable(key, names, prefixes):
-            errors.append(
-                f"deploy/k8s/configmap.yaml 的 {key} 全仓没有任何读取点 —— "
-                f"要么接上读取方，要么删掉（AUD-39）")
-    for name in ("analysis-deployment.yaml", "data-deployment.yaml"):
-        for env_name in sorted(parse_deployment_env_names(K8S_DIR / name)):
-            if not is_readable(env_name, names, prefixes):
+    if not k8s_retired:
+        for key in sorted(cm_keys):
+            if not is_readable(key, names, prefixes):
                 errors.append(
-                    f"deploy/k8s/{name} 注入的 {env_name} 全仓没有任何读取点（AUD-39）")
+                    f"deploy/k8s/configmap.yaml 的 {key} 全仓没有任何读取点 —— "
+                    f"要么接上读取方，要么删掉（AUD-39）")
+        for name in ("analysis-deployment.yaml", "data-deployment.yaml"):
+            for env_name in sorted(parse_deployment_env_names(K8S_DIR / name)):
+                if not is_readable(env_name, names, prefixes):
+                    errors.append(
+                        f"deploy/k8s/{name} 注入的 {env_name} 全仓没有任何读取点（AUD-39）")
 
-    # 6b) configMapKeyRef 不能悬空
-    for f in sorted(K8S_DIR.glob("*.yaml")):
-        for ref in sorted(parse_configmap_key_refs(f)):
-            if ref not in cm_keys:
-                errors.append(
-                    f"deploy/k8s/{f.name} 引用了 configmap 键 {ref}，但 "
-                    f"deploy/k8s/configmap.yaml 里没有这个键（AUD-39）")
+        # 6b) configMapKeyRef 不能悬空
+        for f in sorted(K8S_DIR.glob("*.yaml")):
+            for ref in sorted(parse_configmap_key_refs(f)):
+                if ref not in cm_keys:
+                    errors.append(
+                        f"deploy/k8s/{f.name} 引用了 configmap 键 {ref}，但 "
+                        f"deploy/k8s/configmap.yaml 里没有这个键（AUD-39）")
 
     # 7) config/*.yaml 不得出现 ${...}
     #
@@ -713,13 +770,14 @@ def check_env_wiring(
     surfaces: list[tuple[str, dict[str, str], bool]] = []
     for svc, env in sorted(compose_env.items()):
         surfaces.append((f"docker-compose.yml 的 {svc} 服务", env, svc == "postgres"))
-    surfaces.append(("deploy/k8s/configmap.yaml", cm_keys, False))
-    for f in sorted(K8S_DIR.glob("*.yaml")):
-        surfaces.append((
-            f"deploy/k8s/{f.name}",
-            {n: "" for n in parse_deployment_env_names(f)},
-            f.name == "postgres-statefulset.yaml",
-        ))
+    if not k8s_retired:
+        surfaces.append(("deploy/k8s/configmap.yaml", cm_keys, False))
+        for f in sorted(K8S_DIR.glob("*.yaml")):
+            surfaces.append((
+                f"deploy/k8s/{f.name}",
+                {n: "" for n in parse_deployment_env_names(f)},
+                f.name == "postgres-statefulset.yaml",
+            ))
     for where, env, is_pg_container in surfaces:
         for banned, why in sorted(BANNED_ENV_NAMES.items()):
             if banned in env:
@@ -1126,37 +1184,41 @@ def main() -> int:
     compose_svc = {
         svc: ports[0][1] for svc, ports in compose_bindings.items() if ports
     }
-    k8s_svc = parse_k8s_ports()
-
     errors: list[str] = []
     notes: list[str] = []
 
-    # 1) 两边都有的服务，端口必须一致
-    for name, cport in sorted(compose_svc.items()):
-        if name in IGNORED_SERVICES:
-            continue
-        kport = k8s_svc.get(name)
-        if kport is None:
-            reason = ALLOWED_MISSING_IN_K8S.get(name)
-            if reason:
-                notes.append(f"{name}: k8s 未部署（{reason}）")
-            else:
-                errors.append(
-                    f"{name}: compose 里有（:{cport}）但 k8s 里没有对应 Service "
-                    f"—— 是真漂移还是有意不部署？后者请加进 ALLOWED_MISSING_IN_K8S"
-                )
-            continue
-        if kport != cport:
-            errors.append(f"{name}: 端口不一致 —— compose {cport} vs k8s {kport}")
+    k8s_retired = k8s_is_retired(errors, notes)
+    k8s_svc = {} if k8s_retired else parse_k8s_ports()
+
+    # 1) 两边都有的服务，端口必须一致（k8s 退役后没有「两边」）
+    if not k8s_retired:
+        for name, cport in sorted(compose_svc.items()):
+            if name in IGNORED_SERVICES:
+                continue
+            kport = k8s_svc.get(name)
+            if kport is None:
+                reason = ALLOWED_MISSING_IN_K8S.get(name)
+                if reason:
+                    notes.append(f"{name}: k8s 未部署（{reason}）")
+                else:
+                    errors.append(
+                        f"{name}: compose 里有（:{cport}）但 k8s 里没有对应 Service "
+                        f"—— 是真漂移还是有意不部署？后者请加进 ALLOWED_MISSING_IN_K8S"
+                    )
+                continue
+            if kport != cport:
+                errors.append(f"{name}: 端口不一致 —— compose {cport} vs k8s {kport}")
 
     # 2) DATA_SERVICE_URL 两边必须一致，且指向的端口要对得上 data-service
-    k8s_config_text = (K8S_DIR / "configmap.yaml").read_text(encoding="utf-8")
+    k8s_config_text = (
+        "" if k8s_retired
+        else (K8S_DIR / "configmap.yaml").read_text(encoding="utf-8"))
     compose_url = find_env_value(compose_text, "DATA_SERVICE_URL")
-    k8s_url = find_env_value(k8s_config_text, "DATA_SERVICE_URL")
+    k8s_url = None if k8s_retired else find_env_value(k8s_config_text, "DATA_SERVICE_URL")
 
     if compose_url is None:
         errors.append("docker-compose.yml 缺 DATA_SERVICE_URL")
-    if k8s_url is None:
+    if not k8s_retired and k8s_url is None:
         errors.append("deploy/k8s/configmap.yaml 缺 DATA_SERVICE_URL —— 此前正是缺这一项，"
                       "全靠代码默认值碰巧能用（P1-8）")
     if compose_url and k8s_url and compose_url != k8s_url:
@@ -1191,15 +1253,19 @@ def main() -> int:
     # grep 不到任何读取点，只有 gin 的内部实现知道它存在。此前
     # deploy/k8s/configmap.yaml 就写着 GIN_MODE: "release"，它确实生效，但只在
     # k8s 生效（compose 没写）—— 两条部署路径的 gin mode 来源不同却不报错。
-    for where, text in (("docker-compose.yml", compose_text),
-                        ("deploy/k8s/configmap.yaml", k8s_config_text)):
+    for where, text in (("docker-compose.yml", compose_text),):
         if find_env_value(text, "GIN_MODE") is not None:
             errors.append(
                 f"{where} 设置了 GIN_MODE —— gin mode 的唯一来源是 config/*.yaml 的 "
                 f"server.gin_mode（AUD-29）；gin 会自己读 GIN_MODE，写在这里会绕过它")
+    if not k8s_retired and find_env_value(k8s_config_text, "GIN_MODE") is not None:
+        errors.append(
+            "deploy/k8s/configmap.yaml 设置了 GIN_MODE —— gin mode 的唯一来源是 "
+            "config/*.yaml 的 server.gin_mode（AUD-29）")
 
     # 5~8) env 口径（AUD-39）
-    check_env_wiring(errors, compose_env, compose_text, k8s_config_text, notes)
+    check_env_wiring(errors, compose_env, compose_text, k8s_config_text, notes,
+                     k8s_retired=k8s_retired)
 
     # 9) Dockerfile 的 COPY 源路径必须存在（AUD-48）
     check_dockerfile_copy_sources(errors)
@@ -1218,19 +1284,28 @@ def main() -> int:
             print(f"  - {e}")
         return 1
 
-    print("✓ 部署配置一致（compose ↔ k8s：服务端口 + DATA_SERVICE_URL）")
+    if k8s_retired:
+        print("✓ 部署配置一致（单一 docker-compose.yml；k8s 清单已退役，"
+              "无跨编排对比对象）")
+    else:
+        print("✓ 部署配置一致（compose ↔ k8s：服务端口 + DATA_SERVICE_URL）")
     print("✓ 数据库已移出 compose，应用容器显式指向 host.docker.internal"
           "（缓存 REDIS_URL 2026-11-10 起无消费者，已不再断言）（AUD-13 改写）")
     print("✓ open-access 与端口发布范围互相蕴含（AUTH_INSECURE ⟺ 所有映射回环；"
           "对外发布 ⟹ 有 JWT_SECRET）（AUD-52 / P0-4）")
     print("✓ gin mode 无 GIN_MODE 旁路（唯一来源 server.gin_mode）")
-    print("✓ env 口径一致（compose ↔ k8s 的库名/用户名/端口相同 —— 先把 "
-          "${VAR:-default} 展开再比；地址按环境各写一份，刻意不比；"
-          "config/analysis-service.yaml 与 compose 一致，agent 仓的 "
-          "ai-service.yaml 在工作区时同样对拍）")
-    print("✓ compose 每处 ${DATABASE_NAME:-...} 默认值相同，且与 configmap 的 "
-          "DATABASE_DATABASE 同值")
-    print("✓ 注入的每个 env 都有读取点（configmap 键 + 应用 deployment 的 env）")
+    if k8s_retired:
+        print("✓ env 口径一致（compose 侧：必备键、身份字段、DSN 密码引用、"
+              "库名默认值 —— k8s 已退役，不参与对比）")
+        print("✓ 注入的每个 env 都有读取点（compose 侧）")
+    else:
+        print("✓ env 口径一致（compose ↔ k8s 的库名/用户名/端口相同 —— 先把 "
+              "${VAR:-default} 展开再比；地址按环境各写一份，刻意不比；"
+              "config/analysis-service.yaml 与 compose 一致，agent 仓的 "
+              "ai-service.yaml 在工作区时同样对拍）")
+        print("✓ compose 每处 ${DATABASE_NAME:-...} 默认值相同，且与 configmap 的 "
+              "DATABASE_DATABASE 同值")
+        print("✓ 注入的每个 env 都有读取点（configmap 键 + 应用 deployment 的 env）")
     print("✓ config/*.yaml 无 ${...} 占位符（本仓没有 env 展开器）")
     print("✓ 死键负向钉（POSTGRES_HOST/PORT、REDIS_HOST/PORT、"
           "REDIS_PASSWORD、DB_PASSWORD 均未出现）")

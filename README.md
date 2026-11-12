@@ -204,7 +204,7 @@ bash tools/local-stack.sh           # 起/停本地栈并断言端口
 | 数据库 | PostgreSQL（宿主机原生或外部托管）；本仓 `migrate()` **不建 hypertable** —— 行情表 owner = `tellurion-data` |
 | 前端 | 独立仓 `tellurion-ui`：Vue 3 + TypeScript + Vite + Naive UI + Pinia |
 | 可观测 | Prometheus `/metrics`、结构化 zerolog、请求 ID 透传 |
-| 基础设施 | Docker Compose（仅服务）、K8s 清单（`deploy/k8s/`，**跨仓部署资产**，见其 README）、Playwright E2E（`e2e/`） |
+| 基础设施 | Docker Compose（**唯一编排**，`docker-compose.yml`）；K8s 清单已于 2026-11-12 退役归档（`deploy/k8s/README.md`）；Playwright E2E（`e2e/`） |
 
 ## 项目结构
 
@@ -219,7 +219,7 @@ tellurion/
 ├── docs/                # SPEC / ARCHITECTURE / TASKS / openapi.yaml / migrations 镜像 / design
 ├── e2e/                 # Playwright 端到端用例
 ├── config/              # 唯一运行期 yaml：analysis-service.yaml（data / ai 的配置已随拆仓移出）
-├── deploy/              # k8s 清单（跨仓部署资产，见 deploy/k8s/README.md）与依赖等待脚本
+├── deploy/              # 部署面：k8s 清单已于 2026-11-12 退役归档（见 deploy/k8s/README.md）与依赖等待脚本
 ├── tools/               # 本地栈脚本、文档死链检查、覆盖率门禁、双跑工具
 └── docker-compose.yml   # 服务编排（不含 PG / Redis / 前端；Redis 已无任何依赖）
 ```

@@ -91,6 +91,18 @@ func TestQT71_ServiceCredentialsAreSecretRefs(t *testing.T) {
 	// 各自有 deploy/，本地唯一部署真相改为 compose）。本用例只核 core 仍在
 	// 维护的两份；服务仓的凭证注入由各自 deploy 清单与 SVC-DEPLOY-01 保证，
 	// core 的护栏够不到，不在这里假装核过。
+	//
+	// 2026-11-12 CORE-K8S-EXIT：k8s 形态退役，清单移入 archive/，活跃层 0 份。
+	// 断言对象（活清单）不存在了 —— 这里的处理是「有清单就照旧核，没清单且已
+	// 归档则跳过」，不是放宽：重新采用 k8s 时清单回到活跃层，本用例自动恢复。
+	active, globErr := filepath.Glob(filepath.Join(root, "*.yaml"))
+	require.NoError(t, globErr)
+	if len(active) == 0 {
+		require.DirExists(t, filepath.Join(root, "archive"),
+			"deploy/k8s 既无活清单也无 archive/ —— 半退役状态，本用例判不了")
+		t.Skip("k8s 清单已随 CORE-K8S-EXIT 退役（只读归档在 deploy/k8s/archive/），" +
+			"凭证注入断言在清单回到活跃层时自动恢复")
+	}
 	deployments := map[string]string{
 		"analysis": filepath.Join(root, "analysis-deployment.yaml"),
 		"data":     filepath.Join(root, "data-deployment.yaml"),

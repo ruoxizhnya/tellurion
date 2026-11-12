@@ -71,8 +71,8 @@ rate_limit:
 # env 展开器（全仓无 os.ExpandEnv / envsubst），YAML 里的 ${...} 不是模板，
 # 就是那 22 个字符本身 —— 它会被当成密码交给驱动，失败点在 TCP 连上之后，
 # 日志里只有 "password authentication failed"，读起来像「密码错了」而不是
-# 「没填密码」。k8s 侧因为注入的 env 名不匹配（见 deploy/k8s/configmap.yaml），
-# 应用拿到的正是这个字面量。
+# 「没填密码」。k8s 侧因为注入的 env 名不匹配（历史清单见
+# deploy/k8s/archive/configmap.yaml），应用拿到的正是这个字面量。
 #
 # 现在改成空串 + 启动期校验（pkg/storage.BuildDSN）：空密码直接 Fatal 并
 # 告诉你填 DATABASE_PASSWORD。注意这里是**空**，不是占位符 —— 占位符会被
@@ -92,7 +92,7 @@ database:
 
 # ── 地址口径（2026-11-11 统一）：本文件是**宿主机直跑视角** ──────────
 # DB / 所有服务地址默认都指向本机（localhost:<port>）。容器内一律
-# 由 docker-compose.yml / deploy/k8s 的 environment 覆盖成服务名 ——
+# 由 docker-compose.yml 的 environment 覆盖成服务名 ——
 # compose 服务名（data-service / ai-service / strategy）只在容器网络内可解析，
 # 宿主机上解析不到。
 #

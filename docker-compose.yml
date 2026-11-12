@@ -133,8 +133,8 @@ services:
 
   data-service:
     # 镜像由 tellurion-data 仓发布（SVC-CORE-DATA-RETIRE，2026-11-08）。本地开发
-    # 用 --build 现建，部署侧（k8s）拉同一个 image；本仓 Dockerfile.service 已不再
-    # 产出 /app/data-service，不能再拿它当 data-service 的构建源。
+    # 用 --build 现建；本仓 Dockerfile.service 已不再产出 /app/data-service，
+    # 不能再拿它当 data-service 的构建源。
     image: tellurion/data:${DATA_IMAGE_TAG:-latest}
     build:
       context: ../tellurion-data

@@ -1,7 +1,8 @@
 # 部署清单与凭证轮换
 
-本目录是 **core 仓的部署面**（裁-17 ①）：`k8s/` 放各服务清单，
-`docker-compose.yml`（仓根）放本地 compose 形态。
+本目录是 **core 仓的部署面**（裁-17 ①）：`docker-compose.yml`（仓根）是**唯一**
+编排；`k8s/` 清单已于 2026-11-12 退役（`CORE-K8S-EXIT`），只留
+[退役说明](k8s/README.md)与 `archive/` 历史件。
 
 ## 本地编排：单一文件 + profile（2026-11-11 定案）
 
@@ -25,8 +26,9 @@
 - 跨仓 7 份 `<repo>/deploy/compose.yaml` **不并入、不改动**：它们是各仓自证
   Dockerfile / health 的资产，联调一律用本仓的 profile。
 
-`k8s/` 形态仍未接 broker，也没有 `BROKER_*` 注入（`deploy/k8s/README.md` 的
-待办口径），走 k8s 部署前必须先补这一层。
+`k8s/` 形态已退役（2026-11-12，`CORE-K8S-EXIT` / D7=a）：历史清单在
+`deploy/k8s/archive/`，不参与部署；恢复须另立 ADR，见
+[`k8s/README.md`](k8s/README.md)。
 
 ## 凭证只经 env 注入
 

@@ -54,6 +54,7 @@ var engineSeedFields = map[string]bool{
 	"cache":        true, // L1 OHLCV
 	"factor":       true, // 因子 z-score
 	"fundamentals": true, // 财报
+	"dailyBasic":   true, // 逐日估值快照（CORE-STRATEGY-SCREEN-LOCAL-VALUE）
 	"listing":      true, // 上市日历
 	"intraday":     true, // 日内分钟快照
 }
@@ -64,13 +65,14 @@ var engineSeedFields = map[string]bool{
 // 想往这里加名字，等于承认「有一个 run 路径会写引擎级状态」——那是本单修的
 // 缺陷本身，要走评审而不是往表里塞一行。
 var engineSeedWriteAllowlist = map[string]bool{
-	"NewEngine":            true, // 构造（含 composite literal 里的初始化）
-	"NewEngineWithOptions": true,
-	"SetFundamentals":      true, // P2-12 注入门
-	"SetListingWindows":    true, // P2-4 注入门
-	"SetIntradaySnapshot":  true, // D6 注入门
-	"LoadOHLCVInMemory":    true, // 测试/离线 bench 的 L1 注入门
-	"LoadFactorCache":      true, // 因子注入门
+	"NewEngine":               true, // 构造（含 composite literal 里的初始化）
+	"NewEngineWithOptions":    true,
+	"SetFundamentals":         true, // P2-12 注入门
+	"SetDailyBasicValuations": true, // CORE-STRATEGY-SCREEN-LOCAL-VALUE 注入门
+	"SetListingWindows":       true, // P2-4 注入门
+	"SetIntradaySnapshot":     true, // D6 注入门
+	"LoadOHLCVInMemory":       true, // 测试/离线 bench 的 L1 注入门
+	"LoadFactorCache":         true, // 因子注入门
 }
 
 // engineFieldWhitelist 是 Engine 结构体字段的冻结面（Leg A 的比对基准）。
@@ -94,7 +96,7 @@ var engineFieldWhitelist = []string{
 	// runContext 只在建 provider 时读它们。
 	"wasmShardBudget", "wasmShardObserver",
 	// 种子（run 各拷一份）
-	"cache", "factor", "fundamentals", "listing", "intraday",
+	"cache", "factor", "fundamentals", "dailyBasic", "listing", "intraday",
 	// 进程级
 	"admission", "wasmBytesAccounting",
 }
