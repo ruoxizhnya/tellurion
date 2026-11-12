@@ -306,6 +306,9 @@ func TestFundamentalsAPI_DataRetrieval(t *testing.T) {
 }
 
 func TestFactorAPI_FactorComputation(t *testing.T) {
+	// 2026-11-12 订正：该用例过去对任意非 200 只打日志 ⇒ 恒过（假绿）。
+	// 目标语义其实很明确：因子求值不提供 HTTP 面（ADR-041 D1），`/api/factors/compute`
+	// 从未注册过路由 ⇒ 必须 404；同族读面已退役 ⇒ 必须 410 + 机器码（ADR-037 §5）。
 	date := "20240115"
 
 	url := fmt.Sprintf("%s/api/factors/compute?date=%s&lookback=10", baseURL, date)
@@ -313,16 +316,19 @@ func TestFactorAPI_FactorComputation(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		var result map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&result)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode,
+		"POST /api/factors/compute 必须不存在（无求值 HTTP 面）；实际 %d: %s", resp.StatusCode, string(body))
 
-		assert.Contains(t, result, "status")
-		t.Logf("✅ Factor computation result: %+v", result)
-	} else {
-		body, _ := io.ReadAll(resp.Body)
-		t.Logf("⚠️ Factor computation returned status %d: %s", resp.StatusCode, string(body))
-	}
+	getResp, err := http.Get(fmt.Sprintf("%s/api/factors/pe_ttm", baseURL))
+	require.NoError(t, err)
+	defer getResp.Body.Close()
+	getBody, err := io.ReadAll(getResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusGone, getResp.StatusCode,
+		"GET /api/factors/:factor_name 必须 410 退役；实际 %d: %s", getResp.StatusCode, string(getBody))
+	assert.Contains(t, string(getBody), "factor_http_surface_retired")
 }
 
 // pollForCompletion waits for async backtest to complete
