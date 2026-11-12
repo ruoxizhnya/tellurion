@@ -2457,4 +2457,3 @@ func (e *Engine) ExecuteSignalsViaLiveTrader(ctx context.Context, signals []doma
 func (e *Engine) HealthCheckLiveTrader(ctx context.Context) error {
 	return e.liveBridge.HealthCheck(ctx)
 }
-
