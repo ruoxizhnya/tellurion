@@ -90,6 +90,22 @@ func TestMiddleware_Unavailable_Write503(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Contains(t, w.Body.String(), `"code":"`+CodeAuthUnavailable+`"`)
 
+	// Every write endpoint named in the audit must be 503 too — not 404/400/2xx.
+	// The gate is method+path before route matching, so these need no handler.
+	for _, path := range []string{
+		"/api/signals",
+		"/api/expression/validate",
+		"/api/factor/registrations",
+		"/api/screen",
+		"/api/ingest/raw",
+		"/api/v1/ohlcv/bulk",
+	} {
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code, path)
+		assert.Contains(t, w.Body.String(), `"code":"`+CodeAuthUnavailable+`"`, path)
+	}
+
 	// Public write paths (login) keep working so the SPA can still probe.
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/auth/login", nil))
