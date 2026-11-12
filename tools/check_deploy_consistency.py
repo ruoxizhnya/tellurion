@@ -201,10 +201,36 @@ def parse_compose_ports(path: Path) -> dict[str, list[tuple[str | None, int]]]:
     return bindings
 
 
+def active_k8s_manifests() -> list[Path]:
+    """活跃层清单 = `deploy/k8s/` 下**递归**的 `*.yaml`，排除 `archive/`。
+
+    递归而非仅顶层是刻意的：若将来有人把清单塞进 `deploy/k8s/prod/*.yaml`，
+    只扫顶层会把「k8s 回来了」误判成「活跃层 0 份、已退役」。同样地，改名成
+    `*.yml` 也会被 `rglob("*.yaml")` + 下面的 `.yml` 补扫兜住。
+    """
+    out: list[Path] = []
+    for pattern in ("*.yaml", "*.yml"):
+        for p in sorted(K8S_DIR.rglob(pattern)):
+            rel = p.relative_to(K8S_DIR)
+            if rel.parts and rel.parts[0] == "archive":
+                continue
+            out.append(p)
+    return out
+
+
+def k8s_manifest(name: str) -> Path:
+    """按文件名在活跃层里找清单（允许放在子目录）；找不到时回落到顶层路径，
+    由调用方的存在性断言报错，而不是在解析处抛 FileNotFoundError。"""
+    for p in active_k8s_manifests():
+        if p.name == name:
+            return p
+    return K8S_DIR / name
+
+
 def parse_k8s_ports() -> dict[str, int]:
     """抓 k8s Service 的 name → port（Service 才是别的 Pod 访问用的入口）。"""
     ports: dict[str, int] = {}
-    for f in sorted(K8S_DIR.glob("*.yaml")):
+    for f in active_k8s_manifests():
         text = f.read_text(encoding="utf-8")
         for doc in text.split("\n---\n"):
             if not re.search(r"^kind:\s*Service\s*$", doc, re.M):
@@ -229,7 +255,9 @@ def parse_k8s_ports() -> dict[str, int]:
 # 是另立 ADR（`deploy/k8s/README.md` 的「重新采用 k8s 的流程」）。同理，
 # 「没有清单也没有 archive/」是半退役状态，也不许默认放行。
 def k8s_is_retired(errors: list[str], notes: list[str]) -> bool:
-    active = sorted(p.name for p in K8S_DIR.glob("*.yaml"))
+    # 递归扫（排除 archive/），不是只看顶层 —— 子目录里放清单同样算「k8s 回来了」，
+    # 只改文件名/加一层目录都不该让退役判定漏判。
+    active = [p.relative_to(K8S_DIR).as_posix() for p in active_k8s_manifests()]
     archived = K8S_DIR / "archive"
     if archived.is_dir():
         if active:
@@ -680,7 +708,7 @@ def check_env_wiring(
             errors.append(
                 f"DATA_MARKET_SCHEMA 不一致 —— compose {compose_schema} vs k8s {k8s_schema}")
 
-        k8s_dsn = parse_deployment_env_values(K8S_DIR / "data-deployment.yaml").get(
+        k8s_dsn = parse_deployment_env_values(k8s_manifest("data-deployment.yaml")).get(
             "DATABASE_URL", "")
         if not k8s_dsn:
             errors.append(
@@ -740,13 +768,15 @@ def check_env_wiring(
                     f"deploy/k8s/configmap.yaml 的 {key} 全仓没有任何读取点 —— "
                     f"要么接上读取方，要么删掉（AUD-39）")
         for name in ("analysis-deployment.yaml", "data-deployment.yaml"):
-            for env_name in sorted(parse_deployment_env_names(K8S_DIR / name)):
+            mf = k8s_manifest(name)
+            for env_name in sorted(parse_deployment_env_names(mf)):
                 if not is_readable(env_name, names, prefixes):
                     errors.append(
-                        f"deploy/k8s/{name} 注入的 {env_name} 全仓没有任何读取点（AUD-39）")
+                        f"{mf.relative_to(ROOT).as_posix()} 注入的 {env_name} "
+                        f"全仓没有任何读取点（AUD-39）")
 
         # 6b) configMapKeyRef 不能悬空
-        for f in sorted(K8S_DIR.glob("*.yaml")):
+        for f in active_k8s_manifests():
             for ref in sorted(parse_configmap_key_refs(f)):
                 if ref not in cm_keys:
                     errors.append(
@@ -772,7 +802,7 @@ def check_env_wiring(
         surfaces.append((f"docker-compose.yml 的 {svc} 服务", env, svc == "postgres"))
     if not k8s_retired:
         surfaces.append(("deploy/k8s/configmap.yaml", cm_keys, False))
-        for f in sorted(K8S_DIR.glob("*.yaml")):
+        for f in active_k8s_manifests():
             surfaces.append((
                 f"deploy/k8s/{f.name}",
                 {n: "" for n in parse_deployment_env_names(f)},
@@ -1212,7 +1242,7 @@ def main() -> int:
     # 2) DATA_SERVICE_URL 两边必须一致，且指向的端口要对得上 data-service
     k8s_config_text = (
         "" if k8s_retired
-        else (K8S_DIR / "configmap.yaml").read_text(encoding="utf-8"))
+        else k8s_manifest("configmap.yaml").read_text(encoding="utf-8"))
     compose_url = find_env_value(compose_text, "DATA_SERVICE_URL")
     k8s_url = None if k8s_retired else find_env_value(k8s_config_text, "DATA_SERVICE_URL")
 

@@ -12,6 +12,8 @@ verified-by: 2026-11-12 `CORE-K8S-EXIT` 退役：活跃层 7 份清单整体移�
 >
 > `tools/check_deploy_consistency.py` 对此有守卫：活跃层一旦出现清单即 `exit 1`
 > —— 恢复 k8s 等于重新引入两套编排，必须另立 ADR 明确取舍，而不是顺手把文件放回来。
+> 判定是**递归扫** `deploy/k8s/**/*.{yaml,yml}`（排除 `archive/`），不是只看顶层：
+> 把清单塞进 `deploy/k8s/prod/` 或改名，都算「k8s 回来了」。
 
 ## 为什么退役（D7 = a）
 
