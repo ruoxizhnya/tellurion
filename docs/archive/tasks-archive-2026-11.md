@@ -109,6 +109,8 @@
 | CORE-RISK-REMOTE-FALLBACK-DEAD | `risk_service.url` 三处远程回落恒不可用（裁决 = 删，改 fail-closed） | 2026-11-12 | `5729395` | [原文](#CORE-RISK-REMOTE-FALLBACK-DEAD) |
 | X-PROBE-NAMING | data `/healthz` 统一探针命名，摘 `/health` 别名并复验 consumers | 2026-11-12 | data `3a40867`（core 侧无代码改动） | [原文](#X-PROBE-NAMING) |
 | CORE-BROKER-STARTUP-PRECONDITION | broker 不可达 ⇒ core 拒起（部署前置）：文档腿补齐失败原文，k8s 腿随退役关闭 | 2026-11-12 | 见原文 | [原文](#CORE-BROKER-STARTUP-PRECONDITION) |
+| X-DEP-BUMP-CONSUMERS | 7 消费仓 kit pin 升级 + `govulncheck` 门（含 7 仓独立复跑 EXIT=0） | 2026-11-12 | 见原文（各仓提交） | [原文](#X-DEP-BUMP-CONSUMERS) |
+| X-LOW-CLEANUP | 5 处低优先残留（strategy / contracts / agent / data / ui） | 2026-11-12 | 见原文 | [原文](#X-LOW-CLEANUP) |
 
 ---
 
@@ -3559,3 +3561,65 @@
 >   这正是 ⑤ 要求的「拔掉 broker ⇒ core 必失败且日志点名」的容器形态证据；本机直跑/通道不一致两条由 `pkg/brokerhttp/port_test.go:463` 与 `trader_channel_test.go:88,112` 钉住原文。
 > - **未做**：未在主栈上真做「停 broker → 重建 analysis」的整栈破坏（本轮复用栈在跑全栈验收，且 2026-11-11 冷启动三次全绿已覆盖正向；隔离容器腿覆盖了同一 entrypoint 的失败分支）。
 > - **门禁**：`docker compose config --quiet` / `--profile full config --quiet` / `check_doc_links.py` / `check_deploy_consistency.py` 全 exit 0。
+
+<a id="X-DEP-BUMP-CONSUMERS"></a>
+### X-DEP-BUMP-CONSUMERS · 7 消费仓 bump kit pin + govulncheck 门（W5-F1 连带）[P0] ✅（2026-11-12）
+
+- **① 目标**：kit 安全 bump（`KIT-DEP-SECURITY-BUMP`）发版后，7 个消费仓把 kit pin 升到安全版并各补一条 `govulncheck` CI 门，让 GO-2026-5004（pgx SQLi）等漏洞在消费侧真闭合。
+- **② 上下文**：审查发现 W5-F1（ODR-072）+ 裁决 D1=b（pgx 一步收敛 v5.11.0）。GO-2026-5004 影响 7 仓（core/agent/data/strategy/risk/orch/broker），fixed v5.9.2；x/net×4（fixed v0.60.0）8 仓、x/text×2 9 仓。kit 是依赖底座，bump 后消费仓须跟升 pin 才真生效。前置 = `KIT-DEP-SECURITY-BUMP` + `BROKER-DEP-BUMP` + `UI-NPM-AUDIT-FIX`。
+- **③ 要求**：① kit 发安全版后，7 消费仓 `go get tellurion-kit@vX` + `go mod tidy`（只升 tag，禁 replace）；② 各仓 CI 增 `govulncheck ./...` 门；③ 各仓 AGENTS §4 依赖表同批更新（与 `X-AGENTS-DEPENDENCY-TABLE` 联动）；④ pgx 收敛到 v5.11.0 一步到位（D1=b），登记三档并存的代价。
+- **④ 约束与非目标**：不手改版本号、不加 replace；不在本批顺手升无关依赖；analytics 已 v5.11.0 安全，不重复 bump。
+- **⑤ 验收**：7 仓 `govulncheck` 真跑 EXIT=0（E2）；破坏验证 = 临时 pin 回旧版 ⇒ govulncheck 红。各仓 `go build/vet/test` 绿。
+- **⑥ 边界**：协调伞在 core；各仓 pin/CI/AGENTS 改动落各仓 commit。前置 kit 发版归 `KIT-DEP-SECURITY-BUMP`。
+- **core 腿（2026-11-12 已完成，见 [归档](tasks-archive-2026-11.md#X-DEP-BUMP-CONSUMERS)）**：`go.mod` kit `v0.5.0` / pgx `v5.11.0` / `go 1.26.11`，CI 增 `govulncheck` 门并三处 `setup-go` 对齐；破坏验证（pgx 回 v5.7.3 ⇒ GO-2026-5004 红）真做真还原。
+- **owner**：待定
+- **重开条件**：`KIT-DEP-SECURITY-BUMP` 发版（tag 推远端 + proxy 可解析）。
+
+> **施工记录（2026-11-12，逐仓只读取证 + 独立复跑 govulncheck 后关账）**
+>
+> **各腿证据（仓 / 文件 / 提交 / 当前内容）** —— 版本均为 2026-11-12 直接读 `go.mod` 实测：
+>
+> | 仓 | go.mod 实测 | 提交 | CI `govulncheck` |
+> |---|---|---|---|
+> | core | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | core 2026-11-12 归档（`X-DEP-BUMP-CONSUMERS`） | 有 |
+> | agent | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `0543363`（pin）、`575d434`（Dockerfile 工具链） | 有 |
+> | data | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `3f03746`（pin）、`219a222`（Dockerfile） | 有 |
+> | strategy | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `ea9bc29`（pin）、`6edfa82`（Dockerfile） | 有 |
+> | risk | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `c19634a`（pin）、`fa60378`（govulncheck 回补）、`a6e4eb2`（基础镜像） | 有 |
+> | orchestration | kit `v0.5.0` / contracts `v0.10.0` / go `1.26.11` | `d093481`（pin）、`4a7112c`（govulncheck 回补） | 有 |
+> | broker | contracts `v0.10.0` / pgx `v5.11.0` / x/text `v0.44.0` / go `1.26.11`（**无 kit 依赖**） | `9064049`（`BROKER-DEP-BUMP`）、`afeb2ee`（govulncheck）、`a6da189`（工具链对齐） | 有 |
+> | analytics | kit `v0.5.0` / go `1.26.11`（无 contracts / pgx 直接依赖） | `19a2246`（pin）、`f859e0b`（govulncheck 回补） | 有 |
+>
+> **独立复跑（⑤ 的 E2，本轮真做）**：`go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+> 在 **agent / data / strategy / risk / orchestration / broker / analytics 7 仓**逐一执行
+> ⇒ **全部 `EXIT=0`**，输出 `No vulnerabilities found` / `Your code is affected by 0 vulnerabilities`
+> （modules 层各 3 条，均为「未被调用」）。环境：govulncheck `v1.9.0`，DB `vuln.go.dev`，Go `1.26.11`。
+>
+> **破坏验证**：core 腿在 2026-11-12 已真做真还原（pgx 回 `v5.7.3` ⇒ GO-2026-5004 红）；其余各仓在各自
+> 施工记录中登记「临时 pin 回旧版 ⇒ 红 / 还原复绿」。本轮受「核实阶段只读」约束，**未在其余仓重复降版**。
+>
+> **结论**：7/7 消费仓 pin 与 govulncheck 门齐备，且 7 仓独立复跑 EXIT=0 —— 关账。
+
+<a id="X-LOW-CLEANUP"></a>
+### X-LOW-CLEANUP · 低优先整洁度残留打包（W6/W2 清单外顺手发现）[P3] ✅（2026-11-12）
+
+- **① 目标**：把审查中登记的 5 处低优先整洁度残留一次清掉，各落各仓 commit，不混进功能单。
+- **② 上下文**：审查发现 W6/W2（ODR-073/069）清单外顺手发现：① strategy Dockerfile 退役名残留；② contracts `fees` 死注释；③ agent `/api/health` 豁免注册口径；④ 分页 offset 登记缺失；⑤ ui openapi「不复制」守卫。各条证据坐标见对应 ODR 发现摘要。
+- **③ 要求**：① strategy 删 Dockerfile 退役 cmd 名；② contracts 删 fees 死注释（不改字段）；③ agent 核 `/api/health` 豁免注册并订正；④ 补分页 offset 登记；⑤ ui 补「openapi 不复制」守卫（grep 护栏）。各条独立 commit。
+- **④ 约束与非目标**：不顺手扩到功能改动；contracts 不改冻结字段；ui 不复制 openapi。
+- **⑤ 验收**：各仓 build/test 绿；⑤ 的守卫破坏验证 = 复制一份 openapi ⇒ 护栏红。
+- **⑥ 边界**：协调伞在 core；5 处各落各仓 commit。
+
+> **施工记录（2026-11-12，逐仓只读取证后关账）**
+>
+> | 腿 | 仓 / 文件 | 提交 | 当前内容（本轮复核） |
+> |---|---|---|---|
+> | ① Dockerfile 退役名 | strategy `Dockerfile` / `Dockerfile.compiler` | `d6852f8` | 只 build `./cmd/assetservice` 与 `./cmd/compiler`，无退役 cmd 名 |
+> | ② `fees` 死注释 | contracts `fees/ashare.go` | `bf6c5f0` | 三处指向已删 `tellurion:pkg/live`（`MockTrader` / `mock_trader.go`）的示例注释已删；字段与导出面未动；`go build ./...` EXIT=0 |
+> | ③ `/api/health` 豁免 | agent `cmd/ai/main.go` / `cmd/ai/lifecycle.go` | `92ea835` | `aiPublicPaths` 与 `rateLimitExemptPaths` 均删 `/api/health`（本进程未注册该路由），注释不再宣称与 core「逐字一致」；`go build ./...` EXIT=0 |
+> | ④ 分页 offset 登记 | data `internal/httpapi/sync.go` 等 | `e700080`（登记）、`2c63830`（`DATA-PAGINATION-ALIGN` 实现） | `/api/sync/jobs` 补 `offset` + `limit`/`offset` 回显 + `created_at DESC, id DESC` 稳定排序；登记写明 evidence 与 sync jobs 两侧口径 |
+> | ⑤ openapi 不复制守卫 | ui `scripts/check-no-openapi.mjs` + `.github/workflows/ci.yml` | `daf7028` | CI 末尾 `Guard（openapi 不复制）` 步；本轮实跑 `node scripts/check-no-openapi.mjs` → `✓ 本仓无 openapi/swagger 规格副本`，EXIT=0 |
+>
+> **破坏验证**：⑤ 由 ui 仓施工记录登记真做真还原（复制 `core:docs/openapi.yaml` 到仓库根 ⇒ EXIT=1 并打印命中路径；删除后 EXIT=0）。本轮受「核实阶段只读」约束，未在其他仓重复破坏（写入他人仓）。
+> **构建核对**：strategy / contracts / agent `go build ./...` 均 EXIT=0；data 侧改动由该仓 `DATA-PAGINATION-ALIGN` 记录覆盖。
+> **结论**：5/5 腿均有仓 / 文件 / 提交 / 当前内容证据 —— 关账。
