@@ -16,8 +16,8 @@ package wiring
 // 配置（`risk_service.*`）：
 //   - `resolve_enabled`：显式开关。false = 本部署未接入 risk 服务，
 //     provenance 记空串 + `not_configured`（裁-11 唯一允许空串的情形）。
-//   - `resolve_url`：risk 服务基址（必填；**不**回落到 `risk_service.url`，
-//     后者指向 analysis 自己的进程内风控，没有该端点）。
+//   - `resolve_url`：risk 服务基址（必填；`risk_service.url` 已随
+//     CORE-RISK-REMOTE-FALLBACK-DEAD 删除，不存在可回落对象）。
 //   - `resolve_token`：服务间凭证（Bearer）。risk 开 secret 后必填，否则 401。
 //   - `resolve_timeout`：单次 resolve 超时，缺省 10s。
 //
@@ -252,7 +252,7 @@ func LoadRiskPolicy(v *viper.Viper, logger zerolog.Logger) (risk.Policy, error) 
 	base := strings.TrimSpace(v.GetString("risk_service.resolve_url"))
 	if base == "" {
 		return risk.Policy{}, fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
-			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
+			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 已删除，不存在回落）")
 	}
 	timeout := v.GetDuration("risk_service.resolve_timeout")
 	if timeout <= 0 {
@@ -305,12 +305,12 @@ func AttachRiskRulesFromConfig(eng *backtest.Engine, v *viper.Viper, logger zero
 
 	base := strings.TrimSpace(v.GetString("risk_service.resolve_url"))
 	if base == "" {
-		// 刻意**不**回落到 `risk_service.url`：那一项指向 analysis 自己
-		// （:8085，P1-15 合并后的进程内风控），它没有 `/api/risk/resolve`。
-		// 回落到那里等于把「少配一项」变成「每个 run 都 404 → failed」，
-		// 且失败点推迟到提交时才出现。宁可装配期直接拒。
+		// 不回落：`risk_service.url` 已随 CORE-RISK-REMOTE-FALLBACK-DEAD 删除
+		// （它曾是 engine 的死回落，指向 analysis 自己的 :8085，没有
+		// `/api/risk/resolve`）。宁可装配期直接拒，也不把「少配一项」变成
+		// 「每个 run 都 404 → failed」、且失败点推迟到提交时才出现。
 		return fmt.Errorf("risk_service.resolve_enabled=true 但 risk_service.resolve_url 为空" +
-			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 是 analysis 自己的进程内风控，不能用于 resolve）")
+			"（tellurion-risk 的默认地址是 http://localhost:8089；risk_service.url 已删除，不存在回落）")
 	}
 	timeout := v.GetDuration("risk_service.resolve_timeout")
 	if timeout <= 0 {

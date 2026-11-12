@@ -87,7 +87,7 @@ var engineSeedWriteAllowlist = map[string]bool{
 //   - 进程级：本就该跨 run 共享的那两份（准入闸、wasm 账源）。
 var engineFieldWhitelist = []string{
 	// 装配
-	"mu", "config", "provider", "riskServiceURL", "httpClient", "logger",
+	"mu", "config", "provider", "logger",
 	"stateStore", "riskManager", "dataAdapter", "store", "adjStore",
 	"provWriter", "provenanceOff", "liveBridge", "executionBridge", "rng",
 	// QT-66：规则快照 hash 取数口是装配期只读依赖（run 提交时读一次，

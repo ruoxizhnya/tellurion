@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/marketdata"
+	"tellurion/pkg/risk"
 	_ "tellurion/pkg/strategy/plugins" // registers momentum strategy via init()
 )
 
@@ -183,22 +183,6 @@ func BenchmarkBacktest(b *testing.B) {
 	}))
 	defer stratServer.Close()
 
-	riskServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/risk/regime":
-			_ = json.NewEncoder(w).Encode(cdom.MarketRegime{
-				Trend: "sideways", Volatility: "medium", Sentiment: 0.0, Timestamp: time.Now(),
-			})
-		case "/calculate_position":
-			_ = json.NewEncoder(w).Encode(domain.PositionSize{Size: 1000, Weight: 0.02})
-		case "/api/v1/risk/stoploss":
-			_ = json.NewEncoder(w).Encode(map[string]any{"events": []any{}})
-		default:
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	defer riskServer.Close()
-
 	v := viper.New()
 	v.Set("backtest.initial_capital", 1000000.0)
 	v.Set("backtest.commission_rate", 0.0003)
@@ -207,13 +191,20 @@ func BenchmarkBacktest(b *testing.B) {
 	v.Set("backtest.seed", 42)
 	v.Set("data_service.url", dataServer.URL)
 	v.Set("strategy_service.url", stratServer.URL)
-	v.Set("risk_service.url", riskServer.URL)
 
 	logger := zerolog.New(zerolog.NewTestWriter(b))
 	eng, err := NewEngine(v, marketdata.NewInMemoryProvider(), logger)
 	if err != nil {
 		b.Fatalf("failed to create engine: %v", err)
 	}
+
+	// 进程内风控：CORE-RISK-REMOTE-FALLBACK-DEAD 之后 engine 不再回落 HTTP
+	// risk-service，没有 RiskManager 就 fail-closed（与两个生产入口一致）。
+	rm, err := risk.NewRiskManager(risk.BuiltinPolicy().Config, logger)
+	if err != nil {
+		b.Fatalf("failed to create risk manager: %v", err)
+	}
+	eng.SetRiskManager(rm)
 
 	// Populate in-memory cache: getOHLCV now returns instantly.
 	eng.LoadOHLCVInMemory(inMemoryOHLCV)
@@ -270,21 +261,6 @@ func TestBenchmarkSmoke(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"signals": []domain.Signal{}})
 	}))
 	defer stratServer.Close()
-	riskServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/risk/regime":
-			_ = json.NewEncoder(w).Encode(cdom.MarketRegime{
-				Trend: "sideways", Volatility: "medium", Sentiment: 0.0, Timestamp: time.Now(),
-			})
-		case "/calculate_position":
-			_ = json.NewEncoder(w).Encode(domain.PositionSize{Size: 1000, Weight: 0.02})
-		case "/api/v1/risk/stoploss":
-			_ = json.NewEncoder(w).Encode(map[string]any{"events": []any{}})
-		default:
-			w.WriteHeader(http.StatusOK)
-		}
-	}))
-	defer riskServer.Close()
 
 	v := viper.New()
 	v.Set("backtest.initial_capital", 1000000.0)
@@ -294,13 +270,17 @@ func TestBenchmarkSmoke(t *testing.T) {
 	v.Set("backtest.seed", 42)
 	v.Set("data_service.url", dataServer.URL)
 	v.Set("strategy_service.url", stratServer.URL)
-	v.Set("risk_service.url", riskServer.URL)
 
 	logger := zerolog.New(zerolog.NewTestWriter(t))
 	provider := marketdata.NewInMemoryProvider()
 	provider.SetTradingDays(tradingDays)
 	eng, err := NewEngine(v, provider, logger)
 	require.NoError(t, err)
+
+	rm, err := risk.NewRiskManager(risk.BuiltinPolicy().Config, logger)
+	require.NoError(t, err)
+	eng.SetRiskManager(rm)
+
 	eng.LoadOHLCVInMemory(inMemoryOHLCV)
 	eng.SetParallelWorkers(4)
 

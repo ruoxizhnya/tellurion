@@ -561,13 +561,13 @@ func AttachRiskEventsFromConfig(v *viper.Viper, am *alert.AlertManager, outbox A
 
 	base := strings.TrimSpace(v.GetString("risk_service.events_url"))
 	if base == "" {
-		// 刻意**不**回落到 `risk_service.url`：那一项指向 analysis 自己
-		// （:8085，P1-15 合并后的进程内风控），它没有 `/api/risk/events`。
-		// 回落等于把「少配一项」变成每条告警 404，且失败点推迟到告警真的
-		// 触发时才出现。宁可装配期直接拒。
+		// 不回落：`risk_service.url` 已随 CORE-RISK-REMOTE-FALLBACK-DEAD 删除
+		// （它曾是 engine 的死回落，指向 analysis 自己的 :8085，没有
+		// `/api/risk/events`）。宁可装配期直接拒，也不把「少配一项」变成
+		// 每条告警 404、且失败点推迟到告警真的触发时才出现。
 		return fmt.Errorf("risk_service.events_enabled=true 但 risk_service.events_url 为空" +
 			"（risk 服务的默认可执行文件绑定 127.0.0.1:8086 —— `cmd/riskservice -addr`；" +
-			"不能用 risk_service.url，那是 analysis 自己的进程内风控）")
+			"不能用 risk_service.url —— 该键已删除，不存在回落）")
 	}
 
 	cfg := RiskEventSinkConfig{

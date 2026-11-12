@@ -150,10 +150,11 @@ compose / k8s 的 env 覆盖成服务名。启动期会解析这些主机名（
 不会拖到第一条业务请求才 `no such host`。完整键 ↔ env ↔ 默认值映射见 yaml
 的「地址口径」注释块。
 
-⚠️ 同段里的 `risk_service.url` **不在此列**：它是 `pkg/backtest/engine.go` 的远程
-回落（`riskManager == nil` 时拼 `/detect_regime` 等三条），今天恒不可达，也不是
-risk 的地址；risk 的实际地址是 `risk_service.resolve_url`（默认 `:8089`）。
-详见 [SPEC.md](docs/SPEC.md) §主要配置段与 TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`。
+⚠️ `risk_service.url` 已于 2026-11-12 随 `CORE-RISK-REMOTE-FALLBACK-DEAD` 删除：
+它是 `pkg/backtest/engine.go` 的远程回落（`riskManager == nil` 时拼 `/detect_regime`
+等三条），生产路径不可达；现在没有进程内 RiskManager 就显式 fail-closed。它也不是
+risk 的地址 —— risk 的实际地址是 `risk_service.resolve_url`（默认 `:8089`）。
+详见 [SPEC.md](docs/SPEC.md) §主要配置段。
 
 ai-service（`tellurion-agent` 仓）同样只从 env 取 `DATABASE_PASSWORD` 与
 `JWT_SECRET`，探针是 `/health`（存活）与 `/readyz`（就绪，校验 `ai.*` 迁移）；

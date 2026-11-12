@@ -2,12 +2,10 @@ package backtest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/rand"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -18,7 +16,6 @@ import (
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
-	"github.com/ruoxizhnya/tellurion-kit/httpclient"
 	"github.com/spf13/viper"
 	"tellurion/pkg/backtest/cache"
 	"tellurion/pkg/backtest/metrics"
@@ -71,13 +68,9 @@ type Engine struct {
 	// Market data provider (abstracted for testability)
 	provider marketdata.Provider
 
-	// External service URLs (for non-market-data calls: risk).
-	// strategyServiceURL 已随 OBS-11 删除——策略服务 standby（ADR-012），
-	// 信号只从本地注册表产出。
-	riskServiceURL string
-
-	// HTTP client for non-market-data service communication (with retry)
-	httpClient *httpclient.Client
+	// riskServiceURL / httpClient 已随 CORE-RISK-REMOTE-FALLBACK-DEAD 删除：
+	// engine 原先只在「没有进程内 RiskManager」时回落 HTTP risk-service，而两个
+	// 生产入口（cmd/analysis、cmd/worker）都无条件注入 RiskManager，回落不可达。
 
 	// Active backtest states — P1-18 (ADR-020):
 	// 旧字段 `backtests map[string]*BacktestState` + `btMu sync.RWMutex` 已
@@ -298,10 +291,7 @@ func NewEngine(v *viper.Viper, provider marketdata.Provider, logger zerolog.Logg
 	}
 
 	// strategy_service.url 已随 OBS-11 删除（策略信号只走本地注册表）。
-	riskServiceURL := v.GetString("risk_service.url")
-	if riskServiceURL == "" {
-		riskServiceURL = "http://localhost:8083"
-	}
+	// risk_service.url 已随 CORE-RISK-REMOTE-FALLBACK-DEAD 删除（回落不可达）。
 
 	// REV-19：**在执行服务默认值覆盖之前**抓住用户显式配置的滑点。
 	//
@@ -378,8 +368,6 @@ func NewEngine(v *viper.Viper, provider marketdata.Provider, logger zerolog.Logg
 	eng := &Engine{
 		config:          config,
 		provider:        provider,
-		riskServiceURL:  riskServiceURL,
-		httpClient:      httpclient.New("", 30*time.Second, 3),
 		logger:          componentLogger,
 		cache:           cache.NewCacheManager(componentLogger),
 		factor:          cache.NewFactorCacheAccessor(componentLogger),
@@ -457,7 +445,6 @@ func NewEngineWithOptions(cfg Config, provider marketdata.Provider, opts ...Engi
 	eng := &Engine{
 		config:          cfg,
 		provider:        provider,
-		httpClient:      httpclient.New("", 30*time.Second, 3),
 		logger:          componentLogger,
 		cache:           cache.NewCacheManager(componentLogger),
 		factor:          cache.NewFactorCacheAccessor(componentLogger),
@@ -1624,7 +1611,9 @@ func dateRangeBounds(bars []domain.OHLCV, start, end time.Time) (int, int) {
 	return cache.DateRangeBounds(bars, start, end)
 }
 
-// detectRegime detects market regime using risk service.
+// detectRegime detects market regime in-process. Requires a RiskManager
+// (injected by both production entrypoints); the remote HTTP fallback was
+// removed in CORE-RISK-REMOTE-FALLBACK-DEAD.
 func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domain.OHLCV) (*cdom.MarketRegime, error) {
 	// 拼接顺序必须确定：allData 的顺序会进到 DetectRegime 的统计里
 	// （浮点求和、均线），进而改变仓位倍数的判断 —— 顺序一变，同一天
@@ -1656,27 +1645,8 @@ func (e *Engine) detectRegime(ctx context.Context, marketData map[string][]domai
 		return regime, nil
 	}
 
-	url := fmt.Sprintf("%s/detect_regime", e.riskServiceURL)
-
-	reqBody := struct {
-		Data []domain.OHLCV `json:"data"`
-	}{Data: allData}
-
-	resp, err := e.httpClient.Post(ctx, url, reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, apperrors.Unavailable("risk", fmt.Errorf("HTTP %d", resp.StatusCode))
-	}
-
-	var regime cdom.MarketRegime
-	if err := json.Unmarshal(resp.Body, &regime); err != nil {
-		return nil, err
-	}
-
-	return &regime, nil
+	return nil, apperrors.Wrap(errors.New("in-process RiskManager is not configured"), apperrors.ErrCodeInternal,
+		"detectRegime has no remote fallback (CORE-RISK-REMOTE-FALLBACK-DEAD); inject RiskManager via SetRiskManager", "detectRegime")
 }
 
 // sortedKeys 返回 map 的键，按字典序排好。
@@ -1997,9 +1967,9 @@ func maxSignalComposite(group []domain.Signal, dir cdom.Direction) float64 {
 	return max
 }
 
-// calculatePosition calculates position size using risk service.
-// When an in-process RiskManager is set (via SetRiskManager), computes locally
-// without HTTP calls. Otherwise falls back to the external risk-service.
+// calculatePosition calculates position size.
+// Requires an in-process RiskManager (via SetRiskManager); the remote HTTP
+// risk-service fallback was removed in CORE-RISK-REMOTE-FALLBACK-DEAD.
 func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal domain.Signal, portfolio *domain.Portfolio, regime *cdom.MarketRegime, currentPrice float64) (domain.PositionSize, error) {
 	e.mu.RLock()
 	rm := e.riskManager
@@ -2019,35 +1989,8 @@ func (e *Engine) calculatePosition(ctx context.Context, rc *runContext, signal d
 		return pos, nil
 	}
 
-	url := fmt.Sprintf("%s/calculate_position", e.riskServiceURL)
-
-	reqBody := struct {
-		Signal       domain.Signal     `json:"signal"`
-		Portfolio    domain.Portfolio  `json:"portfolio"`
-		Regime       cdom.MarketRegime `json:"regime"`
-		CurrentPrice float64           `json:"current_price"`
-	}{
-		Signal:       riskSignal,
-		Portfolio:    *portfolio,
-		Regime:       *regime,
-		CurrentPrice: currentPrice,
-	}
-
-	resp, err := e.httpClient.Post(ctx, url, reqBody)
-	if err != nil {
-		return domain.PositionSize{}, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return domain.PositionSize{}, apperrors.Unavailable("risk", fmt.Errorf("HTTP %d", resp.StatusCode))
-	}
-
-	var positionSize domain.PositionSize
-	if err := json.Unmarshal(resp.Body, &positionSize); err != nil {
-		return domain.PositionSize{}, err
-	}
-
-	return positionSize, nil
+	return domain.PositionSize{}, apperrors.Wrap(errors.New("in-process RiskManager is not configured"), apperrors.ErrCodeInternal,
+		"calculatePosition has no remote fallback (CORE-RISK-REMOTE-FALLBACK-DEAD); inject RiskManager via SetRiskManager", "calculatePosition")
 }
 
 // calculatePositionsBatch calculates position sizes for multiple signals at once.
@@ -2162,9 +2105,9 @@ func (e *Engine) applyTargetWeightSizing(
 	return out
 }
 
-// checkStopLosses checks and triggers stop losses using risk service.
-// When an in-process RiskManager is set (via SetRiskManager), computes locally
-// without HTTP calls. Otherwise falls back to the external risk-service.
+// checkStopLosses checks and triggers stop losses.
+// Requires an in-process RiskManager (via SetRiskManager); the remote HTTP
+// risk-service fallback was removed in CORE-RISK-REMOTE-FALLBACK-DEAD.
 func (e *Engine) checkStopLosses(ctx context.Context, tracker *Tracker, prices map[string]float64) ([]domain.StopLossEvent, error) {
 	positions := tracker.GetAllPositions()
 	if len(positions) == 0 {
@@ -2188,37 +2131,8 @@ func (e *Engine) checkStopLosses(ctx context.Context, tracker *Tracker, prices m
 		return events, nil
 	}
 
-	url := fmt.Sprintf("%s/check_stoploss", e.riskServiceURL)
-
-	// Convert positions map to slice
-	var positionsList []domain.Position
-	for _, sym := range sortedKeys(positions) {
-		positionsList = append(positionsList, positions[sym])
-	}
-
-	reqBody := struct {
-		Positions map[string]float64 `json:"prices"`
-	}{
-		Positions: prices,
-	}
-
-	resp, err := e.httpClient.Post(ctx, url, reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, apperrors.Unavailable("risk", fmt.Errorf("HTTP %d", resp.StatusCode))
-	}
-
-	var events struct {
-		Events []domain.StopLossEvent `json:"events"`
-	}
-	if err := json.Unmarshal(resp.Body, &events); err != nil {
-		return nil, err
-	}
-
-	return events.Events, nil
+	return nil, apperrors.Wrap(errors.New("in-process RiskManager is not configured"), apperrors.ErrCodeInternal,
+		"checkStopLosses has no remote fallback (CORE-RISK-REMOTE-FALLBACK-DEAD); inject RiskManager via SetRiskManager", "checkStopLosses")
 }
 
 // checkStopLossesWithATR checks stop losses using pre-computed ATR data.
@@ -2543,3 +2457,4 @@ func (e *Engine) ExecuteSignalsViaLiveTrader(ctx context.Context, signals []doma
 func (e *Engine) HealthCheckLiveTrader(ctx context.Context) error {
 	return e.liveBridge.HealthCheck(ctx)
 }
+

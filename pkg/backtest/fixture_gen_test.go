@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/marketdata"
+	"tellurion/pkg/risk"
 )
 
 // TestGenerateFixtures generates the 4 Phase 1 determinism regression fixtures.
@@ -271,10 +272,15 @@ func runAndSaveFixture(t *testing.T, logger zerolog.Logger, seed int64,
 	v.Set("backtest.seed", seed)
 	v.Set("backtest.risk_free_rate", 0.03)
 	v.Set("data_service.url", "http://localhost:8081")
-	v.Set("risk_service.url", "http://localhost:8083")
 
 	engine, err := NewEngine(v, marketdata.NewInMemoryProvider(), logger)
 	require.NoError(t, err)
+
+	// 进程内风控：engine 不再回落 HTTP risk-service（CORE-RISK-REMOTE-FALLBACK-DEAD）。
+	rm, err := risk.NewRiskManager(risk.BuiltinPolicy().Config, logger)
+	require.NoError(t, err)
+	engine.SetRiskManager(rm)
+
 	engine.LoadOHLCVInMemory(ohlcvData)
 
 	// Run backtest twice to verify determinism

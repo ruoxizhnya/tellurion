@@ -205,13 +205,12 @@ func TestAttachRiskRulesFromConfig_EnabledAttaches(t *testing.T) {
 	assert.True(t, eng.HasRiskRulesProvider())
 }
 
-// TestAttachRiskRulesFromConfig_MissingResolveURLFailsFast：resolve_url 为空
-// 时**不**回落到 risk_service.url（那一项指向 analysis 自己 :8085，没有
-// /api/risk/resolve）；必须在装配期拒，而不是等第一个 run 404。
+// TestAttachRiskRulesFromConfig_MissingResolveURLFailsFast：resolve_url 为空时
+// 必须在装配期拒，而不是等第一个 run 404。`risk_service.url` 已随
+// CORE-RISK-REMOTE-FALLBACK-DEAD 删除，不存在可回落对象。
 func TestAttachRiskRulesFromConfig_MissingResolveURLFailsFast(t *testing.T) {
 	v := viper.New()
 	v.Set("risk_service.resolve_enabled", true)
-	v.Set("risk_service.url", "http://localhost:8085")
 
 	eng := newQT66Engine(t)
 	err := AttachRiskRulesFromConfig(eng, v, zerolog.Nop())

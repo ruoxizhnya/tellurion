@@ -784,12 +784,11 @@ func TestAttachRiskEventsFromConfig_FiredAlertReachesRiskService(t *testing.T) {
 }
 
 func TestAttachRiskEventsFromConfig_DoesNotFallBackToSelfURL(t *testing.T) {
-	// `risk_service.url` 指的是 analysis 自己（:8085，P1-15 合并后的进程内风控），
-	// 它没有 /api/risk/events。回落到那里 = 「少配一项」变成每条告警 404，
-	// 且要到告警真触发时才看得见。装配期直接拒。
+	// 不回落：`risk_service.url`（曾指向 analysis 自己 :8085 的进程内风控）
+	// 已随 CORE-RISK-REMOTE-FALLBACK-DEAD 从配置与代码中删除，不存在可回落
+	// 对象。events_url 为空时必须在装配期直接拒，而不是等告警触发才 404。
 	v := viper.New()
 	v.Set("risk_service.events_enabled", true)
-	v.Set("risk_service.url", "http://localhost:8085")
 
 	am := alert.NewAlertManager(alert.AlertManagerConfig{}, zerolog.Nop())
 	base := am.ChannelCount()
