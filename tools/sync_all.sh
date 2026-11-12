@@ -17,6 +17,11 @@
 #   —— 那等于把凭据散到第二个地方。跑在 compose 里，网络和密码都只有一份。
 #
 # 为什么必须走 HTTP：同步能力只以 HTTP 接口暴露在 cmd/data，没有 CLI 入口。
+#
+# 验证状态（2026-11-12）：**完整脚本未在 Git Bash 跑通** —— 本机 Git Bash 的
+# docker 没有 compose 子命令，脚本自身的三选一检测会直接 exit 1。启动
+# data-service + /healthz 就绪等待段已在 PowerShell 用等价命令实测通过；
+# 不要把本脚本记为"已在 Git Bash 验证"。
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -132,6 +137,8 @@ cat <<EOF
     ${DC} logs -f data-service
 
 → 跑完后用这条确认库里真有数据（PG 在宿主机，不在 compose 里）：
+    ⚠️ delisted 目前恒为 0：market.stocks 的 delist_date 全 NULL —— 退市票尚未入库。
+       这个 0 只说明"没有退市票"，不能证明退市识别正确，别把它当链路已验证。
     PGPASSWORD="${DATABASE_PASSWORD:-postgres}" psql -h localhost -U postgres \\
       -d "${DATABASE_NAME:-tellurion}" -c \\
       "select (select count(*) from market.stocks) stocks,
