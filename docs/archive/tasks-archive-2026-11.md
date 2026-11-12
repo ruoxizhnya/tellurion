@@ -3962,7 +3962,7 @@
 ### CORE-CI-DB-LEGS-SKIPPED · CI 的 Test job 无数据库，DB 触碰型用例长期 skip 假绿 [P2] ✅（2026-11-12）
 
 - **① 目标**：让 PIT / 迁移账本 / 存储层这类「必须连库」的用例在 CI 里真跑，而不是靠 skip 保持绿色。
-- **② 上下文**：2026-11-12 W3 回测审计实跑发现——`.github/workflows/ci.yml` 的 Test job 既没有 `services: postgres`，也没有 `TEST_DATABASE_DSN`；`pkg/storage/postgres_test.go:26` 在 DSN 为空时走 `testenv.SkipNoDB`。结果是 `pkg/storage` 的 PIT 反例（公告日之前不可见、`available_date` 生成列、market schema 读路径）与迁移账本用例**从未在 CI 执行**；这些腿本次是在隔离 PG（临时容器，已 `rm -f` + 删卷）上手工跑绿的。CI 绿不能推出这些语义没坏。
+- **② 上下文**：2026-11-12 W3 回测审计实跑发现——`.github/workflows/ci.yml` 的 Test job **有** `services: postgres`（postgres:16 + `pg_isready` healthcheck），但 Test 步骤**没有**设 `TEST_DATABASE_DSN`、也没有显式迁移步；`pkg/storage/postgres_test.go:26` 在 DSN 为空时走 `testenv.SkipNoDB`。结果是 `pkg/storage` 的 PIT 反例（公告日之前不可见、`available_date` 生成列、market schema 读路径）与迁移账本用例**从未在 CI 执行**；这些腿本次是在隔离 PG（临时容器，已 `rm -f` + 删卷）上手工跑绿的。CI 绿不能推出这些语义没坏。
 - **③ 要求**：Test job 增加 postgres service（带 `pg_isready` healthcheck）、设 `TEST_DATABASE_DSN`，并在跑测试前应用 `NewPostgresStore` 迁移；或拆独立 `db-test` job。DSN 已设置却连不上继续保持 fail-loud（现有行为），禁止回退成 skip。
 - **④ 约束与非目标**：不许用 skip 换绿；不许把真实 DB 依赖的用例改成内存替身来绕开；不改现有测试语义。
 - **⑤ 验收**：CI 日志里 PIT / 迁移用例以 PASS 出现（非 SKIP）；一条破坏验证（例如删 `available_date` 生成列或改公告日判定）在 CI 变红并贴原文。
