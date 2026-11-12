@@ -62,6 +62,12 @@
   8. 死键负向钉（AUD-39）：POSTGRES_HOST/PORT、REDIS_HOST/PORT、
      REDIS_PASSWORD、DB_PASSWORD 不许回来；POSTGRES_DB/USER/PASSWORD 只许
      出现在 postgres 容器自己的 env 里。
+  9. Dockerfile 的 COPY 源路径必须存在（AUD-48）。
+  10. compose 的 build 面必须指向本仓真实存在的 Dockerfile，且 Dockerfile
+      里的 `go build ./cmd/xxx` 目标目录必须还在（CORE-CI-IMAGE-GATE /
+      ODR-072）。这一项是 CI `image-build` job 的静态半边：CI 真跑
+      `docker build -f Dockerfile.service .`，本地四条门禁靠本项兜底 ——
+      否则「compose 声明了镜像、镜像从来没构建过」在本地完全不可见。
 
 刻意不做的事：
   - 不做「一份源生成两份」。那要引入 Kompose / Helm 之类的工具，为了
@@ -789,6 +795,144 @@ def check_dockerfile_copy_sources(errors: list[str]) -> None:
                         f"而 CI 不构建镜像，所以会静默很久（AUD-48）")
 
 
+# ── CORE-CI-IMAGE-GATE：compose 的 build 面（静态半边）─────────────────
+#
+# 背景（ODR-072 / W5-F5）：本仓 CI 此前**零镜像构建**（.github/workflows 里
+# `docker` 零命中），于是「compose 声明的镜像到底出不出得来」没有任何判定者。
+# AUD-48 只守 COPY 的**源路径**，守不住 `RUN go build ./cmd/xxx`：目录被删、
+# 构建行没删，编译期不检查，docker build 才炸。Dockerfile.service 历史上正是
+# 这样静默坏过两次（ODR-021 删 cmd/risk / cmd/execution；AUD-33 删 static）。
+#
+# 本项与 CI 的 `image-build` job 是同一件事的两半：
+#   - 静态（本项）：build 目标目录存在、Dockerfile 存在、COPY 源存在；
+#   - 动态（CI）：`docker build -f Dockerfile.service .` 真跑 → 镜像出得来。
+# 静态检查读不懂 go toolchain 的包解析，只有真构建能证明镜像可用；真构建只在
+# CI 跑，本地四条门禁靠本项兜底。
+
+_SERVICE_KEY_RE = re.compile(r"^  ([A-Za-z0-9_.-]+):\s*$")
+_BUILD_KEY_RE = re.compile(r"^    build:\s*$")
+_BUILD_CONTEXT_RE = re.compile(r"^      context:\s*(\S+)\s*$")
+_BUILD_DOCKERFILE_RE = re.compile(r"^      dockerfile:\s*(\S+)\s*$")
+
+
+def parse_compose_builds(text: str) -> list[tuple[str, str, str]]:
+    """抓 docker-compose.yml 的 build 面。
+
+    返回 [(服务名, context, dockerfile)]；缺省 dockerfile 按 compose 语义补
+    `Dockerfile`。只用标准库（本环境没有 pyyaml），靠缩进状态机抓规整块。
+    """
+    builds: list[tuple[str, str, str]] = []
+    service: str | None = None
+    in_build = False
+    context: str | None = None
+    dockerfile: str | None = None
+
+    def flush() -> None:
+        nonlocal context, dockerfile
+        if in_build and service and context:
+            builds.append((service, context, dockerfile or "Dockerfile"))
+        context = dockerfile = None
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        m = _SERVICE_KEY_RE.match(line)
+        if m:
+            flush()
+            in_build = False
+            service = m.group(1)
+            continue
+        if _BUILD_KEY_RE.match(line):
+            flush()
+            in_build = True
+            continue
+        if not in_build:
+            continue
+        m = _BUILD_CONTEXT_RE.match(line)
+        if m:
+            context = m.group(1)
+            continue
+        m = _BUILD_DOCKERFILE_RE.match(line)
+        if m:
+            dockerfile = m.group(1)
+            continue
+        # build 块里出现别的键（缩进回到 4）或其下别的字段 ⇒ 块结束
+        if not line.startswith("      "):
+            flush()
+            in_build = False
+
+    flush()
+    return builds
+
+
+def check_compose_build_contexts(
+    errors: list[str], notes: list[str], compose_text: str
+) -> None:
+    for svc, context, dockerfile in parse_compose_builds(compose_text):
+        ctx_path = (ROOT / context).resolve()
+        if not ctx_path.is_relative_to(ROOT):
+            notes.append(
+                f"{svc}: build context {context} 不在本仓 —— 镜像由该仓 CI 构建，"
+                f"本仓不代构建也不断言")
+            continue
+        if not ctx_path.is_dir():
+            errors.append(
+                f"docker-compose.yml 的服务 {svc} 的 build context {context} 不存在"
+                f"（CORE-CI-IMAGE-GATE）")
+            continue
+        df_path = ctx_path / dockerfile
+        if not df_path.is_file():
+            errors.append(
+                f"docker-compose.yml 的服务 {svc} 用 {context}/{dockerfile} 构建，"
+                f"但该 Dockerfile 不存在 —— compose 语法合法、只有真构建才炸；"
+                f"CI 的 image-build job 与本地门禁都会红（CORE-CI-IMAGE-GATE）")
+
+
+_GO_BUILD_CMD_RE = re.compile(r"\./cmd/[A-Za-z0-9_./-]*[A-Za-z0-9_-]")
+
+
+def _dockerfile_logical_lines(text: str) -> list[tuple[int, str]]:
+    """把 `\\` 续行合成逻辑行，返回 [(起始行号, 内容)]。
+
+    行号取逻辑行的**首行**，`RUN go build ...` 的续行因此能报到正确位置。
+    """
+    out: list[tuple[int, str]] = []
+    buf = ""
+    start = 0
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        line = raw.rstrip()
+        if not buf:
+            start = lineno
+        if line.endswith("\\"):
+            buf += line[:-1] + " "
+            continue
+        buf += line
+        out.append((start, buf))
+        buf = ""
+    if buf:
+        out.append((start, buf))
+    return out
+
+
+def check_dockerfile_build_targets(errors: list[str]) -> None:
+    for df in iter_dockerfiles():
+        rel = df.relative_to(ROOT).as_posix()
+        for lineno, line in _dockerfile_logical_lines(
+                df.read_text(encoding="utf-8")):
+            stripped = line.strip()
+            if not stripped.startswith("RUN") or "go build" not in stripped:
+                continue
+            for token in _GO_BUILD_CMD_RE.findall(stripped):
+                if not (ROOT / token).exists():
+                    errors.append(
+                        f"{rel}:{lineno} 的 `go build {token}` 目标不存在 —— "
+                        f"删 cmd 目录时必须同步删这条构建行；编译期不检查，"
+                        f"CI 镜像构建会红，没人构建时则永久静默"
+                        f"（CORE-CI-IMAGE-GATE / AUD-48 同型）")
+
+
+
 # ── AUD-13（2026-09-25 改写）：基础设施必须真在仓外，且容器显式指向它 ──────
 #
 # 这一类失败全是**静默**的：compose 语法合法、容器也能起来，只在第一次连库时
@@ -1060,6 +1204,11 @@ def main() -> int:
     # 9) Dockerfile 的 COPY 源路径必须存在（AUD-48）
     check_dockerfile_copy_sources(errors)
 
+    # 10) compose 的 build 面必须落在真实 Dockerfile 上，且 Dockerfile 的
+    #     `go build ./cmd/xxx` 目标目录还在（CORE-CI-IMAGE-GATE 静态半边）
+    check_compose_build_contexts(errors, notes, compose_text)
+    check_dockerfile_build_targets(errors)
+
     # 输出
     for n in notes:
         print(f"· {n}")
@@ -1086,6 +1235,9 @@ def main() -> int:
     print("✓ 死键负向钉（POSTGRES_HOST/PORT、REDIS_HOST/PORT、"
           "REDIS_PASSWORD、DB_PASSWORD 均未出现）")
     print("✓ Dockerfile 的 COPY 源路径都存在（删目录时别落下引用它的 COPY）")
+    print("✓ compose 的 build 面都指向本仓真实 Dockerfile，且 Dockerfile 的 "
+          "`go build ./cmd/xxx` 目标目录存在（CORE-CI-IMAGE-GATE 静态半边；"
+          "动态半边 = CI image-build job 真跑 docker build）")
     return 0
 
 

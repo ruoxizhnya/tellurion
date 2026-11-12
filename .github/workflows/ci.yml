@@ -166,6 +166,32 @@ jobs:
       - name: Contract conformance (QT-09 ③)
         run: python3 tools/check_contract_conformance.py
 
+  # ── CORE-CI-IMAGE-GATE / ODR-072：镜像构建门 ─────────────────────────
+  # 本仓 CI 此前**从不构建镜像**（grep docker/buildx 零命中），于是「compose
+  # 里声明的镜像到底出不出得来」没有任何判定者。Dockerfile.service 已经两次
+  # 静默坏在 `go build ./cmd/xxx` 上（ODR-021 删 cmd/risk、cmd/execution；
+  # AUD-33 删 cmd/analysis/static 的 COPY），症状都不是构建报错，而是
+  # **某个服务从来没起来过**。
+  #
+  # 静态半边在 docs job：tools/check_deploy_consistency.py 检查 compose 的
+  # build context / dockerfile 存在、Dockerfile 的 `go build ./cmd/xxx` 目标
+  # 目录存在、COPY 源路径存在。它可以每天在本地四条门禁里跑，但它读不懂 go
+  # toolchain 的包解析结果 —— 只有真 build 才证明镜像可用。
+  #
+  # 这里补动态半边：真构建、不 push、单平台（本机可验证的形态）。破坏验证：
+  # 把 Dockerfile.service 的 `./cmd/analysis` 改成不存在的目录 ⇒ 本步红。
+  image-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 一次构建覆盖 Dockerfile.service 里全部三个二进制
+      # （analysis-service / worker / dualrun）—— 任一条构建行指向已删目录
+      # 都会在这一步炸，而不是等某天有人手动 docker build。
+      - name: Build Dockerfile.service
+        run: docker build --pull -f Dockerfile.service -t tellurion-core:ci .
+
   # frontend job 已随前端拆仓移除（2026-10-09，web/ → tellurion-ui）。
   # 前端 lint / typecheck / test 的 CI 现在由 tellurion-ui 仓自己的
   # workflow 承担（见该仓 .github/workflows/ci.yml）。
