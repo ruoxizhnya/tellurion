@@ -218,16 +218,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **owner**：待定
 - **重开条件**：主任授权破坏性退役施工；若将来真上 k8s，另立 ADR 重建。
 
-### CORE-DEAD-PROXY-SCREEN-VERIFY · 核验主任 8c5272d 对 `/screen` 等死反代的修复（D2 失效→VERIFY）[P1] ⬜
-
-- **① 目标**：核验主任 `8c5272d` 已落的修复（screen 本地供数 / count 派生 502 / ingest/raw 410）真把 W2-F8 的死反代消解，而不是再修一遍。
-- **② 上下文**：审查发现 W2-F8（ODR-069）原指 `cmd/analysis/handlers_proxy.go:143-155` 死反代 + ui `market.ts:13,21`（Screener+DataQualityPanel）消费。主任 `8c5272d` 已改 screen 本地供数、count 派生 502、ingest/raw 410 ⇒ 原「修复」单 D2 失效，转为**核验**单。ui 侧消费连带见 `tellurion-ui:UI-SCREEN-CONSUMER`。
-- **③ 要求**：① 读 `8c5272d` diff + 现码，确认三条路径不再反代到已撤上游；② 真栈各跑一次（screen 200 本地供数 / count 502 / ingest/raw 410）；③ 若仍有死反代残留，停下回报 + 给拆法，不硬扩。
-- **④ 约束与非目标**：不重复主任已落的修复；不改 ui（归 `UI-SCREEN-CONSUMER`）；不新造端点。
-- **⑤ 验收**：三条路径真栈状态码符合预期（E1）；grep 确认无悬空反代；核验结论写进本条施工记录。
-- **⑥ 边界**：core 反代核验；ui 消费归 `UI-SCREEN-CONSUMER`。
-- **owner**：待定
-
 ### CORE-CI-ARCHIVE-LINKS-FIX · 归档层 ~17 处 cross-repo 相对链接缺层级 + 2 失效配置引用 [P2] ⬜
 
 - **① 目标**：修掉 `c06770e` 归档引入的相对链接层级错误，让归档层可检索（死链会让归档失去价值）。
@@ -236,27 +226,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **④ 约束与非目标**：**不改归档正文的历史判断**（只修链接 + 加注）；不新增跨仓相对链接（用 `repo:path`）。
 - **⑤ 验收**：`check_doc_links.py --include-archive` 归档层断链归零（历史断链「只统计不判红」口径下，本次新修部分须真绿）；破坏验证 = 改回一处错误层级 ⇒ 检查器报该链。
 - **⑥ 边界**：core 归档层链接；活跃层链接本就 0 断链。
-- **owner**：待定
-
-### CORE-RUNNER-FLAKE-RESIDUAL · runner 计时断言墙钟残留（施工前先证伪：kit 7d7c3a8 已修同族）[P2] ⬜
-
-- **① 目标**：消除 core runner 计时断言对墙钟的依赖残留，让全量门禁下不再假红。
-- **② 上下文**：审查发现 W7-F2（ODR-069）。`runner_test.go:338`/`:578` 用墙钟；历史 `6156dda` 红 → `9d58238` 绿 → `02d1847` 红。**注意**：kit `7d7c3a8` 刚修同族 runner（相对 spawn 基线），core 前提可能已部分消解 ⇒ **施工前先读码证伪**，不符就停下回报。GitHub logs API 持续 502，CI 历史红绿暂不可取证（E2 降级标注）。
-- **③ 要求**：① 先核 core runner 现码是否仍依赖墙钟（kit 修复是否已覆盖）；② 若仍有残留，改相对基线/结构判据（对齐 `9d58238`/`02d1847` 方向）；③ logs API 恢复后补 CI 历史取证。
-- **④ 约束与非目标**：不删断言换绿；不改 runner 生产语义；前提不符不硬做。
-- **⑤ 验收**：受影响测试 `-count=1` 真绿（E1）；破坏验证 = 改回墙钟 ⇒ 负载下红（或结构判据红）。
-- **⑥ 边界**：core runner 测试；kit 侧已修部分不重复。
-- **owner**：待定
-- **重开条件**：logs API 恢复后补 W7-F2 根因取证。
-
-### CORE-FEE-ROUNDING-ASSERT · 费用五字段 float64 无舍入断言（D9=a，保留 float64 + 补断言）[P2] ⬜
-
-- **① 目标**：给费用计算的 float64 路径补**舍入不变量断言**，钉住「四舍五入到分/厘」的口径，而不是迁 decimal。
-- **② 上下文**：审查发现 W3-F1（ODR-070）+ 裁决 D9=a。`tellurion-contracts:fees/ashare.go:181-185` 五字段 float64；`kit/decimal` 零消费者；`pkg/execution/price_cage.go:288` 用 `math.Round(x*1e4)/1e4`；不变量网 6/6 绿。D9=a：保留 float64（迁 decimal 是 breaking，另立 ADR），补舍入断言。
-- **③ 要求**：① 在 core 费用/撮合路径补舍入不变量断言（绝对数值，非阈值推导）；② 覆盖边界（半分位、负值、极大值）；③ 不迁 decimal、不改 contracts 字段类型。
-- **④ 约束与非目标**：不改 `fees/ashare.go` 字段类型（contracts 冻结面，改它走 breaking 评审）；不引入 kit/decimal 消费者；断言用绝对数值。
-- **⑤ 验收**：`go test ./pkg/execution/... ./pkg/backtest/... -count=1` 绿；破坏验证 = 把 `math.Round` 改成截断 ⇒ 舍入断言红（跑「调大舍入位」腿）。
-- **⑥ 边界**：core 费用舍入断言；contracts 字段类型与 kit/decimal 迁移另立单。
 - **owner**：待定
 
 ### CORE-RESULT-RETENTION · `run.backtest_results` / `quant.run_provenance` 无保留期清理 [P3] ⬜
