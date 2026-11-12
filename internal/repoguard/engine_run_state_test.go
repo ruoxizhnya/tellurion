@@ -54,9 +54,12 @@ var engineSeedFields = map[string]bool{
 	"cache":        true, // L1 OHLCV
 	"factor":       true, // 因子 z-score
 	"fundamentals": true, // 财报
-	"dailyBasic":   true, // 逐日估值快照（CORE-STRATEGY-SCREEN-LOCAL-VALUE）
-	"listing":      true, // 上市日历
-	"intraday":     true, // 日内分钟快照
+	// dailyBasic 必须冻在 Engine 上、且只许装配期写（不是「多一行就绿」）：
+	// 它是 PIT 决策的输入，同一台 Engine 会被并发 run 共享；一旦 run 期可写，
+	// A run 的日期区间会覆盖 B run 正在读的估值，选股结果就随并发顺序变。
+	"dailyBasic": true, // 逐日估值快照（CORE-STRATEGY-SCREEN-LOCAL-VALUE）
+	"listing":    true, // 上市日历
+	"intraday":   true, // 日内分钟快照
 }
 
 // engineSeedWriteAllowlist 是允许写种子的函数名。
@@ -79,7 +82,8 @@ var engineSeedWriteAllowlist = map[string]bool{
 //
 // 分三类读（注释不影响判定，只回答「为什么这个字段该在 Engine 上」）：
 //   - 装配：构造后不再变的服务依赖；
-//   - 种子：QT-12 降级成装配期快照的那五个（见 engineSeedFields）；
+//   - 种子：QT-12 降级成装配期快照的那五个，加上 CORE-STRATEGY-SCREEN-LOCAL-VALUE
+//     的 dailyBasic（见 engineSeedFields；写入只许走对应 Set* 注入器）；
 //   - 进程级：本就该跨 run 共享的那两份（准入闸、wasm 账源）。
 var engineFieldWhitelist = []string{
 	// 装配
