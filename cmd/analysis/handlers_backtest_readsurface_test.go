@@ -32,7 +32,8 @@ const k4RunID = "bt-k4"
 
 // newReadSurfaceRouter 用内存 JobStore 装配四个读面端点。
 // exists=false 表示库里没有这条作业（只有一条路径会写 404）。
-func newReadSurfaceRouter(t *testing.T, exists bool, status, resultStatus, body string) *gin.Engine {
+// 可选 detailPurgedAt 用于验证「明细已按策略清理」的读面标记。
+func newReadSurfaceRouter(t *testing.T, exists bool, status, resultStatus, body string, detailPurgedAt ...*time.Time) *gin.Engine {
 	t.Helper()
 	eng := newReadPathEngine(t)
 	store := newMemJobStore()
@@ -41,7 +42,7 @@ func newReadSurfaceRouter(t *testing.T, exists bool, status, resultStatus, body 
 	svc := backtest.NewJobService(store, zerolog.Nop())
 
 	if exists {
-		store.put(k4RunID, map[string]any{
+		row := map[string]any{
 			"id":            k4RunID,
 			"strategy_id":   "momentum",
 			"params":        []byte(`{}`),
@@ -52,12 +53,44 @@ func newReadSurfaceRouter(t *testing.T, exists bool, status, resultStatus, body 
 			"result_status": resultStatus,
 			"result":        []byte(body),
 			"created_at":    time.Date(2024, 2, 2, 0, 0, 0, 0, time.UTC),
-		})
+		}
+		if len(detailPurgedAt) > 0 && detailPurgedAt[0] != nil {
+			row["detail_purged_at"] = *detailPurgedAt[0]
+		}
+		store.put(k4RunID, row)
 	}
 
 	r := gin.New()
 	registerBacktestRoutes(r, eng, reg, svc, nil, nil, nil, zerolog.Nop(), nil)
 	return r
+}
+
+// TestBacktestReadSurface_DetailPurgedMarker 证明读面能区分「明细被策略清理」
+// 与「从未有过明细」：前者带 detail_purged_at，后者不带。
+func TestBacktestReadSurface_DetailPurgedMarker(t *testing.T) {
+	body := `{"id":"` + k4RunID + `","status":"completed","trades":[],"equity_curve":[]}`
+	purgedAt := time.Date(2026, 11, 10, 8, 30, 0, 0, time.UTC)
+	purged := newReadSurfaceRouter(t, true, "completed", "completed", body, &purgedAt)
+	never := newReadSurfaceRouter(t, true, "completed", "completed", body)
+
+	for _, p := range []string{"trades", "equity"} {
+		t.Run(p+"_purged", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			purged.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backtest/"+k4RunID+"/"+p, nil))
+			require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+			assert.Contains(t, got, "detail_purged_at", "清理过的明细必须带标记")
+		})
+		t.Run(p+"_never", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			never.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/backtest/"+k4RunID+"/"+p, nil))
+			require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+			assert.NotContains(t, got, "detail_purged_at", "从未有明细的返回不能带清理标记")
+		})
+	}
 }
 
 func TestBacktestReadSurface_ThreeStates(t *testing.T) {
