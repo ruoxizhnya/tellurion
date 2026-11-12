@@ -32,7 +32,7 @@
 
 | 服务 | schema | 持有表（摘要） | DDL 归属 |
 |---|---|---|---|
-| **数据服务** | `market` + `ingest` | ohlcv / bars / symbols / 复权因子 / 公司行为 / macro / sector / supply_chain / factor_definitions / factor_values / data_sync_state | ✅ 唯一 |
+| **数据服务** | `market` + `ingest` | ohlcv / bars / symbols / 复权因子 / 公司行为 / macro / sector / supply_chain / factor_definitions / factor_values / data_sync_state（其中 `factor_definitions` / `factor_values` **记现状**：与 ADR-028 §6「因子定义迁 strategy」的目标方向待收敛，本表不据此判归属） | ✅ 唯一 |
 | **策略服务** | `strategy` | strategy_definitions / strategy_artifacts / strategy_versions | ✅ |
 | **风控服务** | `risk` | risk_rules / risk_limits / risk_events / 熔断开关 / compliance 报送 / alerts | ✅ |
 | **分析服务** | `analysis` | 报表 / 基准 / 归因结果 / 敏感性扫描 | ✅ |
@@ -148,7 +148,7 @@
 |---|---|
 | **数据协议类型** | `UnifiedDataPoint` / `OHLCV` / `FrequencySpec` / `TimeSemantics` / `VisibleField*` 保留锚点 |
 | **connector 契约** | `ConnectorDeclaration`（TimeSemantics + FrequencySpec 必填）· `Source` 接口 · fail-closed 语义 |
-| **aggregator 接口** | `GET /datasets/resolve?universe=&from=&to=&freq=` → `{dataset_hash, metadata}` · `GET /datasets/{hash}` → 数据 · `GET /factors/{name}@{hash}` |
+| **aggregator 接口** | `GET /datasets/resolve?universe=&from=&to=&freq=` → `{dataset_hash, metadata}` · `GET /datasets/{hash}` → 数据 · ~~`GET /factors/{name}@{hash}`~~ **已撤销（2026-11-12）**：因子值按需求值、不落库、无 HTTP 取数面（ADR-037 D2 / ADR-041 D1），同族 `/api/factors/:factor_name` 已退役为 `410 factor_http_surface_retired`；详见 §4.1 G 组与 T3 定案 |
 | **错误码** | 见 §4.1 E 组（**已逐个对上真实哨兵**）：注册期三条 `ErrDeclarationMissing` / `ErrDeclarationInvalid` / `ErrDeclarationMismatch` 已在码；X1b 待新建 `ErrVisibleAtMissing` / `ErrSnapshotMismatch`；`ErrNoTimeSemantics` 作废（= 第一条的旧名），`ErrUnknownDataType` 不另造（复用 `ErrUnsupported`） |
 
 **顺序纪律**：先有契约（`contracts`），后有服务实现——与 ADR-D7 一致。
