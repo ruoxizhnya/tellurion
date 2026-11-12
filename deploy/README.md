@@ -30,6 +30,25 @@
 `deploy/k8s/archive/`，不参与部署；恢复须另立 ADR，见
 [`k8s/README.md`](k8s/README.md)。
 
+## 跨仓服务地址：默认值面向 Docker Desktop，Linux 需显式指定
+
+`ai-service` 调 strategy 资产服务用 `STRATEGY_ASSET_URL`（写侧全闸，另需
+`STRATEGY_ASSET_TOKEN`，见下节）。取值按部署形态分两种：
+
+| 形态 | 取值 | 说明 |
+|---|---|---|
+| `--profile full`（strategy 是同一 compose 网络里的容器） | `http://strategy:8090`（**默认值**） | compose 服务名；Linux / CI / Docker Desktop 通用 |
+| strategy 在宿主机直跑（不进 compose） | **显式** `STRATEGY_ASSET_URL=http://host.docker.internal:8090` | 该主机名面向 Docker Desktop 的本地栈；**Linux 的 Docker 默认不解析它** |
+
+- Compose 单文件**不能**按 profile 切换 `environment`：profile 只控制服务起停，
+  不是条件分支。所以不存在"profile 级默认值"，只能"默认值 + 调用方 env 覆盖"。
+- `analysis-service` 的 `STRATEGY_ASSET_RESOLVE_URL` 仍是
+  `host.docker.internal:8090` 缺省；Linux/CI 上要连 compose 内的 strategy，
+  同样需显式设成 `http://strategy:8090`。
+- 文件头明确**不预置** `extra_hosts: ["host.docker.internal:host-gateway"]`
+  （Docker Desktop 上实测会把它从 IPv4 变 IPv6）。Linux 上确实要走宿主网关时
+  按需自加，不要指望默认可用。
+
 ## 凭证只经 env 注入
 
 | env | 来源 Secret / key | 使用方 | 用途 |
