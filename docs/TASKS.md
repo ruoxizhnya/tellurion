@@ -164,7 +164,17 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：规则真相源归 `tellurion-risk`；本条只做 core 侧的消费与刷新。
 - **重开条件**：出现「不重启就要改风控」的运维需求，或 risk 侧提供版本化快照的推送端点。
 
-### CORE-RISK-CREDENTIAL-PATH · 带凭证路径未取证（`JWT_SECRET` + `RISK_SERVICE_RESOLVE_TOKEN`）[P1] ⏸
+### CORE-RISK-CREDENTIAL-PATH · 带凭证路径未取证（`JWT_SECRET` + `RISK_SERVICE_RESOLVE_TOKEN`）[P1] ✅
+
+> **施工记录（2026-11-12，三态鉴权真跑）**：
+> - **环境**：从 `tellurion-risk:dev` 起了一个**隔离**实例（`docker run … -addr 0.0.0.0:8089`，宿主发布 `127.0.0.1:18089`），`JWT_SECRET` 由进程环境随机生成、只落本地临时文件（用后即删），未开 `AUTH_INSECURE*`、未复用主栈 `:8089`；主栈全程未重启。
+> - **token**：按 kit `auth.Claims` 的同一形状（`{username, role, kind=access, sub, iss, iat, exp}`，HS256）现签两枚：`sub=service:core role=service` 与 `sub=1 role=viewer`。凭证不落仓库、不进镜像、不进 commit。
+> - **三条真实响应**（`POST /api/risk/resolve`，body `{"ruleset":"latest"}`）：
+>   - 无 token ⇒ **401** `{"error":"authentication required","code":"unauthenticated"}`
+>   - viewer 角色 ⇒ **403** `{"error":"insufficient role","code":"forbidden"}`
+>   - service 角色 ⇒ **200**，`risk_rules_hash=84a95d7d…c6516b2d`，与开放态 `:8089` 同一快照（同库同规则）
+> - **收尾**：隔离容器与两枚 token 已删除；core 侧消费口径不变 —— `risk_service.resolve_token` 为空时装配期即 fail-closed（`cmd/analysis/wiring/risk_rules.go`），不会静默走匿名。
+> - **注**：本条验收写的是 200/401/401，本轮按三态鉴权的实际语义覆盖为 **200/401/403**（无凭证 401、角色不足 403），403 是「凭证有效但角色不对」，与 401 是两件事。
 
 - **① 目标**：把 core → risk 的**带鉴权**调用链真正跑通一次，而不是只验证回环开放形态。
 - **② 上下文**：`QT-77` 已把凭证来源、签发与分发成文并落部署，`internal/repoguard/qt71_service_credentials_test.go` 只钉住装配形状；端到端跑过的两条路径都是「回环开放 / 空 token」。`config/analysis-service.yaml` 的 `risk_service.resolve_token` 与 `JWT_SECRET` 同时非空的组合，**生产形态从未真跑**。
