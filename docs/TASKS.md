@@ -114,15 +114,20 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：`docker-compose.yml` 注释；agent 仓的同类注释由 `AGENT-FACTOR-TOOLS-UNAVAILABLE` 同批改。
 - **重开条件**：无（纯文档事实订正）。
 
-### CORE-ANALYSISARTIFACT-RETENTION · `internal/analysisartifact` 生产分析产物，是否属本仓 [P2] ⏸
+### CORE-ANALYSISARTIFACT-RETENTION · `internal/analysisartifact` 生产分析产物，是否属本仓 [P2] ⏸ 等 T1（当前未触发）
+
+> **状态（2026-11-12 复核）**：ADR-039 T1 **未触发**，判据「core 报告出口归零」不成立 ——
+> `GET /api/backtest/:id/report` 仍由 core 产出（`cmd/analysis/handlers_backtest.go:371`
+> 调 `reporting.RenderHTML`），`internal/analysisartifact` 仍在组装并向 analytics 发布产物。
+> 本条是**等 T1 的挂起**（不是含糊的「暂缓」）：T1 触发前不施工、不迁组装。
 
 - **① 目标**：记录「core 在生产分析产物」这一上下文渗出的**保留决定与退出条件**，防止它继续无声扩张。
 - **② 上下文**：`internal/analysisartifact/builder.go` 从 core 的 run 终态 + `factor_returns` + 因子 z-score 组装 `PortfolioSnapshot`/`FactorExposures`，再发布给 analytics（`publisher.go:198-236`）。DDD 审查 C6 判它是「分析上下文的渗出」；但产物输入全在 core 进程内、analytics 又不回写，迁走会制造跨仓取数。
 - **③ 要求**：**本轮不改代码**。保留在 core，条件：① 只组装 core 已持有的 run 终态，不做新计算；② 不新增对外读面（analytics 仍通过现有 artifact 指针消费）；③ 产物形状变更必须同步 analytics 的消费侧（`internal/analysis` 的 reader）。
 - **④ 约束与非目标**：不迁 analytics、不新增 `analysis.*` 写者；不据此扩产新产物类型。
-- **⑤ 验收**：本条无施工；以 ADR-039 T1 是否触发作为退出信号。
+- **⑤ 验收**：本条无施工；以 ADR-039 T1 是否触发作为退出信号（2026-11-12 复核：未触发）。
 - **⑥ 边界**：产物组装与发布；指标公式归 core `pkg/backtest/metrics`（ADR-039）。
-- **重开条件**：ADR-039 T1 触发（core 报告出口归零、analytics 成为唯一报告产出面）⇒ 届时再把组装迁往 analytics 并新立 ADR。
+- **重开条件**：**等 T1（当前未触发）** —— ADR-039 T1 触发（core 报告出口归零、analytics 成为唯一报告产出面）⇒ 届时再把组装迁往 analytics 并新立 ADR。
 
 ### CORE-MARKET-INDEX-DAILY-EXCEPTION · `market.index_daily` 的跨 schema 建表权 [P3] 不改（已裁决）
 
