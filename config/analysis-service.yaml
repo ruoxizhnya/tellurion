@@ -381,3 +381,24 @@ trading:
 logging:
   level: "info"
   format: "json"
+
+# ── 回测结果保留期清理（CORE-RESULT-RETENTION）────────────────────
+#
+# 口径见 docs/result-retention.md：
+#   - 明细（result JSONB 的 portfolio_values / trades）保留 detail_days 天，
+#     到期摘除并写 detail_purged_at；
+#   - run 级汇总与 quant.run_provenance 保留 summary_days 天，到期同事务删除；
+#   - 被引用的 run（run.run_artifacts / 分析产物 / 策略状态 / 审计事件 / 内核
+#     明细表）永不删；运行中的 run 永不删。
+#
+# enabled=false 是运维的临时停止开关；dry_run=true 只输出「将删哪些、各多少
+# 行」，不写库。两个天数未配置时按 90 / 365。
+# env 覆盖：RESULT_RETENTION_ENABLED / _DRY_RUN / _DETAIL_DAYS /
+#          _SUMMARY_DAYS / _INTERVAL / _BATCH_SIZE。
+result_retention:
+  enabled: true
+  dry_run: false
+  detail_days: 90
+  summary_days: 365
+  interval: 24h
+  batch_size: 100

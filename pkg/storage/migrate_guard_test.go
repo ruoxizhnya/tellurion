@@ -24,10 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// realMigrationSteps 是生产实际会执行的迁移序列（建表 + 索引），供下面的
-// 用例当输入——避免用自造的三条语句测出一个「和线上无关的绿」。
+// realMigrationSteps 是生产实际会执行的迁移序列（建表 + 索引 + 后续追加），
+// 供下面的用例当输入——避免用自造的三条语句测出一个「和线上无关的绿」。
 func realMigrationSteps() []migrationStep {
-	return buildMigrationSteps(append(migrationStatements(), migrationIndexStatements()...))
+	return buildMigrationSteps(allMigrationStatements())
 }
 
 func TestBuildMigrationStepsUseSequentialVersions(t *testing.T) {

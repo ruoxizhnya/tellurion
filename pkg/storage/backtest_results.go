@@ -32,6 +32,12 @@ type BacktestResultRecord struct {
 	ErrorMessage string          `json:"error_message,omitempty"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	// FinishedAt 是 run 的完成时刻（结果行落结论时置 now()）。保留期判据
+	// 用它，而不是 created_at：长跑 run 的 created_at 会显著早于完成时间。
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// DetailPurgedAt 非空表示明细（portfolio_values / trades）已按保留期
+	// 策略清理；为空且 result 里无这两个键表示「从未有过明细」，两者不同。
+	DetailPurgedAt *time.Time `json:"detail_purged_at,omitempty"`
 }
 
 // BacktestResultsSchemaDDL 建表 DDL —— migrate() 的 Migration 063 执行的就是这组语句。
@@ -61,6 +67,22 @@ func validBacktestResultStatus(status string) bool {
 	}
 }
 
+// resultHasDetail 判断结果载荷是否带明细键（portfolio_values / trades）。
+// 重写结果时只有新载荷真的带明细才清掉 detail_purged_at；failed 空载荷不
+// 会把「已按策略清理」的痕迹抹掉。
+func resultHasDetail(result json.RawMessage) bool {
+	if len(result) == 0 {
+		return false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(result, &probe); err != nil {
+		return false
+	}
+	_, hasEquity := probe["portfolio_values"]
+	_, hasTrades := probe["trades"]
+	return hasEquity || hasTrades
+}
+
 // SaveBacktestResult 写入 / 覆盖一条结果行。
 //
 // 语义：同 run_id 重写即覆盖结论文与载荷（worker 重试或重跑），`created_at`
@@ -87,18 +109,23 @@ func (s *PostgresStore) SaveBacktestResult(ctx context.Context, rec *BacktestRes
 	}
 
 	const q = `
-		INSERT INTO run.backtest_results (run_id, result_status, result, error_message)
-		VALUES ($1,$2,$3::jsonb,$4)
+		INSERT INTO run.backtest_results (run_id, result_status, result, error_message, finished_at)
+		VALUES ($1,$2,$3::jsonb,$4,now())
 		ON CONFLICT (run_id) DO UPDATE SET
 			result_status = EXCLUDED.result_status,
 			result        = EXCLUDED.result,
 			error_message = EXCLUDED.error_message,
+			finished_at   = now(),
+			detail_purged_at = CASE WHEN $5 THEN NULL
+			                        ELSE run.backtest_results.detail_purged_at END,
 			updated_at    = now()
-		RETURNING run_id, result_status, result, COALESCE(error_message,''), created_at, updated_at
+		RETURNING run_id, result_status, result, COALESCE(error_message,''),
+		          created_at, updated_at, finished_at, detail_purged_at
 	`
 	var out BacktestResultRecord
-	err := s.pool.QueryRow(ctx, q, rec.RunID, rec.ResultStatus, payload, rec.ErrorMessage).Scan(
-		&out.RunID, &out.ResultStatus, &out.Result, &out.ErrorMessage, &out.CreatedAt, &out.UpdatedAt,
+	err := s.pool.QueryRow(ctx, q, rec.RunID, rec.ResultStatus, payload, rec.ErrorMessage, resultHasDetail(rec.Result)).Scan(
+		&out.RunID, &out.ResultStatus, &out.Result, &out.ErrorMessage,
+		&out.CreatedAt, &out.UpdatedAt, &out.FinishedAt, &out.DetailPurgedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("save backtest result for %s: %w", rec.RunID, err)
@@ -109,12 +136,14 @@ func (s *PostgresStore) SaveBacktestResult(ctx context.Context, rec *BacktestRes
 // GetBacktestResult 读回一条结果行；不存在时返回 ErrBacktestResultNotFound。
 func (s *PostgresStore) GetBacktestResult(ctx context.Context, runID string) (*BacktestResultRecord, error) {
 	const q = `
-		SELECT run_id, result_status, result, COALESCE(error_message,''), created_at, updated_at
+		SELECT run_id, result_status, result, COALESCE(error_message,''),
+		       created_at, updated_at, finished_at, detail_purged_at
 		FROM run.backtest_results WHERE run_id = $1
 	`
 	var out BacktestResultRecord
 	err := s.pool.QueryRow(ctx, q, runID).Scan(
-		&out.RunID, &out.ResultStatus, &out.Result, &out.ErrorMessage, &out.CreatedAt, &out.UpdatedAt,
+		&out.RunID, &out.ResultStatus, &out.Result, &out.ErrorMessage,
+		&out.CreatedAt, &out.UpdatedAt, &out.FinishedAt, &out.DetailPurgedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -134,7 +163,8 @@ func (s *PostgresStore) ListBacktestResults(ctx context.Context, limit int) ([]*
 		limit = 100
 	}
 	const q = `
-		SELECT run_id, result_status, result, COALESCE(error_message,''), created_at, updated_at
+		SELECT run_id, result_status, result, COALESCE(error_message,''),
+		       created_at, updated_at, finished_at, detail_purged_at
 		FROM run.backtest_results ORDER BY created_at DESC LIMIT $1
 	`
 	rows, err := s.pool.Query(ctx, q, limit)
@@ -146,7 +176,8 @@ func (s *PostgresStore) ListBacktestResults(ctx context.Context, limit int) ([]*
 	out := make([]*BacktestResultRecord, 0, limit)
 	for rows.Next() {
 		var rec BacktestResultRecord
-		if err := rows.Scan(&rec.RunID, &rec.ResultStatus, &rec.Result, &rec.ErrorMessage, &rec.CreatedAt, &rec.UpdatedAt); err != nil {
+		if err := rows.Scan(&rec.RunID, &rec.ResultStatus, &rec.Result, &rec.ErrorMessage,
+			&rec.CreatedAt, &rec.UpdatedAt, &rec.FinishedAt, &rec.DetailPurgedAt); err != nil {
 			return nil, fmt.Errorf("scan backtest result: %w", err)
 		}
 		out = append(out, &rec)

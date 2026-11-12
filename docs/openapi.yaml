@@ -347,6 +347,14 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Trade'
+                  detail_purged_at:
+                    type: string
+                    format: date-time
+                    description: >-
+                      Present only when the detail rows were removed by the
+                      result-retention policy (CORE-RESULT-RETENTION). A run
+                      that never had detail omits this field, so "purged" and
+                      "never present" are distinguishable.
         '404':
           $ref: '#/components/responses/RunNotFound'
         '409':
@@ -375,6 +383,12 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/PortfolioValue'
+                  detail_purged_at:
+                    type: string
+                    format: date-time
+                    description: >-
+                      Present only when the equity curve was removed by the
+                      result-retention policy (CORE-RESULT-RETENTION).
         '404':
           $ref: '#/components/responses/RunNotFound'
         '409':

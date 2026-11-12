@@ -216,7 +216,7 @@ func TestIntegration_MigrateProductionPathRecordsLedger(t *testing.T) {
 
 	require.NoError(t, store.migrate(ctx))
 
-	steps := buildMigrationSteps(append(migrationStatements(), migrationIndexStatements()...))
+	steps := buildMigrationSteps(allMigrationStatements())
 	applied := ledgerRows(t, store, migrationLedgerTable)
 	require.Len(t, applied, len(steps),
 		"生产账本必须覆盖全部迁移（含索引 DDL），而不是只记建表")

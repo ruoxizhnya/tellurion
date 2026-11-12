@@ -651,7 +651,20 @@ func migrationStatements() []string {
 	return migrations
 }
 
-// migrate 应用 migrationStatements() + 索引 DDL，并维护 core_schema_migrations
+// allMigrationStatements 是生产实际执行的完整迁移序列：建表 → 索引 → 后续
+// 追加迁移。
+//
+// ⚠️ 新的迁移只能追加在**最末尾**。账本版本 = 本序列的下标 + 1（见
+// migrationStep），向中间插入会让存量库每条后续迁移的指纹全部错位，
+// CORE-MIGRATION-REPLAY-GUARD 会拒绝启动。
+func allMigrationStatements() []string {
+	migrations := append(migrationStatements(), migrationIndexStatements()...)
+	// Migration 067（CORE-RESULT-RETENTION）：保留期列 + 回填 + 表达式索引。
+	migrations = append(migrations, RunRetentionSchemaDDL...)
+	return migrations
+}
+
+// migrate 应用 allMigrationStatements()，并维护 core_schema_migrations
 // 账本（CORE-MIGRATION-REPLAY-GUARD）。
 //
 // 语义：
@@ -664,7 +677,7 @@ func migrationStatements() []string {
 // 「无执行记录」，不是「缺事务」。逐条事务 + 账本把状态收敛为「已应用的
 // 连续前缀」，失败点之后的下次启动可以精确续跑。
 func (s *PostgresStore) migrate(ctx context.Context) error {
-	migrations := append(migrationStatements(), migrationIndexStatements()...)
+	migrations := allMigrationStatements()
 	if err := s.applyMigrations(ctx, migrationLedgerTable, migrations); err != nil {
 		return err
 	}

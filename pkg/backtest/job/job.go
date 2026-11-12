@@ -50,6 +50,8 @@ type JobRecord struct {
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time
+	// DetailPurgedAt 非空表示明细已按保留期策略清理（CORE-RESULT-RETENTION）。
+	DetailPurgedAt *time.Time
 }
 
 // mapToJobRecord converts a map back to JobRecord.
@@ -82,6 +84,9 @@ func mapToJobRecord(m map[string]any) *JobRecord {
 	}
 	if v, ok := m["completed_at"].(time.Time); ok {
 		j.CompletedAt = &v
+	}
+	if v, ok := m["detail_purged_at"].(time.Time); ok {
+		j.DetailPurgedAt = &v
 	}
 	return j
 }
@@ -137,6 +142,8 @@ type Job struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	StartedAt    *time.Time      `json:"started_at,omitempty"`
 	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	// DetailPurgedAt 只在明细被保留期清理后出现；从未有过明细的 run 无此字段。
+	DetailPurgedAt *time.Time `json:"detail_purged_at,omitempty"`
 }
 
 // GetJob retrieves the current state of a job.
@@ -195,19 +202,20 @@ func (s *JobService) SaveSyncResult(ctx context.Context, resp *contracts.Backtes
 // recordToJob converts an internal JobRecord to a public Job.
 func recordToJob(r *JobRecord) *Job {
 	return &Job{
-		ID:           r.ID,
-		StrategyID:   r.StrategyID,
-		Params:       r.Params,
-		Universe:     r.Universe,
-		StartDate:    r.StartDate,
-		EndDate:      r.EndDate,
-		Status:       r.Status,
-		ResultStatus: r.ResultStatus,
-		Result:       r.Result,
-		Error:        r.ErrorMsg,
-		CreatedAt:    r.CreatedAt,
-		StartedAt:    r.StartedAt,
-		CompletedAt:  r.CompletedAt,
+		ID:             r.ID,
+		StrategyID:     r.StrategyID,
+		Params:         r.Params,
+		Universe:       r.Universe,
+		StartDate:      r.StartDate,
+		EndDate:        r.EndDate,
+		Status:         r.Status,
+		ResultStatus:   r.ResultStatus,
+		Result:         r.Result,
+		Error:          r.ErrorMsg,
+		CreatedAt:      r.CreatedAt,
+		StartedAt:      r.StartedAt,
+		CompletedAt:    r.CompletedAt,
+		DetailPurgedAt: r.DetailPurgedAt,
 	}
 }
 

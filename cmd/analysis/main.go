@@ -187,6 +187,17 @@ func main() {
 	alertCtx, stopAlert := context.WithCancel(context.Background())
 	go alertLoop.Start(alertCtx)
 
+	// CORE-RESULT-RETENTION：结果面保留期清理（明细 90 天 / 汇总与
+	// provenance 365 天）。默认启用，可用 result_retention.enabled=false
+	// 或 RESULT_RETENTION_ENABLED=false 临时停；dry_run 只输出候选不写库。
+	retentionLoop := buildResultRetention(v, store, logger)
+	var stopRetention context.CancelFunc
+	if retentionLoop != nil {
+		var retentionCtx context.Context
+		retentionCtx, stopRetention = context.WithCancel(context.Background())
+		go retentionLoop.Start(retentionCtx)
+	}
+
 	// K16 ⑤：资金对账 worker 的生产接线（此前 ReconciliationWorker /
 	// AlertDispatcher 零生产构造点）。enabled 未配置 → worker 为 nil，
 	// /api/reconciliation 路由照常注册、请求 503（与 alerts 路由同一姿态）；
@@ -210,6 +221,11 @@ func main() {
 	// 撞上后面的 store.Close()。
 	if stopRecon != nil {
 		stopRecon()
+	}
+	// 保留期清理先停：一个在途 pass 最多处理 batch_size 个 run，每个 run
+	// 一个短事务；cancel 后不再开始新 pass，避免撞上 store.Close()。
+	if stopRetention != nil {
+		stopRetention()
 	}
 	// alertLoop 同理（REV-23(11)）：评估 tick 可能正写历史/派发 webhook，
 	// 先停再关连接池。Start 对 cancel 的响应是 select ctx.Done，最多

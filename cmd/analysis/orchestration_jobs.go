@@ -178,7 +178,7 @@ func jobMapFromResult(rec *storage.BacktestResultRecord) map[string]any {
 	if rec.ResultStatus == "failed" {
 		status = "failed"
 	}
-	return map[string]any{
+	m := map[string]any{
 		"id":            rec.RunID,
 		"strategy_id":   payload.Strategy,
 		"universe":      strings.Join(payload.StockPool, ","),
@@ -191,6 +191,12 @@ func jobMapFromResult(rec *storage.BacktestResultRecord) map[string]any {
 		"created_at":    rec.CreatedAt,
 		"completed_at":  rec.UpdatedAt,
 	}
+	// 明细按保留期清理后才有该字段；从未有过明细的 run 不出现，读路径据此
+	// 区分「没有明细」与「明细被清理」。
+	if rec.DetailPurgedAt != nil {
+		m["detail_purged_at"] = *rec.DetailPurgedAt
+	}
+	return m
 }
 
 // runSpecMeta 是任务面 run_spec 里作业列表需要的策略元数据。

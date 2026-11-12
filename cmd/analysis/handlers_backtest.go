@@ -305,11 +305,17 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Fail(c, http.StatusInternalServerError, "failed to parse stored result")
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{
+			resp := gin.H{
 				"backtest_id": backtestID,
 				"total":       len(stored.Trades),
 				"trades":      stored.Trades,
-			})
+			}
+			// 明细按保留期清理后才有该字段：与「从未有过明细」区分开，
+			// 避免把策略清理读成数据天生缺失（CORE-RESULT-RETENTION）。
+			if job.DetailPurgedAt != nil {
+				resp["detail_purged_at"] = job.DetailPurgedAt
+			}
+			c.JSON(http.StatusOK, resp)
 		})
 
 		api.GET("/:id/equity", func(c *gin.Context) {
@@ -337,11 +343,15 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				httpserver.Fail(c, http.StatusInternalServerError, "failed to parse stored result")
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{
+			resp := gin.H{
 				"backtest_id":  backtestID,
 				"total_points": len(stored.PortfolioValues),
 				"equity_curve": stored.PortfolioValues,
-			})
+			}
+			if job.DetailPurgedAt != nil {
+				resp["detail_purged_at"] = job.DetailPurgedAt
+			}
+			c.JSON(http.StatusOK, resp)
 		})
 
 		api.GET("/:id/export/:format", func(c *gin.Context) {
