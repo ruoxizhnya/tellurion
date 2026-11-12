@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"github.com/ruoxizhnya/tellurion-kit/httpserver"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 	"tellurion/pkg/auth"
 	"tellurion/pkg/trading"
 )
@@ -191,6 +193,18 @@ func (h *ExecutionHandler) createOrder(c *gin.Context) {
 
 	result, err := h.trader.SubmitOrder(ctx, req.Symbol, req.Direction, req.OrderType, req.Quantity, req.Price)
 	if err != nil {
+		// 错误分类（AUD-58 口径的延伸）：broker 不可达 / 超时 / 5xx 是
+		// **上游不可用**，必须回 503/504；把它拍成 400「rejected」等于
+		// 告诉调用方"你的参数不对"，而真正的问题是通道挂了。
+		// 分类标签由 brokerhttp 在边界打（apperrors.Unavailable/Timeout）；
+		// 这里只做 HTTP 映射，且 5xx 不回传上游原文（只进日志）。
+		var appErr *apperrors.AppError
+		if errors.As(err, &appErr) &&
+			(appErr.Code == apperrors.ErrCodeUnavailable || appErr.Code == apperrors.ErrCodeTimeout) {
+			h.logger.Warn().Err(err).Str("symbol", req.Symbol).Msg("submit order failed: broker unavailable")
+			httpserver.FailCause(c, httpserver.StatusForAppError(err), "broker unavailable", err)
+			return
+		}
 		h.logger.Warn().Err(err).Str("symbol", req.Symbol).Msg("submit order rejected")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":  err.Error(),

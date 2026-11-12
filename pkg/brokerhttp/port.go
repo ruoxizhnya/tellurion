@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -37,6 +38,7 @@ import (
 
 	broker "github.com/ruoxizhnya/tellurion-contracts/broker"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
+	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
 
 	"tellurion/pkg/backtest/execution"
 	"tellurion/pkg/domain"
@@ -375,7 +377,15 @@ func (p *BrokerHTTPPort) do(ctx context.Context, method, path string, body any, 
 	}
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return 0, nil, fmt.Errorf("broker_http: %s %s: %w", method, path, err)
+		// 传输层失败（DNS / 连接拒绝 / TLS / 超时）是**上游不可达**，不是
+		// 参数错误。分类必须在边界做一次：调用方拿到的 error 若不带类别，
+		// HTTP 层只能把它拍平成 400「rejected」，把「broker 挂了」误报成
+		// 「你的请求不合法」。
+		wrapped := fmt.Errorf("broker_http: %s %s: %w", method, path, err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return 0, nil, apperrors.Timeout("broker "+method+" "+path, wrapped)
+		}
+		return 0, nil, apperrors.Unavailable("broker", wrapped)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -393,12 +403,22 @@ type brokerErrorBody struct {
 }
 
 // orderError 把非 2xx 响应翻成错误；优先保留 wire code（可判定、可回放）。
+//
+// 分类口径：4xx = broker 对**这笔请求**的拒绝（业务语义，调用方原样
+// 展示）；5xx = 通道自身不可用（上游故障，调用方按 503 处理，且不把
+// broker 的原始堆栈吐给客户端）。
 func (p *BrokerHTTPPort) orderError(action string, status int, body []byte) error {
 	var eb brokerErrorBody
+	var msg string
 	if err := json.Unmarshal(body, &eb); err == nil && (eb.Code != "" || eb.Message != "") {
-		return fmt.Errorf("broker_http: %s rejected (HTTP %d, code=%s): %s", action, status, eb.Code, eb.Message)
+		msg = fmt.Sprintf("broker_http: %s rejected (HTTP %d, code=%s): %s", action, status, eb.Code, eb.Message)
+	} else {
+		msg = fmt.Sprintf("broker_http: %s failed (HTTP %d): %s", action, status, strings.TrimSpace(string(body)))
 	}
-	return fmt.Errorf("broker_http: %s failed (HTTP %d): %s", action, status, strings.TrimSpace(string(body)))
+	if status >= http.StatusInternalServerError {
+		return apperrors.Unavailable("broker", errors.New(msg))
+	}
+	return errors.New(msg)
 }
 
 // ─── 映射函数 ────────────────────────────────────────────────────────
