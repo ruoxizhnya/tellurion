@@ -491,7 +491,9 @@ type Strategy interface {
     结论要在**干净 checkout** 里取：`git worktree add --detach <tmp> HEAD` 里跑
     `gofmt -l .` + `go build ./...` + `go vet ./...` + `go test ./... -count=1`，用完
     `git worktree remove --force`。工作区里混着别的会话未提交的改动时，只有干净
-    checkout 的绿才是可推的绿。
+    checkout 的绿才是可推的绿。现有一键入口：`sh tools/check.sh`（工作区）/
+    `sh tools/check.sh --clean`（干净 checkout，推前用；`make check` 是同一入口），
+    只报不修。
   - 必要时使用 TRAE-code-review skill 执行结构化审查
 - **审查记录**: 审查发现的问题要么当场修复，要么记录为新任务到 `docs/TASKS.md`
 
@@ -531,6 +533,7 @@ type Strategy interface {
   - [ ] `go vet ./...` 无警告
   - [ ] `gofmt -l .` 无输出（已格式化）
   - [ ] `go test ./... -count=1 -race` 通过（或受影响包的测试通过）
+  - [ ] `sh tools/check.sh --clean` 通过（推前；只报不修，见 §8.4）
   - [ ] 前端变更：`npm test` + `npm run typecheck`（若可用）通过
   - [ ] commit message 符合格式
 - **分支策略（ODR-067，2026-10-14 起）**: 单人自托管维护期**允许直接提交 `main`**。代价是提交前门禁必须自己当闸：受影响包的 `go test` + `go vet` + `gofmt -l` 当场跑过，一个 commit 只做一件事，且**不得把新红当成既有噪声**（见 ui 仓 `docs/TASKS.md` AUD-61 的登记表机制 —— 红必须登记在案，才能区分「我这条提交弄坏的」与「本来就红的」）。**对外贡献（他人开的 PR）与本仓之外的上游（如 `nautilus_trader`）仍走 PR 工作流，不套用本授权。**

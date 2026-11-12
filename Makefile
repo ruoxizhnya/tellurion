@@ -108,6 +108,13 @@ lint:
 	golangci-lint run ./...
 	@echo "✅ Linting complete"
 
+# D1（2026-11-12）：本地提交前闸 —— gofmt -l（非空即红）+ go vet + go test。
+# 只报不修，不改文件、不提交。没有 make 时直跑：
+#     sh tools/check.sh            # 当前工作区
+#     sh tools/check.sh --clean    # HEAD 的干净 checkout（推前用，见 AGENTS §8.4）
+check:
+	@sh tools/check.sh
+
 # QT-18：过渡期（S0~S3）agent 编译期依赖 core 源码，而 W0/W1 的改动全是 breaking
 # （abi v2 换 host 函数、错误分级改 getSignals 返回…）。要让「core 绿、agent 静默烂」
 # 在 core 侧当场暴露，就得拿当前 core 工作区去编一遍 agent。
