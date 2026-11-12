@@ -102,6 +102,7 @@
 | CORE-CI-ARCHIVE-LINKS-FIX | 归档层 60 条相对链接缺层级 + 2 处失效配置引用；只修链接/加注记，不动历史判断 | 2026-11-12 | 见原文 | [原文](#CORE-CI-ARCHIVE-LINKS-FIX) |
 | CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM | 策略插件 `/screen` 死腿（裁决 B1）：value_screen 多票返回可诊断 ErrDataGap，multi_factor 只删死腿 | 2026-11-12 | 见原文 | [原文](#CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM) |
 | CORE-STRATEGY-SCREEN-LOCAL-VALUE | 本地价值筛选（C 方案）：run 内 daily_basic 快照 + fundamentals ROE，PIT 无未来函数，零/低覆盖报 ErrDataGap | 2026-11-12 | `1317934`、`de85f71` | [原文](#CORE-STRATEGY-SCREEN-LOCAL-VALUE) |
+| CORE-CI-IMAGE-GATE | 镜像构建门：CI 真跑 docker build + 检查器静态守 compose build 面与 go build 目标目录 | 2026-11-12 | `dd5a98f` | [原文](#CORE-CI-IMAGE-GATE) |
 
 ---
 
@@ -3402,3 +3403,21 @@
 > - **provenance**：信号 `Factors` 写 `pe/pb/roe/momentum`；`Metadata` 写 `value_dimension=local_screen`、`pe_source`（`pe_ttm` 或回退 `pe`）、`pe_ttm_fallback`、`valuation_trade_date`、`universe`、`pe_covered/pb_covered/roe_covered`、实际 `thresholds`。冻结的 `BacktestResponse`（K9）不加字段，复盘子走 `Metadata` + run 日志（估值预热会打 symbols/rows 计数）。
 > - **测试**：`pkg/strategy/plugins/value_screen_test.go` 新增零覆盖、低覆盖（1/4=25%）、合法零候选、三条条件敏感性、PE 回退来源、PIT 未来财报反例；`pkg/strategy/valuation_test.go` 覆盖读取器边界与「有行但 NULL 仍可区分」；`pkg/backtest/value_screen_data_gap_test.go` 新增引擎级对偶（注入快照 ⇒ `completed` 且 `TotalTrades>0`，`invalid_reasons` 不含 `data_gap_skipped`）。
 > - **回归（真实退出码）**：`gofmt -l` 空；`go build ./...` / `go vet ./...` 0；`go test ./pkg/strategy/... ./pkg/backtest/... ./pkg/storage/... ./pkg/domain/... -count=1` 全绿（有库腿 `TestDailyBasic*` 亦绿）；`docker compose config --quiet`、`docker compose --profile full config --quiet`、`python tools/check_doc_links.py`、`python tools/check_deploy_consistency.py` 均 exit 0。
+
+### CORE-CI-IMAGE-GATE · 9 仓 CI 无镜像构建门，compose 引用的镜像可能从未被构建验证 [P2] ✅（2026-11-12）
+
+- **① 目标**：让「compose/k8s 引用的镜像真能构建出来」成为 CI 可判定门，而不是只在本地 `docker build` 碰运气。
+- **② 上下文**：审查发现 W5-F5（ODR-072）。9 仓 `.github/workflows` grep `docker`/`buildx`/`build-push` 零命中；core 已登记同类缺口（`docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md:135` + `tools/check_deploy_consistency.py` + AUD-48）。历史上 `Dockerfile.service` 曾 build 已删除的 `cmd/strategy`（2026-10-26 才修），证明无构建门时退役会悄悄断镜像。
+- **③ 要求**：① core CI 增一条 `docker build` 门（至少构建 analysis-service 镜像，不 push）；② 与 `check_deploy_consistency.py` 的镜像引用核对联动；③ 其余 8 仓的镜像门归 `X-CI-RACE-STATICCHECK` 同批或各仓自持，本单只做 core。
+- **④ 约束与非目标**：不 push 镜像到 registry；不改 compose 服务定义；不引入 buildx 多平台（本机单平台即可）。
+- **⑤ 验收**：CI 镜像构建步骤真跑（E2）；破坏验证 = 临时把 Dockerfile 的 build 目标改成不存在的 cmd ⇒ 该步红。
+- **⑥ 边界**：core CI 与 Dockerfile；其余仓镜像门见 `X-CI-RACE-STATICCHECK`。
+
+> **施工记录（2026-11-12，commit `dd5a98f`）**
+>
+> - **动态半边（CI）**：`.github/workflows/ci.yml` 新增 `image-build` job —— `docker build --pull -f Dockerfile.service -t tellurion-core:ci .`，只构建不 push、单平台。Dockerfile.service 一次覆盖 analysis-service / worker / dualrun 三个二进制，任一条 `go build ./cmd/xxx` 指向已删目录都会在这一步炸。
+> - **静态半边（本地门禁）**：`tools/check_deploy_consistency.py` 新增检查 10，两个函数：① `check_compose_build_contexts` —— 解析 `docker-compose.yml` 每个服务的 `build.context` / `dockerfile`，context 落在本仓时必须指向真实 Dockerfile，跨仓 context（`../tellurion-*`）逐条打 note 明说「由该仓 CI 构建、本仓不代构建也不断言」，不静默跳过；② `check_dockerfile_build_targets` —— 把 Dockerfile 的 `\` 续行合成逻辑行后，逐个校验 `RUN … go build ./cmd/xxx` 的目标目录存在，报错行号取逻辑行首行。与 AUD-48 的 COPY 源检查同型，补上它守不住的「构建目标目录」。
+> - **真构建（E1，本机 Docker 29.9.3）**：`docker build --pull -f Dockerfile.service -t tellurion-core:ci .` 全步绿、EXIT=0，镜像 `tellurion-core:ci` 166MB，builder 层 `go build` 三段（analysis / worker / dualrun）全部 DONE。
+> - **破坏验证（真做真还原）**：把 `Dockerfile.service:27` 的 `./cmd/analysis` 改成 `./cmd/no-such-service` ⇒ ① 检查器 `EXIT=1`，恰好 1 条错误，点名 `Dockerfile.service:27` 的 `go build ./cmd/no-such-service` 目标不存在；② 真 `docker build -f Dockerfile.service .` `EXIT=1`，`did not complete successfully: exit code: 1`。还原后 `Dockerfile.service` SHA256 = `B1D8D75D8D3BE6D4F5BF67200588F13379FC962CD2A87959EA994D7FE48D0038`，与破坏前一致；检查器复跑 EXIT=0。
+> - **回归（真实退出码）**：`docker compose config --quiet` / `docker compose --profile full config --quiet` / `python tools/check_doc_links.py` / `python tools/check_deploy_consistency.py` 全 exit 0；`ci.yml` 经 YAML 解析合法，jobs = `agent-compat` / `align-gate` / `docs` / `go` / `image-build` / `python`。本轮只动 CI 与检查器，不涉及 Go 代码，`go build/vet/test` 输出面未被触及。
+> - **如实登记的残余**：① 其余 8 仓的镜像门不在本单（归 `X-CI-RACE-STATICCHECK` 同批或各仓自持）；② 本机的 Docker 29.9.3 与 GitHub runner 的 docker 版本不同，CI 首次跑该 job 的实际耗时未实测，但构建内容一致（同一 Dockerfile、同一 build context）。
