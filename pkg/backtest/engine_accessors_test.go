@@ -500,3 +500,12 @@ func TestDateRangeBounds(t *testing.T) {
 		assert.Equal(t, 2, hi)
 	})
 }
+
+// TestFormatDrawdownDate 钉住响应层的空串口径：零值 = 全期无回撤，
+// 不得格式化成 0001-01-01（那会被读成「0001 年发生过回撤」）。
+func TestFormatDrawdownDate(t *testing.T) {
+	assert.Equal(t, "", formatDrawdownDate(time.Time{}))
+	assert.Equal(t,
+		"2024-05-06",
+		formatDrawdownDate(time.Date(2024, 5, 6, 0, 0, 0, 0, time.UTC)))
+}

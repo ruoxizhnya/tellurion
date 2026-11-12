@@ -3611,7 +3611,7 @@ Turnover，就是文档与实现静默漂移的标本）。
 | `sharpe_ratio` | float | 见指标口径 |
 | `sortino_ratio` | float | 见指标口径 |
 | `max_drawdown` | float | 峰谷最大回撤，**负值** |
-| `max_drawdown_date` | string | 回撤最深日，`YYYY-MM-DD` |
+| `max_drawdown_date` | string | 回撤最深日，`YYYY-MM-DD`；**全期无回撤时为空串**（不是首日、不是 `0001-01-01`） |
 | `win_rate` | float | 盈利平仓交易占比，0–1 |
 | `total_trades` | int | 平仓交易总数 |
 | `win_trades` / `lose_trades` | int | 盈利 / 亏损平仓数 |
@@ -3677,9 +3677,17 @@ Turnover，就是文档与实现静默漂移的标本）。
   **不做外部资金流修正** —— 回测是封闭系统，现金变动 100% 来自买卖。历史教训：
   申赎式 TWR 修正在每个交易日注入 ±成交额/总资产 的脉冲并污染 Sharpe 全链路（废止，
   见 `metrics.CalculateReturns` 注释）。
-- **sharpe_ratio** = (mean(r) − rf/252) / std_sample(r) × √252。
-- **sortino_ratio** = (mean(r) − rf/252) / downside_std × √252，下行只取 r < 0 的样本。
+- **sharpe_ratio** = (mean(r) − rf/252) / std_sample(r) × √252。**离散度不可测时**
+  （样本数 < 2，或 std 低于 1e-6/日 —— 零波动权益曲线经 float64 计价与费用尾差
+  后仍有 1e-7 量级噪声）返回 `0`，语义是「Sharpe 无定义」，**不是**「Sharpe=0」这个观测。
+- **sortino_ratio** = (mean(r) − rf/252) / downside_std × √252，下行只取 r < 0 的样本；
+  下行离散度低于同一可测下限（或没有任何下行样本）时同样返回 `0`。
 - **max_drawdown** = 峰谷法最大回撤，负值；`max_drawdown_date` 为最深日。
+  **全期无回撤**（max_drawdown = 0）时 `max_drawdown_date` 为**空串**（无回撤日），
+  不回落到首日、不输出 `0001-01-01`。峰值 ≤ 0 时不做除法（避免 NaN/Inf 被判 `garbage_metric`）。
+- **VaR / CVaR（95%）** 不在 API 顶层字段但在风险指标里给出：取日收益分布的 5% 分位
+  （及其尾部均值）。零波动样本上两者为 `0` 是**真实答案**（最差日收益就是 0），
+  不是除零兜底。
 - **annual_return** = (1 + total_return)^(1/years) − 1，years 按净值序列**实际**首尾
   日历时间（365.25 天/年）。与 Sharpe 的 252 交易日年化并存且有意不同：前者按日历
   时间复利，后者按交易日波动。

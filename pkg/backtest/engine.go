@@ -857,6 +857,18 @@ func (e *Engine) newBacktestState(backtestID string, req BacktestRequest, stockP
 	}
 }
 
+// formatDrawdownDate 把「最深回撤日」格式化成 API 的 YYYY-MM-DD。
+//
+// 零值表示**全期无回撤**（metrics.CalculateMaxDrawdown 的口径）⇒ 输出空串，
+// 而不是 0001-01-01：后者会被读成「0001 年发生过回撤」，且与
+// `zero_start_date` 的无效判定语义撞车。
+func formatDrawdownDate(d time.Time) string {
+	if d.IsZero() {
+		return ""
+	}
+	return d.Format("2006-01-02")
+}
+
 // buildBacktestResponse assembles the success BacktestResponse from the
 // completed state and result.
 func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, state *BacktestState, result *cdom.BacktestResult, initialCapital float64) *BacktestResponse {
@@ -872,7 +884,7 @@ func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, s
 		SharpeRatio:     result.SharpeRatio,
 		SortinoRatio:    result.SortinoRatio,
 		MaxDrawdown:     result.MaxDrawdown,
-		MaxDrawdownDate: result.MaxDrawdownDate.Format("2006-01-02"),
+		MaxDrawdownDate: formatDrawdownDate(result.MaxDrawdownDate),
 		WinRate:         result.WinRate,
 		TotalTrades:     result.TotalTrades,
 		WinTrades:       result.WinTrades,
@@ -941,7 +953,7 @@ func (e *Engine) ResponseFromState(backtestID string) (BacktestResponse, bool) {
 		SharpeRatio:     result.SharpeRatio,
 		SortinoRatio:    result.SortinoRatio,
 		MaxDrawdown:     result.MaxDrawdown,
-		MaxDrawdownDate: result.MaxDrawdownDate.Format("2006-01-02"),
+		MaxDrawdownDate: formatDrawdownDate(result.MaxDrawdownDate),
 		WinRate:         result.WinRate,
 		TotalTrades:     result.TotalTrades,
 		WinTrades:       result.WinTrades,

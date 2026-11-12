@@ -338,3 +338,76 @@ func TestFilterNegative(t *testing.T) {
 		t.Errorf("expected 2 negative values, got %d", len(neg))
 	}
 }
+
+// ─── 零波动 / 极小方差样本的口径（2026-11-12）─────────────────────────
+
+// TestCalculateSharpeRatio_NearZeroStdDev 钉住「极小方差放大」这条：
+// 精确零方差早已被 stdDev==0 挡住，但零波动权益曲线经 float64 计价与费用
+// 尾差后，日收益 std 常是 1e-7 量级浮点噪声 —— 旧口径下
+// (mean - rf)/std * sqrt(252) 会放大成 -268 这类荒谬 Sharpe，且仍被判 valid。
+func TestCalculateSharpeRatio_NearZeroStdDev(t *testing.T) {
+	returns := []float64{1e-7, -1e-7, 1e-7, -1e-7, 1e-7, -1e-7}
+	if sd := statistics.SampleStdDev(returns); sd >= minDailyDispersionForRatio {
+		t.Fatalf("夹具自检失败：std=%g 应低于可测下限 %g", sd, minDailyDispersionForRatio)
+	}
+	sharpe := CalculateSharpeRatio(returns, 0.03)
+	if sharpe != 0 {
+		t.Fatalf("离散度低于可测下限 ⇒ Sharpe 无定义，应为 0，实际 %.4f", sharpe)
+	}
+}
+
+// TestCalculateSharpeRatio_RealLowVolStillComputed 防止下限把真实低波动策略
+// 也一起挡掉：std 在 1e-3 量级时必须照常给出非零结果。
+func TestCalculateSharpeRatio_RealLowVolStillComputed(t *testing.T) {
+	returns := []float64{0.001, 0.002, 0.0015, 0.001, 0.0025, 0.0005}
+	sharpe := CalculateSharpeRatio(returns, 0.03)
+	if sharpe == 0 {
+		t.Fatal("真实低波动样本不该被下限挡成 0")
+	}
+}
+
+func TestCalculateSortinoRatio_NearZeroDownside(t *testing.T) {
+	returns := []float64{1e-7, -1e-7, 1e-7, -1e-7}
+	sortino := CalculateSortinoRatio(returns, 0.03)
+	if sortino != 0 {
+		t.Fatalf("下行离散度低于可测下限 ⇒ Sortino 无定义，应为 0，实际 %.4f", sortino)
+	}
+}
+
+// TestCalculateMaxDrawdown_FlatHasNoDate 钉住「无回撤不填首日」：
+// 首日不是最深日，零值时间才是「无回撤日」的唯一诚实表示。
+func TestCalculateMaxDrawdown_FlatHasNoDate(t *testing.T) {
+	pvs := makePortfolioValues([]float64{100, 100, 100, 100})
+	mdd, date := CalculateMaxDrawdown(pvs)
+	if mdd != 0 {
+		t.Errorf("零波动样本回撤应为 0，实际 %.4f", mdd)
+	}
+	if !date.IsZero() {
+		t.Errorf("无回撤时日期必须为零值（不伪装首日），实际 %s", date.Format(time.RFC3339))
+	}
+}
+
+// TestCalculateMaxDrawdown_ZeroPeakNoNaN 钉住除零保护：全期权益 ≤ 0 时
+// 回撤比率无定义，不能产出 NaN/Inf（那会被 validity 判成 garbage_metric）。
+func TestCalculateMaxDrawdown_ZeroPeakNoNaN(t *testing.T) {
+	pvs := makePortfolioValues([]float64{0, 0, 0})
+	mdd, date := CalculateMaxDrawdown(pvs)
+	if math.IsNaN(mdd) || math.IsInf(mdd, 0) {
+		t.Fatalf("峰值非正时不得除零产出 NaN/Inf，实际 %v", mdd)
+	}
+	if mdd != 0 || !date.IsZero() {
+		t.Fatalf("峰值非正应记 0 且无回撤日，实际 mdd=%v date=%v", mdd, date)
+	}
+}
+
+// TestCalculateVaR_FlatSeriesIsZero 钉住 VaR/CVaR 在零波动样本上为 0 是
+// **真实答案**（最差日收益就是 0），不是除零/兜底造成的假 0。
+func TestCalculateVaR_FlatSeriesIsZero(t *testing.T) {
+	returns := make([]float64, 20) // 全 0
+	if v := calculateVaR(returns, 0.95); v != 0 {
+		t.Errorf("零波动的 95%% VaR 应为 0（最差日收益为 0），实际 %.6f", v)
+	}
+	if v := calculateCVaR(returns, 0.95); v != 0 {
+		t.Errorf("零波动的 95%% CVaR 应为 0，实际 %.6f", v)
+	}
+}

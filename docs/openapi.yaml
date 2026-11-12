@@ -4507,6 +4507,7 @@ components:
           type: number
         max_drawdown_date:
           type: string
+          description: 回撤最深日 YYYY-MM-DD；全期无回撤时为空串（不回落到首日，也不给 0001-01-01）
         win_rate:
           type: number
         total_trades:

@@ -109,18 +109,28 @@ func CalculateReturns(portfolioValues []cdom.PortfolioValue) []float64 {
 }
 
 // CalculateMaxDrawdown calculates the maximum drawdown and its date.
+//
+// 口径（2026-11-12 明确）：
+//   - 回撤比率 = (峰值 - 当日权益) / 峰值，返回负值（0 = 从未跌破峰值）。
+//   - **无回撤时日期为零值**（`time.Time{}`），不返回首日：首日不是「最深日」，
+//     把首日填进去会让「零波动样本」看起来像「首日回撤」。
+//   - 峰值非正时不做除法（除零会产出 NaN/Inf，再被 validity 判成 garbage_metric）；
+//     此时该日不计入回撤，账户权益 ≤ 0 本身已是非法样本。
 func CalculateMaxDrawdown(portfolioValues []cdom.PortfolioValue) (float64, time.Time) {
 	if len(portfolioValues) == 0 {
 		return 0, time.Time{}
 	}
 
 	maxDrawdown := 0.0
-	maxDrawdownDate := portfolioValues[0].Date
+	var maxDrawdownDate time.Time
 	peak := portfolioValues[0].TotalValue
 
 	for _, pv := range portfolioValues {
 		if pv.TotalValue > peak {
 			peak = pv.TotalValue
+		}
+		if peak <= 0 {
+			continue // 除零保护：峰值非正，回撤比率无定义
 		}
 
 		drawdown := (peak - pv.TotalValue) / peak
@@ -130,8 +140,23 @@ func CalculateMaxDrawdown(portfolioValues []cdom.PortfolioValue) (float64, time.
 		}
 	}
 
+	if maxDrawdown == 0 {
+		return 0, time.Time{}
+	}
 	return -maxDrawdown, maxDrawdownDate // Return as negative percentage
 }
+
+// minDailyDispersionForRatio 是「日收益离散度可测」的下限（1e-6，即 0.0001%/日）。
+//
+// 为什么需要它：`stdDev == 0` 只挡住**精确**零方差。权益曲线由 float64 计价、
+// 含分位取整与费用尾差，零波动样本的日收益 std 常是 1e-7 量级的浮点噪声而
+// 非恰好 0；此时 (mean - rf)/std 会放大成 -268 这类荒谬值（rf 越大越负），
+// 随后被当成「真实结果」写进 JSON / 报表。1e-6 比账面噪声高两个数量级，
+// 又比任何真实策略的日波动（≥1e-4 量级）低两个数量级。
+//
+// 语义：离散度低于此下限 ⇒ **Sharpe/Sortino 无定义** ⇒ 返回 0，
+// 与「stdDev == 0」同一条口径，不编造数字。
+const minDailyDispersionForRatio = 1e-6
 
 // CalculateSharpeRatio calculates the Sharpe ratio.
 // Sharpe = (mean_daily_return - risk_free_rate) / std(daily_returns) * sqrt(252)
@@ -149,7 +174,7 @@ func CalculateSharpeRatio(returns []float64, riskFreeRate float64) float64 {
 	// Standard deviation
 	stdDev := statistics.SampleStdDev(returns)
 
-	if stdDev == 0 {
+	if stdDev < minDailyDispersionForRatio {
 		return 0
 	}
 
@@ -195,7 +220,9 @@ func CalculateSortinoRatio(returns []float64, riskFreeRate float64) float64 {
 	}
 
 	downsideDev := statistics.SampleStdDev(downsideReturns)
-	if downsideDev == 0 {
+	// 与 Sharpe 同一口径：下行离散度低于可测下限 ⇒ 比例无定义 ⇒ 0
+	// （否则零波动样本会得到一个由 1e-7 噪声放大出来的荒谬 Sortino）。
+	if downsideDev < minDailyDispersionForRatio {
 		return 0
 	}
 
