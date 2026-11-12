@@ -197,6 +197,16 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：core CI 与 Dockerfile；其余仓镜像门见 `X-CI-RACE-STATICCHECK`。
 - **owner**：待定
 
+### CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM · 策略插件仍把 `/screen` 兜底打到已退役路由 [P2] ⬜
+
+- **① 目标**：让 `multi_factor` / `value_screen` 的兜底腿不再依赖 data 从未存在的 `/screen` 路由。
+- **② 上下文**：`CORE-DEAD-PROXY-SCREEN-VERIFY`（2026-11-12）的静态护栏在 `pkg/strategy/utils.go` 抓到残留：`CallScreenAPI` 仍拼 `dataServiceURL + "/screen"`（`defaultDataServiceURL` = `http://localhost:8081`），调用点为 `multi_factor.go:552` / `value_screen.go:285`。该路由必 404，随后回落到按 bar 直接计算，功能不假，但每次多一次注定失败的 HTTP 往返 + 错误日志。网关面（`/api/screen` 本地供数）已由前者收口，本条只针对插件兜底。
+- **③ 要求**：先裁决兜底票池来源（注入本地 `ScreenFundamentals` / 消费 run 级物化），再改两处 fallback；删掉 `CallScreenAPI` / `ScreenCache` 与 `internal/repoguard/dead_proxy_upstream_test.go` 的 `retiredUpstreamAllowlist` 条目（护栏 staleness 断言会强制）。
+- **④ 约束与非目标**：不改策略选股语义、不引入第二个写入口、不删断言换绿。
+- **⑤ 验收**：两处兜底不再发起 HTTP；`retiredUpstreamAllowlist` 归零；破坏验证 = 把 `+ "/screen"` 加回 ⇒ 护栏红。
+- **⑥ 边界**：`pkg/strategy`；网关面与 UI 面不在本条。
+- **owner**：待定
+
 ### CORE-K8S-EXIT · 退役 k8s 清单（D7=a，本地单一 compose 已是唯一编排）[P2] ⬜
 
 - **① 目标**：把已被本地单一 `docker-compose.yml` 取代的 k8s 清单退役，消除「两套编排各说各话」与 readiness/liveness 探针口径漂移。

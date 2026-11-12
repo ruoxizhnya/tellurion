@@ -95,6 +95,7 @@
 | CORE-BACKTEST-OPS-TEXT | 回测排障文案指向已退役的 `/sync/calendar` 与 `sync/factors/all` | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-OPS-TEXT) |
 | CORE-FACTOR-CACHE-RETIRE | `public.factor_cache` 空表无写者，真正删表并清读写面 | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-RETIRE) |
 | CORE-MIGRATION-REPLAY-GUARD | `migrate()` 无事务、无重放指纹 ⇒ 逐条事务 + 账本表（版本+指纹），指纹不符/账本领先拒绝启动 | 2026-11-12 | 见原文 | [原文](#CORE-MIGRATION-REPLAY-GUARD) |
+| CORE-DEAD-PROXY-SCREEN-VERIFY | 核验 `/screen` 等死反代修复：前后各打一次 + 装配级用例 + 静态护栏（残留 `pkg/strategy` 已立项） | 2026-11-12 | 见原文 | [原文](#CORE-DEAD-PROXY-SCREEN-VERIFY) |
 
 ---
 
@@ -3233,3 +3234,28 @@
 
 
 
+
+## 十七、2026-11-12 CORE-DEAD-PROXY-SCREEN-VERIFY 核验死反代修复
+
+<a id="CORE-DEAD-PROXY-SCREEN-VERIFY"></a>
+### CORE-DEAD-PROXY-SCREEN-VERIFY · 核验 `8c5272d` 对 `/screen` 等死反代的修复是否真生效 [P1] ✅（2026-11-12）
+
+- **① 目标**：用真实请求证明「修复后不再打到已退役上游、失败不再是假装成功」，并给出一条能长期守住它的护栏。
+- **② 上下文**：`8c5272d` 把 `POST /api/screen` 从「反代 data 的 `/screen`（该路由从未存在）」改为 core 本地供数，`GET /api/stocks/count` 改为派生自 `/stocks`，`POST /api/ingest/raw` 改为 410 机器码。本单只核验，不改这些实现。
+- **③ 要求**：修复前后各打一次（状态码 + 错误体）；静态或单测护栏；破坏验证 = 恢复死反代 ⇒ 护栏红。
+- **④ 约束与非目标**：不改网关的三条替代实现；不在活服务上打请求（用 `httptest` 起假上游）；不碰 UI/data 仓。
+- **⑤ 验收**：前后证据成对、可复跑；护栏在默认构建生效；破坏验证真做真还原并留哈希。
+- **⑥ 边界**：网关 `cmd/analysis` 的 `/api/screen`、`/api/stocks/count`、`/api/ingest/raw`。
+- **重开条件**：策略插件兜底票池裁决完成（见 `CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM`）后，把护栏允许清单归零。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **修复前实测**（`git worktree` 检出 `27e0c15`，同一假上游「除 `/stocks` 外一律 404」，逐条打网关）：
+>   `POST /api/screen => 404 {"error":{"code":"not_found","message":"no route"}}`；`GET /api/stocks/count => 404 同上`；`POST /api/ingest/raw => 404 404 page not found`；上游记录 `[POST /screen GET /stocks/count]`。
+> - **修复后实测**（当前 HEAD，`registerProxyRoutes` + `registerScreenRoutes` 同 router 装配）：`POST /api/screen => 200 {"count":1,"results":[…]}`, 上游 `[]`；未接库时 `503` + `screen data layer unavailable` 且响应里没有 `count`（不伪装空结果）；`GET /api/stocks/count => 200`，上游恰为 `[GET /stocks]`；`POST /api/ingest/raw => 410` + `ingest_raw_retired`，上游仍 `[GET /stocks]`。
+> - **新增行为测试**：`cmd/analysis/dead_proxy_screen_test.go`（3 条，装配级；与 `handlers_screen_test.go` 的 handler 契约分工写明）。
+> - **新增静态护栏**：`internal/repoguard/dead_proxy_upstream_test.go` —— `cmd/` + `pkg/` 非测试代码里禁止 `+ "/screen"` / `+ "/stocks/count"` / `+ "/ingest/raw"`；正向对照要求三条替代实现仍在（删路由会假绿）。
+> - **残留（已立项，不在本单修）**：护栏首跑抓到 `pkg/strategy/utils.go` 的 `CallScreenAPI` 仍拼 `dataServiceURL + "/screen"`（`multi_factor.go:552` / `value_screen.go:285` 的兜底腿）。该调用必 404 后回落到按 bar 计算，功能不假但每次多一次注定失败的往返。改它要先裁决兜底票池来源，故登记为 `CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM` 并写进护栏的 `retiredUpstreamAllowlist`（条目带 staleness 断言，修好后必须删除，否则红）。
+> - **破坏验证（真实输出，逐字节还原；`handlers_proxy.go` 基线 SHA256 = `DF6EA5941785E698837B9035D3AA18973393D959FE1EE708032ECD10C2E0A26E`）**：临时加回 `proxyRequest(c, http.MethodPost, dataServiceURL+"/screen", nil)` ⇒
+>   `dead_proxy_upstream_test.go:82: cmd\analysis\handlers_proxy.go 仍把请求拼向已退役的上游 "+\"/screen\"" …` ⇒ FAIL；
+>   还原后哈希回到 `DF6EA594…E0A26E`，`ok tellurion/internal/repoguard`。
