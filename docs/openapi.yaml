@@ -1243,6 +1243,8 @@ paths:
                     type: array
                     items:
                       type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           description: Factor analytics store unavailable (service started without a database).
           content:
@@ -1315,6 +1317,8 @@ paths:
                           type: number
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           description: Factor analytics store unavailable.
           content:
@@ -1385,6 +1389,8 @@ paths:
                           type: number
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           description: Factor analytics store unavailable.
           content:
@@ -3314,6 +3320,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
         '503':
           description: Signal feed unavailable (no store / backend cannot page)
 
@@ -3902,7 +3910,7 @@ paths:
                     type: integer
                   as_of:
                     type: string
-                    format: date
+                    format: date-time
                   fetched_at:
                     type: string
                     format: date-time
