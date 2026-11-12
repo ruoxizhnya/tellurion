@@ -124,6 +124,7 @@
 | CORE-FACTOR-ANALYTICS-SURFACE | B-05 后端腿：`factor_returns` / `ic_analysis` 的写者与横截面聚合读面（因子列表 / 分位收益 / IC / 计算触发） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-FACTOR-ANALYTICS-SURFACE) |
 | CORE-SIGNAL-FEED-READ | A-09 后端腿：`GET /api/signals` 外部信号流读面（倒序 / 过滤 / 限量，读能力缺失 503） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-SIGNAL-FEED-READ) |
 | CORE-REVIEW-PENDING-AGGREGATE | A-04 断言 5 / G1：`GET /api/review/pending` 多源聚合，任一源未知即 `null`（不画恒 0 角标） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-REVIEW-PENDING-AGGREGATE) |
+| CORE-BENCH-CALENDAR-FIXTURE | `BenchmarkBacktest` 缺交易日历：按 fixture 日期合成日历，基准恢复出 ns/op | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-BENCH-CALENDAR-FIXTURE) |
 
 ---
 
@@ -3906,3 +3907,25 @@
   - 新增 6 组用例：全源可用求和、全源可用且为 0 时给 `0`（非 null）、任一源不可用给 `null` + 原因、无源配置给 `null` + 空数组、上游 200/0/缺字段/负数/404/503 六种响应、空地址不构造源。
 - **⑥ 边界与跨仓需求**：agent 仓需实现 `GET /api/explore/review/pending` → `200 {"pending":<int>,"as_of":"<RFC3339>"}`（契约已写入本仓 openapi）；该端点落地前 UI 角标继续显示「—」，属预期。
 - **重开条件**：新增第二个待审源（如资产服务待 promote 版本）时，把源加进 `reviewPendingSources` 即可，无需改聚合口径。
+
+<a id="CORE-BENCH-CALENDAR-FIXTURE"></a>
+### CORE-BENCH-CALENDAR-FIXTURE · `BenchmarkBacktest` 缺交易日历，基准一跑即 fail [P3] ✅（2026-11-12）
+
+- **① 目标**：让 `BenchmarkBacktest` 在本地与 CI 能真跑出 ns/op（当前一进 `RunBacktest` 就 fail，等于没有基准）。
+- **② 上下文**：2026-11-12 共享内存硬化批次复跑基准时暴露，**非该批引入**，也未改代码。复现命令与原文：
+  `go test ./pkg/backtest -run '^$' -bench '^BenchmarkBacktest$' -benchtime=1x -count=1`
+  → `engine_bench_test.go:227: backtest failed: [DATA_QUALITY] trading calendar not synced, please run POST /api/sync/jobs with job_type=trading_calendar first (with exchange 'SSE' or 'both') (op=RunBacktest)`；`FAIL tellurion/pkg/backtest 0.082s`。
+  根因：`BenchmarkBacktest`（`pkg/backtest/engine_bench_test.go:196`）用裸 `marketdata.NewInMemoryProvider()`，没注入交易日历；同文件 `TestBenchmarkSmoke`（`pkg/backtest/engine_bench_test.go:276`）从 fixture 的 `trade_date` 去重后调 `provider.SetTradingDays(tradingDays)`，所以普通 `go test` 不红、只有显式跑 benchmark 才红。CI 的 `Build & Test` 不跑 `-bench`，**该缺口在 CI 上不可见**。
+- **③ 要求**：二选一 —— ① 基准内按 `TestBenchmarkSmoke` 同一口径从 fixture 日期合成日历（优先，零新增资产）；② 或提供独立日历 fixture 并随 `loadBenchmarkFixture` 一并加载。修完两处共用同一构造逻辑，避免再次漂移。
+- **④ 约束与非目标**：不改 `RunBacktest` 的日历缺失 fail-closed（引擎报 `DATA_QUALITY` 是正确行为，见 `pkg/backtest/engine.go:694`）；不动基准测量口径（b.N 循环、缓存预载、8 workers）。
+- **⑤ 验收**：上述复现命令 EXIT=0 且打印 ns/op；`TestBenchmarkSmoke` 保持绿。
+- **⑥ 边界**：`pkg/backtest` 的测试夹具与基准；日历数据源本身归 `tellurion-data`。
+- **重开条件**：本地/CI 提供可用交易日历 fixture，或决定改用合成日历（后者不依赖外部条件，可随时开工）。
+
+> **施工记录（2026-11-12，决策 = ③ 的 ①：合成日历，零新增资产）**
+>
+> - **落地**：新增 `benchmarkTradingDays(fixture)`（`pkg/backtest/engine_bench_test.go`）——从 fixture 的 `trade_date` 去重、按日期升序合成日历；`BenchmarkBacktest` 与 `TestBenchmarkSmoke` 共用它，消除此前 smoke 独占实现的漂移点。
+> - **为什么不新增日历 fixture**：OHLCV fixture 本身已是交易日全集，另造一份等于同一事实两个来源；合成口径不依赖外部条件，随时可跑。
+> - **fail-closed 未动**：`RunBacktest` 的「日历缺失即 DATA_QUALITY」保持原样，测试侧只是如实提供日历。
+> - **护栏**：新增 `TestBenchmarkTradingDaysMatchFixture` 钉住「日历条数 = `metadata.trading_days`」「严格升序」。
+> - **验收（真实输出）**：`go test ./pkg/backtest -run '^$' -bench '^BenchmarkBacktest$' -benchtime=1x -count=1` → `BenchmarkBacktest-16 1 88979200 ns/op` + `PASS`（此前为 `DATA_QUALITY` FAIL）；`go test ./pkg/backtest -run 'TestBenchmarkTradingDaysMatchFixture|TestBenchmarkSmoke' -count=1` → `ok`；`gofmt -l ./pkg/backtest` → 空。

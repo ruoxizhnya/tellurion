@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -136,6 +137,49 @@ func buildFixtureHandler(f *fixtureData) http.HandlerFunc {
 	}
 }
 
+// benchmarkTradingDays 从 fixture 的 trade_date 去重合成交易日历。
+//
+// 为什么不新增一份日历 fixture：OHLCV fixture 本身已是交易日全集（同一份
+// 文件既喂行情也喂日历），另造一份日历等于同一事实两个来源，迟早漂移。
+// `RunBacktest` 的「日历缺失即 DATA_QUALITY fail-closed」保持不变 —— 它
+// 保护的是生产路径；测试侧要做的是如实提供这份日历，而不是绕过检查。
+//
+// 返回按日期升序，保证同一 fixture 下的日历顺序确定。
+func benchmarkTradingDays(fixture *fixtureData) []time.Time {
+	dateSet := make(map[string]time.Time, len(fixture.OHLCV))
+	for _, bar := range fixture.OHLCV {
+		parsed, err := time.Parse("2006-01-02", bar.TradeDate)
+		if err != nil {
+			continue
+		}
+		dateSet[bar.TradeDate] = parsed
+	}
+	days := make([]time.Time, 0, len(dateSet))
+	for _, day := range dateSet {
+		days = append(days, day)
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
+	return days
+}
+
+// TestBenchmarkTradingDaysMatchFixture 钉住合成日历与 fixture 的一致性：
+// 日历覆盖全部交易日期、无重复、升序。基准与 smoke 共用它，任一侧改口径
+// 都会在这里先红（CORE-BENCH-CALENDAR-FIXTURE）。
+func TestBenchmarkTradingDaysMatchFixture(t *testing.T) {
+	fixture := loadBenchmarkFixture()
+	require.NotNil(t, fixture, "fixture must load")
+
+	days := benchmarkTradingDays(fixture)
+	require.Len(t, days, fixture.Metadata.TradingDays,
+		"合成日历必须恰好覆盖 fixture 声明的交易日数")
+	require.NotEmpty(t, days)
+	for i := 1; i < len(days); i++ {
+		require.True(t, days[i-1].Before(days[i]),
+			"合成日历必须严格升序：第 %d 天 %s 不早于第 %d 天 %s",
+			i-1, days[i-1], i, days[i])
+	}
+}
+
 // BenchmarkBacktest measures the 5-stock, 1-year backtest performance.
 //
 // Per-backtest cost (baseline without in-memory cache):
@@ -193,7 +237,11 @@ func BenchmarkBacktest(b *testing.B) {
 	v.Set("strategy_service.url", stratServer.URL)
 
 	logger := zerolog.New(zerolog.NewTestWriter(b))
-	eng, err := NewEngine(v, marketdata.NewInMemoryProvider(), logger)
+	provider := marketdata.NewInMemoryProvider()
+	// CORE-BENCH-CALENDAR-FIXTURE：与 TestBenchmarkSmoke 同一口径合成日历，
+	// 否则 RunBacktest 会按 fail-closed 报 DATA_QUALITY 而拿不到 ns/op。
+	provider.SetTradingDays(benchmarkTradingDays(fixture))
+	eng, err := NewEngine(v, provider, logger)
 	if err != nil {
 		b.Fatalf("failed to create engine: %v", err)
 	}
@@ -238,7 +286,6 @@ func TestBenchmarkSmoke(t *testing.T) {
 
 	// Build in-memory OHLCV cache from fixture.
 	inMemoryOHLCV := make(map[string][]domain.OHLCV, len(fixture.Metadata.Symbols))
-	dateSet := make(map[string]time.Time)
 	for _, b := range fixture.OHLCV {
 		tm, _ := time.Parse("2006-01-02", b.TradeDate)
 		inMemoryOHLCV[b.Symbol] = append(inMemoryOHLCV[b.Symbol], domain.OHLCV{
@@ -247,13 +294,9 @@ func TestBenchmarkSmoke(t *testing.T) {
 			Close: b.Close, Volume: b.Volume,
 			LimitUp: b.LimitUp, LimitDown: b.LimitDown,
 		})
-		dateSet[b.TradeDate] = tm
 	}
-	// Extract unique trading days
-	tradingDays := make([]time.Time, 0, len(dateSet))
-	for _, d := range dateSet {
-		tradingDays = append(tradingDays, d)
-	}
+	// 与 BenchmarkBacktest 共用同一份合成日历（CORE-BENCH-CALENDAR-FIXTURE）。
+	tradingDays := benchmarkTradingDays(fixture)
 
 	dataServer := httptest.NewServer(buildFixtureHandler(fixture))
 	defer dataServer.Close()
