@@ -53,7 +53,7 @@ func normalizeGinPath(p string) string {
 }
 
 // contractRouter 装配**与生产一致**的路由表：registerRoutes（主表面）+
-// registerAuxRoutes（alerts / reconciliation 第二批接线）。
+// registerAuxRoutes（alerts / reconciliation / listing-status 第二批接线）。
 //
 // deps 用 newMinimalDeps（deps_test.go）：所有 handler 的注册期只捕获闭包，
 // 服务在请求期才解引用，所以 nil 服务不会 panic。两个例外必须显式给：
@@ -68,7 +68,7 @@ func contractRouter(t *testing.T) *gin.Engine {
 
 	router := gin.New()
 	registerRoutes(router, deps)
-	registerAuxRoutes(router, nil, nil, zerolog.Nop())
+	registerAuxRoutes(router, nil, nil, nil, zerolog.Nop())
 	return router
 }
 

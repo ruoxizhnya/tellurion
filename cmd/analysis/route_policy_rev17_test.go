@@ -46,7 +46,7 @@ func policyRouter(t *testing.T, svc *auth.Service) *gin.Engine {
 	r.Use(svc.Middleware())
 	r.Use(authz.Middleware(svc, analysisRoutePolicy))
 	registerRoutes(r, deps)
-	registerAuxRoutes(r, nil, nil, zerolog.Nop())
+	registerAuxRoutes(r, nil, nil, nil, zerolog.Nop())
 	return r
 }
 

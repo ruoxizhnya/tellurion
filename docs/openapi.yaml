@@ -3866,6 +3866,51 @@ paths:
         '503':
           description: Reconciliation worker is not enabled
 
+  # ---- Listing windows（CORE-LISTING-SEED-UNWIRED：上市/退市日历接入状态）----
+
+  /api/listing-windows/status:
+    get:
+      tags: [Backtest]
+      summary: 上市/退市日历的接入状态与票池偏差标记
+      description: |
+        报告回测票池的来源：`pool_source=point_in_time` 表示已接入
+        tellurion-data 的 `GET /api/v1/stocks/listing-windows`，按每个回放日的
+        真实在市名单过滤；`pool_source=current` 表示**没有**可信日历（未配置或
+        取数失败），引擎按今天的名单回测历史 —— 幸存者偏差仍在。
+
+        失败语义：接口不可用时**不合成**窗口（不会把整批股票判成在市），
+        `degraded=true` 且 `reason` 给出原因。本面永远 200，只报告状态，
+        不参与过滤。
+
+        `windows`/`delisted` 仅在 `point_in_time` 时大于 0；`as_of` 是数据面
+        的口径日期，`fetched_at` 是本地成功取数时刻（未取到时省略）。
+      operationId: getListingWindowsStatus
+      responses:
+        '200':
+          description: 接入状态（含降级原因）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pool_source:
+                    type: string
+                    enum: [point_in_time, current]
+                  windows:
+                    type: integer
+                  delisted:
+                    type: integer
+                  as_of:
+                    type: string
+                    format: date
+                  fetched_at:
+                    type: string
+                    format: date-time
+                  degraded:
+                    type: boolean
+                  reason:
+                    type: string
+
   # ---- 反代族（REV-13：代码注册的是通配 Any，此处按族登记；子路径直通上游）----
   # 四条都标 `x-served-by: agent`：路径语义与载荷以 agent 的 api-schema 为准，
   # 本文件只声明「core 有这条入口」。 ----

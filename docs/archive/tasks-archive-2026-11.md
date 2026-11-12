@@ -125,6 +125,7 @@
 | CORE-SIGNAL-FEED-READ | A-09 后端腿：`GET /api/signals` 外部信号流读面（倒序 / 过滤 / 限量，读能力缺失 503） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-SIGNAL-FEED-READ) |
 | CORE-REVIEW-PENDING-AGGREGATE | A-04 断言 5 / G1：`GET /api/review/pending` 多源聚合，任一源未知即 `null`（不画恒 0 角标） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-REVIEW-PENDING-AGGREGATE) |
 | CORE-BENCH-CALENDAR-FIXTURE | `BenchmarkBacktest` 缺交易日历：按 fixture 日期合成日历，基准恢复出 ns/op | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-BENCH-CALENDAR-FIXTURE) |
+| CORE-LISTING-SEED-UNWIRED | 上市/退市日历接入真实装配路径（主引擎 + walk-forward 窗口引擎），失败不合成并暴露 `pool_source=current` 偏差标记 | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-LISTING-SEED-UNWIRED) |
 
 ---
 
@@ -3929,3 +3930,29 @@
 > - **fail-closed 未动**：`RunBacktest` 的「日历缺失即 DATA_QUALITY」保持原样，测试侧只是如实提供日历。
 > - **护栏**：新增 `TestBenchmarkTradingDaysMatchFixture` 钉住「日历条数 = `metadata.trading_days`」「严格升序」。
 > - **验收（真实输出）**：`go test ./pkg/backtest -run '^$' -bench '^BenchmarkBacktest$' -benchtime=1x -count=1` → `BenchmarkBacktest-16 1 88979200 ns/op` + `PASS`（此前为 `DATA_QUALITY` FAIL）；`go test ./pkg/backtest -run 'TestBenchmarkTradingDaysMatchFixture|TestBenchmarkSmoke' -count=1` → `ok`；`gofmt -l ./pkg/backtest` → 空。
+
+<a id="CORE-LISTING-SEED-UNWIRED"></a>
+### CORE-LISTING-SEED-UNWIRED · 上市日历种子无生产调用者，幸存者偏差修正未接线 [P2] ✅（2026-11-12）
+
+- **① 目标**：让 `RunBacktest` 的「按日在市」过滤在真实装配路径生效；若本轮不接，必须把偏差如实上报，不得把「没过滤」当成「已修好」。
+- **② 上下文**：2026-11-12 W3 回测审计实跑发现——全仓非测试代码里 `SetListingWindows`（`pkg/backtest/engine.go:1572`）**没有任何调用者**，`rc.listingSnapshot()` 恒为空 ⇒ `eligibleUniverse` 原样放行（`pkg/backtest/engine_listing_test.go:109` 自身也写明「没注入日历就不能乱剔除」）。`engine.go:1096` 注释与 `engine_listing_test.go:116` 注释都写「由偏差维如实记上 / 要报 PoolSourceCurrent」，但全工作区 Go 代码**搜不到该偏差码或偏差维实现**。根因链：`SVC-CORE-DATA-RETIRE`（2026-11-08）后 core 不再读 `stocks` 表，上市日历改由装配层注入种子，但注入点从未落地。
+- **③ 要求**：二选一 —— ① 装配层从 data 服务（`stocks` 全量，含已退市）取上市/退市日历并调 `SetListingWindows`，结果里能看到过滤生效；② 若本轮不接，在结果/诊断里落一个明确的偏差码（如 `pool_source_current`），把「未按日在市过滤」标出来。
+- **④ 约束与非目标**：不改「没日历就不乱剔除」的现有语义（宁可不过滤也不误删）；不改 `RunBacktest` 的 fail-closed；`stocks` 数据源本身归 `tellurion-data`。
+- **⑤ 验收**：一条真实装配路径用例 —— 未注入种子时结果带偏差标记，或注入后退市票在退市日之后被剔除/强平；只在测试里直接调 `SetListingWindows` 不算。
+- **⑥ 边界**：core 装配层 + `pkg/backtest`；data 侧 `stocks` 表与退市名单归 `tellurion-data`。
+- **重开条件**：data 服务提供上市/退市日历接口，或决定先补偏差标记（后者不依赖外部条件，可随时开工）。
+
+> **施工记录（2026-11-12，data 接口 `72b96aa` 落地后接线，两条要求同时做）**
+>
+> - **契约映射**（data `GET /api/v1/stocks/listing-windows`）：`list_date` → `ListingWindow.List`；`delist_date:null` → `Delist = nil`；`delisted` / `status` 只做自述校验，过滤口径仍由 `IsListed` 按日期判（退市日当天仍在市，与 data 契约同口径）。`list_date:null` 保留零值、左端不过滤。
+> - **实现**：新增 `internal/listingseed`——`Loader` 负责取数、校验、深拷贝快照与状态汇总；`NewLoader` 在 `data_service.url` 为空时返回 nil（读面如实报未配置）。坏日期逐条记 Warn 但只把该边界当未知，不把全市场退回 `current`。
+> - **装配**（`cmd/analysis/main.go`）：启动期（20s 硬上限）拉一次并 `engine.SetListingWindows(...)`；`newEngine` 工厂里对 walk-forward 的**每个窗口引擎**注入同一份快照——漏掉这条会让窗口退回「按今天名单回测历史」而主引擎看起来已修好。
+> - **失败语义（核心）**：接口不可用/空 windows/解码失败时**不合成**任何窗口，快照 `Degraded=true` + `Reason`，引擎保持「空日历 ⇒ 不过滤」；绝不把「没取到」翻译成「整批股票都在市」。启动不 Fatal，只记 Error。
+> - **偏差标记**：新增 `GET /api/listing-windows/status`（`cmd/analysis/handlers_listing_status.go`，挂进 `registerAuxRoutes` 与契约护栏同入口）——`pool_source=point_in_time`（已接入，附 `windows`/`delisted`/`as_of`/`fetched_at`）或 `pool_source=current` + `degraded=true` + `reason`。不改 contracts 的 `known_bias`（那会串动引擎多处断言），偏差维由独立状态读面承担。
+> - **验收（真实输出）**：
+>   - `gofmt -l cmd/analysis internal/listingseed` → 空；`go build ./...` → exit 0。
+>   - `go test ./internal/listingseed ./cmd/analysis -count=1` → `ok` ×2（含 REV-13 契约护栏双向对拍与 route policy 双向守卫）。
+>   - `go test ./internal/... -count=1` → `ok` ×6（含 `internal/repoguard`）。
+>   - 新增用例：契约映射（null/退市日当天仍在市/坏日期降级为未知边界）、Bearer 透传、成功给 `point_in_time`、上游 5xx 给 `current`+`degraded` 且 `Windows` 为 nil、空 windows 视为失败、快照深拷贝隔离、读面 nil 加载器 / 成功 / 失败三态。
+> - **未覆盖**：真 data 服务联调（本机无该服务进程）；CI 侧无 PG/data 依赖，仍按既有约定不走。
+> - **跨仓需求**：contracts 仓需把 `/api/listing-windows/status` 同步进统一 openapi（本仓只保证 `docs/openapi.yaml` 与真实路由双向一致）。

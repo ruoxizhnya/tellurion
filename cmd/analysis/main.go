@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"tellurion/cmd/analysis/wiring"
 	"tellurion/internal/factoranalytics"
+	"tellurion/internal/listingseed"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/compliance"
@@ -82,6 +83,28 @@ func main() {
 	riskManager := ak.Wiring.RiskManager
 	executionTrader := ak.Wiring.ExecutionTrader
 
+	// CORE-LISTING-SEED-UNWIRED：上市/退市日历的生产接线（data 服务
+	// `GET /api/v1/stocks/listing-windows`，见 internal/listingseed）。
+	//
+	// 失败不阻断启动：取数不可用时**不合成**任何窗口，引擎保持既有空日历
+	// 行为（不过滤票池），状态读面 /api/listing-windows/status 如实报
+	// degraded=true + pool_source=current。绝不能把「没取到」翻译成
+	// 「整批股票都在市」—— 那正是幸存者偏差本身。
+	listingLoader := listingseed.NewLoader(dataServiceURL(v), v.GetString("data_service.token"), logger)
+	if listingLoader != nil {
+		// 启动期硬上限：Refresh 内部 20s 超时 + 2 次重试，最坏会拖到
+		// 一分钟；启动路径只等一个上限，拿不到就按 degraded 起服务。
+		listingCtx, cancelListing := context.WithTimeout(context.Background(), 20*time.Second)
+		listingSnap, listingErr := listingLoader.Refresh(listingCtx)
+		cancelListing()
+		if listingErr != nil {
+			logger.Error().Err(listingErr).
+				Msg("listing windows seed unavailable at startup; backtest universe stays unfiltered (pool_source=current)")
+		} else {
+			engine.SetListingWindows(listingSnap.Windows)
+		}
+	}
+
 	alertManager, alertLoop, err := buildAlertSystem(v, store, executionTrader, riskManager, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("alert system wiring failed")
@@ -117,6 +140,12 @@ func main() {
 		// 窗口引擎共用同一个 Trader 适配结果。
 		wiring.AttachLiveTrader(eng, executionTrader)
 		eng.SetStore(store)
+		// CORE-LISTING-SEED-UNWIRED：窗口引擎与主引擎共用同一份上市日历
+		// 快照。漏掉这一条，walk-forward 的每个窗口都会退回「按今天名单
+		// 回测历史」—— 而主引擎看起来已经修好了偏差，更难发现。
+		if listingLoader != nil {
+			eng.SetListingWindows(listingLoader.Windows())
+		}
 		// QT-64：与主引擎同一条取数通道（D6）。nil Router 由装配函数
 		// 显式 Warn，不允许窗口引擎静默退化成「无日内数据」。
 		wiring.AttachMarketDataRouter(eng, ak.Wiring.Router, logger)
@@ -205,7 +234,7 @@ func main() {
 	// 启用时差异逐条经 alert.ReconciliationDispatcher 进告警通道集
 	// （log + webhook，与风控告警同通道）。
 	reconWorker := buildReconciliation(v, alertManager, executionTrader, logger)
-	registerAuxRoutes(router, alertLoop, reconWorker, logger)
+	registerAuxRoutes(router, alertLoop, reconWorker, listingLoader, logger)
 	var stopRecon context.CancelFunc
 	if reconWorker != nil {
 		var reconCtx context.Context
@@ -245,16 +274,18 @@ func main() {
 }
 
 // registerAuxRoutes 是 main() 在 registerRoutes 之外的第二批路由接线：
-// alerts（K16 告警历史/统计/强制检查）与 reconciliation（对账 4 端点）。
+// alerts（K16 告警历史/统计/强制检查）、reconciliation（对账 4 端点）与
+// listing-windows 状态（CORE-LISTING-SEED-UNWIRED 的偏差标记读面）。
 //
 // 为什么单独抽成一个函数：契约护栏（routes_contract_test.go，REV-13）要装配
 // **与生产完全一致**的路由表才能和 docs/openapi.yaml 双向对拍。此前这两族
 // 直接写在 main() 里，测试路径摸不到 —— 护栏看到的会是一份「少了两个族」的
 // 假快照，漂移照样漏。抽出来后 main 与测试调用同一个入口，新增第三族时
 // 只要接进这里，护栏自动覆盖。
-func registerAuxRoutes(router *gin.Engine, alertLoop *PeriodicAlertLoop, reconWorker *reconciliation.ReconciliationWorker, logger zerolog.Logger) {
+func registerAuxRoutes(router *gin.Engine, alertLoop *PeriodicAlertLoop, reconWorker *reconciliation.ReconciliationWorker, listingLoader *listingseed.Loader, logger zerolog.Logger) {
 	registerAlertRoutes(router, alertLoop)
 	NewReconciliationHandler(reconWorker, logger).RegisterRoutes(router)
+	NewListingStatusHandler(listingLoader).RegisterRoutes(router)
 }
 
 func registerRoutes(router *gin.Engine, deps *ServerDeps) {
