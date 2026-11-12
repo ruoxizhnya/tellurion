@@ -359,6 +359,7 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **④ 约束与非目标**：不手改版本号、不加 replace；不在本批顺手升无关依赖；analytics 已 v5.11.0 安全，不重复 bump。
 - **⑤ 验收**：7 仓 `govulncheck` 真跑 EXIT=0（E2）；破坏验证 = 临时 pin 回旧版 ⇒ govulncheck 红。各仓 `go build/vet/test` 绿。
 - **⑥ 边界**：协调伞在 core；各仓 pin/CI/AGENTS 改动落各仓 commit。前置 kit 发版归 `KIT-DEP-SECURITY-BUMP`。
+- **core 腿（2026-11-12 已完成，见 [归档](archive/tasks-archive-2026-11.md#X-DEP-BUMP-CONSUMERS)）**：`go.mod` kit `v0.5.0` / pgx `v5.11.0` / `go 1.26.11`，CI 增 `govulncheck` 门并三处 `setup-go` 对齐；破坏验证（pgx 回 v5.7.3 ⇒ GO-2026-5004 红）真做真还原。**其余 6 仓仍开放**。
 - **owner**：待定
 - **重开条件**：`KIT-DEP-SECURITY-BUMP` 发版（tag 推远端 + proxy 可解析）。
 
@@ -370,6 +371,7 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **④ 约束与非目标**：只改文档版本列，不改 go.mod（go.mod 是真相）；不逐仓抄同一版本号（各仓实测可能不同）。
 - **⑤ 验收**：各仓 AGENTS §4 与 go.mod 逐行一致；`check_doc_links.py`（docs 仓）绿。
 - **⑥ 边界**：协调伞在 core；各仓 AGENTS 改动落各仓 commit。
+- **core 腿（2026-11-12 已完成，见 [归档](archive/tasks-archive-2026-11.md#X-AGENTS-DEPENDENCY-TABLE)）**：contracts 列 `v0.10.0`、kit 列 `v0.5.0`（随 bump 取实测值）、`:8081` 归属句三处订正。**其余 5 仓仍开放**。
 - **owner**：待定
 
 ### X-CI-RACE-STATICCHECK · 6 服务仓 + agent + contracts CI 补 -race/staticcheck（W6 连带）[P2] ⬜

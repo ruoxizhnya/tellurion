@@ -16,8 +16,8 @@
 | 仓 | 一句话 | 与本仓的关系 |
 |---|---|---|
 | **`tellurion`（本仓）** | 回测引擎 / 策略运行时 / 撮合 / 组合结算 / 仪器域存储 / 内核装配 | 热路径全在这里，**不出进程** |
-| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.9.0`，2026-11-08 按裁决 #6 从 `v0.6.0` 切：v0.7 `risk/`、v0.8 `run/`、v0.9 `broker/` 三个**新增**包，无删改签名；tag 与 `main` 已推远端，**禁 `replace`**） |
-| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 已发版 `v0.1.4`（2026-10-25，`KT-11`：`role=service` 的 token 不再被 subject 的 `int64` 校验 401）；本仓 **`require v0.1.4`**（QT-75 二期，2026-11-07：`statistics` / `httpserver` 切包，连同 QT-73 一期共七包 144 处；`httpserver` 的 gin 回环包装按 kit 分工留在 `pkg/bootstrap/loopback.go`，不再回 core 建横切包）。跨仓依赖只认 tag（ADR-D31），本仓无 `replace` |
+| `tellurion-contracts` | port / DTO / 值对象 / 四契约 / 哨兵错误 | 本仓以**版本依赖**使用（`v0.10.0`，2026-11-11 `CT-06-ALIAS-EXIT`：删除 `v0.7~v0.9` 引入的过渡别名，跨仓已全部迁移；此前 `v0.9.0` 为 2026-11-08 按裁决 #6 从 `v0.6.0` 切：v0.7 `risk/`、v0.8 `run/`、v0.9 `broker/` 三个**新增**包，无删改签名；tag 与 `main` 已推远端，**禁 `replace`**） |
+| `tellurion-kit` | logging / errors / decimal / db / http 等横切工具 | 本仓 **`require v0.5.0`**（2026-11-12 `X-DEP-BUMP-CONSUMERS` 安全升级：kit 自身已发版 `v0.5.0`，其 `go.mod` 要求 `go >= 1.26.11`，本仓 `go` 指令随之对齐；历史上 `v0.1.4` 修过 `role=service` 的 token 被 subject `int64` 校验 401，`v0.3.0` 起为 QT-75 二期切包基线）。QT-75 二期（2026-11-07）：`statistics` / `httpserver` 切包，连同 QT-73 一期共七包 144 处；`httpserver` 的 gin 回环包装按 kit 分工留在 `pkg/bootstrap/loopback.go`，不再回 core 建横切包。跨仓依赖只认 tag（ADR-D31），本仓无 `replace` |
 | `tellurion-agent` | AI 实验员（探索 / 生成 / pipeline / 工具注册表） | 只经 **HTTP** 调本仓；本仓对 AI 四族路由做纯反代 |
 | `tellurion-ui` | Vue 3 前端 | 只消费本仓 HTTP |
 | `tellurion-data` | 数据面唯一入口（connector / aggregator） | 触发后接管 `market` / `ingest`；本仓改为只读 API |
@@ -115,7 +115,8 @@
 ## 2. 架构概览
 
 > ⚠️ **本节的框图是"拆仓前的整体服务视角"**，用来讲清系统怎么搭，**不是本仓的目录说明**。
-> 本仓只实现其中两件：**analysis-service（:8085）** 与 **data-service（:8081）**；
+> 本仓只实现其中 **analysis-service（:8085）**；**data-service（:8081）源码在 `tellurion-data` 仓**，
+> 本仓只经 `DATA_SERVICE_URL` 调用/反代，不含它的进程与镜像；
 > 前端（Browser）在 `tellurion-ui`，AI 服务（:8086）在 `tellurion-agent`；六个能力服务仓**已按 ADR-036（2026-10-26）定性为服务**：
 > G0/G1/G2 并行补部署、接口与数据，G3 切读/停写按依赖串行；risk = 控制面服务 + core 进程内裁决，broker = 服务（Mock MVP）。
 > 今天只有 data 读链与 risk 客户端（默认关）被本仓真消费，其余四条待 G3 —— 状态见
@@ -149,7 +150,7 @@ L1  数据层      行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日�
 
 > **不做 `plugin.Open`**（ADR-024 的主要「不做」记录）：Windows 根本不支持 Go plugin（`-buildmode=plugin` 仅 Linux / macOS / FreeBSD），而开发环境就是 Windows —— 本地无法验证的加载路径不配当主链路；依赖版本必须逐字节一致，符号冲突难复现难排查；且「让 LLM 写代码再动态加载」= AI 造仪器，与 ADR-023 冲突。**ADR-001 的插件机制本身保留** —— 它服务人工编写的、需要热插拔的策略，与"AI 生成代码"是两回事。
 
-**服务视角（已实现）**: 今天只有 **3 个进程**：`analysis-service`（:8085，同时是 API 网关）、`data-service`（:8081）、`ai-service`（:8086，源码在 `tellurion-agent` 仓）。analysis 对 data 做反代/调用，对 ai 四族路由做纯反代。**`strategy-service`（:8082）已于 REV-16 删除**（ADR-012 关闭），别再按"三个后端服务"理解。
+**服务视角（已实现）**: 系统今天有 **3 个进程**：`analysis-service`（:8085，本仓，同时是 API 网关）、`data-service`（:8081，源码在 `tellurion-data` 仓）、`ai-service`（:8086，源码在 `tellurion-agent` 仓）。analysis 对 data 做反代/调用，对 ai 四族路由做纯反代。**`strategy-service`（:8082）已于 REV-16 删除**（ADR-012 关闭），别再按"三个后端服务"理解。
 
 ```
 Browser (Vue SPA :5173)
@@ -861,7 +862,7 @@ Please continue from where we left off.
 ### 项目健康度
 - **Phase**: 4 (AI-Native Evolution) 进行中；Phase 3 (Integration & Scale) 已收口
 - **测试覆盖** (2026-06-29 实测, 总体 62.9% statement-weighted): backtest 76.0% | strategy 64.4% (顶层) / plugins 83.1% (子包) | data/source 60.9% | data/sentiment 76.8% | storage 13.2% (无 DB 时 skip) | ai 28.9% (顶层) / 子包 16-95% (avg ~67%) | live 75.8% | marketdata 79.0% | risk 85.3% | compliance 91.6% | fees 100% | expression 74.5%
-- **关键服务（本仓口径）**: Analysis ✅（:8085）| Data ✅（:8081）| Sync ✅（在 data 服务内）—— **AI Research 的代码在 `tellurion-agent` 仓**；**strategy-service（:8082）已于 REV-16 删除**，不要再按"五个服务"理解
+- **关键服务（本仓口径）**: Analysis ✅（:8085，本仓）| Data ✅（:8081，源码在 `tellurion-data` 仓）| Sync ✅（在 data 服务内）—— **AI Research 的代码在 `tellurion-agent` 仓**；**strategy-service（:8082）已于 REV-16 删除**，不要再按"五个服务"理解
 - **Hermes Agent 集成** (2026-07-02, ODR-046): Phase 1-2 完成 — **21 个 MCP 工具** (`pkg/tools/builtin/`, ODR-057 新增 `research.profile`) + L1-L4 验证门禁 + 自主挖掘 Skill + 预算控制器配置. 前端 AI UI 已弃用 (ODR-045), Hermes 自然语言交互替代. `pkg/ai/agents/` Go-native agents 保留向后兼容但已弃用.
 - **审计状态** (2026-06-29 ODR-043): 4 维度审计完成, 12 Critical / 18 High / 10 Medium 问题点; 5 真实 bug 已识别待修复
 - **架构定位** (2026-09-16, Accepted — ADR-023（`tellurion-docs:docs/adr/adr-023-ai-experimenter-lab.md`） / ODR-048（`tellurion-docs:docs/archive/odr/odr-048-top-level-product-redefinition.md`）, 取代 ADR-022（`tellurion-docs:docs/archive/superseded-adr/adr-022-unified-research-platform.md`） / ADR-021): **一间单人自托管实验室** — AI 实验员（唯一编排者，会循环）操作底座，人当实验室主任；EquityDeep 从「工作面」**降为数据底座**（产业链图谱 + 研究洞察），不再是第二个 agent。三层模型见 §2。执行载体见 ADR-024（`tellurion-docs:docs/adr/adr-024-expression-as-execution-target.md`）（表达式，不是 LLM 生成的代码）。

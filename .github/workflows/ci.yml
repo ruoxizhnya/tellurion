@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26.11"
           cache: true
 
       - name: Build
@@ -49,6 +49,14 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      # X-DEP-BUMP-CONSUMERS：依赖漏洞门。
+      # GO-2026-5004（pgx < v5.9.2）此前没有任何 CI 门能发现 —— pin 里带着已知漏洞也能全绿。
+      # govulncheck 按“符号级可达性”判定，只对真正被调用到的漏洞报红；上游模块里的
+      # 不可达漏洞只计数不失败（避免把无关 CVE 变成噪声红）。
+      # 破坏验证：把 pgx 降回 v5.7.3 ⇒ 本步以 GO-2026-5004 exit 1；还原 v5.11.0 ⇒ EXIT=0。
+      - name: Govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       # AUD-38：windows-only 文件在 Linux-only CI 里**从不被编译**。
       #
@@ -225,7 +233,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26.11"
           cache: true
 
       - uses: actions/setup-python@v5
@@ -368,7 +376,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26.11"
           cache: true
 
       # 把 agent 的 `replace tellurion` 指到本 runner 上 checkout 的 core（含本次 PR 的改动），
