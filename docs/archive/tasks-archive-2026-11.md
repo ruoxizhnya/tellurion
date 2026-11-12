@@ -94,6 +94,7 @@
 | CORE-FACTOR-CACHE-WRITER | `public.factor_cache` 有表无写者，`multi_factor` 不可用（ADR-037 按需求值收口） | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-WRITER) |
 | CORE-BACKTEST-OPS-TEXT | 回测排障文案指向已退役的 `/sync/calendar` 与 `sync/factors/all` | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-OPS-TEXT) |
 | CORE-FACTOR-CACHE-RETIRE | `public.factor_cache` 空表无写者，真正删表并清读写面 | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-RETIRE) |
+| CORE-MIGRATION-REPLAY-GUARD | `migrate()` 无事务、无重放指纹 ⇒ 逐条事务 + 账本表（版本+指纹），指纹不符/账本领先拒绝启动 | 2026-11-12 | 见原文 | [原文](#CORE-MIGRATION-REPLAY-GUARD) |
 
 ---
 
@@ -3201,6 +3202,33 @@
 > - **护栏**：新增 `internal/repoguard/factor_cache_retired_test.go`（`TestFactorCachePersistenceIsRetired`）——扫 `pkg/internal/cmd` 非测试 `.go`，禁止 `FROM/INTO/UPDATE/JOIN/CREATE/ALTER/TRUNCATE … factor_cache` 与旧方法名 `GetFactorCacheRange` / `SaveFactorCacheBatch` / `GetFactorCache`；正向要求 `postgres.go` 恰好一条 `DROP TABLE IF EXISTS public.factor_cache`。同步把 `walkforward_persistence_retired_test.go` / `strategy_definitions_retired_test.go` 的正向对照从 `factor_cache` 换成 `factor_returns`，`factor_registry_test.go` 反向棘轮按设计删除已不聚集名册常量的条目。
 > - **验收（真实输出）**：`gofmt -l pkg internal cmd` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` 全绿。
 > - **破坏验证（真实输出，逐字节还原）**：往 `pkg/storage/cache.go` 临时加回一行 `var _ = \`INSERT INTO public.factor_cache …\`` ⇒ `TestFactorCachePersistenceIsRetired` 红（点名 `pkg/storage/cache.go 仍出现 factor_cache 读写 SQL`）；删除该行后 `cache.go` SHA256 回到 `B01224FB666037841898D03B00A6D83E57F6920B37235D18553B88B2FCF5CCB1`，复绿。
+
+## 十六、2026-11-12 CORE-MIGRATION-REPLAY-GUARD 迁移重放守卫
+
+<a id="CORE-MIGRATION-REPLAY-GUARD"></a>
+### CORE-MIGRATION-REPLAY-GUARD · `migrate()` 无事务、无重放指纹，迁移半途失败不可判定 [P1] ✅（2026-11-12）
+
+- **① 目标**：让 core 内联迁移**可重放、可判定**——失败后重启能知道「上次成功到哪一条」，已应用的迁移不再重跑，文本被改动或代码回退时拒绝启动而不是带着错误前提继续改 schema。
+- **② 上下文**：审查发现 W2-F2（ODR-069，A1 已授权真库腿）。原 `migrate()` 逐条 `Exec`、无事务包裹、无执行记录；`data_migrations` 只覆盖历史变换型 DML 且置位后不可重放；迁移失败后下一次启动只能从第一条重来，哪些已生效、哪些没跑到，代码和数据库都不知道。
+- **③ 要求**：① 先证实现状（语句是否幂等、是否有事务、失败后能否自证）；② 给出推荐方案并说明理由（① 整批事务 / ② 账本表，或组合）；③ 用例覆盖「半途失败 ⇒ 不留半套状态」「重启能判定是否重放」「指纹不符 ⇒ 拒绝启动」；④ 破坏验证：去掉守卫 ⇒ 用例红，逐字节还原后复绿。
+- **④ 约束与非目标**：不改 `migrationStatements()` 的 DDL 语义与编号；不在活库上跑（DATA-09）；不引入 down（回滚靠归档的反向 DDL）；不引入外部迁移工具。
+- **⑤ 验收**：方案与理由成文（写进 `migrate()` 注释）；`gofmt -l` 空、`go build/vet/test ./... -count=1` 全绿、`docker compose --profile full config --quiet` = 0；新增默认构建单测 + integration 用例，破坏验证真做真还原并留哈希。
+- **⑥ 边界**：`pkg/storage/postgres.go` 的迁移执行器与新增测试；其他仓的迁移实现不在本条。
+- **重开条件**：① 需要 down / 回滚自动化（当前只有归档里的反向 DDL）；② 迁移语句需要跨语句原子（目前语义是「一条一事务、账本连续前缀」，跨条的半套状态由账本可判定，不追求整批回滚）；③ 引入外部迁移工具或把账本并入 data 仓 `data_migrations` 口径统一时。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **现状判断（先读后改）**：`migrate()` 逐条 `s.pool.Exec`，无事务、无执行记录；`migrationStatements()` 全部幂等（`CREATE … IF NOT EXISTS` / `ALTER … ADD COLUMN IF NOT EXISTS` / `DO` 块守卫 / `UPDATE … WHERE` 条件清理 / 两条 `DROP TABLE IF EXISTS`），索引另在 `migrate()` 内循环、同样幂等。幂等只保证「重跑不报错」，不回答「上次到哪」——因此选 **方案 ②（账本表）+ 每迁移单事务**：整批事务只能保证一次启动内的原子性，重启后仍然不知道上次成功到哪一条，而半套 schema 的根因是「无执行记录」。
+> - **实现**：`core_schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`；版本 = 迁移数组下标 +1（不是手写编号，中间插入也会被指纹/越界检查抓住）；指纹 = `sha256(strings.TrimSpace(stmt))` 的 hex。`migrate()` = `migrationStatements() + migrationIndexStatements()` → `applyMigrations`：建账本 → 读已应用集合 → `planMigrations` 决定待执行 → 每条在单事务内执行 DDL 并写账本。
+> - **拒绝启动的两种情形**：已应用条目的指纹不符（文本被改动）；账本版本超过代码条数（代码被回退）。并发启动用 `INSERT … ON CONFLICT (version) DO NOTHING` + 回读校验，同版本指纹不一致同样拒绝。
+> - **存量库接管**：旧版本不留记录，升级后第一次启动看到「表都在、账本为空」⇒ 全量重放幂等 DDL 并记账（`TestIntegration_MigrateGuardAdoptsLegacyDatabaseWithoutLedger` 钉住）。
+> - **测试**：默认构建 `pkg/storage/migrate_guard_test.go`（7 条：指纹构造、空账本全 pending、全同零 pending、只补尾部、指纹不符、账本领先、非法版本）；integration `pkg/storage/migrate_guard_integration_test.go`（6 条：半途失败账本停在已提交前缀且失败点后一条不跑、重启用非幂等 DDL 证明已应用条目不重放、指纹不符拒绝且账本不被改写、账本领先拒绝、存量库接管、生产路径账本覆盖全部 81 条含索引）。
+> - **验收（真实输出）**：`gofmt -l pkg internal cmd` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；`go test -tags=integration ./pkg/storage/ -run TestIntegration_Migrate -count=1` 全部 PASS（含既有 `TestIntegration_MigrateIsIdempotentForModuleTables`）；`docker compose --profile full config --quiet` = 0。
+> - **破坏验证（真实输出，逐字节还原，基线 `postgres.go` SHA256 = `B5EE5B5CBCE358126410D24AF4069CA961011204AC0AFED4C607EBEB194FE6A1`）**：
+>   1. 去掉 `planMigrations` 的指纹校验 ⇒ `TestPlanMigrationsRejectsEditedStatement` FAIL（`An error is expected but got nil`）、`TestIntegration_MigrateGuardRejectsChangedStatement` FAIL（`指纹不符必须拒绝启动`）；还原后哈希回到基线、两条复绿。
+>   2. 去掉 `applyOneMigration` 的账本写入 ⇒ 五条 integration 用例全红（账本 `map[]`、续跑 `relation "guard_t_a" already exists`、指纹/越界检查不再触发、生产账本 0/81）；还原后哈希回到基线、全部复绿。
+
+
 
 
 

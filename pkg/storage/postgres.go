@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -141,9 +144,11 @@ func (s *PostgresStore) TableHasRows(ctx context.Context, table string) (bool, e
 //
 // ─── 这里是 DDL 的唯一真相（P1-4）─────────────────────────────────────
 //
-// 每次启动按顺序跑一遍这个数组，每条都必须是幂等的（CREATE ... IF NOT
-// EXISTS / ALTER ... ADD COLUMN IF NOT EXISTS / DO 块守卫）。没有版本表、
-// 没有 down、没有执行记录 —— 这是有意的取舍，理由见下。
+// 每次启动按顺序对齐这个数组，每条都必须是幂等的（CREATE ... IF NOT
+// EXISTS / ALTER ... ADD COLUMN IF NOT EXISTS / DO 块守卫）：CORE-MIGRATION-
+// REPLAY-GUARD（2026-11-12）之后，已经记账的条目不再执行，但「幂等」仍是
+// 硬要求——存量库第一次接管（表都在、账本为空）会把它们完整重放一遍。
+// 没有 down（回滚靠归档里的反向 DDL），执行记录在 core_schema_migrations。
 //
 // 目录里那些 .sql 的历史：
 //   - `migrations/`：3 个 golang-migrate 格式的子目录 + 10 个裸编号 .sql
@@ -646,21 +651,179 @@ func migrationStatements() []string {
 	return migrations
 }
 
-// migrate 按序执行 migrationStatements() 的每条 DDL（全部幂等），随后建
-// TimescaleDB hypertable 与索引。加表 / 加列的唯一路径就是
-// migrationStatements() 数组（含追加的包级变量），散落的 .sql 不执行。
+// migrate 应用 migrationStatements() + 索引 DDL，并维护 core_schema_migrations
+// 账本（CORE-MIGRATION-REPLAY-GUARD）。
+//
+// 语义：
+//   - 每条迁移一个事务：DDL 失败整体回滚，账本不前进；
+//   - 成功后在**同一事务**里写 (version, checksum)，重启时同指纹直接跳过；
+//   - 已应用版本的文本被改动（指纹不符）或账本领先于代码 ⇒ 拒绝启动。
+//
+// 为什么是「逐条事务 + 账本」而不是「整批一个事务」：整批回滚只能保证一次
+// 启动内的原子性，重启后仍然不知道上次成功到哪一条——半套 schema 的根因是
+// 「无执行记录」，不是「缺事务」。逐条事务 + 账本把状态收敛为「已应用的
+// 连续前缀」，失败点之后的下次启动可以精确续跑。
 func (s *PostgresStore) migrate(ctx context.Context) error {
-	for _, m := range migrationStatements() {
-		if _, err := s.pool.Exec(ctx, m); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
+	migrations := append(migrationStatements(), migrationIndexStatements()...)
+	if err := s.applyMigrations(ctx, migrationLedgerTable, migrations); err != nil {
+		return err
+	}
+	s.logger.Info().Msg("Database migrations completed")
+	return nil
+}
+
+// migrationLedgerTable 是迁移账本表名。带 core_ 前缀，避免与数据服务的
+// data_migrations（其哨兵语义不同）或将来别的 owner 撞名。
+const migrationLedgerTable = "core_schema_migrations"
+
+// migrationStep 是一条迁移的稳定身份：版本 = 数组下标 + 1，指纹 = SQL 文本
+// 的 SHA-256。版本不是手写编号，因此「在中间插入/删除迁移」也会被指纹
+// 与账本长度检查抓住，而不是悄悄错位。
+type migrationStep struct {
+	Version  int
+	Checksum string
+	SQL      string
+}
+
+func buildMigrationSteps(migrations []string) []migrationStep {
+	steps := make([]migrationStep, 0, len(migrations))
+	for i, stmt := range migrations {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(stmt)))
+		steps = append(steps, migrationStep{
+			Version:  i + 1,
+			Checksum: hex.EncodeToString(sum[:]),
+			SQL:      stmt,
+		})
+	}
+	return steps
+}
+
+// planMigrations 决定本次启动要执行哪几条。纯函数，可在无库环境下单测。
+//
+// fail-closed 的两种情形：
+//  1. 已应用的迁移文本被改动（指纹不符）——重放会以错误的前提继续改 schema；
+//  2. 账本里有版本超过代码条数——代码被回退，静默忽略等于假装 schema 已对齐。
+func planMigrations(applied map[int]string, steps []migrationStep) ([]migrationStep, error) {
+	for version := range applied {
+		if version < 1 || version > len(steps) {
+			return nil, fmt.Errorf(
+				"迁移账本包含版本 %d，但代码只有 %d 条迁移 —— 账本领先于代码，拒绝启动",
+				version, len(steps))
 		}
 	}
 
-	// SVC-CORE-DATA-RETIRE（2026-11-08）：ohlcv_daily_qfq 的 hypertable
-	// 与市场表索引随数据面退役一并删除（owner = 数据服务仓）。
+	pending := make([]migrationStep, 0, len(steps))
+	for _, step := range steps {
+		recorded, ok := applied[step.Version]
+		if !ok {
+			pending = append(pending, step)
+			continue
+		}
+		if recorded != step.Checksum {
+			return nil, fmt.Errorf(
+				"Migration %03d 指纹不符：账本=%s 代码=%s —— 已应用的迁移文本被改动，拒绝启动"+
+					"（恢复原文，或把改动写成追加迁移）",
+				step.Version, recorded, step.Checksum)
+		}
+	}
+	return pending, nil
+}
 
-	// Create indexes
-	indexes := []string{
+// applyMigrations 建账本、读已应用集合、按计划逐条应用。
+// ledgerTable 是参数而非硬编码，便于集成测试用独立账本验证语义。
+func (s *PostgresStore) applyMigrations(ctx context.Context, ledgerTable string, migrations []string) error {
+	ledger := pgx.Identifier{ledgerTable}.Sanitize()
+
+	if _, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS `+ledger+` (
+		version    INTEGER PRIMARY KEY,
+		checksum   TEXT NOT NULL,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`); err != nil {
+		return fmt.Errorf("create migration ledger %s: %w", ledgerTable, err)
+	}
+
+	rows, err := s.pool.Query(ctx, `SELECT version, checksum FROM `+ledger)
+	if err != nil {
+		return fmt.Errorf("read migration ledger %s: %w", ledgerTable, err)
+	}
+	applied := map[int]string{}
+	for rows.Next() {
+		var version int
+		var checksum string
+		if err := rows.Scan(&version, &checksum); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan migration ledger %s: %w", ledgerTable, err)
+		}
+		applied[version] = checksum
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read migration ledger %s: %w", ledgerTable, err)
+	}
+
+	steps := buildMigrationSteps(migrations)
+	pending, err := planMigrations(applied, steps)
+	if err != nil {
+		return err
+	}
+
+	for _, step := range pending {
+		if err := s.applyOneMigration(ctx, ledger, step); err != nil {
+			return err
+		}
+	}
+	if len(pending) > 0 {
+		s.logger.Info().
+			Int("applied", len(pending)).
+			Int("total", len(steps)).
+			Msg("Schema migrations applied")
+	}
+	return nil
+}
+
+// applyOneMigration 在单事务里执行一条 DDL 并写账本。
+// 失败时事务整体回滚：既不留半条 schema，也不留「做了一半」的账本行。
+func (s *PostgresStore) applyOneMigration(ctx context.Context, ledger string, step migrationStep) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("migration %03d: begin: %w", step.Version, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Commit 成功后 Rollback 返回 ErrTxClosed，忽略即可
+
+	if _, err := tx.Exec(ctx, step.SQL); err != nil {
+		return fmt.Errorf("migration %03d failed（事务已回滚）: %w", step.Version, err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO `+ledger+` (version, checksum) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING`,
+		step.Version, step.Checksum)
+	if err != nil {
+		return fmt.Errorf("migration %03d: 写账本失败（事务已回滚）: %w", step.Version, err)
+	}
+	if tag.RowsAffected() == 0 {
+		// 并发启动时另一方已写入同一版本：指纹必须一致，否则说明代码版本不同。
+		var existing string
+		if err := tx.QueryRow(ctx,
+			`SELECT checksum FROM `+ledger+` WHERE version = $1`, step.Version).Scan(&existing); err != nil {
+			return fmt.Errorf("migration %03d: 读取并发账本失败: %w", step.Version, err)
+		}
+		if existing != step.Checksum {
+			return fmt.Errorf(
+				"Migration %03d 指纹不符：并发账本=%s 代码=%s —— 拒绝启动",
+				step.Version, existing, step.Checksum)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("migration %03d: commit: %w", step.Version, err)
+	}
+	return nil
+}
+
+// migrationIndexStatements 是 migrate() 在建表之后创建的索引。单独成函数
+// 是为了让它们和建表一起进入账本 —— 索引失败同样不能被记账掩盖。
+func migrationIndexStatements() []string {
+	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_code ON stock_fundamentals(ts_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_date ON stock_fundamentals(trade_date)`,
 		// CORE-FACTOR-CACHE-RETIRE：idx_fc_pk / idx_fc_trade_date / idx_fc_factor_name
@@ -683,15 +846,6 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		// SVC-CORE-AI-RETIRE（2026-11-10）：Migration 021 的 5 条 research.* 索引
 		// 随 research schema 一并退役——owner = tellurion-agent 的 ai.research_*。
 	}
-
-	for _, idx := range indexes {
-		if _, err := s.pool.Exec(ctx, idx); err != nil {
-			return fmt.Errorf("index creation failed: %w", err)
-		}
-	}
-
-	s.logger.Info().Msg("Database migrations completed")
-	return nil
 }
 
 // AuditSchemaDDL 是 audit schema + audit.message_log 表 + 2 个索引的建表 DDL——
