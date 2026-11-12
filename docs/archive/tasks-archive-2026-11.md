@@ -104,6 +104,7 @@
 | CORE-STRATEGY-SCREEN-LOCAL-VALUE | 本地价值筛选（C 方案）：run 内 daily_basic 快照 + fundamentals ROE，PIT 无未来函数，零/低覆盖报 ErrDataGap | 2026-11-12 | `1317934`、`de85f71` | [原文](#CORE-STRATEGY-SCREEN-LOCAL-VALUE) |
 | CORE-CI-IMAGE-GATE | 镜像构建门：CI 真跑 docker build + 检查器静态守 compose build 面与 go build 目标目录 | 2026-11-12 | `dd5a98f` | [原文](#CORE-CI-IMAGE-GATE) |
 | CORE-K8S-EXIT | 退役 k8s 清单：移入 archive/ + 检查器「活跃层必须零清单」守卫 | 2026-11-12 | `480aab9` | [原文](#CORE-K8S-EXIT) |
+| CORE-REFS-TRAILER-RULE | 承认散文引用：`Refs:` trailer 改可选，任务号可追溯仍是硬约束（D8=b） | 2026-11-12 | `cca11ec` | [原文](#CORE-REFS-TRAILER-RULE) |
 
 ---
 
@@ -3445,3 +3446,21 @@
 > - **破坏验证（真做真还原）**：把归档的 `namespace.yaml` 复制回活跃层 ⇒ 检查器 `EXIT=1`，唯一错误点名「活跃层仍有 1 份清单（namespace.yaml）……恢复 k8s 须另立 ADR」；删除后复跑 `EXIT=0`，note 恢复为「活跃层 0 份」。
 > - **回归（真实退出码）**：`gofmt -l` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（ok=70 / FAIL=0）；四条门禁 `docker compose config --quiet` / `--profile full config --quiet` / `check_doc_links.py` / `check_deploy_consistency.py` 全 exit 0；`check_doc_links.py --include-archive` 亦 exit 0（扫 85 个 md）。
 > - **残余**：其余仓如自带 k8s 清单不由本单处置（⑥ 边界）；「集群侧是否仍有实际部署」只能由运维确认，已写进 `deploy/k8s/README.md` 的盲区段。
+
+### CORE-REFS-TRAILER-RULE · 承认散文引用，`Refs:` trailer 改可选（D8=b）[P3] ✅（2026-11-12）
+
+- **① 目标**：把 AGENTS §8.5 规范3 的 `Refs:` 硬 trailer 改为**可选**，承认实际普遍用散文引用任务号的现状，消除「规范说必须、实际零命中」的漂移。
+- **② 上下文**：审查发现 W1-F1（ODR-068）+ 裁决 D8=b。6 仓 120 commit `grep -c '^Refs:'` = 0；core AGENTS §8.5 规范3 写 `Refs: <任务 ID>` 为格式必填。实际任务号写在正文散文里。D8=b：承认散文引用，`Refs:` 可选（不强制 trailer，但任务号仍须可追溯）。
+- **③ 要求**：① 改 AGENTS §8.5 规范3 的 commit 格式说明：`Refs:` 可选，任务号可在正文；② 保留「一 task 一 commit + 任务号可追溯」的硬约束；③ 不改历史 commit。
+- **④ 约束与非目标**：不强制补历史 trailer；不放松「任务号可追溯」；不改 atomic commit 原则。
+- **⑤ 验收**：AGENTS §8.5 文本与现状一致；`check_doc_links.py` 绿。
+- **⑥ 边界**：core AGENTS 规范文本；其余仓 AGENTS 同句归 `X-AGENTS-DEPENDENCY-TABLE` 同批或各仓。
+- **owner**：待定
+
+> **施工记录（2026-11-12，commit `cca11ec`）**
+>
+> - **改了什么**：`AGENTS.md` §8.5 规范3 的 commit 模板把 `Refs:` / `Reviewed:` 标为可选，正文注明「任务号写在正文散文里即可」；新增一条硬约束说明：**任务号可追溯是硬约束，`Refs:` trailer 不是** —— 散文引用（如「收口 `CORE-XXX`」）与 trailer 等价。`一个任务 = 一个 commit`、`提交前检查清单` 一字未动。
+> - **取证与订正（重要）**：立单 ② 引用的「6 仓 120 commit `^Refs:` = 0」在本轮**无法复现**，实测 12 仓现状是「少数带 trailer」：core 105/332；agent 20/97、analytics 7/64、broker 12/58、contracts 25/72、data 33/122、docs 6/40、kit 15/58、orchestration 15/73、risk 12/75、strategy 7/64、ui 19/65。结论方向与 D8=b 一致（硬性 trailer 与普遍实践脱节、多数任务号在正文），但**取证数字按实测写进 AGENTS，不沿用审计快照**，避免用一个错数字替换另一个错数字。
+> - **未改历史**：不补、不删任何历史 commit 的 trailer（③ 要求）。
+> - **回归**：`python tools/check_doc_links.py` = 0（入口层 frontmatter 与路径引用均通过）；`python tools/check_doc_links.py --include-archive` = 0。纯文本改动，未触及 Go 代码 / 检查器逻辑，`go build/vet/test` 不受影响（本轮同批其它两单已各跑全量）。
+> - **破坏验证**：本单 ⑤ 未要求，也无代码判据可破坏 —— 如实登记为「不适用」，不是跳过。
