@@ -129,6 +129,20 @@ func TestCacheManager_Load(t *testing.T) {
 	assert.Empty(t, *snap)
 }
 
+// Load 必须深拷贝 bar 切片：种子快照被多个并发 run 共享，而 run 内会回写
+// 末根 bar 的限价标记（processStockJob）——共享底层数组就是一个读一个写。
+func TestCacheManager_LoadCopiesBarBackingArrays(t *testing.T) {
+	cm := newTestCacheManager()
+	d1 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
+	bars := makeBars("600000.SH", d1)
+	cm.Load(map[string][]domain.OHLCV{"600000.SH": bars})
+
+	bars[0].Close = 99.9
+	got := cm.Peek("600000.SH")
+	require.Len(t, got, 1)
+	assert.InDelta(t, 10.5, got[0].Close, 1e-9, "Load 之后改调用方切片不能改到缓存（底层数组必须独立）")
+}
+
 func TestCacheManager_Warm_FastPathSkipsBulkFetch(t *testing.T) {
 	cm := newTestCacheManager()
 	provider := newFakeProvider()

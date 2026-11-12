@@ -261,10 +261,17 @@ func (cm *CacheManager) Load(data map[string][]domain.OHLCV) {
 		cm.warmed = false
 		cm.warmStart, cm.warmEnd = time.Time{}, time.Time{}
 	} else {
-		// 浅拷贝一层 map：后续 Warm 的合并会替换 map 里的值，不应写回调用方持有的 map。
+		// 深拷贝 map 与每个 symbol 的 bar 切片：
+		//   - 后续 Warm 的合并会替换 map 里的值，不应写回调用方持有的 map；
+		//   - 调用方（并发 run 共享的种子快照，见 Snapshot 的只读约定）传进来的
+		//     bar 底层数组也不能共享 —— processStockJob 会回写末根 bar 的限价
+		//     标记（engine_daily.go），共享时两个并发 run 一个读一个写就是
+		//     DATA RACE（CI 43214251400 实测）。
 		copied := make(map[string][]domain.OHLCV, len(data))
 		for k, v := range data {
-			copied[k] = v
+			bars := make([]domain.OHLCV, len(v))
+			copy(bars, v)
+			copied[k] = bars
 		}
 		cm.inMemoryOHLCV = copied
 		// 以注入数据的实际日期边界作为 warm 区间，保持「已注入的不必再 fetch」语义；

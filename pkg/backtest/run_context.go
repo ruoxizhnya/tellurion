@@ -129,8 +129,9 @@ func newRunContext(e *Engine, params domain.BacktestParams) *runContext {
 	}
 	if seedCache != nil {
 		if snap := seedCache.Snapshot(); len(snap) > 0 {
-			// Load 浅拷贝外层 map，bar 切片本体共享（只读约定）——
-			// run 内合并只换 map 里的值，不会写回种子的底层数组。
+			// Load 深拷贝 map 与 bar 切片：run 内会回写末根 bar 的限价标记
+			// （processStockJob），必须持有自己的底层数组，否则并发 run 共享
+			// 种子快照时读写同一条 bar 就是 DATA RACE（CI 43214251400）。
 			rc.cache.Load(snap)
 		}
 	}
