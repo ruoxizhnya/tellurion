@@ -58,7 +58,11 @@ func TestIntegration_AlertOutbox_SaveListMarkSent(t *testing.T) {
 	assert.Equal(t, AlertOutboxStatusPending, got.Status)
 	assert.Equal(t, 0, got.Attempts)
 	assert.True(t, got.EventTs.Equal(qt42Row(id).EventTs), "event_ts 必须原样往返，不被墙上时钟顶掉")
-	assert.Contains(t, string(got.Payload), `"rule":"drawdown"`)
+	// payload 列是 JSONB：PG 会规范化空白并按 key 顺序重排后再吐回来，
+	// 拿原始字符串比 `"rule":"drawdown"` 必然红。验的是「内容原样往返」，
+	// 所以比解析后的结构，而不是比字符串。
+	require.JSONEq(t, string(qt42Row(id).Payload), string(got.Payload),
+		"payload 内容必须原样往返（JSONB 只允许空白/key 顺序变化）")
 
 	n, err := store.MarkAlertOutboxSent(ctx, []string{id})
 	require.NoError(t, err)
@@ -221,11 +225,19 @@ func TestIntegration_AlertOutbox_ClaimIsRowLevelAndLeaseExpires(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, again, "租约有效期内不该再被领走")
 
-	// 1ms 租约 + 等它过期 ⇒ 同一批重新可领（进程崩掉后的唯一出路）。
-	short, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Millisecond)
+	// 租约有效期内换一个更短的租约再领，同样领不到：`lease_until` 是
+	// 「这行已被谁领到什么时候」的上界，不是「这次想领多久」——短租约
+	// 不能把别人手上的行抢过来。
+	stolen, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Millisecond)
 	require.NoError(t, err)
-	assert.Len(t, short, len(ids), "过期租约必须重新可领")
-	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, stolen, "短租约不能缩短或抢占已生效的租约")
+
+	// 进程崩掉后的唯一出路：租约到期即可再领。把租约直接推到过去来模拟
+	// 到期（而不是真 sleep 一分钟），这条腿因此与机器快慢无关。
+	_, err = store.pool.Exec(ctx,
+		`UPDATE quant.alert_outbox SET lease_until = now() - interval '1 second' WHERE alert_id = ANY($1)`, ids)
+	require.NoError(t, err)
+
 	reclaimed, err := store.ClaimPendingAlertOutbox(ctx, 100, time.Minute)
 	require.NoError(t, err)
 	assert.Len(t, reclaimed, len(ids), "租约到期后必须能再次领取")
