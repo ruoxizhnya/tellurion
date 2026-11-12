@@ -136,6 +136,25 @@ func TestLoadRiskPolicy_ResolveFailureIsFatal(t *testing.T) {
 	assert.Contains(t, err.Error(), "no_approved_rules")
 }
 
+// TestLoadRiskPolicy_AuthUnavailableIsActionable 钉住「503 必须是可操作错误」：
+// 文案要同时给出两条出路（配 secret + 注入 resolve_token / risk 显式声明
+// loopback-published），否则运维只看到一次莫名其妙的启动失败。
+func TestLoadRiskPolicy_AuthUnavailableIsActionable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"auth_unavailable","error":"authentication is not configured"}`))
+	}))
+	defer srv.Close()
+
+	_, err := LoadRiskPolicy(policyViper(true, srv.URL), zerolog.Nop())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth_unavailable")
+	assert.Contains(t, err.Error(), "JWT_SECRET")
+	assert.Contains(t, err.Error(), "resolve_token")
+	assert.Contains(t, err.Error(), "AUTH_INSECURE_EXPOSURE=loopback-published")
+}
+
 func TestLoadRiskPolicy_RejectsHashMismatch(t *testing.T) {
 	hash, snapshot := policySnapshotBytes(t)
 	other := strings.Repeat("f", 64)

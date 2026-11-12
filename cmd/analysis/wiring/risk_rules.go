@@ -134,7 +134,7 @@ func (p *HTTPRiskRulesProvider) ResolveRiskRulesHash(ctx context.Context, pinned
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("risk resolve: POST %s: status %d: %s", p.endpoint, resp.StatusCode, errorDetail(body))
+		return "", riskResolveStatusError(p.endpoint, resp.StatusCode, body)
 	}
 
 	var out riskResolveResponse
@@ -145,6 +145,21 @@ func (p *HTTPRiskRulesProvider) ResolveRiskRulesHash(ctx context.Context, pinned
 		return "", fmt.Errorf("risk resolve: response risk_rules_hash %q is not 64 lowercase hex", out.RiskRulesHash)
 	}
 	return out.RiskRulesHash, nil
+}
+
+// riskResolveStatusError 把非 200 响应折成错误。401 / 503 是「risk 没配鉴权或
+// 凭证不匹配」的典型信号：文案必须直接给出两条可操作出路，否则装配期只会看到
+// 一次莫名其妙的启动失败。行为不变，只把「怎么办」写进错误。
+func riskResolveStatusError(endpoint string, status int, body []byte) error {
+	err := fmt.Errorf("risk resolve: POST %s: status %d: %s", endpoint, status, errorDetail(body))
+	if status == http.StatusUnauthorized || status == http.StatusServiceUnavailable {
+		return fmt.Errorf("%w — tellurion-risk 未启用鉴权或凭证不匹配。两条出路（二选一）："+
+			"(1) 给 tellurion-risk 配 JWT_SECRET，并用同一 secret 签发 service token 注入 "+
+			"risk_service.resolve_token（env RISK_SERVICE_RESOLVE_TOKEN）；"+
+			"(2) 让 tellurion-risk 在回环/回环发布态启动并显式声明 "+
+			"AUTH_INSECURE_EXPOSURE=loopback-published", err)
+	}
+	return err
 }
 
 // errorDetail 把 risk 的错误体折成「code: message」，没有 code 就回原文。
@@ -204,7 +219,7 @@ func (p *HTTPRiskRulesProvider) ResolvePolicySnapshot(ctx context.Context) (stri
 		return "", nil, fmt.Errorf("risk resolve: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("risk resolve: POST %s: status %d: %s", p.endpoint, resp.StatusCode, errorDetail(body))
+		return "", nil, riskResolveStatusError(p.endpoint, resp.StatusCode, body)
 	}
 
 	var out riskResolveResponse

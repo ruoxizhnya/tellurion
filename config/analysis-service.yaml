@@ -194,6 +194,8 @@ risk_service:
   # **127.0.0.1:8089**（ADR-036 G0：8086 留给 ai-service，本仓曾按 risk 的旧
   # 默认写成 8086，结果是启动期 resolve 打到 ai-service / 拒连，进程直接拒起）。
   # resolve_token：服务间凭证。risk 配了 AUTH_JWT_SECRET 后必填，否则 401。
+  # ⚠️ risk 无 JWT_SECRET 且未显式声明 AUTH_INSECURE_EXPOSURE=loopback-published 时，
+  # 装配期 resolve 会 503 auth_unavailable，导致 analysis Boot 失败（不是降级）。
   # resolve_timeout 缺省 10s。
   resolve_enabled: true
   resolve_url: "http://localhost:8089"
