@@ -514,6 +514,12 @@ type Strategy interface {
     core 105/332，其余 11 仓在 6~33 之间（各仓 40~122 条），多数任务号写在正文
     散文里。硬性 trailer 与普遍实践脱节，D8=b 承认现状、统一为可选，**不回填
     历史 commit**。
+    - **采样口径（便于复核）**：2026-11-12 当天、各仓 `main` 当前 HEAD 的**全量**
+      `git log`；总数 = `git log --oneline | wc -l`，带 trailer 数 =
+      `git log --format=%B | grep -c '^Refs:'`（按行计，一个 commit 至多一条）。
+      覆盖 12 仓：core 与 agent / analytics / broker / contracts / data / docs /
+      kit / orchestration / risk / strategy / ui。复核命令：
+      `git -C <repo> log --format=%B | grep -c '^Refs:'`。
 - **提交前检查清单**:
   - [ ] `go build ./...` 通过
   - [ ] `go vet ./...` 无警告
