@@ -1,0 +1,104 @@
+# 隔离库起完整栈的**测试覆盖层**（2026-11-12 起，供综合测试复用）─────────
+#
+# ⚠️ 这不是第二份部署形态：必须**叠加**在仓库根的 docker-compose.yml 上使用，
+#    单独 `-f` 本文件起不了栈（缺少全部服务定义）。
+#
+#   docker build -f Dockerfile.service -t tellurion-core:head .        # 当前 HEAD
+#   docker compose -p tellurion-next -f docker-compose.yml \
+#       -f deploy/compose/isolated-test.override.yml --profile full up -d --wait
+#
+# 它做三件事：
+#   1. 加一个**一次性** PG 容器（卷 tellurion-next_next-pgdata）——绝不指向宿主
+#      5432 上的部署库 `tellurion`（那个库继续无账本，用于验证一次性接管）。
+#   2. 把七个有库服务的 DSN 全部改到该容器；analysis-service 换成本仓 HEAD 镜像。
+#   3. 把断路器与限流调到综合测试口径（kill-switch 打开、限流放大）。
+#
+# 宿主端口与默认栈一致（8081/8085/8086/8087/8088/8089/8090/8091），PG 额外
+# 发布 127.0.0.1:15432 便于 psql；起本栈前先 `docker compose --profile full stop`
+# 让出端口。完整前提见 docs/STACK-TEST-PREREQ.md。
+services:
+  pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tellurion
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - next-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tellurion"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  data-service:
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  analysis-service:
+    image: ${CORE_IMAGE:-tellurion-core:head}
+    environment:
+      DATABASE_HOST: pg
+      DATABASE_PORT: "5432"
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_DATABASE: tellurion
+      # 综合测试会高频打读面，默认 100/min 会 429
+      RATE_LIMIT_PER_MINUTE: "100000"
+      # 打开 kill-switch，UI 的 emergency-flatten 才有 200 路径；
+      # 该 token 仅用于本机 mock 栈（broker 是 mock，订单不出机器）。
+      TRADING_EMERGENCY_TOKEN: dev-only-emergency-token
+      # 本栈不带 risk 快照依赖：显式 false，否则装配期会 POST localhost:8089 后拒起
+      RISK_SERVICE_RESOLVE_ENABLED: "false"
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  ai-service:
+    image: tellurion-ai-service:latest
+    environment:
+      DATABASE_HOST: pg
+      DATABASE_PORT: "5432"
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_DATABASE: tellurion
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  risk:
+    environment:
+      RISK_DATABASE_URL: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  strategy:
+    environment:
+      STRATEGY_DATABASE_URL: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  analytics:
+    environment:
+      ANALYTICS_DATABASE_DSN: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  orchestration:
+    environment:
+      ORCHESTRATION_DSN: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+volumes:
+  next-pgdata:

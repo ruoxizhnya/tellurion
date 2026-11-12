@@ -3865,7 +3865,7 @@
   3. **存储读面** `pkg/storage/factor_analytics.go`：`ListFactorAnalyticsSummaries` 单条 SQL 出「观测日数（按 `trade_date` 去重）/ 区间 / 平均 IC / 最新 IC」。
   4. **装配**：`cmd/analysis/main.go` 用 `deps.Store` 与 `deps.Engine.MarketDataProvider()`（新增访问器，避免给 `ServerDeps` 加字段触发 `deps_test.go` 的字段总数断言）构造 store 与 computer。
   5. **契约**：`docs/openapi.yaml` 登记 4 条路径（含请求/响应形状、401/422/503/504 语义）；`route_policy.go` 的 Admin 组登记 `POST /api/factor-analytics/compute`。
-- **④ 约束与非目标**：不提供任何 per-symbol 因子值（ADR-041 D1）；不复活 `/api/factor/*`；不新增 `ServerDeps` 字段；不改既有两表的唯一索引与列宽（已满足）；`openapi` 的跨仓收口由 contracts 仓统一同步，本仓只保证本文件与真实路由双向一致。
+- **④ 约束与非目标**：不提供任何 per-symbol 因子值（ADR-041 D1）；不复活 `/api/factor/*`；不新增 `ServerDeps` 字段；不改既有两表的唯一索引与列宽（已满足）；`openapi` 以本仓 `docs/openapi.yaml` 定稿为准（contracts 仓既无 `dto/` 也无生成器，不存在「contracts 收口 openapi」这个角色），本仓只保证该文件与真实路由双向一致。
 - **⑤ 验收（真实输出）**：
   - `gofmt -l ./internal ./cmd ./pkg` → 空。
   - `go build ./...` → exit 0。
