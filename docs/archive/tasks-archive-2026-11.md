@@ -101,6 +101,7 @@
 | CORE-DEPLOY-DRIFT-PARAM | `${DATABASE_NAME:-tellurion}` 漂移：实测 10 处同值；检查器补 `${VAR:-default}` 展开 + 5f 全局同值断言 | 2026-11-12 | 见原文 | [原文](#CORE-DEPLOY-DRIFT-PARAM) |
 | CORE-CI-ARCHIVE-LINKS-FIX | 归档层 60 条相对链接缺层级 + 2 处失效配置引用；只修链接/加注记，不动历史判断 | 2026-11-12 | 见原文 | [原文](#CORE-CI-ARCHIVE-LINKS-FIX) |
 | CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM | 策略插件 `/screen` 死腿（裁决 B1）：value_screen 多票返回可诊断 ErrDataGap，multi_factor 只删死腿 | 2026-11-12 | 见原文 | [原文](#CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM) |
+| CORE-STRATEGY-SCREEN-LOCAL-VALUE | 本地价值筛选（C 方案）：run 内 daily_basic 快照 + fundamentals ROE，PIT 无未来函数，零/低覆盖报 ErrDataGap | 2026-11-12 | `1317934`、`de85f71` | [原文](#CORE-STRATEGY-SCREEN-LOCAL-VALUE) |
 
 ---
 
@@ -3382,3 +3383,22 @@
 > - **破坏验证**：① 在 `multi_factor.go` 末尾加 `var _ = "http://localhost:8081" + "/screen"` ⇒ repoguard 恰好点名该文件；还原后复绿（SHA256 与备份逐字节一致）。② 真验红见上条（改前 `completed` → 改后 `invalid`）。
 > - **还原后校验和**（SHA256，取自破坏验证还原完毕、追加本节文字之前）：`pkg/strategy/utils.go` = `942B71D0A25B8F9FBD75B3920B3265D679DD820BC05C08AC841FED5F75C6FD9B`；`pkg/strategy/plugins/multi_factor.go` = `B5034F4E6E00BF5107B69255F8BED4E8BC0F8A7FC1F45BB32C1CC5D4228DCC3E`；`pkg/strategy/plugins/value_screen.go` = `1A18409A2B20D60409AA17247087CB007A7C0EBC19B4C4B479E3F5DEFD130F87`（与破坏验证前的 `$env:TEMP` 备份逐字节一致）。
 > - **回归**：`go build ./...` / `go vet ./...` / `gofmt -l` 全 0；`go test ./pkg/strategy/... ./pkg/backtest/ ./internal/repoguard/` 全绿；`docker compose config --quiet`、`docker compose --profile full config --quiet`、`python tools/check_doc_links.py`、`python tools/check_deploy_consistency.py` 均 exit 0。
+
+### CORE-STRATEGY-SCREEN-LOCAL-VALUE · 用 run 内 fundamentals 快照 + daily_basic 实现本地价值筛选（C 方案）[P1] ✅（2026-11-12）
+
+- **① 目标**：让多票 `value_screen` 在生产栈上真正按价值条件选股，而不是返回 `contracts.ErrDataGap`（B1 的临时终态）。
+- **② 上下文**：B1 收口（`CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM`，`335bf6a`）删掉了从未注册的 `/screen` 死腿。C 方案 = 不依赖 data 服务路由：估值（PE/PB）读 `market.daily_basic`，ROE 读 run 内 fundamentals 快照，在 core 本地完成横截面筛选。
+- **③ 要求**：① 估值 PIT `trade_date <= 决策日`、`pe_ttm` 缺失回退 `pe` 且来源可见、NULL = 该票当日不参与筛选；② 基本面条件读 run 内快照；③ 缺数据保持 B1 诊断口径；④ provenance 可复盘。
+- **④ 约束与非目标**：不恢复 `/screen` 路由、不新增 data 服务依赖；不改跨仓接口；不把 NULL 当 0/极便宜；不使用未来数据。
+- **⑤ 验收**：多票 `value_screen` 从 `invalid/data_gap_skipped` 转为有交易且筛选条件可追溯；覆盖 pe_ttm 回退与双 NULL 反例；`go build/vet/test ./... -count=1` 与四条门禁全绿。
+- **⑥ 边界**：`pkg/strategy/plugins/value_screen.go` 与 run 侧取数装配；`market.daily_basic` 的写者归 `tellurion-data`，不在本单。
+
+> **施工记录（2026-11-12，commit `1317934`、`de85f71`）**
+>
+> - **取数装配**：`runContext.warmValuationsIfNeeded` 在 run 开工时一次性预取 `[start,end]` 逐日估值 + `start-1d` 的最近一条（首个决策日逢周末/停牌时按 PIT 仍有值），合并成 `symbol → 升序 series`；`NewValuationReader` 用二分按 `DayOf(trade_date) <= DayOf(asOf)` 截取，与存储层同一口径，未另立一套。回测期间零 DB 查询（蓝图 §4.3 红线）。策略未实现 `ValuationAware` 或已注入种子时跳过预热。
+> - **覆盖阈值（显式口径，非隐式）**：`valueCoverageMinRatio = 0.5`。覆盖率 0 必报；覆盖率 > 0 但低于 50% 同样报 `contracts.ErrDataGap`。理由：价值筛选是横截面策略，20 只票里只有 1 只有可比 PE 时选出来的是「数据最全的那只」而不是「池子里最便宜的」，与静默空选同属 B1 假成功；50% 允许亏损股（`pe_ttm` 为 NULL）等正常缺失占少数。缺口消息点名决策日、表.字段、`covered/total`、门槛与该条未生效条件，并写明「策略输入缺失，不是行情数据缺失」「不能退回纯动量选股」。只有「有可比数据但三条条件筛完确实没票」才是合法零候选。
+> - **条件生效**：单票/多票统一走 `pe>0 && pe<=pe_max`、`pb>0 && pb<=pb_max`、`roe>=roe_min`，删除「票少就跳过价值条件」旁路。三条条件各有「改门槛即改选股结果」的用例（`TestValueScreen{PE,PB,ROE}ConditionChangesSelection`），不再只测不报错。
+> - **PIT / 时点**：估值取 `trade_date <= 决策日` 的最近一条（含决策日当天，按日粒度，不区分盘中/收盘）；ROE 取 `available_date <= 决策日` 的最新一期，若该期 ROE 为 NULL 不向前找旧值（避免用陈旧数据掩盖最新缺失）。`TestValueScreenPINoFutureData` 用未来财报反例证明无未来函数；`TestNewValuationReaderPITBoundary` 钉住决策日前后与首行的边界。
+> - **provenance**：信号 `Factors` 写 `pe/pb/roe/momentum`；`Metadata` 写 `value_dimension=local_screen`、`pe_source`（`pe_ttm` 或回退 `pe`）、`pe_ttm_fallback`、`valuation_trade_date`、`universe`、`pe_covered/pb_covered/roe_covered`、实际 `thresholds`。冻结的 `BacktestResponse`（K9）不加字段，复盘子走 `Metadata` + run 日志（估值预热会打 symbols/rows 计数）。
+> - **测试**：`pkg/strategy/plugins/value_screen_test.go` 新增零覆盖、低覆盖（1/4=25%）、合法零候选、三条条件敏感性、PE 回退来源、PIT 未来财报反例；`pkg/strategy/valuation_test.go` 覆盖读取器边界与「有行但 NULL 仍可区分」；`pkg/backtest/value_screen_data_gap_test.go` 新增引擎级对偶（注入快照 ⇒ `completed` 且 `TotalTrades>0`，`invalid_reasons` 不含 `data_gap_skipped`）。
+> - **回归（真实退出码）**：`gofmt -l` 空；`go build ./...` / `go vet ./...` 0；`go test ./pkg/strategy/... ./pkg/backtest/... ./pkg/storage/... ./pkg/domain/... -count=1` 全绿（有库腿 `TestDailyBasic*` 亦绿）；`docker compose config --quiet`、`docker compose --profile full config --quiet`、`python tools/check_doc_links.py`、`python tools/check_deploy_consistency.py` 均 exit 0。
