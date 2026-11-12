@@ -248,8 +248,8 @@ func (t *Tracker) GetPosition(symbol string) (*domain.Position, bool) {
 	if !exists {
 		return nil, false
 	}
-	// Return a copy
-	copy := *pos
+	// 返回深拷贝：Metadata map 也是新的，调用方改它不会写回 tracker。
+	copy := pos.Clone()
 	return &copy, true
 }
 
@@ -259,7 +259,7 @@ func (t *Tracker) GetAllPositions() map[string]domain.Position {
 	defer t.mu.RUnlock()
 	result := make(map[string]domain.Position)
 	for sym, pos := range t.positions {
-		result[sym] = *pos
+		result[sym] = pos.Clone()
 	}
 	return result
 }
@@ -1106,7 +1106,7 @@ func (t *Tracker) GetPortfolio(prices map[string]float64) *domain.Portfolio {
 	for _, sym := range sortedKeys(t.positions) {
 		pos := t.positions[sym]
 		if price, ok := prices[sym]; ok {
-			posCopy := *pos
+			posCopy := pos.Clone()
 			posCopy.CurrentPrice = price
 			posCopy.MarketValue = abs(pos.Quantity) * price
 			posCopy.UnrealizedPnL = (price - pos.AvgCost) * pos.Quantity

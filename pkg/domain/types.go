@@ -5,6 +5,8 @@ package domain
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"time"
 
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
@@ -70,6 +72,15 @@ type Position struct {
 	// tiered-take-profit current level. Keys are namespaced strings
 	// (e.g. "trailing_high", "tiered_current_level").
 	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+// Clone 返回 Position 的深拷贝：Metadata 另起一份 map，调用方改返回值
+// （包括往里加/删条目）不会影响原持仓，也不会与原持仓的其它读者竞争。
+// 除 Metadata 外 Position 全是值字段，普通赋值即可。
+func (p Position) Clone() Position {
+	out := p
+	out.Metadata = maps.Clone(p.Metadata)
+	return out
 }
 
 // Portfolio represents the current portfolio state
@@ -143,6 +154,14 @@ type Order struct {
 	FillPrice     float64   `json:"fill_price"`
 	Status        string    `json:"status"` // "filled" / "partial" / "cancelled" / "expired"
 	Notes         string    `json:"notes"`
+}
+
+// Clone 返回 Order 的深拷贝：ExecProfile 另起一份切片，调用方改返回值
+// （包括改写/扩容 ExecProfile）不会影响原订单。其余字段都是值类型。
+func (o Order) Clone() Order {
+	out := o
+	out.ExecProfile = slices.Clone(o.ExecProfile)
+	return out
 }
 
 // TargetPosition tracks the target vs actual position for execution gap management.

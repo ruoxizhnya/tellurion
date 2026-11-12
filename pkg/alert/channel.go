@@ -134,20 +134,25 @@ func (r *RecorderChannel) Send(_ context.Context, a Alert) {
 	r.buf = append(r.buf, a)
 }
 
-// Snapshot returns a copy of the recorded alerts in chronological
-// order (oldest first). The returned slice is safe to mutate; the
-// recorder is unchanged.
+// Snapshot returns a deep copy of the recorded alerts in chronological
+// order (oldest first): 每个 Alert 的 Attributes map 也是新的，调用方可以
+// 自由修改，recorder 内部状态不受影响。
 func (r *RecorderChannel) Snapshot() []Alert {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]Alert, len(r.buf))
-	copy(out, r.buf)
+	for i, a := range r.buf {
+		out[i] = CloneAlert(a)
+	}
 	return out
 }
 
 // DrainAndReset returns the current buffer and resets it to empty.
 // Used by the wiring layer when it wants to consume a batch (e.g.
 // move to history on each alert loop tick).
+//
+// 所有权转移：返回后内部换成新 buffer，调用方接管返回切片（其中的
+// Attributes map 不再与 recorder 共享），可自由修改。
 func (r *RecorderChannel) DrainAndReset() []Alert {
 	r.mu.Lock()
 	defer r.mu.Unlock()

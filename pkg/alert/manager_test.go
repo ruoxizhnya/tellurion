@@ -564,3 +564,22 @@ func TestAlertID_CarriesTheProcessNonce(t *testing.T) {
 		"id 必须带本进程 nonce —— 否则重启后的同一秒会与上一个进程撞同一行")
 	assert.NotEqual(t, first, second)
 }
+
+// 护栏：RecorderChannel.Snapshot 返回 slice 与 Attributes map 的深拷贝。
+func TestRecorderChannel_SnapshotDeepCopiesAttributes(t *testing.T) {
+	rec := NewRecorderChannel(4)
+	rec.Send(context.Background(), Alert{
+		ID:         "a1",
+		Attributes: map[string]interface{}{"k": "v"},
+	})
+
+	got := rec.Snapshot()
+	require.Len(t, got, 1)
+	got[0].Attributes["k"] = "tampered"
+	got[0].Attributes["new"] = 1
+
+	again := rec.Snapshot()
+	require.Len(t, again, 1)
+	assert.Equal(t, "v", again[0].Attributes["k"], "改返回的 Attributes 不能写回 recorder")
+	assert.NotContains(t, again[0].Attributes, "new")
+}

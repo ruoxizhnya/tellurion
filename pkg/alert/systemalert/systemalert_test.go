@@ -132,6 +132,27 @@ func TestAlertManager_GetHistory(t *testing.T) {
 	require.Len(t, all, 5)
 }
 
+// 护栏：GetHistory 返回 slice 与每个 Alert 的 Metadata map 都是深拷贝。
+func TestSystemAlertManager_GetHistoryDeepCopiesMetadata(t *testing.T) {
+	am := NewAlertManager(nopLogger())
+	am.AddChannel(&recordingChannel{name: "r"})
+	require.NoError(t, am.Fire(Alert{
+		ID: "M1", Type: AlertSystemError, Severity: SeverityInfo,
+		Title: "t", Message: "m", Source: "s",
+		Metadata: map[string]string{"lag": "1s"},
+	}))
+
+	hist := am.GetHistory(0)
+	require.Len(t, hist, 1)
+	hist[0].Metadata["lag"] = "tampered"
+	hist[0].Metadata["new"] = "x"
+
+	again := am.GetHistory(0)
+	require.Len(t, again, 1)
+	assert.Equal(t, "1s", again[0].Metadata["lag"], "改返回的 Metadata 不能写回 history")
+	assert.NotContains(t, again[0].Metadata, "new")
+}
+
 func TestLogChannel_Send(t *testing.T) {
 	// LogChannel never errors; just ensure it doesn't panic and returns nil.
 	lc := NewLogChannel(nopLogger())

@@ -198,6 +198,13 @@ func (s *BacktestState) GetStatus() string {
 
 // GetResult safely reads the result pointer. May be nil if the
 // backtest is still running or failed.
+//
+// GetResult 返回内部结果指针，不复制：结果含权益曲线与成交明细，
+// 每个调用点复制一遍是 O(n) 的无谓开销。
+//
+// 所有权：只读视图，调用方不得修改其字段或切片。需要跨边界（HTTP 响应 /
+// 导出 / 落库）时必须在边界处防御拷贝 —— 见 Engine.buildBacktestResponse
+// 与 Engine.ResponseFromState。
 func (s *BacktestState) GetResult() *cdom.BacktestResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -263,6 +270,8 @@ type BacktestStateSnapshot struct {
 // call concurrently; the returned struct is decoupled from the live
 // state (mutations after Snapshot returns are not visible in the
 // returned copy).
+//
+// Result 字段与 GetResult 返回同一指针、同一只读约定：不得修改其字段/切片。
 func (s *BacktestState) Snapshot() BacktestStateSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

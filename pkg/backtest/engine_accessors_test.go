@@ -182,6 +182,38 @@ func TestEngine_SetRiskManager(t *testing.T) {
 	assert.Nil(t, eng.riskManager)
 }
 
+// 护栏：GetResult 只是只读视图；真正的对外边界（ResponseFromState）必须做
+// 防御拷贝，响应里的切片不能与 state 内部结果共享。
+func TestResponseFromState_CopiesResultSlices(t *testing.T) {
+	eng := newTestEngine(t)
+	eng.stateStore.Put("bt-copy", &BacktestState{
+		ID:     "bt-copy",
+		Status: StatusCompleted,
+		Result: &cdom.BacktestResult{
+			StartDate:       date("2024-01-02"),
+			EndDate:         date("2024-01-31"),
+			PortfolioValues: []cdom.PortfolioValue{{TotalValue: 1.0}, {TotalValue: 1.1}},
+			Trades:          []cdom.Trade{{Symbol: "600000.SH"}},
+		},
+	})
+
+	resp, ok := eng.ResponseFromState("bt-copy")
+	require.True(t, ok)
+	require.Len(t, resp.PortfolioValues, 2)
+	require.Len(t, resp.Trades, 1)
+
+	resp.PortfolioValues[0].TotalValue = 99
+	resp.Trades[0].Symbol = "TAMPERED"
+
+	internal, err := eng.GetBacktestResult("bt-copy")
+	require.NoError(t, err)
+	require.NotNil(t, internal)
+	assert.InDelta(t, 1.0, internal.PortfolioValues[0].TotalValue, 1e-9,
+		"改响应里的权益曲线不能写回 state")
+	assert.Equal(t, "600000.SH", internal.Trades[0].Symbol,
+		"改响应里的成交不能写回 state")
+}
+
 func TestEngine_GetBacktestResult_NotFound(t *testing.T) {
 	eng := newTestEngine(t)
 	_, err := eng.GetBacktestResult("nonexistent")

@@ -3,6 +3,7 @@ package expression
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -114,8 +115,10 @@ func NewOHLCVDataProviderWithActivity(
 }
 
 // GetSymbols returns the pre-sorted symbol list.
+//
+// 返回副本：调用方可以自由修改返回切片，provider 的排序/内部状态不受影响。
 func (p *OHLCVDataProvider) GetSymbols() []string {
-	return p.symbols
+	return slices.Clone(p.symbols)
 }
 
 // Fields 返回本 provider 能供应的数据字段名（升序、无重复）——

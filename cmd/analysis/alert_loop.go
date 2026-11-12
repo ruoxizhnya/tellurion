@@ -87,10 +87,10 @@ func (h *AlertHistory) Append(alerts []alert.Alert) {
 	}
 }
 
-// Snapshot returns a copy of the stored alerts in newest-first order.
-// The returned slice is safe to mutate by the caller; the next call
-// to Snapshot will return a fresh copy. Returns an empty slice when
-// the buffer has never been written to.
+// Snapshot returns a deep copy of the stored alerts in newest-first order:
+// slice 与每个 Alert 的 Attributes map 都是新的，调用方可以自由修改，
+// 不会影响 AlertHistory 内部状态，也不会与并发的 Append 竞争。
+// Returns an empty slice when the buffer has never been written to.
 func (h *AlertHistory) Snapshot() []alert.Alert {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -106,7 +106,7 @@ func (h *AlertHistory) Snapshot() []alert.Alert {
 	for i := 0; i < n; i++ {
 		// newest = (idx-1) mod cap, then (idx-2), ...
 		pos := (h.idx - 1 - i + h.cap*2) % h.cap
-		out = append(out, h.entries[pos])
+		out = append(out, alert.CloneAlert(h.entries[pos]))
 	}
 	return out
 }
@@ -154,6 +154,8 @@ func (h *AlertHistory) Len() int {
 // operators who want to consume the full history once (e.g. on
 // shutdown, or before exporting the snapshot to a database).
 //
+// 所有权转移：返回后内部 entries 换成新数组，调用方接管返回切片
+// （其中的 Attributes map 不再被 AlertHistory 引用），可自由修改。
 // Note: Snapshot() remains the right primitive for the read-only
 // HTTP path; DrainAndReset is destructive and only used by tests
 // or batch consumers.

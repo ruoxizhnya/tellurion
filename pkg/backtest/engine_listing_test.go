@@ -33,6 +33,23 @@ func testWindows() map[string]ListingWindow {
 	}
 }
 
+// 护栏：ListingWindows 返回深拷贝。改返回的 map、增删 symbol、改写 Delist
+// 指向的时间都不能影响引擎内部的上市日历。
+func TestEngine_ListingWindowsReturnsDeepCopy(t *testing.T) {
+	eng := newTestEngine(t)
+	eng.SetListingWindows(testWindows())
+
+	got := eng.ListingWindows()
+	*got["GONE"].Delist = date("1999-01-01")
+	delete(got, "ALIVE")
+	got["INJECTED"] = ListingWindow{}
+
+	again := eng.ListingWindows()
+	assert.Contains(t, again, "ALIVE", "delete 返回 map 不能改到引擎内部")
+	assert.NotContains(t, again, "INJECTED", "往返回 map 里塞东西不能改到引擎内部")
+	assert.Equal(t, date("2021-06-01"), *again["GONE"].Delist, "Delist 指针也必须是新的")
+}
+
 func TestEligibleUniverse_FiltersByListingDate(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.SetListingWindows(testWindows())

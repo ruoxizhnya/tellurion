@@ -3,6 +3,7 @@ package backtest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -260,9 +261,20 @@ func (e *Engine) processStockJob(
 			} else if limitDown {
 				limitPrice = lowerLimit
 			}
-			todayBar.LimitUp = limitUp
-			todayBar.LimitDown = limitDown
-			ohlcvData[len(ohlcvData)-1] = todayBar
+			// COW：Get 返回的是缓存底层数组上的窗口（只读）。标记不需要
+			// 变化时保持零拷贝；需要变化时复制整个窗口再写 —— Go 的切片
+			// 无法只复制一个元素，而涨跌停是稀疏事件，正常交易日零分配。
+			//
+			// 语义：res.ohlcvData 指向副本，缓存里的末根**不变**。下游读
+			// 涨跌停标记一律走 marketDataCache（= res.ohlcvData），不重新
+			// 查缓存，所以可观测输出与「原地写缓存」逐位一致。
+			if todayBar.LimitUp != limitUp || todayBar.LimitDown != limitDown {
+				ohlcvData = slices.Clone(ohlcvData)
+				todayBar = ohlcvData[len(ohlcvData)-1]
+				todayBar.LimitUp = limitUp
+				todayBar.LimitDown = limitDown
+				ohlcvData[len(ohlcvData)-1] = todayBar
+			}
 			res.ohlcvData = ohlcvData
 			if limitUp || limitDown {
 				res.prevClose = todayBar.Close

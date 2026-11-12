@@ -30,6 +30,7 @@ import (
 	"context"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -295,12 +296,20 @@ func (cm *CacheManager) Load(data map[string][]domain.OHLCV) {
 // Used by Engine.calculatePosition to read cached bars without
 // triggering a provider call. Callers that need provider fallback
 // should use Get instead.
+//
+// 返回副本（bar 切片是新的），调用方可以自由修改，缓存内部状态不受影响。
+// 这是 O(n) 复制：calculatePosition 每个信号调一次，别把它放进更内层的
+// 循环里；只要只读，优先用 Get 的零拷贝窗口。
 func (cm *CacheManager) Peek(symbol string) []domain.OHLCV {
 	snap := cm.inMemoryOHLCVAtomic.Load()
 	if snap == nil {
 		return nil
 	}
-	return (*snap)[symbol]
+	bars, ok := (*snap)[symbol]
+	if !ok {
+		return nil
+	}
+	return slices.Clone(bars)
 }
 
 // Snapshot returns the current L1 OHLCV cache state as a map.
@@ -310,14 +319,18 @@ func (cm *CacheManager) Peek(symbol string) []domain.OHLCV {
 // Returns nil if the cache has never been initialized (which never
 // happens in practice because NewCacheManager publishes an empty map).
 //
-// The returned map shares memory with the internal cache — callers
-// must treat it as read-only.
+// The returned map is a deep copy (map + 每个 symbol 的 bar 切片都是新的)，
+// 调用方可以自由修改，缓存内部状态不受影响。
 func (cm *CacheManager) Snapshot() map[string][]domain.OHLCV {
 	snap := cm.inMemoryOHLCVAtomic.Load()
 	if snap == nil {
 		return nil
 	}
-	return *snap
+	out := make(map[string][]domain.OHLCV, len(*snap))
+	for symbol, bars := range *snap {
+		out[symbol] = slices.Clone(bars)
+	}
+	return out
 }
 
 // Bytes 返回 L1 OHLCV 缓存**约**占的堆字节（QT-12 ③ 的可计量口径）。
@@ -408,8 +421,12 @@ func EstimateOHLCVBytes(symbols, days int64) int64 {
 // 命中 L1 → zero-copy slice + binary-search 裁剪；
 // 未命中 → 调用 providerFn 走 fallback 路径。
 //
-// 返回的 slice 与底层数组共享内存（仅 header 拷贝），调用方应
-// 视其为只读。
+// 返回的切片与缓存底层数组共享（只做 slice header 裁剪，不复制）。
+//
+// 所有权：调用方只读，不得写入任何元素。缓存发布后不再被任何路径原地写入
+// —— processStockJob 需要改末根 bar 的涨跌停标记时会复制一份自己的窗口
+// （engine_daily.go）。因此这里任何写操作都会污染同 run 的其它读取方，
+// 属于 bug，而不是 API 的合法用法。
 func (cm *CacheManager) Get(
 	ctx context.Context,
 	symbol string,

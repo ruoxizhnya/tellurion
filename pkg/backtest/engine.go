@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -889,8 +890,11 @@ func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, s
 		CalmarRatio:     result.CalmarRatio,
 		StartedAt:       state.StartedAt.Format(time.RFC3339),
 		CompletedAt:     state.GetCompletedAt().Format(time.RFC3339),
-		PortfolioValues: result.PortfolioValues,
-		Trades:          result.Trades,
+		// 边界防御拷贝：BacktestState/Result 是内部热数据结构，GetResult 只
+		// 承诺只读；一旦进入响应对象（会被 JSON 编码、可能被调用方改写），
+		// 必须切断与内部结果的切片共享。
+		PortfolioValues: slices.Clone(result.PortfolioValues),
+		Trades:          slices.Clone(result.Trades),
 		StockPool:       req.StockPool,
 		InitialCapital:  initialCapital,
 		UniverseMaxSize: result.UniverseMaxSize,
@@ -906,7 +910,7 @@ func (e *Engine) buildBacktestResponse(backtestID string, req BacktestRequest, s
 	// 而不是把它当成一次成功观测。Error 保持只给真实错误（不装无效）。
 	if len(result.InvalidReasons) > 0 {
 		resp.Status = StatusInvalid
-		resp.InvalidReasons = result.InvalidReasons
+		resp.InvalidReasons = slices.Clone(result.InvalidReasons)
 	}
 
 	return resp
@@ -958,9 +962,11 @@ func (e *Engine) ResponseFromState(backtestID string) (BacktestResponse, bool) {
 		CalmarRatio:     result.CalmarRatio,
 		StockPool:       params.StockPool,
 		InitialCapital:  params.InitialCapital,
-		PortfolioValues: result.PortfolioValues,
-		Trades:          result.Trades,
-		InvalidReasons:  result.InvalidReasons,
+		// 边界防御拷贝：同 buildBacktestResponse —— response 一旦离开进程
+		// 语义（JSON/导出/compare），就不能再与 state 内部结果共享切片。
+		PortfolioValues: slices.Clone(result.PortfolioValues),
+		Trades:          slices.Clone(result.Trades),
+		InvalidReasons:  slices.Clone(result.InvalidReasons),
 		UniverseMaxSize: result.UniverseMaxSize,
 		// QT-02：与写路径同源（都读 params），读路径不许自己再推断一次口径。
 		// 历史 run 的 params 没有这个键 ⇒ 空 ⇒ JSON 里不出现 fill_timing ⇒
@@ -1569,11 +1575,25 @@ func (e *Engine) SetListingWindows(windows map[string]ListingWindow) {
 	e.listing = windows
 }
 
-// ListingWindows 返回当前使用的上市日历（并发安全，只读）。
+// ListingWindows 返回当前使用的上市日历（并发安全）。
+//
+// 返回深拷贝：map 与 Delist 指针都是新的，调用方可以自由修改；
+// 引擎内部种子变量不受影响。
 func (e *Engine) ListingWindows() map[string]ListingWindow {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.listing
+	if len(e.listing) == 0 {
+		return nil
+	}
+	out := make(map[string]ListingWindow, len(e.listing))
+	for symbol, w := range e.listing {
+		if w.Delist != nil {
+			delist := *w.Delist
+			w.Delist = &delist
+		}
+		out[symbol] = w
+	}
+	return out
 }
 
 // heldSymbols 取出当前还持仓的股票。

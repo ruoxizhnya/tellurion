@@ -84,6 +84,43 @@ func TestProcessStockJob_FlagsSuspendedOnStaleLastBar(t *testing.T) {
 	assert.True(t, resDay2.suspended, "day2 缺 bar，末根是 day1 旧 bar ⇒ 停牌")
 }
 
+// TestProcessStockJob_CacheLimitFlagsNotMutated：护栏 —— 涨跌停标记只写在
+// 作业自己的窗口（res.ohlcvData）上，缓存末根保持原值。若有人把写回改回
+// 「原地写缓存」，本用例必须变红（见 ODR 破坏验证记录）。
+func TestProcessStockJob_CacheLimitFlagsNotMutated(t *testing.T) {
+	const symbol = "600000.SH"
+	prov := marketdata.NewInMemoryProvider()
+	bars := []domain.OHLCV{
+		rev09Bar(symbol, "2024-01-02", 1_000_000),
+		{
+			Symbol: symbol, Date: rev09Day2,
+			Open: 10.5, High: 11, Low: 10.5, Close: 11,
+			Volume: 1_000_000, Turnover: 11e6,
+		},
+	}
+	prov.LoadOHLCV(symbol, bars)
+	// 上市满 5 年 ⇒ 走主板 Normal 10% 限价，而不是新股/次新口径。
+	prov.LoadStocks([]domain.Stock{{Symbol: symbol, Name: "浦发银行", ListDate: mustDate("2010-01-01")}})
+	eng := rev09NewEngine(t, prov)
+	rc := newTestRun(t, eng)
+	// 预置 run 缓存＝生产里 Warm/Load 之后的状态：Get 命中缓存窗口。
+	rc.cache.Load(map[string][]domain.OHLCV{symbol: bars})
+	params := domain.BacktestParams{StartDate: rev09Day1}
+
+	eng.processStockJob(context.Background(), rc, stockJob{symbol: symbol}, params, rev09Day1, nil)
+	res := eng.processStockJob(context.Background(), rc, stockJob{symbol: symbol}, params, rev09Day2, nil)
+
+	require.True(t, res.limitUp, "11.0 相对前收 10.0 恰在 10%% 涨停")
+	require.NotEmpty(t, res.ohlcvData)
+	assert.True(t, res.ohlcvData[len(res.ohlcvData)-1].LimitUp,
+		"作业自己的窗口必须带标记：下游 marketDataCache 依赖它")
+
+	cached := rc.cache.Peek(symbol)
+	require.NotEmpty(t, cached)
+	assert.False(t, cached[len(cached)-1].LimitUp, "缓存里的末根不得被作业原地改写")
+	assert.False(t, cached[len(cached)-1].LimitDown, "缓存里的末根不得被作业原地改写")
+}
+
 // TestFetchMarketDataForDay_ExcludesSuspendedAndCounts：停牌股摘出当日
 // marketDataCache（不产信号/不参与撮合），但保留 pricesCache 的最后成交价
 // （停牌持仓照旧盯市）；停牌计数进 run 级诊断。

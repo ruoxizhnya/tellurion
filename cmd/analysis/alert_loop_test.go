@@ -156,6 +156,22 @@ func TestAlertHistory_AppendAndSnapshot(t *testing.T) {
 	assert.Equal(t, "A", snap[2].ID)
 }
 
+// 护栏：Snapshot 返回 slice 与每个 Alert 的 Attributes map 的深拷贝。
+func TestAlertHistory_SnapshotDeepCopiesAttributes(t *testing.T) {
+	h := NewAlertHistory(4)
+	h.Append([]alert.Alert{{ID: "a1", Attributes: map[string]interface{}{"k": "v"}}})
+
+	got := h.Snapshot()
+	require.Len(t, got, 1)
+	got[0].Attributes["k"] = "tampered"
+	got[0].Attributes["new"] = 1
+
+	again := h.Snapshot()
+	require.Len(t, again, 1)
+	assert.Equal(t, "v", again[0].Attributes["k"], "改返回的 Attributes 不能写回 history")
+	assert.NotContains(t, again[0].Attributes, "new")
+}
+
 func TestAlertHistory_EvictionAtCapacity(t *testing.T) {
 	h := NewAlertHistory(3)
 	for i := 0; i < 5; i++ {

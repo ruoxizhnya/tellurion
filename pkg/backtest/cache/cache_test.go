@@ -143,6 +143,38 @@ func TestCacheManager_LoadCopiesBarBackingArrays(t *testing.T) {
 	assert.InDelta(t, 10.5, got[0].Close, 1e-9, "Load 之后改调用方切片不能改到缓存（底层数组必须独立）")
 }
 
+// 护栏：Peek 返回副本。改返回的 bar 不能改到缓存内部数组。
+func TestCacheManager_PeekReturnsCopy(t *testing.T) {
+	cm := newTestCacheManager()
+	d1 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
+	cm.Load(map[string][]domain.OHLCV{"600000.SH": makeBars("600000.SH", d1)})
+
+	got := cm.Peek("600000.SH")
+	require.Len(t, got, 1)
+	got[0].Close = 99.9
+
+	again := cm.Peek("600000.SH")
+	require.Len(t, again, 1)
+	assert.InDelta(t, 10.5, again[0].Close, 1e-9, "改 Peek 返回值不能改到缓存")
+}
+
+// 护栏：Snapshot 返回深拷贝。改返回 map / 切片 / 增删 symbol 都不能改到缓存。
+func TestCacheManager_SnapshotReturnsDeepCopy(t *testing.T) {
+	cm := newTestCacheManager()
+	d1 := time.Date(2023, 1, 3, 0, 0, 0, 0, time.UTC)
+	cm.Load(map[string][]domain.OHLCV{"600000.SH": makeBars("600000.SH", d1)})
+
+	snap := cm.Snapshot()
+	require.Contains(t, snap, "600000.SH")
+	snap["600000.SH"][0].Close = 99.9
+	snap["INJECTED"] = nil
+	delete(snap, "600000.SH")
+
+	again := cm.Snapshot()
+	assert.NotContains(t, again, "INJECTED", "改返回 map 不能改到缓存")
+	assert.Contains(t, again, "600000.SH", "delete 返回 map 不能改到缓存")
+}
+
 func TestCacheManager_Warm_FastPathSkipsBulkFetch(t *testing.T) {
 	cm := newTestCacheManager()
 	provider := newFakeProvider()

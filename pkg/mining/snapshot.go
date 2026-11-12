@@ -3,6 +3,7 @@ package mining
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"tellurion/pkg/expression"
@@ -58,9 +59,11 @@ type snapshotProvider struct {
 	symbols []string
 }
 
-func (p *snapshotProvider) GetSymbols() []string { return p.symbols }
+// GetSymbols / Fields 返回副本：调用方（表达式引擎之外的使用者）可以自由
+// 修改返回切片，不会破坏 provider 内部状态。
+func (p *snapshotProvider) GetSymbols() []string { return slices.Clone(p.symbols) }
 
-func (p *snapshotProvider) Fields() []string { return p.fields }
+func (p *snapshotProvider) Fields() []string { return slices.Clone(p.fields) }
 
 func (p *snapshotProvider) GetField(symbol, field string, lookback int) ([]float64, error) {
 	bySymbol, ok := p.snap.Fields[field]

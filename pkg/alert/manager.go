@@ -73,6 +73,20 @@ type Alert struct {
 	Attributes map[string]interface{} `json:"attributes,omitempty"`
 }
 
+// CloneAlert 返回 Alert 的深拷贝：Attributes map 另起一份（value 本身不递归
+// 复制，若某个 value 是调用方共享的引用类型，仍由调用方自行约定只读）。
+func CloneAlert(a Alert) Alert {
+	if a.Attributes == nil {
+		return a
+	}
+	attrs := make(map[string]interface{}, len(a.Attributes))
+	for k, v := range a.Attributes {
+		attrs[k] = v
+	}
+	a.Attributes = attrs
+	return a
+}
+
 // PortfolioSnapshot is the input contract for AlertManager.Evaluate.
 // All fields are read-only; the manager does not mutate the caller's data.
 type PortfolioSnapshot struct {

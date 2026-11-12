@@ -116,27 +116,36 @@ func (om *OrderManager) CancelOrder(orderID string) error {
 	return nil
 }
 
-// GetOrder returns an order by ID
+// GetOrder returns an order by ID.
+//
+// 返回深拷贝：Order 的 ExecProfile 切片是新的，调用方改它不会写回订单簿。
 func (om *OrderManager) GetOrder(orderID string) (domain.Order, bool) {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
 	order, exists := om.orders[orderID]
-	return order, exists
+	if !exists {
+		return domain.Order{}, false
+	}
+	return order.Clone(), true
 }
 
-// GetOrders returns all orders
+// GetOrders returns all orders.
+//
+// 返回深拷贝：每条 Order 的 ExecProfile 切片都是新的。
 func (om *OrderManager) GetOrders() []domain.Order {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
 
 	result := make([]domain.Order, 0, len(om.orders))
 	for _, order := range om.orders {
-		result = append(result, order)
+		result = append(result, order.Clone())
 	}
 	return result
 }
 
-// GetPendingOrders returns pending orders
+// GetPendingOrders returns pending orders.
+//
+// 返回深拷贝：每条 Order 的 ExecProfile 切片都是新的。
 func (om *OrderManager) GetPendingOrders() []domain.Order {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
@@ -144,7 +153,7 @@ func (om *OrderManager) GetPendingOrders() []domain.Order {
 	result := make([]domain.Order, 0)
 	for _, id := range om.pending {
 		if order, exists := om.orders[id]; exists {
-			result = append(result, order)
+			result = append(result, order.Clone())
 		}
 	}
 	return result

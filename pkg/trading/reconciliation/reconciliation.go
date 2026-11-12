@@ -25,8 +25,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -557,7 +559,9 @@ func (h *HistoryBuffer) Append(r ReconciliationReport) {
 	}
 }
 
-// Snapshot returns a copy of stored reports in newest-first order.
+// Snapshot returns a deep copy of stored reports in newest-first order:
+// Discrepancies 切片与 Local/Broker.Positions 两个 map 都是新的，调用方可以
+// 自由修改，history 缓冲区里的原报告不受影响。
 // Empty slice when the buffer has never been written to.
 func (h *HistoryBuffer) Snapshot() []ReconciliationReport {
 	h.mu.RLock()
@@ -572,12 +576,15 @@ func (h *HistoryBuffer) Snapshot() []ReconciliationReport {
 	out := make([]ReconciliationReport, 0, n)
 	for i := 0; i < n; i++ {
 		pos := (h.idx - 1 - i + h.cap*2) % h.cap
-		out = append(out, h.entries[pos])
+		out = append(out, cloneReport(h.entries[pos]))
 	}
 	return out
 }
 
 // Latest returns the most recent report. Returns nil when empty.
+//
+// 返回副本指针（Discrepancies / Positions map 均已复制），调用方改它不会
+// 写回 history buffer。
 func (h *HistoryBuffer) Latest() *ReconciliationReport {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -588,8 +595,18 @@ func (h *HistoryBuffer) Latest() *ReconciliationReport {
 	if pos < 0 {
 		pos = h.cap - 1
 	}
-	r := h.entries[pos]
+	r := cloneReport(h.entries[pos])
 	return &r
+}
+
+// cloneReport 返回 ReconciliationReport 的深拷贝：报告内唯一的引用字段是
+// Discrepancies 切片与 Local/Broker.Positions 两个 map，其余都是值类型。
+func cloneReport(r ReconciliationReport) ReconciliationReport {
+	out := r
+	out.Discrepancies = slices.Clone(r.Discrepancies)
+	out.Local.Positions = maps.Clone(r.Local.Positions)
+	out.Broker.Positions = maps.Clone(r.Broker.Positions)
+	return out
 }
 
 // Len returns the number of stored reports.

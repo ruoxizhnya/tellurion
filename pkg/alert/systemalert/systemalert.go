@@ -209,8 +209,8 @@ func (am *AlertManager) appendHistoryLocked(alert Alert) {
 }
 
 // GetHistory returns up to limit most recent alerts (newest last). If
-// limit <= 0, all retained history is returned. The returned slice is
-// a copy; callers may mutate it freely.
+// limit <= 0, all retained history is returned. 返回深拷贝：slice 与每个
+// Alert 的 Metadata map 都是新的，调用方可以自由修改，内部 history 不受影响。
 func (am *AlertManager) GetHistory(limit int) []Alert {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
@@ -219,8 +219,24 @@ func (am *AlertManager) GetHistory(limit int) []Alert {
 	}
 	start := len(am.history) - limit
 	out := make([]Alert, limit)
-	copy(out, am.history[start:])
+	for i, a := range am.history[start:] {
+		out[i] = cloneAlertMetadata(a)
+	}
 	return out
+}
+
+// cloneAlertMetadata 复制 Alert 与它的 Metadata map（只复制 map 结构，value
+// 是 string，天然值语义）。
+func cloneAlertMetadata(a Alert) Alert {
+	if a.Metadata == nil {
+		return a
+	}
+	meta := make(map[string]string, len(a.Metadata))
+	for k, v := range a.Metadata {
+		meta[k] = v
+	}
+	a.Metadata = meta
+	return a
 }
 
 // ============================================================================

@@ -90,22 +90,29 @@ func (pm *PositionManager) ApplyQuote(symbol string, price float64) (domain.Posi
 	return position, true
 }
 
-// GetPosition returns a position by symbol
+// GetPosition returns a position by symbol.
+//
+// 返回深拷贝：Position 的 Metadata map 是新的，调用方改它不会写回持仓表。
 func (pm *PositionManager) GetPosition(symbol string) (domain.Position, bool) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	position, exists := pm.positions[symbol]
-	return position, exists
+	if !exists {
+		return domain.Position{}, false
+	}
+	return position.Clone(), true
 }
 
-// GetPositions returns all positions
+// GetPositions returns all positions.
+//
+// 返回深拷贝：每个 Position 的 Metadata map 都是新的。
 func (pm *PositionManager) GetPositions() []domain.Position {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
 	result := make([]domain.Position, 0, len(pm.positions))
 	for _, position := range pm.positions {
-		result = append(result, position)
+		result = append(result, position.Clone())
 	}
 	return result
 }

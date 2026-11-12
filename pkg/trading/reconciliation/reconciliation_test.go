@@ -832,6 +832,54 @@ func TestHistoryBuffer_DefaultCapacity(t *testing.T) {
 // TestFSReportPersister
 // ============================================================
 
+// 护栏：Snapshot 返回深拷贝 —— Discrepancies 切片与 Local/Broker.Positions
+// 两个 map 都不能与 history buffer 内部共享。
+func TestHistoryBuffer_SnapshotDeepCopiesNested(t *testing.T) {
+	buf := NewHistoryBuffer(2)
+	buf.Append(ReconciliationReport{
+		Discrepancies: []Discrepancy{{Symbol: "600000.SH"}},
+		Local:         LocalSnapshot{Positions: map[string]PositionSnap{"600000.SH": {Symbol: "600000.SH"}}},
+		Broker:        AccountSnapshot{Positions: map[string]PositionSnap{"600000.SH": {Symbol: "600000.SH"}}},
+	})
+
+	snap := buf.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("want 1 report, got %d", len(snap))
+	}
+	snap[0].Discrepancies[0].Symbol = "TAMPERED"
+	snap[0].Local.Positions["INJECTED"] = PositionSnap{}
+	snap[0].Broker.Positions["INJECTED"] = PositionSnap{}
+
+	again := buf.Snapshot()
+	if again[0].Discrepancies[0].Symbol != "600000.SH" {
+		t.Fatalf("改返回的 Discrepancies 不能写回 buffer，got %q", again[0].Discrepancies[0].Symbol)
+	}
+	if _, ok := again[0].Local.Positions["INJECTED"]; ok {
+		t.Fatal("改返回的 Local.Positions 不能写回 buffer")
+	}
+	if _, ok := again[0].Broker.Positions["INJECTED"]; ok {
+		t.Fatal("改返回的 Broker.Positions 不能写回 buffer")
+	}
+}
+
+// 护栏：Latest 返回副本指针，改它不能写回 buffer。
+func TestHistoryBuffer_LatestReturnsCopy(t *testing.T) {
+	buf := NewHistoryBuffer(2)
+	buf.Append(ReconciliationReport{
+		Local: LocalSnapshot{Positions: map[string]PositionSnap{"600000.SH": {}}},
+	})
+
+	latest := buf.Latest()
+	if latest == nil {
+		t.Fatal("want non-nil latest")
+	}
+	latest.Local.Positions["INJECTED"] = PositionSnap{}
+
+	if _, ok := buf.Latest().Local.Positions["INJECTED"]; ok {
+		t.Fatal("改 Latest 返回值不能写回 buffer")
+	}
+}
+
 func TestFSReportPersister_PersistAndRead(t *testing.T) {
 	dir := t.TempDir()
 	p, err := NewFSReportPersister(dir)
