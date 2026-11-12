@@ -475,6 +475,12 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		}
 	}
 	NewSignalsHandler(signalStore, deps.Logger, WithSignalsAuth(deps.AuthSvc)).RegisterRoutes(router)
+
+	// A-04 断言 5（G1）：顶栏「待审阅 N」的聚合读面。审阅对象住在 ai-service，
+	// 本仓只做聚合与「不知道 ≠ 0」的编码；未配置 ai_service.url 时源头为空，
+	// 路由照常注册、返回 pending:null（UI 显示「—」）。
+	NewReviewPendingHandler(reviewPendingSources(aiServiceURL(deps.Viper), deps.Logger), deps.Logger).
+		RegisterRoutes(router)
 }
 
 // loadDefaultSuitabilityProfile reads the suitability profile from

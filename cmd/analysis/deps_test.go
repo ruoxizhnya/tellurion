@@ -189,6 +189,8 @@ func TestRegisterRoutes_RegistersCoreEndpoints(t *testing.T) {
 		"POST /api/compliance/check",        // ComplianceHandler
 		"GET /api/tools",                    // ToolsHandler (S7-P3-3)
 		"POST /api/signals",                 // SignalsHandler (K8)
+		"GET /api/signals",                  // SignalsHandler (A-09 feed)
+		"GET /api/review/pending",           // ReviewPendingHandler (A-04 / G1)
 		"GET /api/industry/tree",            // IndustryHandler (P2-2)
 	}
 	for _, route := range handlerGroupSamples {

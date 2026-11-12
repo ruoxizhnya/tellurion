@@ -3318,6 +3318,60 @@ paths:
           description: Signal feed unavailable (no store / backend cannot page)
 
   # ============================================================
+  # Review queue aggregate (A-04 assertion 5 / backend gap G1)
+  # ============================================================
+  /api/review/pending:
+    get:
+      tags: [System]
+      summary: Pending-review count aggregate（A-04 / G1）
+      description: |
+        The「待审阅 N」badge in the top bar. The reviewed objects (exploration
+        candidates, adoption ledger) live in `ai-service`; core exposes this
+        aggregate so the UI has one stable, machine-checkable door that can
+        distinguish **"genuinely 0 pending"** from **"upstream unknown"**.
+
+        Contract: `pending` is a number only when **every** configured source
+        answered; if any source is unavailable it is `null` (never a partial
+        sum), and each source reports its own `status` + `error`. A deployment
+        with no source configured returns `pending: null` with an empty
+        `sources` array — the UI keeps showing「—」rather than a fabricated 0.
+
+        Upstream contract (owned by `ai-service`): `GET /api/explore/review/pending`
+        → `200 {"pending": <int>, "as_of": "<RFC3339>"}`.
+      operationId: getReviewPending
+      responses:
+        '200':
+          description: Aggregated pending-review state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+                    nullable: true
+                    description: null = 至少一个源不可用，总数不可信（UI 显示「—」）。
+                  as_of:
+                    type: string
+                    format: date-time
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: ai_explore
+                        status:
+                          type: string
+                          enum: [available, unavailable]
+                        pending:
+                          type: integer
+                          nullable: true
+                        error:
+                          type: string
+
+  # ============================================================
   # Industry (P2-2 产业链静态数据层)
   # ============================================================
   /api/industry/tree:

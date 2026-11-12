@@ -123,6 +123,7 @@
 | CORE-MEMORY-HARDENING-2026-11 | 共享内存/竞态硬化批次补登：getter 深拷贝、`Load` 深拷贝、dualrun 日志 `SyncWriter`、qt31 预算分档 | 2026-11-12 | `5e8b433`、`fac3a3f`、`b25fb6a`、`4054f52`（后接 `d50249c`） | [原文](#CORE-MEMORY-HARDENING-2026-11) |
 | CORE-FACTOR-ANALYTICS-SURFACE | B-05 后端腿：`factor_returns` / `ic_analysis` 的写者与横截面聚合读面（因子列表 / 分位收益 / IC / 计算触发） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-FACTOR-ANALYTICS-SURFACE) |
 | CORE-SIGNAL-FEED-READ | A-09 后端腿：`GET /api/signals` 外部信号流读面（倒序 / 过滤 / 限量，读能力缺失 503） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-SIGNAL-FEED-READ) |
+| CORE-REVIEW-PENDING-AGGREGATE | A-04 断言 5 / G1：`GET /api/review/pending` 多源聚合，任一源未知即 `null`（不画恒 0 角标） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-REVIEW-PENDING-AGGREGATE) |
 
 ---
 
@@ -3888,3 +3889,20 @@
   - 真库腿：`TEST_DATABASE_DSN=… go test ./pkg/strategy -run TestPGSignalStoreListRecent -v` → `PASS`（倒序、过滤、limit 截断、`up_to` 防前视、`limit<=0` 回落默认）。
 - **⑥ 边界**：core 本仓；UI 侧把「信号流 disabled」改成接 `GET /api/signals` 属 UI 仓改动，跨仓契约已由本仓 openapi 给出。
 - **重开条件**：观测台需要跨模型聚合（按模型/标的分组计数）或需要历史分页游标时。
+
+<a id="CORE-REVIEW-PENDING-AGGREGATE"></a>
+### CORE-REVIEW-PENDING-AGGREGATE · 顶栏「待审阅 N」的聚合读面（A-04 断言 5 / G1）[P1] ✅（2026-11-12）
+
+- **① 目标**：给 UI 一个单一、稳定、可机器判定的「待审阅 N」入口，且必须能区分「真的 0 条待审」与「上游不知道」。
+- **② 上下文与裁决**：审阅对象（探索候选 / 采纳台账）住在 ai-service 的 `ai.experiments` / `ai.adoption_ledger`，core 本仓没有任何该语义的数据。裁决：**不在 core 造恒 0 聚合**（0 会被读成「没有待审」，是谎报，与 A-04 断言 5 原裁决一致）；改为 core 侧多源聚合读面，逐源诚实上报，任一源未知即总数为 `null`。
+- **③ 要求（实际落地）**：
+  1. `cmd/analysis/handlers_review_pending.go` 新增 `GET /api/review/pending`：`{pending, as_of, sources[{name,status,pending,error}]}`。
+  2. 聚合规则：**全部**已配置源都可用才给数字（含真 0）；任一源不可用 → `pending: null`（绝不给偏小的部分和），该源 `status=unavailable` 且带原因。
+  3. 上游源 `ai_explore`：`GET {ai_service.url}/api/explore/review/pending`，3s 超时、404/5xx/缺字段/负数一律转 unavailable；`ai_service.url` 未配置 ⇒ 源集合为空，返回 `pending:null` + 空 `sources`。
+  4. 读面不挂 RBAC、不进 `route_policy`；`docs/openapi.yaml` 登记 200 形状与上游契约。
+- **④ 约束与非目标**：不实现审阅台本身（B-02，agent 侧）；不缓存上游结果；不把多个源的部分和当总数。
+- **⑤ 验收（真实输出）**：
+  - `gofmt -l ./cmd ./pkg` → 空；`go build ./...` → exit 0；`go test ./cmd/analysis -count=1` → `ok`（含 REV-13 契约护栏与 route policy 双向守卫）。
+  - 新增 6 组用例：全源可用求和、全源可用且为 0 时给 `0`（非 null）、任一源不可用给 `null` + 原因、无源配置给 `null` + 空数组、上游 200/0/缺字段/负数/404/503 六种响应、空地址不构造源。
+- **⑥ 边界与跨仓需求**：agent 仓需实现 `GET /api/explore/review/pending` → `200 {"pending":<int>,"as_of":"<RFC3339>"}`（契约已写入本仓 openapi）；该端点落地前 UI 角标继续显示「—」，属预期。
+- **重开条件**：新增第二个待审源（如资产服务待 promote 版本）时，把源加进 `reviewPendingSources` 即可，无需改聚合口径。
