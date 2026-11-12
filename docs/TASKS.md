@@ -139,7 +139,7 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 ### CORE-MARKET-INDEX-DAILY-EXCEPTION · `market.index_daily` 的跨 schema 建表权 [P3] 不改（已裁决）
 
 - **① 目标**：登记该例外**不改**的理由，避免下轮审查重复提出。
-- **② 上下文**：`market.index_daily` 的 `CREATE TABLE` 在 core（`pkg/storage/postgres.go`），owner = core 是第三轮裁决 ⑰ 的结果；`internal/repoguard/storage_market_tables_retired_test.go:18,79` 把它钉成机器判据（其余 `market.*` 在 core 零建表，违者红）。
+- **② 上下文**：`market.index_daily` 的 `CREATE TABLE` 在 core（`pkg/storage/postgres.go`），owner = core 是第三轮裁决 ⑰ 的结果；`internal/repoguard/storage_market_tables_retired_test.go:18,79` 把它钉成机器判据（其余 `market.*` 在 core 零建表，违者红）。本例外只覆盖 `index_daily` 的建表权；`index_constituents` 的写者归 data（`tellurion-data:DATA-INDEX-CONSTITUENTS` 已于 2026-11-12 收口），与本条无关。
 - **③ 要求**：无施工；若将来 data 接管该表，必须先改裁决 ⑰ 与 guard test，再迁 DDL。
 - **④ 约束与非目标**：不因「DDD 看起来不纯」而迁表；不新增第二张 core 拥有的 `market.*` 表。
 - **⑤ 验收**：guard test 持续绿即可。
@@ -196,7 +196,21 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：core 侧装配归本仓；risk 侧 token 校验归 `tellurion-risk`（同一未取证项在其台账留有对应条目）。
 - **重开条件**：任何一次真实部署验收；或风控从「默认关」转为「默认开」。
 
-### CORE-DATA-MIGRATIONS-EXIT · `public.data_migrations` 过渡态的退出条件 [P2] ⏸
+### CORE-DATA-MIGRATIONS-EXIT · `public.data_migrations` 过渡态的退出条件 [P2] ✅ 作废（2026-11-12，前提证伪）
+
+> **关闭记录（2026-11-12，挂起任务处置批次，主任指令）**：前提「过渡保留物」被源码证伪——
+> ① `pkg/storage/postgres.go:329-342` 的 DDL 注释明写本表是**永久机制**：「后续同类迁移
+> **复用本表**，不要另立机制」「data_migrations 表保留，供后续仍属本仓的一次性迁移复用
+> （当前无使用者）」。它不是待退出的过渡物，而是变换型 DML（不幂等迁移）的一次性标记表；
+> 历史使用者 052/054 已随数据面退役，机制本身保留。
+> ② 全仓实测零读者零写者（grep 仅命中 DDL 与注释），不存在「谁还在读」的退出判据问题。
+> ③ 原单重开条件「X1d 生产搬迁完成且观察一个发布周期」已无对象——唯一部署库 2026-11-10
+> 已整库重建为目标形状（见 `OPS-X1D-PROD-MIGRATION` 关闭记录），无过渡态可观察。
+> ④ 原 ⑤ 验收引用的 `docs/db-schema.md` 在 core 不存在（schema 文档真相 = `docs/SPEC.md` /
+> `docs/ARCHITECTURE.md`），验收本身不可达。
+> 机制分工注记：`CORE-MIGRATION-REPLAY-GUARD`（2026-11-12）已为 DDL 重放建立
+> `core_schema_migrations` 账本；`data_migrations` 继续服务变换型 DML 的一次性标记，两者分工不同。
+> 后续一次性 DML 复用本表无需立单；若提议废除该机制，届时另立单。
 
 - **① 目标**：给 `public.data_migrations` 这个过渡保留物一个可判定的退出条件，避免它变成永久真相。
 - **② 上下文**：数据面退役（`SVC-CORE-DATA-RETIRE`，2026-11-08）后该表仍留在 `public` 作为迁移账的过渡记录；退出条件此前只写在退役单正文里，未成正式条目。
@@ -206,7 +220,19 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：本仓 schema 生命周期；物理搬迁动作归运维（见 `OPS-X1D-PROD-MIGRATION`）。
 - **重开条件**：X1d 生产搬迁完成且观察一个发布周期。
 
-### OPS-X1D-PROD-MIGRATION · X1d 物理搬迁 + `visible_at` 回填（运维动作，本机已验证）[P1] ⏸
+### OPS-X1D-PROD-MIGRATION · X1d 物理搬迁 + `visible_at` 回填（运维动作，本机已验证）[P1] ✅（2026-11-12，执行形态=整库重建）
+
+> **关闭记录（2026-11-12，挂起任务处置批次，主任指令）**：目标库已按目标形状就位，验收三条全绿——
+> ① 唯一部署库 = 系统实例 `tellurion@127.0.0.1:5432`（compose `DATABASE_URL` 指向它）。
+> 2026-11-10 主任初始化时 DROP+重建：68 条 DDL→22 表、0001 迁移 22 skip（新库无 public 旧表）、
+> **verify 22/22 ok**、backfill 12 条 rows=0（空表），证据 =
+> `tellurion-data:docs/archive/system-pg-init-2026-11-10.md`。
+> ② 2026-11-12 复测：`visible_at` 12 张表 NULL 合计 = 0；参考作业持续成功
+> （stocks 7 次 / trading_calendar 3 次，无 failed）。
+> ③ **执行形态如实登记**：不是原地搬迁，是整库重建。旧库仅 8 张非空小表
+> （ohlcv 522 行等），已随重建丢弃——那是主任 2026-11-10 的初始化决策（归档 §3 删除前清单），
+> 不是本批处置造成的数据丢失。
+> **否决条款**：若存在未登记的远端/旧生产库，本关闭作废、原单重开。
 
 - **① 目标**：把已验证通过的 X1d 全流程在**生产库**执行一次。
 - **② 上下文**：本机 scratch 实例已完整重放（68 条 DDL → 22 表反向搬 public + 合成历史行 → 0001 迁移 22 移 → verify 22/22 → 回填 12 条哨兵归 0 → 幂等复跑 22 skip → `-tags backfill` 套件 7/7），证据在 `tellurion-data:docs/archive/x1d-local-replay-2026-11-10.md`。**生产未动**，执行者是运维、不是 agent。
