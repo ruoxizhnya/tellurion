@@ -75,11 +75,14 @@ http_ok() {
     [ "$code" = "200" ]
 }
 
-# broker 的健康端点是 /healthz，其余服务是 /health（+ `/` 兜底）。
+# broker 与 data-service 的健康端点是 /healthz，其余服务是 /health（+ `/` 兜底）。
+# 只把 data-service 摘出来、不整体改默认：analysis-service / ai-service 仍只有
+# /health，整体换路径会改变它们的等待语义（本体是 /health 的探针会一直失败，
+# 只剩 `/` 兜底在撑），那不是这次要的改动。
 health_path() {
     case "$1" in
-        broker) echo /healthz ;;
-        *)      echo /health ;;
+        broker|data-service) echo /healthz ;;
+        *)                   echo /health ;;
     esac
 }
 

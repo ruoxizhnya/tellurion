@@ -157,7 +157,7 @@ services:
       # 127.0.0.1: 前缀，声明与事实一致。
       AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
