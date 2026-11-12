@@ -3605,9 +3605,15 @@ components:
         The request is well-formed, but a **data precondition** is not met right now
         (e.g. the trading calendar has not been synced for the requested range).
 
+        For a backtest, "not met" includes a **partially covered range**: when the
+        calendar does not reach the requested `start_date` / `end_date`, the engine
+        refuses to run and the message names the missing segment (e.g.
+        `2024-02-01..2024-03-29`). It does **not** silently truncate and report
+        `completed` — the returned `end_date` must match the equity curve's last point.
+
         Distinct from `400`: nothing about the request itself is wrong, so the caller
         should not "fix the request" — it should make the data available first
-        (`POST /api/sync/jobs` with `type: "calendar"`).
+        (`POST /api/sync/jobs` with `job_type: "trading_calendar"`).
 
         This used to be reported as `500 internal` (AUD-60) because every engine error
         was flattened to 500, which told the client "server broke" and logged a

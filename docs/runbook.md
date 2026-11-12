@@ -142,6 +142,7 @@ INFO ... risk limits loaded from tellurion-risk snapshot (SVC-CORE-RISK-RETIRE) 
 | 下单相关失败 | `broker peer channel verified` 是否出现；通道声明 | §4；broker 仓 runbook |
 | 风控限额与 risk 不一致 | `risk_policy_source` 是哪一态 | §4 末尾 |
 | 回测结果 `DATA_QUALITY / 409` 点名因子缺失 | 因子缓存/派生表是否有写者 | [`TASKS.md`](TASKS.md) `CORE-FACTOR-CACHE-WRITER` / ADR-037 |
+| 回测 409 `trading calendar does not cover start_date/end_date ...` | 日历覆盖到哪天（错误里已点名缺失段，如 `2024-02-01..2024-03-29`） | 补同步：data 仓 `POST /api/sync/jobs` 且 `job_type=trading_calendar`，显式给 `start_date`/`end_date`；覆盖到位后重跑。**引擎不会静默截断**——`end_date` 必须与权益曲线末点一致 |
 
 ## 7. 备份与恢复（DR 演练）
 

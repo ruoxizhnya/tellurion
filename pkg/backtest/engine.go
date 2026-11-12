@@ -1095,6 +1095,20 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		return nil, apperrors.New(apperrors.ErrCodeDataQuality, "no trading days found in range").WithOperation("RunBacktest")
 	}
 
+	// 区间首尾覆盖校验：`GetTradingDays` 只返回「窗口内**存在**的交易日」，
+	// 无法自证日历覆盖到请求边界。日历只同步到 2024-01-31 而请求到 2024-03-29
+	// 时，引擎会拿 22 天跑完、却把 end_date 报成 03-29 —— 权益曲线与 end_date
+	// 不一致且无任何提示。这里在日循环之前把它变成显式的 DATA_QUALITY 拒绝，
+	// 而不是静默改口径（(a) 裁决：end_date 必须与权益曲线一致）。
+	if err := e.verifyCalendarCoverage(ctx, params.StartDate, params.EndDate, tradingDays); err != nil {
+		var appErr *apperrors.AppError
+		if !errors.As(err, &appErr) {
+			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+				"failed to verify trading calendar coverage", "RunBacktest")
+		}
+		return nil, err
+	}
+
 	logger.Info().Int("trading_days", len(tradingDays)).Msg("Retrieved trading days")
 
 	// QT-23：RunUniverse 必须在任何 hash 与任何信号之前定死（§2.6）。
@@ -1432,6 +1446,73 @@ func (e *Engine) checkCalendarExists(ctx context.Context, start, end time.Time) 
 		return false, nil
 	}
 	return ok, nil
+}
+
+// calendarCoverageProbeDays 是判定「交易日历是否覆盖请求边界」的前后探测窗口。
+//
+// `GetTradingDays` 只返回窗口内**存在**的交易日，无法直接回答「日历覆盖到哪
+// 一天」。若日历只同步到 2024-01-31、请求到 2024-03-29，返回的轴只有 22 天，
+// 引擎会把 end_date 报成 03-29，与权益曲线不一致 —— 这正是本条要挡住的静默
+// 截断。A 股最长连续休市约 9 天，任何 30 个自然日窗口内必至少有一个交易日，
+// 因此用「[end, end+30] 为空」判定尾部未覆盖、「[start-30, start] 为空」判定
+// 头部未覆盖。用窗口而非固定天数差，是为了不对节假日前后的合法请求误报。
+const calendarCoverageProbeDays = 30
+
+// verifyCalendarCoverage 确认交易日历的覆盖范围包含请求的 start / end 边界。
+//
+// axis 是 [start, end] 内已取到的交易日轴；空轴由调用方按「日历未同步」处理，
+// 这里只处理「轴非空但边界没盖住」的情形。头部 / 尾部各自向要求的方向探测
+// 一个 calendarCoverageProbeDays 窗口：探测为空即说明日历覆盖不到该边界，
+// 返回 DATA_QUALITY（HTTP 409），错误里点名缺失的那一段。
+func (e *Engine) verifyCalendarCoverage(ctx context.Context, start, end time.Time, axis []time.Time) error {
+	if len(axis) == 0 {
+		return nil
+	}
+	p := e.effectiveProvider()
+	if p == nil {
+		return nil
+	}
+
+	headFrom := start.AddDate(0, 0, -calendarCoverageProbeDays)
+	headProbe, err := p.GetTradingDays(ctx, headFrom, start)
+	if err != nil {
+		return err
+	}
+	if len(headProbe) == 0 {
+		return errBacktestRangeUncovered(true, start, axis[0])
+	}
+
+	tailTo := end.AddDate(0, 0, calendarCoverageProbeDays)
+	tailProbe, err := p.GetTradingDays(ctx, end, tailTo)
+	if err != nil {
+		return err
+	}
+	if len(tailProbe) == 0 {
+		return errBacktestRangeUncovered(false, end, axis[len(axis)-1])
+	}
+	return nil
+}
+
+// errBacktestRangeUncovered 是「交易日历覆盖不到请求边界」的唯一构造点。
+//
+// 与 errTradingCalendarNotSynced 同为 DATA_QUALITY（缺的是数据不是请求），
+// HTTP 409。收敛成函数是为了让分类与「点名缺失段」的文案能被单测钉住。
+func errBacktestRangeUncovered(head bool, boundary, actual time.Time) error {
+	side := "end_date"
+	missingFrom, missingTo := actual.AddDate(0, 0, 1), boundary
+	actualDesc := "last"
+	if head {
+		side = "start_date"
+		missingFrom, missingTo = boundary, actual.AddDate(0, 0, -1)
+		actualDesc = "first"
+	}
+	return apperrors.New(apperrors.ErrCodeDataQuality, fmt.Sprintf(
+		"trading calendar does not cover %s %s: the %s covered trading day in the requested window is %s, "+
+			"so the range %s..%s has no calendar. Refusing to run — end_date and the equity curve must agree "+
+			"(re-run POST /api/sync/jobs with job_type=trading_calendar to cover the full range).",
+		side, boundary.Format("2006-01-02"), actualDesc, actual.Format("2006-01-02"),
+		missingFrom.Format("2006-01-02"), missingTo.Format("2006-01-02"))).
+		WithOperation("RunBacktest")
 }
 
 // SetFundamentals 让调用方直接注入财报数据，跳过预热（P2-12）。

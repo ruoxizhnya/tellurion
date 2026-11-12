@@ -90,6 +90,7 @@
 | X-DEP-BUMP-CONSUMERS（core 腿） | 7 消费仓 bump kit pin + govulncheck 门 | 2026-11-12 | 见原文 | [原文](#X-DEP-BUMP-CONSUMERS) |
 | X-AGENTS-DEPENDENCY-TABLE（core 腿） | 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐 | 2026-11-12 | 见原文 | [原文](#X-AGENTS-DEPENDENCY-TABLE) |
 | CORE-REDIS-EXIT | Redis 已退役但死代码/依赖/k8s 清单仍在 | 2026-11-12 | 见原文 | [原文](#CORE-REDIS-EXIT) |
+| CORE-BACKTEST-RANGE-COVERAGE | 回测区间静默截断（日历覆盖不足仍报 completed） | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-RANGE-COVERAGE) |
 
 ---
 
@@ -3079,3 +3080,29 @@
 > - **验收（真实输出）**：`go build ./...` EXIT=0；`go vet ./...` EXIT=0；`go test ./... -count=1` EXIT=0（`repoguard` 三组用例绿）；`python tools/check_doc_links.py` → `✓ 未发现坏链`、`EXIT=0`。
 > - **破坏验证**：① 以空包文件复活 `pkg/storage/redis.go` ⇒ `TestRedisRetiredArtifactsStayGone` 报 `pkg\storage\redis.go 仍存在 …`、EXIT=1；删除后复绿。② 在 `docker-compose.yml` 临时加 `REDIS_URL: redis://127.0.0.1:6379` ⇒ `TestDeployAndConfigSurfacesHaveNoRedis` 报 `docker-compose.yml 仍有生效的 REDIS_URL 配置 …`、EXIT=1；删除后复绿。（断言按去注释后的内容判定，避免「说明已删除」的历史注释造成假红。）
 > - **未落（如实）**：kit 仓的 Redis 连接能力按 ⑥ 归 kit 自裁，本仓未动；`tools/local-infra.sh` 仍保留 Redis 启停能力（其他仓的 opt-in 集成测试可能复用同一宿主实例），只把头注释改为「core 不需要」。
+
+## 十二、2026-11-12 业务面验证插入项（由另一会话转达，按高优先先做）
+
+> 来由：业务面验证抓到本仓 5 条问题，按优先级插入施工；每条一单 atomic commit、带行为测试、破坏验证两段真实输出。编号为本轮新立（原消息无 ID，按主题命名）。
+
+<a id="CORE-BACKTEST-RANGE-COVERAGE"></a>
+### CORE-BACKTEST-RANGE-COVERAGE · 回测区间静默截断（日历覆盖不足仍报 completed） [P0] ✅（2026-11-12）
+
+- **① 目标**：回测请求的 `start_date` / `end_date` 必须与交易日历的**首尾覆盖**一致；覆盖不足时**不许报 completed**，改以 `DATA_QUALITY / 409` 拒绝并点名缺失的那一段。
+- **② 上下文**：`pkg/backtest/engine.go` 的 `parseBacktestDateRange` 只校验「区间内存在任意一天日历」（`CheckCalendarExists` 返回 `len>0`），不校验首尾覆盖；`GetTradingDays` 也只返回窗口内**存在**的交易日。实测 `POST /api/backtest {"strategy":"momentum","stock_pool":["600000.SH"],"start_date":"2024-01-02","end_date":"2024-03-29"}` → 200 `completed`，`portfolio_values` 仅 22 点（到 2024-01-31），返回的 `end_date` 仍是 `2024-03-29`，无任何提示。对照组整段无日历（`2024-06-03..2024-06-28`）时正确 409。另经核实：`portfolio_values` 每个交易日一条，长度恒等于 `GetTradingDays` 轴长度，轴上不裁剪，故 `end_date` 与曲线末点不一致的**唯一**来源就是日历轴短于请求区间。
+- **③ 要求**：二选一并说明理由 —— (a) 409 拒绝并说明缺哪一段；(b) 截断但把实际区间写进结果且 WARN。**倾向 (a)**：回测结果的 `end_date` 与权益曲线必须一致，静默改口径比直接拒绝更危险。另：若某条需产品/架构裁决，写清选项与倾向后先做其他条。
+- **④ 约束与非目标**：不放宽既有覆盖度门禁；不新增/伪造数据；不把「个别标的停牌/退市导致某些日无行情」误判为区间截断（那由停牌逻辑处理，权益曲线长度不变）。
+- **⑤ 验收**：短日历（轴到 2024-01-31、请求到 2024-03-29）必须 409 且错误点名缺失段；头部不足同理；完整覆盖与「end_date 落在周末但日历覆盖其后」必须放行。破坏验证 = 关掉尾部/头部判定 ⇒ 对应用例红，还原后复绿。
+- **⑥ 边界**：本仓回测引擎的区间口径；日历数据的补同步归 `tellurion-data`（`POST /api/sync/jobs` + `job_type=trading_calendar`）。
+
+> **✅ 施工记录（2026-11-12，本条即施工 commit）**
+>
+> - **决定 = (a) 409 拒绝**。理由：`portfolio_values` 每日一条、长度恒等于交易日轴，`end_date` 与曲线末点不一致只会来自轴被日历提前截断；此时静默报 `completed` 会让用户把一段假的区间当成真结果。拒绝比改口径安全，且错误里能精确点名缺哪段。
+> - **实现**：`pkg/backtest/engine.go` 在 `getTradingDays` 之后、日循环之前新增 `verifyCalendarCoverage`（`calendarCoverageProbeDays = 30`）：轴为空由既有逻辑报「日历未同步」；轴非空时向两侧各探测 30 个自然日 —— `[start-30, start]` 为空 ⇒ 头部未覆盖，`[end, end+30]` 为空 ⇒ 尾部未覆盖。A 股最长连续休市约 9 天，30 天窗口内必有交易日，用窗口而非固定天数差，避免节假日前后的合法请求被误报。新错误 `errBacktestRangeUncovered` 统一构造 `DATA_QUALITY` AppError（HTTP 409），文案含 `start_date`/`end_date`、已覆盖的 `first/last` 交易日、缺失段（如 `2024-02-01..2024-03-29`）与补救入口（`POST /api/sync/jobs` + `job_type=trading_calendar`）。
+> - **测试**：新增 `pkg/backtest/calendar_coverage_test.go` 四例 —— ① 复现实测缺陷（日历到 01-31、请求到 03-29）走完 `RunBacktest` 必须 `Error` + `ErrCodeDataQuality` + 信封 `failed` + 无权益点，且文案点名 `2024-02-01..2024-03-29`；② 头部不足同名拒绝；③ 完整覆盖放行；④ `end_date` 落在周末但日历覆盖其后时放行（防误伤）。替身 `calendarWindowProvider` 只返回窗口内真实交易日，**不复刻** inmemory 的「窗口为空返回全部」兜底（否则探测恒非空、测不出缺陷）。
+> - **文档**：`docs/runbook.md` §6 现象速查新增一行（409 文案 → 补同步入口 → 「引擎不会静默截断」）；`docs/openapi.yaml` 的 `ConflictPrecondition` 说明补「部分覆盖 = 拒绝并点名缺失段」并把过时的 `type: "calendar"` 改为真实入口 `job_type: "trading_calendar"`。
+> - **验收（真实输出）**：`go build ./...` EXIT=0；`go vet ./pkg/backtest ./cmd/analysis` EXIT=0；`go test ./pkg/backtest/... -count=1` 全绿；`go test ./cmd/analysis -run 'Backtest|Calendar' -count=1` ok；`go test ./docs/ -count=1` ok。
+> - **破坏验证（真实输出）**：① 把尾部判定临时改成 `if len(tailProbe) == 0 && false` ⇒ 复现用例红（`Error` 断言失败 / 未拒跑）；还原后复绿。② 把头部判定临时改成 `if len(headProbe) == 0 && false` ⇒ 头部用例红；还原后复绿。两处均逐字节还原。
+> - **未落（如实）**：`2024-01-02..2024-06-28` 的「日历有、行情缺」组合在当前数据下**不再产生截断**（日历已同步到 2026 年底，`portfolio_values` 长度等于完整交易日轴）；该组合的行情缺口由停牌/无数据逻辑处理，不属本条范围，故未按「截断」处理，避免把正常停牌误判成区间错误。
+
+
