@@ -91,6 +91,7 @@
 | X-AGENTS-DEPENDENCY-TABLE（core 腿） | 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐 | 2026-11-12 | 见原文 | [原文](#X-AGENTS-DEPENDENCY-TABLE) |
 | CORE-REDIS-EXIT | Redis 已退役但死代码/依赖/k8s 清单仍在 | 2026-11-12 | 见原文 | [原文](#CORE-REDIS-EXIT) |
 | CORE-BACKTEST-RANGE-COVERAGE | 回测区间静默截断（日历覆盖不足仍报 completed） | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-RANGE-COVERAGE) |
+| CORE-FACTOR-CACHE-WRITER | `public.factor_cache` 有表无写者，`multi_factor` 不可用（ADR-037 按需求值收口） | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-WRITER) |
 
 ---
 
@@ -3104,5 +3105,33 @@
 > - **验收（真实输出）**：`go build ./...` EXIT=0；`go vet ./pkg/backtest ./cmd/analysis` EXIT=0；`go test ./pkg/backtest/... -count=1` 全绿；`go test ./cmd/analysis -run 'Backtest|Calendar' -count=1` ok；`go test ./docs/ -count=1` ok。
 > - **破坏验证（真实输出）**：① 把尾部判定临时改成 `if len(tailProbe) == 0 && false` ⇒ 复现用例红（`Error` 断言失败 / 未拒跑）；还原后复绿。② 把头部判定临时改成 `if len(headProbe) == 0 && false` ⇒ 头部用例红；还原后复绿。两处均逐字节还原。
 > - **未落（如实）**：`2024-01-02..2024-06-28` 的「日历有、行情缺」组合在当前数据下**不再产生截断**（日历已同步到 2026 年底，`portfolio_values` 长度等于完整交易日轴）；该组合的行情缺口由停牌/无数据逻辑处理，不属本条范围，故未按「截断」处理，避免把正常停牌误判成区间错误。
+
+## 十三、2026-11-12 CORE-FACTOR-CACHE-WRITER 重开收口（ADR-037 D2 按需求值）
+
+> 来由：2026-11-12 主任裁决 —— 按 ADR-037 实现、**不写库**；「写穿缓存落库」的口径作废（横截面 z-score 依赖本次 run 票池，写共享表会污染其他 run 且留下过期缓存）。理由三条：① 不引入第二个写者；② 不留过期缓存；③ 同一 run 内可复现 —— 都比「少算一次」重要。同批要求把 `public.factor_cache` 标为退役遗留表、覆盖度门禁改读 run 级物化结果、并用用例钉住「同一 run 不重算」与「门禁读 run 级而非 DB」。
+
+<a id="CORE-FACTOR-CACHE-WRITER"></a>
+### CORE-FACTOR-CACHE-WRITER · `public.factor_cache` 有表无写者，`multi_factor` 因此不可用 [P0] ✅（2026-11-12）
+
+- **① 目标**：给因子值定下**唯一生产形态**，让依赖横截面因子的策略（今天只有 `multi_factor`）能在本栈里真实跑出信号；在此之前不改任何策略逻辑。
+- **② 上下文**：2026-11-11 真栈打通回测时实测——`market.stocks=5580` / `ohlcv_daily_qfq=22` / `trading_calendar=31` 都已同步到位，`POST /api/backtest`（`multi_factor` + `600519.SH` + 2024-01-02~01-10）却以 `invalid/zero_trades` 收场。运行期日志三条 `No factor cache entries in DB — run sync/factors/all first`，而**那条提示指向的路由不存在**：`cmd/data` 已于 `a96d836` 删除，data-service 按裁-14 不提供因子，本仓 `pkg/backtest/cache/factor_cache.go` 的 `Warm` 只**读**库、不写；`SaveFactorCacheBatch` 全仓零调用方。即：表在、DDL 在、读点在，**写者从来没进过这个栈**。同轮已落一条护栏（`CORE-FACTOR-GUARD`，见 `pkg/backtest/factor_coverage_test.go`）：必需因子整体无缓存时回测直接拒跑（DATA_QUALITY / 409），不再伪装成一份零成交结果——**那条只是让缺陷响亮，不是修复**。
+- **③ 要求**：**已裁决，见 ADR-037（`tellurion-docs:docs/adr/adr-037-factor-value-ownership.md`）**：owner = **core**，形态 = **(c) 消费点按需实时计算**，`factor_cache` 退为可选预热源（只读），不新增数据库写者。重开实现时必须按序回答：① 在回测 run setup 用 `pkg/expression` 对内置定义求值，逐日做横截面 z-score 物化到 run 级内存（`pkg/expression/evaluator.go:210-257` 的 `cs_*` 只对最新时点生效，不能直接复用为时序）；② 按因子定义的 `InputFields` 触发财报预热（`pe`/`roe`），不能只依赖 `strategy.FundamentalAware`；③ 对齐 `CaliberZScore` / `Validity` / ADR-022 §5 五元组；④ 算不出来时保持响亮失败，点名缺失因子与原因。**不允许**用「表里预置几行假数据」让 `multi_factor` 变绿。
+- **④ 约束与非目标**：本轮**只做裁决与台账更新，不写代码**；不改 `factor_cache` 的表结构与读面契约；不新增定时作业或跨服务因子接口（ADR-028 §11 明确不做「因子服务」）；不动 `multi_factor` 的加权逻辑（它按可用因子加权是既有语义）。
+- **⑤ 验收**（重开实现时）：真栈里 `POST /api/backtest`（`multi_factor` + **多标的**、至少 60 个交易日）返回 `status=completed` 且 `total_trades>0`；前置是先把至少 3 只票的 `ohlcv_daily` 同步到覆盖预热期的区间。破坏验证两条：① 清空 `factor_cache` 且关闭按需求值 ⇒ 409 且文案点名缺失因子；② 删掉按需求值的接线 ⇒ 单测红。**单标的横截面 n=1 不构成有效验收**（z-score 无定义）。
+- **⑥ 边界**：因子定义与公式在本仓 `pkg/domain` + `pkg/expression`（过渡期；ADR-028 §6 的目标是随定义迁往 strategy）；求值与读面在本仓 `pkg/backtest`；`tellurion-data` 不参与，`GET /api/factors/:name` 的死链（转发到 data 已撤路由）不在本条修复。
+- **裁决**：**owner = core；形态 = (c) 按需实时；依据 ADR-037**。否决 (a)：把可选物化升级为常驻批处理，且必须先重写已删的 5 个 `KernelCode`；否决 (b)：data 无算法载体，落地必然双实现，并推翻裁-14。
+- **重开条件**：① 决定让 `multi_factor` 在真栈可用；或 ② 有外部预计算缓存愿意按同一口径灌入（此时只做 Warm 读面验证）；或 ③ 出现 ADR-028 §11 的实测证据「多消费者需要同一份重计算因子且缓存命中率低」，重新评估物化写者。**2026-11-12 满足条件 ①，本条重开并收口。**
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **口径裁决（主任 2026-11-12 追认）**：按 ADR-037 **不写库**。「按需求值 + 写穿缓存落库」的口径作废；理由是横截面 z-score 依赖本次 run 的票池，写共享 `public.factor_cache` 会污染其他 run 并留下无过期语义的缓存。三条判据：① 不引入第二个写者；② 不留过期缓存；③ 同一 run 内可复现。
+> - **实现**：新增 `pkg/backtest/factor_derive.go` —— run setup 时对 `FactorDependent.RequiredFactors()` 里**仍缺**且内核为 `KernelLeaf`/`KernelFormula` 的因子，用 `pkg/expression` 对冻结种子公式求值，按 `Validity` 过滤，逐日做横截面 z-score（总体标准差，`n>=2` 且 `std>0` 才产出），`FactorCacheAccessor.Merge` 进 run 私有缓存。`KernelCode`/`KernelPending` 明确不可派生（打 WARN，保持 fail-closed）。日期键同时挂到 bar 自身日期与交易日轴值上（`time.Time` 的 `==` 含 location，避免同一天被拆成两个 n=1 假截面）。
+> - **接线**：`runBacktestInternal` 顺序改为 `warmCache → warmFactorCache（遗留可选）→ warmFundamentalsIfNeeded → warmIntradayIfNeeded → getTradingDays/覆盖度校验 → RunUniverse 冻结 → deriveMissingFactors → ensureRequiredFactors`；`warmFundamentalsIfNeeded` 的触发条件从「仅 `FundamentalAware`」扩为「或必需因子的 `InputFields` 命中财报字段」；覆盖度闸抽出唯一判据入口 `factorCoverage`（只读 run 级物化结果），错误文案改为「`public.factor_cache` 已退役 + 按需求值也未能算出」。
+> - **退役标注**：`docs/ARCHITECTURE.md`（§2 数据归属 C 分区、§3 TimescaleDB、§4）、`docs/SPEC.md` §数据归属、`docs/runbook.md` §7.5 同步标注「退役遗留表：无写者、不得写入、门禁不读、空表是预期」；`tellurion-docs:docs/adr/adr-037-factor-value-ownership.md` 追加修订段（D3 从「可选预热源」改为「退役遗留」）。
+> - **测试（新增 6 例 + 显式调整 2 例）**：`pkg/backtest/factor_derive_test.go` —— ① 空缓存 ⇒ 三因子全部派生且同日 z 均值为 0；② 第二次调用返回 0 且条目不变（物化命中）；③ 单标的 n=1 不产出；④ `size`(pending) 不可派生；⑤ 门禁只读 run 级（DB 空 + run 级有值 ⇒ 放行）；⑥ 全链路多因子 run `completed` 且 `total_trades>0`。`TestEnsureRequiredFactors_AllMissingRefuses` 断言从 `no factor-cache writer` 改为 `retired` + `on-demand`（语义已变，判据保留）；`TestRunBacktest_AllFactorsMissingReturnsErrorNoResult` 的替身从「无交易日轴」换成 `noBarsAxisProvider`（有轴无行情），确保仍败在因子闸。
+> - **验收（真实输出）**：`gofmt -l pkg/backtest` 空；`go build ./...` EXIT=0；`go vet ./pkg/backtest ./cmd/analysis` EXIT=0；`go test ./pkg/backtest/... -count=1` 全绿；`go test ./cmd/analysis -run 'Backtest|Factor' -count=1` ok；`go test ./docs/ -count=1` ok。
+> - **破坏验证（真实输出，均逐字节还原）**：① `factorCoverage` 改回读 `store.GetFactorCacheRange`（空表）⇒ `TestFactorGateReadsRunLevelNotDB` 红（门禁把所有因子判成缺失）；还原复绿。② 摘掉 `deriveMissingFactors` 接线 ⇒ `TestRunBacktest_MultiFactorOnDemandProducesTrades` 红（`DATA_QUALITY` 409，文案点名退役表与按需求值）；还原复绿。③ `MissingFactors` 判据改成恒全量重算 ⇒ `TestDeriveMissingFactors_SecondCallDoesNotRecompute` 红（第二次仍返回 3）；还原复绿。
+> - **未落（如实）**：真栈 `POST /api/backtest`（多标的 ≥60 交易日）未跑 —— 运行中的 analysis 容器镜像不含本次代码，重建镜像需主任批准（不擅自 `up --build`）。删掉 `public.factor_cache` 表与 `pkg/storage` 的读写方法属破坏性迁移，另立 `CORE-FACTOR-CACHE-RETIRE`。
+
 
 

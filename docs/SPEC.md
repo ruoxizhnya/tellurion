@@ -206,7 +206,7 @@ L1  数据层       行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日
 |---|---|---|---|
 | A | 原始源响应 | PG `ingest.raw`（`content_hash` 唯一键） | ❌ 仅持 `content_hash` |
 | B | 规范化数据（OHLCV / 财报 / 日历 / 公司行为） | PG `market.*` | ❌ 只读证据 API |
-| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*` + `factor_cache`（PG 单层，按需求值） | ❌ 只读计算 API |
+| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*`；因子值按 ADR-037 D2 在 run setup 按需求值、物化到 run 级内存（`public.factor_cache` 是退役遗留表，无写者、门禁不读） | ❌ 只读计算 API |
 | D | 研究叙事（人的判断） | **Vault markdown**（事实源） | — |
 | E | 研究结构化状态 | PG `research.*`（D 的确定性投影，可 DROP 重建） | 权威在 D |
 

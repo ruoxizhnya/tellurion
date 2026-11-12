@@ -113,7 +113,7 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 |---|---|---|
 | A 原始源响应 `ingest.raw` | 外部响应的逐字节归档（class A） | **`tellurion-data` 唯一 writer**（摄取时自动归档）。唯一外部写端点是它的 `POST /ingest/points`（data ADR-0006，G-03）；core 侧 `POST /api/ingest/raw` 已随 `SVC-CORE-DATA-RETIRE` 删除，只剩契约测试里的历史例外条目 |
 | B 规范化行情 `market.*`（`stocks`/`ohlcv_daily_qfq`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | **`tellurion-data` 唯一 writer**（2026-11-08 起这些表从 `public` 迁到 `market`，G-04）；core 只读四张裸表（清单见 [SPEC.md](SPEC.md) 的「跨仓只读表依赖清单」）。**例外：`stock_fundamentals` 不在此分区** —— 第 142 行已如实登记它仍是 core 的 `public` 表（归属裁决 2026-11-12：DDL/写者/读者都在 core，读面是 `GET /api/fundamental/{symbol}`） |
-| C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 已删除（2026-11-12，见 §4）；「实验日志」随 `SVC-CORE-AI-RETIRE` 删除 |
+| C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 已删除（2026-11-12，见 §4）；**`public.factor_cache` 是退役遗留表**（2026-11-12，`CORE-FACTOR-CACHE-WRITER` 重开收口）：无写者、不得写入、覆盖度门禁不读它 —— 因子值按 ADR-037 D2 在 run setup 现场求值并物化到 run 级内存，「实验日志」随 `SVC-CORE-AI-RETIRE` 删除 |
 | ~~E 研究结构化投影 `research.*`~~ **已退役** | vault markdown 的可重建投影 | 三表（`profile`/`conclusion`/`question`）与 5 条索引随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`migrate()` 不再建 `research` schema |
 
 ---
@@ -161,7 +161,9 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 本仓 `migrate()` 今天**不建任何 hypertable**：唯一一处 `create_hypertable`（针对
 `ohlcv_daily_qfq`）已随 `SVC-CORE-DATA-RETIRE`（2026-11-08）删除，owner 是
 `tellurion-data`。`market.index_daily` 与 `factor_cache` 都是普通表（后者按 022
-迁移注释**刻意不建** hypertable，需要时单独加）。
+迁移注释**刻意不建** hypertable，需要时单独加）。`factor_cache` 已退役为
+遗留表（2026-11-12）：不建 hypertable、不写入、无读面，删表须走
+`CORE-FACTOR-CACHE-RETIRE` 的迁移演练。
 
 ---
 
@@ -171,7 +173,9 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 > `Cache`/`RedisCache`、`pkg/trading` 的 `RedisOrderStore`、`pkg/marketdata` 的
 > `CachedProvider` 三处死代码删除，`go-redis` 依赖、`redis.url` 配置段、
 > `deploy/k8s/redis-deployment.yaml` 与 `wait-for-deps.sh` 的等待段同批移除。
-> 本仓今天**没有任何缓存层**；`factor_cache` 走 PG 表（见 ADR-037 的按需求值口径）。
+> 本仓今天**没有任何缓存层**；因子值按 ADR-037 D2 **按需求值**、物化到 run 级
+> 内存（不写库），`public.factor_cache` 只是退役遗留表（2026-11-12
+> `CORE-FACTOR-CACHE-WRITER` 重开收口：无写者、门禁不读、空表是预期）。
 > 退役前的双层设计留在 Git 历史与本文件旧版本里，不再作为接线参照。
 
 ---
