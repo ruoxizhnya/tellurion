@@ -462,11 +462,13 @@ func runQT31(t *testing.T, name string, artifact *WASMArtifact, pool []string, d
 	require.NoError(t, err)
 
 	opts := qt31RiskOptions(t)
-	opts = append(opts, WithLogger(zerolog.New(logs)))
+	// SyncWriter：分片 goroutine 会并发写同一个日志汇，裸 bytes.Buffer 不是
+	// 并发安全的（与 cmd/dualrun 告警测试同型，见 b25fb6a）。
+	opts = append(opts, WithLogger(zerolog.New(zerolog.SyncWriter(logs))))
 	if artifact != nil {
 		opts = append(opts,
 			WithWASMArtifacts(*artifact),
-			WithWASMShardBudget(wasmShardTestBudget(4)),
+			WithWASMShardBudget(qt31ShardBudget(4)),
 		)
 	}
 	applyOptions(eng, opts)
@@ -493,6 +495,15 @@ func runQT31(t *testing.T, name string, artifact *WASMArtifact, pool []string, d
 	t.Logf("QT-31 %s: %d symbols × %d days, elapsed=%s, trades=%d, status=%s",
 		name, len(pool), days, elapsed, len(resp.Trades), resp.Status)
 	return resp, observed
+}
+
+// qt31ShardBudget 在公共测试预算上叠加 QT-31 的单次调用预算分档：
+// race 构建 50ms、普通构建沿用冻结的 5ms（见 qt31_percall_race_test.go /
+// qt31_percall_norace_test.go）。其余预算字段不变。
+func qt31ShardBudget(workers int) wasm.ShardBudget {
+	b := wasmShardTestBudget(workers)
+	b.PerCall = qt31PerCallBudget
+	return b
 }
 
 // ─── 验收 1/3：真实回测 Go 内置 vs WASM 逐位一致 + policy cap ──────
