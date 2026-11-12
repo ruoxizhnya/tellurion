@@ -103,6 +103,7 @@
 | CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM | 策略插件 `/screen` 死腿（裁决 B1）：value_screen 多票返回可诊断 ErrDataGap，multi_factor 只删死腿 | 2026-11-12 | 见原文 | [原文](#CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM) |
 | CORE-STRATEGY-SCREEN-LOCAL-VALUE | 本地价值筛选（C 方案）：run 内 daily_basic 快照 + fundamentals ROE，PIT 无未来函数，零/低覆盖报 ErrDataGap | 2026-11-12 | `1317934`、`de85f71` | [原文](#CORE-STRATEGY-SCREEN-LOCAL-VALUE) |
 | CORE-CI-IMAGE-GATE | 镜像构建门：CI 真跑 docker build + 检查器静态守 compose build 面与 go build 目标目录 | 2026-11-12 | `dd5a98f` | [原文](#CORE-CI-IMAGE-GATE) |
+| CORE-K8S-EXIT | 退役 k8s 清单：移入 archive/ + 检查器「活跃层必须零清单」守卫 | 2026-11-12 | `480aab9` | [原文](#CORE-K8S-EXIT) |
 
 ---
 
@@ -3421,3 +3422,26 @@
 > - **破坏验证（真做真还原）**：把 `Dockerfile.service:27` 的 `./cmd/analysis` 改成 `./cmd/no-such-service` ⇒ ① 检查器 `EXIT=1`，恰好 1 条错误，点名 `Dockerfile.service:27` 的 `go build ./cmd/no-such-service` 目标不存在；② 真 `docker build -f Dockerfile.service .` `EXIT=1`，`did not complete successfully: exit code: 1`。还原后 `Dockerfile.service` SHA256 = `B1D8D75D8D3BE6D4F5BF67200588F13379FC962CD2A87959EA994D7FE48D0038`，与破坏前一致；检查器复跑 EXIT=0。
 > - **回归（真实退出码）**：`docker compose config --quiet` / `docker compose --profile full config --quiet` / `python tools/check_doc_links.py` / `python tools/check_deploy_consistency.py` 全 exit 0；`ci.yml` 经 YAML 解析合法，jobs = `agent-compat` / `align-gate` / `docs` / `go` / `image-build` / `python`。本轮只动 CI 与检查器，不涉及 Go 代码，`go build/vet/test` 输出面未被触及。
 > - **如实登记的残余**：① 其余 8 仓的镜像门不在本单（归 `X-CI-RACE-STATICCHECK` 同批或各仓自持）；② 本机的 Docker 29.9.3 与 GitHub runner 的 docker 版本不同，CI 首次跑该 job 的实际耗时未实测，但构建内容一致（同一 Dockerfile、同一 build context）。
+
+### CORE-K8S-EXIT · 退役 k8s 清单（D7=a，本地单一 compose 已是唯一编排）[P2] ✅（2026-11-12）
+
+- **① 目标**：把已被本地单一 `docker-compose.yml` 取代的 k8s 清单退役，消除「两套编排各说各话」与 readiness/liveness 探针口径漂移。
+- **② 上下文**：审查发现 W2-F5（ODR-069）+ 裁决 D7=a。`deploy/k8s/analysis-deployment.yaml` 的 readiness+liveness 均 `/api/health`、`data-deployment.yaml` 均 `/health`（与 compose 探针口径不一致）；`CORE-COMPOSE-UNIFY`（2026-11-11 ✅）已定本地单一 compose，k8s 形态不在本轮范围。退役是破坏性施工，**另逐单授权**。
+- **③ 要求**：① 先确认 k8s 清单零生产消费者（grep + 问运维）；② 删除或移入 `deploy/k8s/archive/` 并加退役说明；③ 与 `CORE-REDIS-EXIT`（redis-deployment.yaml）撞文件按单号串行；④ 探针口径差异在退役说明里留痕。
+- **④ 约束与非目标**：不删 compose；**破坏性删除须主任逐单授权**（D7 施工授权未含在本轮 A5）；不引入新编排。
+- **⑤ 验收**：退役后 `python tools/check_deploy_consistency.py` 仍绿；grep 无悬空 k8s 引用；破坏验证 = 恢复一个被引用的清单 ⇒ 检查器红。
+- **⑥ 边界**：core k8s 清单；其余仓 k8s（若有）归各仓。
+- **owner**：待定
+- **重开条件**：主任授权破坏性退役施工；若将来真上 k8s，另立 ADR 重建。
+
+> **施工记录（2026-11-12，commit `480aab9`；主任 2026-11-12 指令「`CORE-K8S-EXIT` 可以往下推」= 逐单授权）**
+>
+> - **消费者取证**：全工作区 12 仓 grep `kubectl apply` / `kustomize` / `helm install|upgrade` **零命中**；`deploy/k8s` 的引用全是文本（README / 设计文档 / 检查器 / 代码注释），无脚本或流水线把它当输入。**盲区如实登记**：本代理无法「问运维」，只做到仓侧取证；因此退役方式选**移入 `archive/`**（而非删除），加上 git 历史，取回成本为零。
+> - **退役形态**：7 份 YAML（namespace / configmap / analysis / data / web / postgres-statefulset / ingress）与原 `README.md` 整体移入 `deploy/k8s/archive/`（内容未改），新增 `deploy/k8s/README.md` 写清：退役理由（D7=a）、消费者取证、探针口径复核、重新采用流程（立 ADR → 从 archive 取回并按当时现状重写 → 同步改守卫）。`redis-deployment.yaml` 已随 `CORE-REDIS-EXIT` 删除，不在归档内。
+> - **探针口径复核（与立单时不同，以实测为准）**：退役前逐项对照，compose 与 k8s 两侧**实际一致**（analysis 均 `/api/health`、data 均 `/health`）。立单 ② 记的「两处不一致」是 2026-11-11 快照，已在更早的对齐施工中消除；退役理由因此改为「两套编排不再需要并存」，而不是「修不完的探针缺陷」。此差异已写进 `deploy/k8s/README.md`。
+> - **检查器改造**（`tools/check_deploy_consistency.py`）：新增 `k8s_is_retired()` —— 认三种状态：① `archive/` 存在且活跃层 0 份 ⇒ 退役，k8s 侧端口/URL/Schema/身份/可达性/死键表面断言整段跳过，并打 note **明说跳过的是已退役对象**（不是静默失效）；② 活跃层仍有清单 ⇒ **报错**（恢复 k8s 须另立 ADR，不能把清单放回来）；③ 既无清单也无 archive ⇒ 报「半退役状态」。compose 侧断言一条不减，成功输出改为「单一 docker-compose.yml；k8s 清单已退役」。
+> - **受影响的护栏**：① `internal/repoguard/redis_retired_test.go` 的 `configmap.yaml` 读点改到 `archive/`；② `internal/repoguard/qt71_service_credentials_test.go` 改为「有活清单就照旧核 secretKeyRef，活跃层 0 份且已归档则 skip（清单回到活跃层时自动恢复）」—— 不是放宽，对象消失时由退役守卫接管。
+> - **同批修掉上一单遗留的假红**：`TestEngineFieldsMatchFrozenWhitelist` 因 `CORE-STRATEGY-SCREEN-LOCAL-VALUE` 新增 `Engine.dailyBasic` 未登记而红。本批把它登记进 `engineSeedFields` / `engineSeedWriteAllowlist`（`SetDailyBasicValuations`）/ `engineFieldWhitelist`（种子类，注释指向该单）。这是本轮开工时 `go test ./...` 的真实红，不是为本单改断言。
+> - **破坏验证（真做真还原）**：把归档的 `namespace.yaml` 复制回活跃层 ⇒ 检查器 `EXIT=1`，唯一错误点名「活跃层仍有 1 份清单（namespace.yaml）……恢复 k8s 须另立 ADR」；删除后复跑 `EXIT=0`，note 恢复为「活跃层 0 份」。
+> - **回归（真实退出码）**：`gofmt -l` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0（ok=70 / FAIL=0）；四条门禁 `docker compose config --quiet` / `--profile full config --quiet` / `check_doc_links.py` / `check_deploy_consistency.py` 全 exit 0；`check_doc_links.py --include-archive` 亦 exit 0（扫 85 个 md）。
+> - **残余**：其余仓如自带 k8s 清单不由本单处置（⑥ 边界）；「集群侧是否仍有实际部署」只能由运维确认，已写进 `deploy/k8s/README.md` 的盲区段。
