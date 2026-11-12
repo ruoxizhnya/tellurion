@@ -496,18 +496,24 @@ type Strategy interface {
   - **每个 commit 必须是可独立构建、可独立测试通过的完整变更**
   - 禁止"提交一半工作"（如修改了 A 但没改依赖的 B，导致编译失败）
   - 禁止"混合多个任务到一个 commit"（如把 bug 修复和重构混在一起）
-- **Commit message 格式**:
+- **Commit message 格式**（2026-11-12 修订，D8=b）:
   ```
   <type>(<scope>): <subject>
 
-  <body — 说明 what/why，不要说明 how>
+  <body — 说明 what/why，不要说明 how；任务号写在正文散文里即可>
 
-  Refs: S7-P0-1 (任务 ID from docs/TASKS.md)
-  Reviewed: self-review + go vet + gofmt + tests pass
+  Refs: S7-P0-1 (可选)
+  Reviewed: self-review + go vet + gofmt + tests pass (可选)
   ```
   - `type`: feat / fix / refactor / test / docs / chore
   - `scope`: 受影响的包或模块（如 `ai/pipeline` / `backtest` / `web`）
-  - `Refs`: 任务 ID，便于追溯
+  - **任务号可追溯是硬约束，`Refs:` trailer 不是**：任务号写在正文散文里（如
+    「收口 `CORE-XXX`」「破坏验证见 `QT-32` ⑥」）或加 `Refs:` trailer 都可以，
+    只要读这条 commit 的人能定位到 `docs/TASKS.md`（或归档）里的对应条目。
+    **不强制补历史 trailer**。实测（2026-11-12）带 `^Refs:` 的 commit 只占少数：
+    core 105/332，其余 11 仓在 6~33 之间（各仓 40~122 条），多数任务号写在正文
+    散文里。硬性 trailer 与普遍实践脱节，D8=b 承认现状、统一为可选，**不回填
+    历史 commit**。
 - **提交前检查清单**:
   - [ ] `go build ./...` 通过
   - [ ] `go vet ./...` 无警告
