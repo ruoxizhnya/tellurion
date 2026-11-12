@@ -62,7 +62,7 @@ func (p *httpProvider) Name() string {
 }
 
 func (p *httpProvider) CheckConnectivity(ctx context.Context) error {
-	resp, err := p.get(ctx, "/health")
+	resp, err := p.get(ctx, "/healthz")
 	if err != nil {
 		return err
 	}
