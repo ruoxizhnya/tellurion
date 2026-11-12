@@ -37,7 +37,7 @@ func routerWithProbe(t *testing.T, authSvc *auth.Service, yaml string) *gin.Engi
 }
 
 func TestBuildRouter_WiresCORSAllowlist(t *testing.T) {
-	r := routerWithProbe(t, auth.NewService(nil, auth.Config{}), `
+	r := routerWithProbe(t, auth.NewService(nil, auth.Config{OpenAccess: true}), `
 server:
   host: 127.0.0.1
   cors:
@@ -61,7 +61,7 @@ logging:
 }
 
 func TestBuildRouter_NoAllowlistFailsClosed(t *testing.T) {
-	r := routerWithProbe(t, auth.NewService(nil, auth.Config{}), `
+	r := routerWithProbe(t, auth.NewService(nil, auth.Config{OpenAccess: true}), `
 server:
   host: 127.0.0.1
 logging:
@@ -76,10 +76,10 @@ logging:
 		"未配置白名单时不得回显任何来源")
 }
 
-func TestBuildRouter_MountsAuthOnlyWhenEnabled(t *testing.T) {
+func TestBuildRouter_MountsAuthInAllNonOpenPostures(t *testing.T) {
 
-	// 无密钥：open-access（仅 loopback + 显式豁免下才允许，见 decideAuthStartup）。
-	open := routerWithProbe(t, auth.NewService(nil, auth.Config{}), `
+	// 显式 open-access（allow-all 替身）：只有这一态才是 no-op。
+	open := routerWithProbe(t, auth.NewService(nil, auth.Config{OpenAccess: true}), `
 server:
   host: 127.0.0.1
 logging:
@@ -91,6 +91,23 @@ logging:
 	req.RemoteAddr = "127.0.0.1:1234"
 	open.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	// 降级态（零值 Config = 无 secret + 未显式放开）：中间件必须挂上，
+	// 写面 503 auth_unavailable、读面保持公开。
+	degraded := routerWithProbe(t, auth.NewService(nil, auth.Config{}), `
+server:
+  host: 127.0.0.1
+logging:
+  level: info
+`)
+	w = httptest.NewRecorder()
+	degraded.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	assert.Equal(t, http.StatusOK, w.Code, "降级态读端点必须保持公开")
+
+	w = httptest.NewRecorder()
+	degraded.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/probe", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":"`+auth.CodeAuthUnavailable+`"`)
 
 	// 有密钥：鉴权中间件必须生效，未带 token 的请求应被挡下。
 	secured := routerWithProbe(t, auth.NewService(nil, auth.Config{JWTSecret: []byte("test")}), `
@@ -117,7 +134,7 @@ logging:
 // the new.
 func TestBuildRouter_DoesNotTouchGinMode(t *testing.T) {
 	before := gin.Mode()
-	r := routerWithProbe(t, auth.NewService(nil, auth.Config{}), `
+	r := routerWithProbe(t, auth.NewService(nil, auth.Config{OpenAccess: true}), `
 server:
   host: 127.0.0.1
 logging:

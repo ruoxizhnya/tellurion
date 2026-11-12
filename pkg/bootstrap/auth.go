@@ -42,52 +42,58 @@ func AuthExposureOK(exposure string) bool {
 // AuthStartup 是启动期对鉴权配置的裁决结果。做成纯值是为了可测 ——
 // 真正的 os.Exit 只在 InitAuth 里发生一次，测试测 DecideAuthStartup 即可。
 type AuthStartup struct {
-	Secret   []byte // 空 = open-access
-	Insecure bool   // 明确处于「无鉴权」模式
-	Refuse   bool   // 拒绝启动
-	Reason   string // 拒绝原因（必须给出可操作的修复指引）
+	Secret   []byte // 非空 = 全闸 JWT
+	Insecure bool   // 明确处于「无鉴权且显式放开」模式（第三态）
+	// Unavailable 是第二态：进程能起，但写面 / 受保护端点一律 503
+	// auth_unavailable。它与 Insecure 互斥，Secret 非空时两者都为 false。
+	Unavailable bool
+	Refuse      bool   // 拒绝启动
+	Reason      string // 拒绝原因（必须给出可操作的修复指引）
 }
 
-// DecideAuthStartup 裁决启动期的鉴权配置（P0-4）。
+// DecideAuthStartup 裁决启动期的鉴权配置（P0-4，三态口径）。
 //
-// 契约：**没有密钥就拒绝启动**。此前密钥为空会静默进入 open-access —
-// 任何能访问网络的人都能触发回测、创建订单。修成 fail-closed 后，
-// 唯一豁免是「显式声明不安全的本地模式」，且必须是下面二者之一：
+// 三态（六仓统一；本仓只负责 service 侧）：
 //
-//	A. auth.allow_insecure=true（env: AUTH_INSECURE）且 server.host 是 loopback
-//	B. auth.allow_insecure=true 且 auth.insecure_exposure=loopback-published
-//	   —— 用于容器：绑定是 0.0.0.0，但发布层限定为 127.0.0.1
-//	   （见 InsecureExposureLoopbackPublished 的说明与两处机器校验）
+//  1. 有 JWT secret → 全闸。写端点必须带 token + 角色。
+//  2. 无 secret + **没有显式声明** + 回环绑定 → 进程启动，但写面 / 受保护
+//     端点一律 503 `auth_unavailable`，读端点保持公开。缺 secret 不再意味着
+//     静默开放。
+//  3. 无 secret + **有显式声明** → 放开（显式 open access），**绑定地址不限**。
+//     显式声明有两种，任一即可：auth.allow_insecure=true（AUTH_INSECURE）或
+//     auth.insecure_exposure=loopback-published（AUTH_INSECURE_EXPOSURE）。
+//     容器里 core 必须绑 0.0.0.0，所以第 3 态绝不能因绑定地址拒绝启动；风险
+//     由 InitAuth 的 WARN 披露（写面 / 角色校验无鉴权、绑定地址、非回环时点名
+//     「已对外暴露」）。
 //
-// 非 loopback 监听且没有 B 的声明时照样拒绝 —— 0.0.0.0 上的 open-access
-// 等于把下单接口开给整个局域网。
+// 无 secret + 无声明 + 非回环绑定 → 拒绝启动（fail closed）：既没有鉴权、又
+// 没有任何「这是回环暴露」的承诺，0.0.0.0 上的写面等于把下单接口开给局域网。
+//
+// 注意 AUTH_INSECURE 的语义：它只是「显式声明」的一种，不再是每个请求都会
+// 重新查的中间件开关。中间件是否放行完全由本裁决产出的 AuthStartup 决定
+// （见 pkg/auth.Config.OpenAccess），启动日志因此能指认当前进程处于哪一态。
 func DecideAuthStartup(secret string, allowInsecure bool, bindHost string, insecureExposure string) AuthStartup {
 	if s := strings.TrimSpace(secret); s != "" {
 		return AuthStartup{Secret: []byte(s)}
 	}
-	if !allowInsecure {
-		return AuthStartup{
-			Refuse: true,
-			Reason: "auth: JWT secret missing — refusing to start in open-access mode. " +
-				"Set JWT_SECRET (or auth.jwt_secret) to a strong random value. " +
-				"Local dev only: set AUTH_INSECURE=true AND server.host=127.0.0.1",
-		}
+	// 显式声明：AUTH_INSECURE=true 或 AUTH_INSECURE_EXPOSURE=loopback-published。
+	// 两者任一都表示 operator 主动承诺「我知道这个实例没有鉴权」。
+	declared := allowInsecure || AuthExposureOK(insecureExposure)
+	if declared {
+		return AuthStartup{Insecure: true}
 	}
 	if IsLoopbackHost(bindHost) {
-		return AuthStartup{Insecure: true}
-	}
-	if AuthExposureOK(insecureExposure) {
-		// 容器形态：绑定 0.0.0.0，对外可达性由发布层限定。
-		// 这里只做「声明是否合法」，真实暴露面由静态护栏 + 运行时 netstat 断言保证。
-		return AuthStartup{Insecure: true}
+		// 第二态：安全降级。读面可用，写面由 Middleware / authz 统一 503。
+		return AuthStartup{Unavailable: true}
 	}
 	return AuthStartup{
 		Refuse: true,
-		Reason: fmt.Sprintf("auth: AUTH_INSECURE=true but server.host=%q is not loopback — "+
-			"open-access would be reachable from other hosts. "+
-			"Set server.host=127.0.0.1, or configure JWT_SECRET instead. "+
-			"Containers (which must bind 0.0.0.0) must instead publish on loopback and declare "+
-			"AUTH_INSECURE_EXPOSURE=%s", bindHost, InsecureExposureLoopbackPublished),
+		Reason: fmt.Sprintf("auth: no JWT secret and no explicit declaration — server.host=%q is not "+
+			"loopback, so an unauthenticated write surface would be reachable from the network. "+
+			"Refusing to start. Set JWT_SECRET to enable authentication; or, for a local-only "+
+			"instance, bind 127.0.0.1 (state 2: degraded, writes 503); or explicitly opt in to "+
+			"open access with AUTH_INSECURE=true or AUTH_INSECURE_EXPOSURE=%s (state 3: WARN, any bind)",
+			bindHost, InsecureExposureLoopbackPublished),
 	}
 }
 
@@ -105,9 +111,9 @@ func IsLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// InitAuth 构造 JWT + RBAC auth service（P1-2, ADR-017 §2）并执行 P0-4
-// 启动门：没有密钥就拒绝启动（除非 operator 显式选择 loopback-only
-// open access）。
+// InitAuth 构造 JWT + RBAC auth service（P1-2, ADR-017 §2）并执行三态
+// 启动裁决：有 secret 全闸；无 secret 时要么安全降级（写面 503），要么
+// 在显式 loopback 暴露下放开（WARN）。非回环暴露直接拒绝启动。
 //
 // 密钥来源（按优先级）：JWT_SECRET env → AUTH_JWT_SECRET env →
 // auth.jwt_secret 配置项。YAML 是入库的，生产一律走 env。
@@ -124,23 +130,52 @@ func InitAuth(v *viper.Viper, store *storage.PostgresStore, logger zerolog.Logge
 
 	authSvc := auth.NewService(store.DB(), auth.Config{
 		JWTSecret:       d.Secret,
+		OpenAccess:      d.Insecure,
 		AccessTokenTTL:  v.GetDuration("auth.access_token_ttl"),
 		RefreshTokenTTL: v.GetDuration("auth.refresh_token_ttl"),
 		Issuer:          v.GetString("auth.issuer"),
 	})
-	if authSvc.Enabled() {
-		logger.Info().
-			Int("access_ttl_sec", int(authSvc.AccessTTL().Seconds())).
-			Msg("auth: JWT enabled (P1-2)")
-	} else {
-		ev := logger.Warn()
-		if !IsLoopbackHost(v.GetString("server.host")) && AuthExposureOK(v.GetString("auth.insecure_exposure")) {
-			// 容器形态。这条日志是给「出事之后翻日志」的人看的：它把
-			// 「谁在保证暴露面」写清楚，免得误以为这条豁免是白来的。
-			ev = ev.Str("exposure", InsecureExposureLoopbackPublished).
-				Str("guaranteed_by", "tools/check_deploy_consistency.py (static) + tools/local-stack.sh (netstat)")
-		}
-		ev.Msg("auth: INSECURE open-access mode — NO authentication, loopback only, do not use outside local dev")
-	}
+	LogAuthPosture(logger, authSvc, v)
 	return authSvc
+}
+
+// LogAuthPosture 在启动日志里指认当前进程处于哪一态。抽成独立函数是为了可测：
+// 第三态的 WARN 必须同时写出「写面 / 角色校验无鉴权」与「绑定地址」，绑非回环
+// 时还要点名「已对外暴露」—— 这几句话是事后审计唯一能指着看的证据。
+//
+// 它只读 Service 的启动期结论（Enabled / OpenAccess），**不会**在每个请求上
+// 重新读 AUTH_INSECURE：中间件放行与否完全由 DecideAuthStartup 决定。
+func LogAuthPosture(logger zerolog.Logger, svc *auth.Service, v *viper.Viper) {
+	switch {
+	case svc.Enabled():
+		logger.Info().
+			Int("access_ttl_sec", int(svc.AccessTTL().Seconds())).
+			Msg("auth: JWT enabled (P1-2)")
+	case svc.OpenAccess():
+		// 第三态：显式声明过的无鉴权。日志是唯一的「事后可审计」证据，
+		// 必须同时写出「写面 / 角色校验无鉴权」与「绑定地址」；绑非回环时
+		// 还要点名「已对外暴露」，否则这条 WARN 在容器里看起来和本地一样。
+		host := v.GetString("server.host")
+		msg := fmt.Sprintf("auth: INSECURE open-access — 当前写面与角色校验无鉴权 "+
+			"(write endpoints and role enforcement have NO authentication); bind=%q", host)
+		ev := logger.Warn().
+			Str("state", "open-access").
+			Str("bind", host).
+			Bool("allow_insecure", v.GetBool("auth.allow_insecure")).
+			Str("exposure", strings.TrimSpace(v.GetString("auth.insecure_exposure")))
+		if !IsLoopbackHost(host) {
+			msg += fmt.Sprintf(" — 绑定地址非回环（%s），已对外暴露 (exposed beyond loopback)", host)
+			ev = ev.Bool("exposed_beyond_loopback", true)
+		}
+		ev.Msg(msg)
+	default:
+		// 第二态：安全降级。不能静默，否则运维会以为写接口只是坏了。
+		logger.Warn().
+			Str("state", "unavailable").
+			Str("bind", v.GetString("server.host")).
+			Msg("auth: no JWT secret and no explicit declaration — starting DEGRADED: " +
+				"write and protected endpoints return 503 auth_unavailable, reads stay public. " +
+				"Set JWT_SECRET to enable authentication; local open access requires " +
+				"AUTH_INSECURE=true or AUTH_INSECURE_EXPOSURE=loopback-published")
+	}
 }

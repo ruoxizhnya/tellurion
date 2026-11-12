@@ -9,11 +9,27 @@
 //   - The audit log middleware records every mutating API call (POST/PUT/DELETE)
 //     to the `audit_logs` table for compliance and debugging.
 //
-// All three layers (auth, RBAC, audit) are designed to be optional — if no
-// `JWTSecret` is configured, the middleware is a no-op and the system runs in
-// the legacy "open access" mode used by the dev / test environments. This
-// keeps backward compatibility while letting ops turn on auth by setting a
-// single environment variable.
+// The service has three mutually exclusive postures, decided once at startup
+// (pkg/bootstrap.DecideAuthStartup) and never changed afterwards:
+//
+//  1. JWT enforced — `JWTSecret` is set. Every protected route needs a token
+//     and the role required by the route policy.
+//  2. Authentication unavailable — no secret and no explicit opt-in to run
+//     without it. The process still starts (reads stay public) but write and
+//     protected endpoints answer 503 `auth_unavailable`. This is the default
+//     for a loopback-bound instance so a missing secret degrades safely
+//     instead of silently opening the write surface.
+//  3. Open access — no secret but the operator explicitly declared it
+//     (`OpenAccess`, set by the startup gate from AUTH_INSECURE=true or
+//     AUTH_INSECURE_EXPOSURE=loopback-published). Any bind is allowed because
+//     containers must bind 0.0.0.0; the startup gate logs a WARN naming the
+//     write surface, the role checks, and the bind address (plus an "exposed
+//     beyond loopback" note when the bind is not loopback).
+//
+// Posture 2 is deliberately distinct from "disabled": treating a missing
+// secret as "no-op middleware" is exactly the defect this models — every
+// write endpoint (signals, expression validation, factor registration,
+// ingest, bulk OHLCV…) accepted unauthenticated requests.
 package auth
 
 import (
@@ -118,7 +134,14 @@ const BcryptCost = 12
 
 // Config is the static configuration for the auth subsystem.
 type Config struct {
-	JWTSecret       []byte
+	JWTSecret []byte
+	// OpenAccess explicitly opts into the no-credential posture. It is only
+	// consulted when JWTSecret is empty, and only the startup gate
+	// (pkg/bootstrap.DecideAuthStartup) may set it — after the loopback /
+	// exposure checks that make it safe. A zero-value Config is therefore
+	// *unavailable*, not open: forgetting to configure auth can never silently
+	// expose the write surface.
+	OpenAccess      bool
 	AccessTokenTTL  time.Duration // default 15m
 	RefreshTokenTTL time.Duration // default 7d
 	Issuer          string        // default "tellurion"
@@ -147,9 +170,9 @@ type Service struct {
 
 // NewService creates a Service backed by the given pgxpool.
 //
-// If cfg.JWTSecret is empty, the service is created in "disabled" mode:
-// the auth middleware is a no-op and only the password / RBAC helpers
-// remain usable. This keeps dev environments friction-free.
+// With an empty cfg.JWTSecret the service is either unavailable (OpenAccess
+// false, the zero value) or explicitly open (OpenAccess true). Callers that
+// are not the startup gate should leave OpenAccess false.
 func NewService(pool *pgxpool.Pool, cfg Config) *Service {
 	cfg = cfg.WithDefaults()
 	return &Service{
@@ -162,6 +185,19 @@ func NewService(pool *pgxpool.Pool, cfg Config) *Service {
 // Enabled reports whether JWT issuance / verification is on.
 func (s *Service) Enabled() bool {
 	return len(s.secret) > 0
+}
+
+// OpenAccess reports whether this instance deliberately runs without
+// authentication (explicit opt-in). It is never true when a secret is set.
+func (s *Service) OpenAccess() bool {
+	return !s.Enabled() && s.cfg.OpenAccess
+}
+
+// Unavailable reports the third posture: no secret and no explicit opt-in.
+// Reads stay public; write and protected endpoints must answer
+// 503 `auth_unavailable` (see Middleware / RequireRole).
+func (s *Service) Unavailable() bool {
+	return !s.Enabled() && !s.cfg.OpenAccess
 }
 
 // AccessTTL returns the configured access token TTL. Used by handlers to

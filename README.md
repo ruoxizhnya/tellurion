@@ -109,7 +109,7 @@ git clone <tellurion-ui 仓地址> ../tellurion-ui
 | env | 作用 | 缺失后果 |
 |---|---|---|
 | `DATABASE_PASSWORD` | PG 口令（`database.*` 逐字段拼装；给了 `DATABASE_URL` 则后者优先） | `invalid database configuration` |
-| `JWT_SECRET`（或 `AUTH_INSECURE=true` + `SERVER_HOST=127.0.0.1`） | 鉴权启动门 | 拒绝启动（open-access 只允许回环） |
+| `JWT_SECRET`（或显式声明 `AUTH_INSECURE=true` / `AUTH_INSECURE_EXPOSURE=loopback-published`） | 鉴权三态：有密钥全闸；无密钥且未显式声明 → 回环绑定下降级启动（写面 `503 auth_unavailable`、读面公开）；显式声明 → **任何绑定**都放开（启动 WARN 点名写面 / 角色无鉴权与绑定地址，非回环附「已对外暴露」） | 无密钥且未声明 + 非回环绑定 → 拒绝启动 |
 | `BROKER_URL` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID` | 执行引擎（进程内撮合已退役） | `kernel assembly failed` |
 | `BROKER_CHANNEL`（`mock` / `live`）+ `BROKER_ALLOW_MOCK=true`（仅 `mock` 需要） | 执行通道性质声明：`mock` = 内存网关，`live` = 真实柜台 | 缺失/非法/`mock` 未双键确认 → `kernel assembly failed` |
 | `RISK_SERVICE_RESOLVE_ENABLED=false`，或 risk 在线且库里有 approved 规则 | 14 个风控限额 | 取不到快照即拒绝启动 |

@@ -174,13 +174,14 @@ func TestExecution_ReadEndpoints_AllowViewer(t *testing.T) {
 	}
 }
 
-// TestExecution_AuthDisabled_OpenAccess is the short-circuit guard:
-// with auth unconfigured, orders must still be submittable with no
-// token at all (documented dev/CI behaviour).
-func TestExecution_AuthDisabled_OpenAccess(t *testing.T) {
+// TestExecution_AuthOpenAccess_SubmitsWithoutToken is the short-circuit guard:
+// in the explicit open-access posture, orders must still be submittable with
+// no token at all (documented dev/CI behaviour). A zero-value Config would be
+// "unavailable" and must 503 instead — see TestExecution_AuthUnavailable_503.
+func TestExecution_AuthOpenAccess_SubmitsWithoutToken(t *testing.T) {
 	t.Parallel()
-	svc := auth.NewService(nil, auth.Config{}) // no JWTSecret => disabled
-	require.False(t, svc.Enabled())
+	svc := auth.NewService(nil, auth.Config{OpenAccess: true}) // 显式 allow-all 替身
+	require.True(t, svc.OpenAccess())
 
 	r := gin.New()
 	r.Use(svc.Middleware())
@@ -189,5 +190,24 @@ func TestExecution_AuthDisabled_OpenAccess(t *testing.T) {
 
 	w := postOrder(t, r, "/api/execution/orders", "")
 	assert.Equal(t, http.StatusCreated, w.Code,
-		"auth disabled must stay open-access; got body=%s", w.Body.String())
+		"explicit open-access must stay open; got body=%s", w.Body.String())
+}
+
+// TestExecution_AuthUnavailable_503 pins the fix at the handler-wiring level:
+// the same route that used to accept an anonymous POST now answers 503
+// auth_unavailable when no secret is configured and open access was not
+// explicitly opted into.
+func TestExecution_AuthUnavailable_503(t *testing.T) {
+	t.Parallel()
+	svc := auth.NewService(nil, auth.Config{}) // 零值 = unavailable
+	require.True(t, svc.Unavailable())
+
+	r := gin.New()
+	r.Use(svc.Middleware())
+	NewExecutionHandler(newRBACTestTrader(), zerolog.New(nil), "",
+		WithExecutionAuth(svc)).RegisterRoutes(r)
+
+	w := postOrder(t, r, "/api/execution/orders", "")
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"code":"`+auth.CodeAuthUnavailable+`"`)
 }

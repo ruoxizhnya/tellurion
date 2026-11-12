@@ -16,9 +16,11 @@
 #     10:27 命名管道就没了），"起来了"不能当稳定前提。
 # 所以本脚本把「HTTP 探针全通」当作唯一的成功判据，而不是 up 的退出码。
 #
-# ⚠️ **AUD-13 的运行时那一半住在这里**：analysis 以 open-access 运行，
-#    而容器必须绑 0.0.0.0 —— 「不可从其他主机到达」这条不变量因此完全由
-#    **发布层**承担。静态那一半在 tools/check_deploy_consistency.py 的检查 3c
+# ⚠️ **AUD-13 的运行时那一半住在这里**：本脚本是开发 / e2e 启动器，显式以
+#    open-access 运行（AUTH_INSECURE=true，启动 WARN 点名「写面 / 角色校验
+#    无鉴权」与绑定地址）。应用层三态判定**不看绑定地址**，容器又必须绑
+#    0.0.0.0 —— 「不可从其他主机到达」这条不变量因此完全由**发布层**承担。
+#    静态那一半在 tools/check_deploy_consistency.py 的检查 3c
 #    （读 compose 文件）；这里读**真实 netstat**，断言默认栈四个端口只监听回环。
 #    两者缺一不可：静态管不到 override 文件与运行时改动，运行时管不到未来
 #     还没起的那次提交。
@@ -103,7 +105,7 @@ check_host_loopback() {
         addrs=$(printf '%s\n' "$lines" | awk '{print $2}' | tr '\n' ' ')
         if [ -n "$bad" ]; then
             echo "  ✗ :${port} 监听在非回环地址: ${bad}"
-            echo "    → AUD-13：本栈的所有端口都只许绑回环。analysis 以 open-access"
+            echo "    → AUD-13：本栈的所有端口都只许绑回环。本脚本显式以 open-access"
             echo "      运行（web 的 /api 还反代到它），暴露出去等于把下单接口开给局域网。"
             echo "      检查 docker-compose.yml 的 ports 是否都有 127.0.0.1: 前缀。"
             rc=1
@@ -131,7 +133,11 @@ start() {
 
     echo
     echo "② 启动容器"
-    $COMPOSE up -d --remove-orphans
+    # 本脚本是开发 / e2e 启动器，playwright 整套用例假定 open-access，所以这里
+    # **显式**声明（第三态，启动日志有 WARN 点名「写面 / 角色校验无鉴权」）。
+    # 注意容器形态拿不到第二态（必须绑 0.0.0.0，无声明即拒启）；要验第二态
+    # （写面 503）只能宿主机直跑：SERVER_HOST=127.0.0.1 go run ./cmd/analysis。
+    AUTH_INSECURE="${AUTH_INSECURE:-true}" $COMPOSE up -d --remove-orphans
 
     echo
     echo "③ 等健康（最多 ${HEALTH_TIMEOUT}s；判据是 HTTP 探针，不是 up 的退出码）"

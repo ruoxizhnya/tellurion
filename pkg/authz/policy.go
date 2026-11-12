@@ -153,15 +153,42 @@ func IsMutating(method string) bool {
 // 它依赖 Middleware 写进 context 的角色。
 //
 // 语义：
-//   - 鉴权关闭（svc == nil 或 !Enabled）→ no-op：开发/CI/e2e 的 open-access
-//     模式不变（与 Service.RequireRole 同一裁决）；
+//   - 鉴权未配置（svc 处于 unavailable 三态）→ 变更端点一律 503
+//     `auth_unavailable`（与 Service.Middleware 同一裁决，双保险）；读端点保持
+//     公开；路由表里显式登记为 Public 的变更端点（登录/引导等）照常放行；
+//   - svc == nil 或显式 open-access → no-op：仅测试替身与开发/CI/e2e 的显式
+//     放开模式（与 Service.RequireRole 同一裁决）；
 //   - 读端点（GET/HEAD/OPTIONS…）→ 直接放行，本包只管变更面；
 //   - 变更端点 → 查表：Public 放行；Admin 要求 admin；Trader 要求
 //     trader 或 admin；Service 要求 service / trader / admin（any-of，
 //     service 不是更高角色）；**查不到 → 403 并点名**（fail-closed）。
 func Middleware(svc *auth.Service, p Policy) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if svc == nil || !svc.Enabled() {
+		if svc == nil {
+			c.Next()
+			return
+		}
+		if svc.Unavailable() {
+			if !IsMutating(c.Request.Method) {
+				c.Next()
+				return
+			}
+			fullPath := c.FullPath()
+			if fullPath == "" {
+				c.Next()
+				return
+			}
+			key := c.Request.Method + " " + fullPath
+			// 只放行登记为 Public 的变更端点（/api/auth/login 等）；其余写面
+			// 在鉴权不可用时必须 503，而不是悄悄放行。
+			if minRole, ok := p.Role(key); ok && minRole == "" {
+				c.Next()
+				return
+			}
+			auth.AbortAuthUnavailable(c)
+			return
+		}
+		if !svc.Enabled() {
 			c.Next()
 			return
 		}

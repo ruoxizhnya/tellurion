@@ -75,13 +75,16 @@
 # 断言守着）；应用服务这半由本文件的 ports 映射承担 —— 八条映射**全部**带
 # 127.0.0.1: 前缀。
 #
-# 为什么应用端口也必须回环：analysis-service 以 **open-access** 运行
-# （无鉴权，见下面 AUTH_INSECURE 那段），而容器**必须**绑 0.0.0.0 才能被发布
-# 端口转发 —— 于是「对外可达性」这件事从绑定地址转移到了发布层。若映射写成
-# "8085:8085"，等于把下单接口开给整个局域网。
+# 为什么应用端口也必须回环：容器**必须**绑 0.0.0.0 才能被发布端口转发 ——
+# 「对外可达性」这件事从绑定地址转移到了发布层。若映射写成 "8085:8085"，
+# 等于把读面（以及显式声明放开时的写面）开给整个局域网。
 #
-# 这条配对关系（AUTH_INSECURE 为真 ⟺ 所有映射都回环）由两处机器校验守住，
-# 不靠记得：
+# ⚠️ 应用层的三态启动闸（pkg/bootstrap.DecideAuthStartup）**不看绑定地址**：
+# 容器绑 0.0.0.0 是常态，第 3 态（无 secret + 显式声明）在任何绑定下都允许
+# 启动，风险只由启动 WARN 披露（写面 / 角色校验无鉴权 + 绑定地址）。所以
+# 「不可从其他主机到达」这条不变量完全由**发布层**承担，本栈策略是
+# 「AUTH_INSECURE 为真 ⟺ 所有映射都回环」（发布约定，不是启动闸判据），
+# 由两处机器校验守住，不靠记得：
 #   静态 —— tools/check_deploy_consistency.py 的检查 3c（双向：非回环映射
 #           必须配 JWT_SECRET；AUTH_INSECURE 为真则每条映射都必须回环）
 #   运行时 —— tools/local-stack.sh 读宿主机 netstat，断言
@@ -181,39 +184,28 @@ services:
       # ORCHESTRATION_URL=http://orchestration:8088。
       ORCHESTRATION_URL: ${ORCHESTRATION_URL:-}
       ORCHESTRATION_SERVICE_TOKEN: ${ORCHESTRATION_SERVICE_TOKEN:-}
-      # ── P0-4 鉴权：两种模式**二选一**，默认是本地 open-access ──────────
+      # ── 鉴权三态（P0-4 / ADR-026，2026-11-12 修正第 3 态判据）─────────────
       #
-      # 本地默认走 open-access。**理由已经变了**（2026-09-25，ADR-026）：
-      # 原先的理由是「前端没有登录页、没有 auth store、api client 是裸 fetch
-      # 不带 token（web/src/api/client.ts），且没有首个管理员的引导
-      # （CreateUser 只在 RequireRole(admin) 后面 —— 鸡生蛋）」，所以鉴权一开
-      # 整个 SPA 全站 401，服务"起得来但用不了"。
+      # 1. 有 JWT_SECRET（env 注入）→ 全闸：写端点要 token + 角色。
+      # 2. 无 secret + 无显式声明 + 回环绑定 → 进程照常起，但写面 / 受保护
+      #    端点一律 503 auth_unavailable，读端点保持公开。
+      # 3. 无 secret + **显式声明** → 放开，**绑定地址不限**（容器必须绑
+      #    0.0.0.0）。声明二选一：AUTH_INSECURE=true 或
+      #    AUTH_INSECURE_EXPOSURE=loopback-published。启动日志以 WARN 写出
+      #    「写面与角色校验无鉴权」+ 绑定地址，非回环时点名「已对外暴露」。
+      # 4. 无 secret + 无显式声明 + 非回环绑定 → 拒绝启动（fail closed）。
       #
-      # **那个缺口已经补上了**：公开的 GET /api/auth/status 让 SPA 在无凭据时
-      # 问出姿势、一次性 POST /api/auth/bootstrap 在浏览器里建首个管理员、
-      # 前端有登录页 + 守卫 + 401 刷新。默认仍是 open-access —— 但这次是**选择**
-      # （本地开发图省事），不再是"没得选"。要走鉴权见 guides/local-dev.md 的
-      # 「① 带鉴权」。
+      # 容器（绑 0.0.0.0）没有第 2 态：要么显式声明进第 3 态，要么配
+      # JWT_SECRET，否则拒启。本栈默认就是第 3 态（下面两个默认值都是显式
+      # 声明）；「不暴露到局域网」由 ports 的 127.0.0.1: 前缀 + 检查 3c +
+      # local-stack.sh 的 netstat 断言守住 —— 那是**发布层**的保证。
       #
-      # ⚠️ **整套 playwright 仍然必须跑 open-access**：其余用例都假定「打开就是
-      # 控制台」，鉴权形态下会被守卫全数拦到登录页（只有
-      # e2e/tests/auth-login-flow.spec.ts 两种形态都成立）。
-      #
-      # 基础不变量仍然保留（这是 P0-4 的要点，没有被削弱）：**open-access
-      # 绝不能从其他主机到达**。改动只是把判据从「绑定地址」换成「发布层」——
-      # 容器必须绑 0.0.0.0 才能被转发，所以对外可达性由上面的 ports 映射决定，
-      # 而八条映射全都带 127.0.0.1: 前缀。
-      #
-      #   AUTH_INSECURE=true 且 AUTH_INSECURE_EXPOSURE=loopback-published
-      #     → cmd/analysis/setup.go 的 decideAuthStartup 才放行（取值必须逐字
-      #       匹配，拼错等于没声明 → 拒绝启动，fail closed）
-      #
-      # 要给局域网设备访问时，把两件事**一起**做：ports 映射去掉 127.0.0.1:
-      # 前缀 + 设 JWT_SECRET（openssl rand -hex 32）。只改一半会被检查 3c 拦下。
+      # ⚠️ 整套 playwright / e2e 依赖 open-access；要验第 2 态（写面 503）
+      # 只能宿主机直跑并绑 127.0.0.1，容器形态下不可得。
       AUTH_INSECURE: ${AUTH_INSECURE:-true}
       AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
-      # 留空 = 不开鉴权。设了它则**密钥优先于 AUTH_INSECURE**（setup.go 的
-      # decideAuthStartup 先看密钥）—— 所以 .env 里别同时留着一个值。
+      # 设了密钥则**密钥优先于 AUTH_INSECURE**（DecideAuthStartup 先看密钥）
+      # —— 所以 .env 里别同时留着一个值。
       JWT_SECRET: ${JWT_SECRET:-}
       # 跨源白名单，逗号分隔。留空 = 不回显任何 ACAO（默认，最安全）。
       SERVER_CORS_ALLOWED_ORIGINS: ${SERVER_CORS_ALLOWED_ORIGINS:-}
@@ -298,8 +290,9 @@ services:
   # （S3 已删 `replace tellurion => ../tellurion`，不再需要 core 命名上下文），
   # 依赖的 config/ai-service.yaml 与 deploy/wait-for-deps.sh 由 agent 仓自持。
   # analysis-service 对同名路径族做纯反代（handlers_ai_proxy.go），前端与
-  # openapi 契约零改动。鉴权不变量与 analysis 完全同构：open-access 只许
-  # 发布到 127.0.0.1（检查 3c + local-stack netstat 双闸）。
+  # openapi 契约零改动。鉴权不变量同构：open-access 只许发布到 127.0.0.1
+  # （检查 3c + local-stack netstat 双闸）。三态口径以 core 为基准，ai-service
+  # 在 agent 仓落地前仍走二态（见其 env 段）。
   ai-service:
     build:
       context: ../tellurion-agent
@@ -310,6 +303,11 @@ services:
       - "127.0.0.1:8086:8086"
     environment:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      # ai-service 属于 agent 仓。它的启动闸仍要求「无 secret 时必须显式
+      # AUTH_INSECURE=true」，与 core 的三态口径（无 secret 也可降级启动）尚未
+      # 对齐 —— 在 agent 仓落三态之前这里保持显式 true，避免默认栈起不来。
+      # agent 仓落地后改为 ${AUTH_INSECURE:-false}，与 analysis-service 一致。
+      # TODO(6-repo-auth-three-state): agent 仓三态落地后收紧这一行。
       AUTH_INSECURE: ${AUTH_INSECURE:-true}
       AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
       # 密钥优先于 AUTH_INSECURE（bootstrap.DecideAuthStartup 先看密钥）。
@@ -428,9 +426,11 @@ services:
   # full profile：分析 / 风控 / 编排面（2026-11-11 从 docker-compose.services.yml
   # 并入）。数据库统一走宿主机原生 16.15 —— 不再起容器 PG：那会与 5432 抢端口，
   # 并制造第二份数据（旧聚合栈因此根本起不来）。
-  # 四个服务都是**验签方**：JWT_SECRET 与 analysis 同源（不设 = 全栈 open-access）；
-  # 容器必须绑 0.0.0.0 才能发端口，无 secret 时靠 AUTH_INSECURE_EXPOSURE 显式声明
-  # 「只发布到回环」，缺它会被各自的启动闸拒绝（kit DecideStartup）。
+  # 四个服务都是**验签方**：JWT_SECRET 与 analysis 同源。不设 secret 时
+  # analysis 走三态降级；这四个服务在各自仓的三态改造落地前仍按「无 secret +
+  # loopback 发布 = open-access」运行（见各 env 段注释）。容器必须绑 0.0.0.0
+  # 才能发端口，无 secret 时靠 AUTH_INSECURE_EXPOSURE 显式声明「只发布到回环」，
+  # 缺它会被各自的启动闸拒绝（kit DecideStartup）。
   # ══════════════════════════════════════════════════════════════════════
   risk:
     profiles: ["full"]
@@ -444,9 +444,11 @@ services:
     environment:
       # 要换库改 .env 的 DATABASE_PASSWORD（或直接改本行）。
       RISK_DATABASE_URL: postgres://postgres:${DATABASE_PASSWORD:-postgres}@host.docker.internal:5432/${DATABASE_NAME:-tellurion}?sslmode=disable
-      # 与 analysis 同源：不设 = 全栈 open-access（仅回环可达）；设了则四个
-      # full 服务一起开鉴权。容器绑 0.0.0.0，无 secret 时必须显式声明
-      # loopback-published 才让启动闸（kit DecideStartup）放行。
+      # 与 analysis 同源：设了 JWT_SECRET 则四个 full 服务一起验签。不设时
+      # analysis 已按三态降级（写面 503），而这四个仓的三态改造尚未落地，仍按
+      # 「无 secret + loopback 发布 = open-access」启动（各自仓任务跟进后收紧）。
+      # 容器绑 0.0.0.0，无 secret 时必须显式声明 loopback-published 才让启动闸
+      # （kit DecideStartup）放行。
       JWT_SECRET: ${JWT_SECRET:-}
       AUTH_INSECURE_EXPOSURE: ${AUTH_INSECURE_EXPOSURE:-loopback-published}
       # G4：monitor 的 configured 判别位是**部署声明**，必须与 core 的

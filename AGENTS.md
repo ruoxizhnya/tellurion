@@ -595,6 +595,7 @@ type Strategy interface {
 - ✅ **[ui]** 状态更改后访问 DOM refs 前 `await nextTick()`
 - ✅ **遵循 Document Self-Maintenance Protocol**（见第 10 章）— 保持文档实时更新
 - ✅ 新增数据表/字段时先确认其**数据归属**（ADR-023 数据层分区）— 可重建数据物理唯一于 PG，不落 vault
+- ✅ 改动鉴权 / 新增写端点时守住**三态口径**（`pkg/bootstrap.DecideAuthStartup`）：有 `JWT_SECRET` 全闸；无 secret 且未显式声明 + 回环绑定 → 进程起但写面 / 受保护端点 `503 auth_unavailable`、读面公开；无 secret + 显式声明（`AUTH_INSECURE=true` 或 `AUTH_INSECURE_EXPOSURE=loopback-published`）→ 放开且**绑定地址不限**（容器必须绑 0.0.0.0），启动 WARN 必须写出「写面 / 角色校验无鉴权」+ 绑定地址、非回环点名「已对外暴露」；无 secret 且未声明 + 非回环绑定 → 拒绝启动。**回环豁免只免「启动拒绝」，不免写端点鉴权**——写端点在第二态必须 503，不能 200/400。`AUTH_INSECURE` 只作为显式声明参与启动裁决，不是每请求复查的中间件开关。
 
 ### Ask First（先问再做）
 - ❓ 修改数据库 schema（在 `pkg/storage/postgres.go` 的 `migrate()` 数组末尾追加幂等 DDL —— **不是**在 `migrations/` 加文件，那个目录不执行）
@@ -617,6 +618,7 @@ type Strategy interface {
 - ❌ **[ui]** **绝不跨组件复制工具函数如 `fmtPercent()`**
 - ❌ **绝不让同一份数据在两个位置各自存储** — 共享走 `content_hash` 证据坐标，不复制
 - ❌ **绝不让 AI 直接摸数据**（读库 / 读文件）— 一律经能力层 MCP 工具（ADR-023 §2）
+- ❌ **绝不把「没有密钥」当成「不用鉴权」** —— 无 secret 且未显式放开时必须降级（写面 503），不得让 Middleware / RequireRole 悄悄 `c.Next()`；`auth.Config{}` 是 unavailable，显式放开必须写 `OpenAccess: true`
 - ❌ **绝不编写独立的 Report (.md) 文件 — 使用 ODR 替代**
 
 ---

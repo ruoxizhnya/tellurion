@@ -174,19 +174,30 @@ func BuildRouter(authSvc *auth.Service, v *viper.Viper, logger zerolog.Logger) *
 	router.Use(httpserver.CORS(httpserver.AllowedOrigins(v)))
 	router.Use(NewRateLimiter(RateLimitPerMinute(v), time.Minute).Middleware())
 	router.Use(RequestLogger(logger))
-	// P1-2: JWT auth middleware (no-op when auth is disabled) + audit
-	// log middleware. Both run before route registration so the
-	// handlers can rely on the context values being set.
-	if authSvc.Enabled() {
+	// P1-2: JWT auth middleware + audit log middleware. Both run before route
+	// registration so the handlers can rely on the context values being set.
+	//
+	// 三态装配（见 pkg/bootstrap.DecideAuthStartup）：
+	//   - 全闸 / 降级（unavailable）都必须挂 Middleware：降级态由它把写面
+	//     统一回 503 auth_unavailable，读面照常放行；
+	//   - 显式 open access 才是 no-op，只加逐请求回环门；
+	//   - audit 只在全闸时挂：降级态没有可信身份，且写面根本进不来。
+	switch {
+	case authSvc.Enabled():
 		router.Use(authSvc.Middleware())
 		router.Use(authSvc.AuditMiddleware())
-	} else if IsLoopbackHost(v.GetString("server.host")) {
-		// QT-50 ③-④：insecure 模式逐请求回环门。启动期 DecideAuthStartup
-		// 只判绑定网卡；监听 127.0.0.1 时，同机进程 / 端口转发 / 错配代理
-		// 仍能打到管理面，所以运行期还要逐请求判来源（fail-closed）。
-		// 容器 loopback-published 形态（bind 0.0.0.0）不走这道门——见
-		// pkg/bootstrap/loopback.go 的文件头说明。
-		router.Use(loopbackOnly())
+	case authSvc.Unavailable():
+		router.Use(authSvc.Middleware())
+	default:
+		// 显式 open access（AUTH_INSECURE=true）。
+		if IsLoopbackHost(v.GetString("server.host")) {
+			// QT-50 ③-④：insecure 模式逐请求回环门。启动期 DecideAuthStartup
+			// 只判绑定网卡；监听 127.0.0.1 时，同机进程 / 端口转发 / 错配代理
+			// 仍能打到管理面，所以运行期还要逐请求判来源（fail-closed）。
+			// 容器 loopback-published 形态（bind 0.0.0.0）不走这道门——见
+			// pkg/bootstrap/loopback.go 的文件头说明。
+			router.Use(loopbackOnly())
+		}
 	}
 	return router
 }

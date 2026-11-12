@@ -770,14 +770,13 @@ def check_infra_is_external(
 
 # ── 3c) open-access ⟹ 所有端口映射必须回环（2026-09-25，AUD-52 的栈侧一半）──
 #
-# 背景：容器**必须**绑 0.0.0.0 才能被发布端口转发，所以 P0-4 那道「open-access
-# 只允许在 loopback 上」的门在容器形态下判不了 —— 判据只能从「绑定地址」换成
-# 「发布层」。于是 cmd/analysis/setup.go 承认一个显式声明
-# （AUTH_INSECURE_EXPOSURE=loopback-published），而**声明本身不提供任何保证**：
-# 保证是这里（静态）+ tools/local-stack.sh（运行时 netstat）给的。
-#
-# 这是典型「两个机制各自对、接起来才成立」的地方 —— 少了这一项，声明就变成
-# 一句没人核对的口头承诺（真护栏 vs 假护栏的分界）。
+# 背景（2026-11-12 修正）：应用层三态启动闸（pkg/bootstrap.DecideAuthStartup）
+# **不看绑定地址** —— 容器必须绑 0.0.0.0，第 3 态（显式声明放开）在任何绑定下
+# 都允许启动，风险只由启动 WARN 披露。于是「不可从其他主机到达」这条不变量
+# 完全落在**发布层**，保证由这里（静态）+ tools/local-stack.sh（运行时 netstat）
+# 给。AUTH_INSECURE_EXPOSURE=loopback-published 只是 operator 对发布范围的
+# 声明，**声明本身不提供任何保证** —— 少了这两处校验，它就变成一句没人核对
+# 的口头承诺（真护栏 vs 假护栏的分界）。
 #
 # **双向**是有意的（只写一个方向会漏掉一半）：
 #   正向：声明了 open-access → 每条映射都必须回环（否则下单接口开给局域网）
@@ -856,21 +855,22 @@ def check_open_access_exposure(
             f"docker-compose.yml 存在非回环端口映射（{'; '.join(exposed)}）但没有 "
             f"JWT_SECRET —— 对外发布必须配鉴权（AUD-52 / P0-4）")
 
-    # 反向-2：开了 open-access 就必须给容器形态的显式声明，否则 analysis
-    # 会被 decideAuthStartup 拒绝启动（server.host=0.0.0.0）。这里提前拦，
-    # 免得症状表现为「容器起来又立刻退出」。
+    # 反向-2：开了 open-access 就必须给容器形态的发布层声明。应用层已不再因
+    # 绑定地址拒绝启动（第 3 态任何绑定都放开），所以这条是**本栈的一致性
+    # 策略**：把「只发布到回环」写进配置，和检查 3c 的回环前缀一起构成可审计
+    # 的声明；缺了它，启动 WARN 里的 exposure 会显示为空。
     if open_access_services and exposure != "loopback-published":
         errors.append(
             f"docker-compose.yml 开了 open-access 但 analysis-service 的 "
             f"AUTH_INSECURE_EXPOSURE 是 {exposure or '(缺失)'} —— 必须是 "
-            f"loopback-published，否则 analysis 启动即被 decideAuthStartup 拒绝"
-            f"（server.host 是 0.0.0.0，容器必须绑它才能被转发）（AUD-52 / P0-4）")
+            f"loopback-published：本栈要求把「端口只发布到回环」写成显式声明"
+            f"（AUD-52 / P0-4）")
 
     # 反向-3：同时给了密钥和 open-access 声明 → 密钥优先，声明变成误导。
     if open_access_services and has_secret:
         errors.append(
             "docker-compose.yml 同时给了 JWT_SECRET 与 AUTH_INSECURE=true —— "
-            "setup.go 的 decideAuthStartup 里**密钥优先**，于是 AUTH_INSECURE 与 "
+            "pkg/bootstrap.DecideAuthStartup 里**密钥优先**，于是 AUTH_INSECURE 与 "
             "AUTH_INSECURE_EXPOSURE 都不生效，读配置的人会被误导成「这是 open-access」"
             "（AUD-52 / P0-4）")
 

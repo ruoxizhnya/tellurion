@@ -31,8 +31,10 @@ func registerAuthRoutes(router *gin.Engine, svc *auth.Service, logger zerolog.Lo
 		authd.GET("/me", meHandler(svc))
 	}
 
-	// Admin-only user management.
-	admin := router.Group("/api/auth/admin", svc.Middleware(), auth.RequireRole(auth.RoleAdmin))
+	// Admin-only user management. Use svc.RequireRole (not the package-level
+	// RequireRole) so the unavailable posture answers 503 auth_unavailable
+	// instead of 401: with no secret nobody can obtain a token.
+	admin := router.Group("/api/auth/admin", svc.Middleware(), svc.RequireRole(auth.RoleAdmin))
 	{
 		admin.POST("/users", createUserHandler(svc, logger))
 		admin.GET("/users", listUsersHandler(svc))
@@ -224,6 +226,13 @@ func bootstrapHandler(svc *auth.Service, logger zerolog.Logger) gin.HandlerFunc 
 
 func meHandler(svc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// /me is a protected read: with authentication unavailable there is no
+		// identity to return and no way to obtain one, so fail with the same
+		// 503 contract as every other protected endpoint.
+		if svc.Unavailable() {
+			auth.AbortAuthUnavailable(c)
+			return
+		}
 		uid, role, ok := auth.UserFromContext(c)
 		if !ok {
 			httpserver.Fail(c, http.StatusUnauthorized, "not authenticated")

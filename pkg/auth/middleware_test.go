@@ -54,16 +54,46 @@ func setupRouter(s *Service) *gin.Engine {
 	return r
 }
 
-func TestMiddleware_Disabled_NoOp(t *testing.T) {
+// TestMiddleware_OpenAccess_NoOp pins the explicit open-access posture. This
+// is the allow-all stand-in: a caller that genuinely wants no auth must opt in
+// with OpenAccess=true. A zero-value Config is *unavailable* (see the tests
+// below), so forgetting to configure auth can no longer silently open the API.
+func TestMiddleware_OpenAccess_NoOp(t *testing.T) {
 	t.Parallel()
-	s := NewService(nil, Config{}) // disabled
+	s := NewService(nil, Config{OpenAccess: true})
 	r := setupRouter(s)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/secret", nil)
 	r.ServeHTTP(w, req)
-	// With disabled auth, the handler is hit even without a token.
+	// With open access the handler is hit even without a token.
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "anonymous")
+}
+
+// TestMiddleware_Unavailable_Write503 pins state 2 (the defect fix): no secret
+// and no explicit opt-in means the process runs but every write answers
+// 503 auth_unavailable — never 2xx/400 — while reads stay public.
+func TestMiddleware_Unavailable_Write503(t *testing.T) {
+	t.Parallel()
+	s := NewService(nil, Config{})
+	r := setupRouter(s)
+
+	// Read stays public.
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/secret", nil))
+	assert.Equal(t, http.StatusOK, w.Code,
+		"auth unavailable must not break public reads")
+
+	// Write is refused with the machine-readable code.
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/mutate", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":"`+CodeAuthUnavailable+`"`)
+
+	// Public write paths (login) keep working so the SPA can still probe.
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/auth/login", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestMiddleware_NoToken_401(t *testing.T) {
@@ -250,17 +280,18 @@ func TestRequireRole_NoUser_401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-// TestServiceRequireRole_Disabled_AllowsEverything pins the short-circuit
-// that makes Service.RequireRole usable behind Service.Middleware().
+// TestServiceRequireRole_OpenAccess_AllowsEverything pins the short-circuit
+// that makes Service.RequireRole usable behind Service.Middleware() in the
+// explicit open-access posture.
 //
 // This is the regression guard for AUD-02: if someone "simplifies"
 // Service.RequireRole back to auth.RequireRole at a call site, the
-// disabled-mode request below turns 401 and this test goes red.
-func TestServiceRequireRole_Disabled_AllowsEverything(t *testing.T) {
+// open-access request below turns 401 and this test goes red.
+func TestServiceRequireRole_OpenAccess_AllowsEverything(t *testing.T) {
 	t.Parallel()
-	// No JWTSecret => Enabled()==false => open access mode.
-	s := NewService(nil, Config{})
-	require.False(t, s.Enabled())
+	// No JWTSecret + explicit opt-in => OpenAccess()==true.
+	s := NewService(nil, Config{OpenAccess: true})
+	require.True(t, s.OpenAccess())
 
 	r := gin.New()
 	r.Use(s.Middleware())
@@ -273,7 +304,37 @@ func TestServiceRequireRole_Disabled_AllowsEverything(t *testing.T) {
 	// Deliberately no Authorization header — open mode must not need one.
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code,
-		"auth disabled must stay open: RequireRole has to no-op when Enabled()==false")
+		"explicit open access must stay open: RequireRole has to no-op")
+}
+
+// TestServiceRequireRole_Unavailable_503 is the counter-test for the defect:
+// with no secret and no opt-in, a protected write must not be treated as open
+// merely because Enabled()==false.
+func TestServiceRequireRole_Unavailable_503(t *testing.T) {
+	t.Parallel()
+	s := NewService(nil, Config{})
+	require.True(t, s.Unavailable())
+
+	r := gin.New()
+	r.Use(s.Middleware())
+	r.POST("/order", s.RequireRole(RoleTrader, RoleAdmin), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	// Direct middleware call too: RequireRole itself must 503 even if it is
+	// mounted without Middleware (protected GET groups).
+	r.GET("/admin", s.RequireRole(RoleAdmin), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/order", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":"`+CodeAuthUnavailable+`"`)
+
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/admin", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":"`+CodeAuthUnavailable+`"`)
 }
 
 // TestServiceRequireRole_Enabled_StillEnforces is the counter-test:

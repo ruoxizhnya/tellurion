@@ -71,22 +71,59 @@ func do(r *gin.Engine, method, path, token string) int {
 	return w.Code
 }
 
-// TestMiddleware_AuthDisabledIsNoOp：dev/CI 的 open-access 模式必须不变。
-func TestMiddleware_AuthDisabledIsNoOp(t *testing.T) {
+// TestMiddleware_OpenAccessIsNoOp：显式 open-access（allow-all 替身）必须不变。
+func TestMiddleware_OpenAccessIsNoOp(t *testing.T) {
 	t.Parallel()
 
-	disabled := auth.NewService(nil, auth.Config{})
-	require.False(t, disabled.Enabled())
-	r := testRouter(disabled, testPolicy())
+	open := auth.NewService(nil, auth.Config{OpenAccess: true})
+	require.True(t, open.OpenAccess())
+	r := testRouter(open, testPolicy())
 
 	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, "/api/orders", ""))
 	assert.Equal(t, http.StatusOK, do(r, http.MethodPost, "/api/unclassified", ""),
-		"鉴权关闭时连「表里没有」也不该拦——否则开发态全废")
+		"显式放开时连「表里没有」也不该拦——否则开发态全废")
 	// nil 服务同样 no-op（data-service 的测试直接传 nil）。
 	r2 := gin.New()
 	r2.Use(Middleware(nil, testPolicy()))
 	r2.POST("/api/orders", func(c *gin.Context) { c.Status(http.StatusOK) })
 	assert.Equal(t, http.StatusOK, do(r2, http.MethodPost, "/api/orders", ""))
+}
+
+// TestMiddleware_AuthUnavailable_Writes503 钉住第二态：没有 secret 且未显式
+// 放开时，写面（含 ReadOnlyPOST、含策略表里查不到的）一律 503
+// auth_unavailable，读面保持公开，Public 写入口（登录）照常放行。
+func TestMiddleware_AuthUnavailable_Writes503(t *testing.T) {
+	t.Parallel()
+
+	unavailable := auth.NewService(nil, auth.Config{})
+	require.True(t, unavailable.Unavailable())
+	r := testRouter(unavailable, testPolicy())
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		want   int
+	}{
+		{"读端点保持公开", http.MethodGet, "/api/orders", http.StatusOK},
+		{"Trader 写面 503", http.MethodPost, "/api/orders", http.StatusServiceUnavailable},
+		{"ReadOnlyPOST 也是写面 503", http.MethodPost, "/api/screen", http.StatusServiceUnavailable},
+		{"Service 写面 503", http.MethodPost, "/api/backtest", http.StatusServiceUnavailable},
+		{"Admin 写面 503", http.MethodPost, "/api/admin/thing", http.StatusServiceUnavailable},
+		{"表里没有的写面 503（不是 403）", http.MethodPost, "/api/unclassified", http.StatusServiceUnavailable},
+		{"Public 写入口照常", http.MethodPost, "/api/auth/login", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			assert.Equal(t, tc.want, w.Code)
+			if tc.want == http.StatusServiceUnavailable {
+				assert.Contains(t, w.Body.String(), `"code":"`+auth.CodeAuthUnavailable+`"`)
+			}
+		})
+	}
 }
 
 // TestMiddleware_RoleTiers：四档语义逐条钉住。

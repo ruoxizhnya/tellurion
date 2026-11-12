@@ -22,8 +22,9 @@ func guardRouter(t *testing.T, cfg map[string]any) *gin.Engine {
 	for k, val := range cfg {
 		v.Set(k, val)
 	}
-	// 无密钥 = 鉴权关闭（insecure 模式）。
-	svc := auth.NewService(nil, auth.Config{})
+	// 显式 open-access（allow-all 替身）。零值 Config 是 unavailable，不是
+	// 放开——见 TestBuildRouter_UnavailableGatesWrites。
+	svc := auth.NewService(nil, auth.Config{OpenAccess: true})
 	r := BuildRouter(svc, v, zerolog.Nop())
 	r.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r
@@ -76,8 +77,62 @@ func TestBuildRouter_AuthEnabledDoesNotGateLoopback(t *testing.T) {
 	svc := auth.NewService(nil, auth.Config{JWTSecret: []byte("qt50-loopback")})
 	r := BuildRouter(svc, v, zerolog.Nop())
 	r.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.POST("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	// 无 token 被 JWT 中间件拦下（401），而不是被回环门拦下（403）。
 	w := probe(r, "192.0.2.7:4321")
 	assert.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+}
+
+// 第三态 + 非回环绑定（容器必须绑 0.0.0.0）：显式声明后写端点必须真正走到
+// 业务 handler，而不是被启动闸/回环门拦下。这是主任 2026-11-12 修正的用例：
+// 「非回环绑定 + 显式声明 → 能起且写端点走业务」。
+func TestBuildRouter_DeclaredNonLoopback_WriteReachesHandler(t *testing.T) {
+	t.Parallel()
+
+	v := viper.New()
+	v.Set("server.host", "0.0.0.0")
+	v.Set("auth.allow_insecure", true)                         // 显式声明
+	svc := auth.NewService(nil, auth.Config{OpenAccess: true}) // 启动裁决产出的第三态
+	r := BuildRouter(svc, v, zerolog.Nop())
+
+	called := false
+	r.POST("/api/signals", func(c *gin.Context) {
+		called = true
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/signals", nil)
+	req.RemoteAddr = "172.18.0.1:4321" // 来自容器网关，非回环
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.True(t, called, "显式声明的第三态下写端点必须走到业务 handler")
+}
+
+// 第二态（unavailable）：BuildRouter 必须挂 auth 中间件，写面 503、读面公开，
+// 且不能落到 insecure 的逐请求回环门（否则容器 loopback-published 形态会被
+// 网关地址全部 403）。
+func TestBuildRouter_UnavailableGatesWrites(t *testing.T) {
+	t.Parallel()
+
+	v := viper.New()
+	// 容器形态：绑定 0.0.0.0 + 发布层声明回环。
+	v.Set("server.host", "0.0.0.0")
+	v.Set("auth.insecure_exposure", InsecureExposureLoopbackPublished)
+	svc := auth.NewService(nil, auth.Config{}) // 零值 = unavailable
+	r := BuildRouter(svc, v, zerolog.Nop())
+	r.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.POST("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	read := probe(r, "172.18.0.1:4321")
+	assert.Equal(t, http.StatusOK, read.Code, "降级态读端点必须保持公开: %s", read.Body.String())
+
+	req := httptest.NewRequest(http.MethodPost, "/probe", nil)
+	req.RemoteAddr = "172.18.0.1:4321"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":"`+auth.CodeAuthUnavailable+`"`)
 }

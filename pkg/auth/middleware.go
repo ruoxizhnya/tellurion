@@ -19,15 +19,43 @@ const (
 	CtxClaims   = "auth.claims"
 )
 
-// Middleware returns a gin middleware that enforces JWT auth. If the
-// service is not enabled (no JWT secret), the middleware is a no-op so
-// dev environments continue to work.
+// CodeAuthUnavailable is the machine-readable code returned with the 503 body
+// when authentication is not configured. Clients (SPA, agents) switch on it to
+// tell "you need a token" (401) from "this instance cannot accept writes at
+// all" (503) instead of retrying forever.
+const CodeAuthUnavailable = "auth_unavailable"
+
+// AbortAuthUnavailable writes the canonical 503 response for the
+// authentication-unavailable posture and aborts the chain. Exported so the
+// authz middleware and handlers that gate protected resources directly all
+// answer with the exact same status + code.
+func AbortAuthUnavailable(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+		"code": CodeAuthUnavailable,
+		"error": "authentication is not configured on this instance; " +
+			"write and protected endpoints are unavailable. " +
+			"Set JWT_SECRET to enable authentication, or opt in to local open access with " +
+			"AUTH_INSECURE=true on a loopback-only exposure.",
+	})
+}
+
+// Middleware returns a gin middleware that enforces JWT auth when a secret is
+// configured. In the other two postures it upholds the startup decision:
+//
+//   - open access (explicit opt-in): no-op, dev / CI / e2e only;
+//   - authentication unavailable (no secret, no opt-in): public paths and
+//     reads keep working, but every mutating request answers
+//     503 `auth_unavailable` instead of silently being accepted.
 //
 // On success the middleware stores the user ID, username, and role in the
 // gin.Context so downstream handlers can read them via UserFromContext.
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !s.Enabled() {
+			if s.Unavailable() && !isPublicPath(c.Request.URL.Path) && isMutating(c.Request.Method) {
+				AbortAuthUnavailable(c)
+				return
+			}
 			c.Next()
 			return
 		}
@@ -94,16 +122,14 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	}
 }
 
-// RequireRole is the auth-aware variant of the package-level
-// RequireRole: it short-circuits to a no-op when the Service is not
-// enabled.
+// RequireRole is the auth-aware variant of the package-level RequireRole: it
+// mirrors the Service posture instead of assuming authentication is on.
 //
-// This matters because Middleware() is itself a no-op when
-// Enabled()==false — it never sets CtxRole. Chaining the package-level
-// RequireRole behind a disabled Middleware would therefore 401 every
-// request (RoleFromContext returns ok=false), silently breaking the
-// documented "auth disabled => open access" mode that dev / CI / e2e
-// rely on.
+//   - unavailable: 503 `auth_unavailable`. The route is protected and this
+//     instance cannot authorize anybody, so it must fail loudly — 401 would
+//     suggest "get a token", which is impossible with no secret.
+//   - open access: no-op, matching a no-op Middleware (no CtxRole is set).
+//   - JWT enforced: delegates to the package-level RequireRole.
 //
 // Rule: whenever a route group is guarded by s.Middleware(), guard it
 // with s.RequireRole(...) — not auth.RequireRole(...). The two
@@ -113,6 +139,10 @@ func (s *Service) Middleware() gin.HandlerFunc {
 // Place AFTER s.Middleware().
 func (s *Service) RequireRole(allowed ...Role) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s.Unavailable() {
+			AbortAuthUnavailable(c)
+			return
+		}
 		if !s.Enabled() {
 			c.Next()
 			return

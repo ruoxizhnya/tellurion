@@ -3400,7 +3400,18 @@ GET  /api/pipeline/jobs/:id       - Get specific pipeline job result
 （一次 ≈5900 只逐只调 Tushare）任何能连到 `:8081` 的人都能打。现在与 analysis
 共用同一份 `auth.*` 配置与 secret（`AUTH_JWT_SECRET`）：analysis 签发的 token 在
 data-service 同样有效，网关转发透传 `Authorization` 即可。**留空 = 未启用**
-（开发/CI 的 open-access 模式不变），**生产必须设置**。
+（data-service 仍是二态，开发/CI 的 open-access 模式不变；三态改造见 data 仓任务），
+**生产必须设置**。
+
+> analysis-service 已改为**三态**（2026-11-12，本仓）：有 `JWT_SECRET` 全闸；
+> 无 secret + 未显式声明 + 回环绑定 → 进程启动但写面 / 受保护端点
+> `503 auth_unavailable`、读面公开；无 secret + 显式声明（`AUTH_INSECURE=true`
+> 或 `AUTH_INSECURE_EXPOSURE=loopback-published`）→ 放开且**绑定地址不限**
+> （容器必须绑 0.0.0.0），启动 WARN 写出「写面 / 角色校验无鉴权」+ 绑定地址，
+> 非回环时点名「已对外暴露」；无 secret + 未声明 + 非回环绑定 → 拒绝启动。
+> **回环豁免只免启动拒绝，不免写端点鉴权**。`AUTH_INSECURE` 只作为显式声明
+> 参与启动裁决（`pkg/bootstrap.DecideAuthStartup`），不再是每请求复查的
+> 中间件开关。
 
 **已知边界**：部署边界（ADR-025 的「只发布回环/内网」）仍是外部访问的第一道
 屏障，本单不改变拓扑；`readonly-post` 档位是对「所有 POST 至少 trader」规则的
@@ -3722,7 +3733,7 @@ AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存�
 | 段 | 键 | 读到哪 |
 |---|---|---|
 | `server` | `host` / `port` / `gin_mode` / `cors.allowed_origins` | `internal/httpserver` |
-| `auth` | `jwt_secret`（env `JWT_SECRET` 或 `AUTH_JWT_SECRET`）/ `allow_insecure`（env `AUTH_INSECURE`）/ `insecure_exposure`（env `AUTH_INSECURE_EXPOSURE`，只认 `loopback-published`）/ `issuer` / `access_token_ttl` / `refresh_token_ttl` | `cmd/analysis` 的 `decideAuthStartup`（P0-4 启动门）+ `pkg/auth` |
+| `auth` | `jwt_secret`（env `JWT_SECRET` 或 `AUTH_JWT_SECRET`）/ `allow_insecure`（env `AUTH_INSECURE`）/ `insecure_exposure`（env `AUTH_INSECURE_EXPOSURE`，只认 `loopback-published`）/ `issuer` / `access_token_ttl` / `refresh_token_ttl` | `pkg/bootstrap.InitAuth` → `DecideAuthStartup`（P0-4 三态启动裁决）+ `pkg/auth`（Middleware / RequireRole 执行 401 / 403 / `503 auth_unavailable`）+ `pkg/authz`（写面策略表） |
 | `rate_limit` | `per_minute`（env `RATE_LIMIT_PER_MINUTE`） | 网关限流中间件 |
 | `database` | `url`（整串 DSN 覆盖点）/ `host` / `port` / `user` / `password` / `database` / `sslmode` | `pkg/storage.BuildDSN` |
 | `redis` | `url` | **本仓已无运行时读取点**（2026-11-10 起）：`pkg/storage.NewCache` 零调用方，compose / k8s 的 `REDIS_URL` 同批删除；键保留只为历史口径，缓存接线回来时再补读点 |
