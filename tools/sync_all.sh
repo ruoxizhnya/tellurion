@@ -56,9 +56,12 @@ END_DATE="$(date +%Y%m%d)"
 
 echo "→ 同步区间：${START_DATE} .. ${END_DATE}（YEARS=${YEARS}）"
 
-# ── 1. 起依赖 + data-service ───────────────────────────────────────────
-# Redis 是 data-service 的强依赖（连不上直接 Fatal），所以一并起。
-echo "→ 启动 postgres / redis / data-service"
+# ── 1. 起 data-service ────────────────────────────────────────────────
+# PG / Redis 都已不在 compose 里：PG 走宿主机原生 16.x（容器内
+# host.docker.internal:5432），Redis 自 CORE-REDIS-EXIT 起零读取点。
+# 所以这里不能 `up -d postgres redis data-service` —— 那两个服务名已不存在，
+# 会在启动依赖前就报 "no such service"。
+echo "→ 启动 data-service（PG 走宿主机原生实例）"
 # ⚠️ 不要写成 `TUSHARE_TOKEN="${TUSHARE_TOKEN:-}" ${DC} up -d`。
 # compose 读变量的优先级是「shell 环境 > .env」，而且**空串也算"已设置"** ——
 # 实测：shell 里 `TUSHARE_TOKEN=` 会让 .env 里的值被解析成空串。写成那样就等于
@@ -67,7 +70,7 @@ echo "→ 启动 postgres / redis / data-service"
 if [ -z "${TUSHARE_TOKEN:-}" ]; then
 	unset TUSHARE_TOKEN
 fi
-${DC} up -d postgres redis data-service
+${DC} up -d data-service
 
 echo "→ 等 data-service 就绪 (:${PORT})"
 for _ in $(seq 1 90); do
@@ -128,10 +131,11 @@ cat <<EOF
     curl -s http://localhost:${PORT}/api/sync/jobs | head -c 500
     ${DC} logs -f data-service
 
-→ 跑完后用这条确认库里真有数据：
-    ${DC} exec -T postgres psql -U postgres -d tellurion -c \\
-      "select (select count(*) from stocks) stocks,
-              (select count(*) from stocks where delist_date is not null) delisted,
-              (select count(*) from ohlcv_daily_qfq) ohlcv,
-              (select count(*) from trading_calendar) calendar"
+→ 跑完后用这条确认库里真有数据（PG 在宿主机，不在 compose 里）：
+    PGPASSWORD="${DATABASE_PASSWORD:-postgres}" psql -h localhost -U postgres \\
+      -d "${DATABASE_NAME:-tellurion}" -c \\
+      "select (select count(*) from market.stocks) stocks,
+              (select count(*) from market.stocks where delist_date is not null) delisted,
+              (select count(*) from market.ohlcv_daily_qfq) ohlcv,
+              (select count(*) from market.trading_calendar) calendar"
 EOF
