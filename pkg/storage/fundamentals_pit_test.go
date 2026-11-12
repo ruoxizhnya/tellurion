@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,6 +289,94 @@ func TestAvailableDate_IsGeneratedColumn(t *testing.T) {
 		SELECT available_date FROM stock_fundamentals WHERE ts_code=$1`, tsCode).Scan(&available))
 	assert.Equal(t, "2024-09-30", fmtTime(available),
 		"裸 INSERT 也应该拿到可用日（生成列自动算）")
+}
+
+// ─── 2026-11-12：PIT 读口切到 data 仓的 market.stock_fundamentals ─────────
+//
+// 背景：`stock_fundamentals` 的唯一写者已移到 tellurion-data（ADR-0012），
+// 物理表是 `market.stock_fundamentals`；core 的 `public.stock_fundamentals`
+// 写点随 `pkg/data` 退役、实测 0 行。PIT 查询此前裸写表名，按 search_path
+// 落到 public 空表上 —— 返回**空结果而不是报错**，回测静默退化成「无财报」。
+
+// TestFundamentalsPITQueriesTargetMarketSchema 是零 DB 的静态护栏：
+// 两条 PIT 查询必须显式读 `market.stock_fundamentals`，不得再出现裸表名。
+func TestFundamentalsPITQueriesTargetMarketSchema(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"GetFundamentalsPIT":     fundamentalsPITSQL,
+		"GetFundamentalsPITBulk": fundamentalsPITBulkSQL,
+	}
+	for name, query := range cases {
+		if !strings.Contains(query, "FROM market.stock_fundamentals") {
+			t.Errorf("%s 未显式限定 market schema —— 裸表名会随 search_path 落到空表 public：%q", name, query)
+		}
+		if strings.Contains(query, "FROM stock_fundamentals") {
+			t.Errorf("%s 仍出现裸表名 stock_fundamentals：%q", name, query)
+		}
+	}
+}
+
+// TestGetFundamentalsPIT_ReadsMarketSchema 是行为腿：只往 market 写，PIT 入口
+// 必须读得到；public 那张空表不参与。切 schema 之前这条是红的（读 public ⇒ 0 行）。
+func TestGetFundamentalsPIT_ReadsMarketSchema(t *testing.T) {
+	store := testStore(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	if _, err := store.DB().Exec(ctx, `CREATE SCHEMA IF NOT EXISTS market`); err != nil {
+		t.Fatalf("[testdb] 建 market schema 失败: %v", err)
+	}
+	// 形状逐字镜像 tellurion-data:internal/schema/market.go 的 market.stock_fundamentals：
+	// 无 id / created_at，available_date 是生成列。
+	if _, err := store.DB().Exec(ctx, `CREATE TABLE IF NOT EXISTS market.stock_fundamentals (
+		ts_code VARCHAR(20) NOT NULL,
+		trade_date DATE NOT NULL,
+		ann_date DATE,
+		end_date DATE,
+		pe DOUBLE PRECISION,
+		pb DOUBLE PRECISION,
+		ps DOUBLE PRECISION,
+		roe DOUBLE PRECISION,
+		roa DOUBLE PRECISION,
+		debt_to_equity DOUBLE PRECISION,
+		gross_margin DOUBLE PRECISION,
+		net_margin DOUBLE PRECISION,
+		revenue DOUBLE PRECISION,
+		net_profit DOUBLE PRECISION,
+		total_assets DOUBLE PRECISION,
+		total_liab DOUBLE PRECISION,
+		available_date DATE GENERATED ALWAYS AS (COALESCE(ann_date, trade_date)) STORED,
+		CONSTRAINT pk_stock_fundamentals PRIMARY KEY (ts_code, trade_date)
+	)`); err != nil {
+		t.Fatalf("[testdb] 建 market.stock_fundamentals 夹具失败: %v", err)
+	}
+
+	const tsCode = "TEST_PIT_MARKET.SH"
+	defer store.DB().Exec(ctx, "DELETE FROM market.stock_fundamentals WHERE ts_code=$1", tsCode)
+
+	// 三季报：报告期 9/30 截止、10/25 披露 —— 可用日必须是 10/25。
+	_, err := store.DB().Exec(ctx, `
+		INSERT INTO market.stock_fundamentals (ts_code, trade_date, ann_date, end_date, pe, pb, roe)
+		VALUES ($1, $2, $3, $2, 12.0, 1.5, 8.0)`,
+		tsCode, parseDate("2024-09-30"), parseDate("2024-10-25"))
+	require.NoError(t, err)
+
+	before, err := store.GetFundamentalsPIT(ctx, tsCode, parseDate("2024-10-24"))
+	require.NoError(t, err)
+	assert.Empty(t, before, "披露前不可见；若这里为空是因为读错表，说明 schema 又漂回 public 了")
+
+	got, err := store.GetFundamentalsPIT(ctx, tsCode, parseDate("2024-10-25"))
+	require.NoError(t, err)
+	require.Len(t, got, 1, "market.stock_fundamentals 唯一写者已就绪，PIT 必须读到它")
+	assert.Equal(t, tsCode, got[0].Symbol)
+	assert.Equal(t, parseDate("2024-10-25"), got[0].Date, "Date 必须是可用日（available_date）")
+	require.NotNil(t, got[0].PE)
+	assert.Equal(t, 12.0, *got[0].PE)
+
+	bulk, err := store.GetFundamentalsPITBulk(ctx, []string{tsCode}, parseDate("2024-10-25"))
+	require.NoError(t, err)
+	require.Len(t, bulk[tsCode], 1, "回测预热走的是 Bulk 入口，同样必须读到 market 表")
 }
 
 // TestSaveFundamentalData_ZeroAnnDateBecomesNull：零值公告日必须写成 NULL。

@@ -209,6 +209,11 @@ func (rc *runContext) ensureRequiredFactors(strategyName string) error {
 // 而 multi_factor 本身不是 FundamentalAware —— 只按策略声明判断，派生
 // 时 provider 会因「没有财报数据」明确报错，因子照旧缺失。三个「不」的
 // 原文口径不变：不需要就不查、只查一次、失败不阻断。
+//
+// 数据源（2026-11-12，跨仓 ADR-0012）：`market.stock_fundamentals` —— 唯一写者
+// 是 tellurion-data，core 只读；`public.stock_fundamentals` 写点随 pkg/data
+// 退役、实测 0 行。PIT 判据仍是 `available_date`（data 侧生成列
+// `COALESCE(ann_date, trade_date)`），「披露前不可见」的语义不变。
 func (rc *runContext) warmFundamentalsIfNeeded(ctx context.Context, strategyName string, symbols []string, asOf time.Time) error {
 	// QT-11：类型探测走 NewInstance（执行路径不许摸注册表里的共享实例）。
 	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)

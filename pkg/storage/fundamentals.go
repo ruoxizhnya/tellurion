@@ -35,6 +35,42 @@ func nullableDate(t time.Time) *time.Time {
 	return &t
 }
 
+// fundamentalsPITTable 是回测 PIT 读取的**显式限定表名**。
+//
+// 归属（2026-11-12 跨仓裁决，ADR-0012）：`stock_fundamentals` 的唯一写者已移到
+// `tellurion-data` —— 物理表 `market.stock_fundamentals`，写者
+// `ReferenceWriter.UpsertFundamentals`。core 的 `public.stock_fundamentals`
+// 写点随 `pkg/data` 退役、实测 0 行，只剩历史 DDL。
+//
+// 为什么不能继续裸写 `stock_fundamentals`：本仓不设 `search_path`，裸名在
+// public 里先命中那张空表 —— PIT 预热恒取不到数据，而错误是**空结果**而不是
+// 报错，回测会静默退化成「无财报」。显式限定 schema 后，取哪张表不再取决于
+// 部署的 search_path。
+const fundamentalsPITTable = "market.stock_fundamentals"
+
+// fundamentalsPITSQL / fundamentalsPITBulkSQL 只被上面两个 PIT 入口使用。
+// 抽成常量是为了让护栏测试能直接断言「读的是哪张表」—— 这两条查询此前
+// 裸写表名，静默指向空表，行为正确性完全取决于部署的 search_path。
+const fundamentalsPITSQL = `
+		SELECT ts_code, available_date,
+			pe, pb, ps, roe, roa, debt_to_equity,
+			gross_margin, net_margin,
+			revenue, net_profit, total_assets, total_liab
+		FROM ` + fundamentalsPITTable + `
+		WHERE ts_code = $1 AND available_date <= $2
+		ORDER BY available_date ASC, end_date DESC NULLS LAST
+	`
+
+const fundamentalsPITBulkSQL = `
+		SELECT ts_code, available_date,
+			pe, pb, ps, roe, roa, debt_to_equity,
+			gross_margin, net_margin,
+			revenue, net_profit, total_assets, total_liab
+		FROM ` + fundamentalsPITTable + `
+		WHERE ts_code = ANY($1) AND available_date <= $2
+		ORDER BY ts_code, available_date ASC, end_date DESC NULLS LAST
+	`
+
 // GetFundamentalsSnapshot returns latest fundamental data for all stocks as of a cutoff date.
 // Used by FactorComputer to compute value/quality factors cross-sectionally.
 //
@@ -121,15 +157,7 @@ func (s *PostgresStore) GetFundamentalsSnapshot(ctx context.Context, cutoffDate 
 // 表达式引擎（P2-12）要按每根 K 线的日期取 PE/PB/ROE，对齐必须发生在
 // 可用日上，所以这个入口返回的是可用日而不是报告期。
 func (s *PostgresStore) GetFundamentalsPIT(ctx context.Context, symbol string, asOf time.Time) ([]domain.Fundamental, error) {
-	query := `
-		SELECT ts_code, available_date,
-			pe, pb, ps, roe, roa, debt_to_equity,
-			gross_margin, net_margin,
-			revenue, net_profit, total_assets, total_liab
-		FROM stock_fundamentals
-		WHERE ts_code = $1 AND available_date <= $2
-		ORDER BY available_date ASC, end_date DESC NULLS LAST
-	`
+	query := fundamentalsPITSQL
 	rows, err := s.pool.Query(ctx, query, symbol, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query fundamentals (PIT): %w", err)
@@ -165,15 +193,7 @@ func (s *PostgresStore) GetFundamentalsPITBulk(ctx context.Context, symbols []st
 		return out, nil
 	}
 
-	query := `
-		SELECT ts_code, available_date,
-			pe, pb, ps, roe, roa, debt_to_equity,
-			gross_margin, net_margin,
-			revenue, net_profit, total_assets, total_liab
-		FROM stock_fundamentals
-		WHERE ts_code = ANY($1) AND available_date <= $2
-		ORDER BY ts_code, available_date ASC, end_date DESC NULLS LAST
-	`
+	query := fundamentalsPITBulkSQL
 	rows, err := s.pool.Query(ctx, query, symbols, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query fundamentals (PIT bulk): %w", err)
