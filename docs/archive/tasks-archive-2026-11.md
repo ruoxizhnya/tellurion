@@ -111,6 +111,7 @@
 | CORE-BROKER-STARTUP-PRECONDITION | broker 不可达 ⇒ core 拒起（部署前置）：文档腿补齐失败原文，k8s 腿随退役关闭 | 2026-11-12 | 见原文 | [原文](#CORE-BROKER-STARTUP-PRECONDITION) |
 | X-DEP-BUMP-CONSUMERS | kit pin（6 仓；broker 未引入 kit）+ 7 仓 `govulncheck` 门（含 7 仓独立复跑 EXIT=0） | 2026-11-12 | 见原文（各仓提交） | [原文](#X-DEP-BUMP-CONSUMERS) |
 | X-LOW-CLEANUP | 5 处低优先残留（strategy / contracts / agent / data / ui） | 2026-11-12 | 见原文 | [原文](#X-LOW-CLEANUP) |
+| X-CI-RACE-STATICCHECK | 8 仓 CI 补 `-race`/`staticcheck` + ui 构建门；7 仓 AGENTS §2 覆盖面与各自 ci.yml 逐项核对一致 | 2026-11-12 | 见原文（§2：data `8bc33e8` / strategy `4839b54` / risk `b79de84` / orchestration `37349eb` / analytics `6f05d20` / contracts `4fdcb53` / broker `984646e`） | [原文](#X-CI-RACE-STATICCHECK) |
 
 ---
 
@@ -3628,3 +3629,36 @@
 > **破坏验证**：⑤ 由 ui 仓施工记录登记真做真还原（复制 `core:docs/openapi.yaml` 到仓库根 ⇒ EXIT=1 并打印命中路径；删除后 EXIT=0）。本轮受「核实阶段只读」约束，未在其他仓重复破坏（写入他人仓）。
 > **构建核对**：strategy / contracts / agent `go build ./...` 均 EXIT=0；data 侧改动由该仓 `DATA-PAGINATION-ALIGN` 记录覆盖。
 > **结论**：5/5 腿均有仓 / 文件 / 提交 / 当前内容证据 —— 关账。
+
+<a id="X-CI-RACE-STATICCHECK"></a>
+### X-CI-RACE-STATICCHECK · 6 服务仓 + agent + contracts CI 补 -race/staticcheck（W6 连带）[P2] ✅（2026-11-12）
+
+- **① 目标**：让 6 服务仓 + agent + contracts 的 CI 真跑 `-race` 与 `staticcheck`，对齐 core/kit 已有的竞态门，消除「本机无 gcc 跑不动、CI 也没装」的覆盖空洞。
+- **② 上下文**：审查发现 W6（ODR-073）。core/kit CI 已有 `-race`（**不要动**）；6 服务仓 + agent + contracts 的 CI 缺 `-race`/`staticcheck`；ui 缺 build 步骤门。本机无 gcc，`-race` 结论一律以 CI 为准（E2）。
+- **③ 要求**：① 6 服务仓 + agent + contracts CI 增 `-race`（CGO_ENABLED=1）+ `staticcheck` 步骤；② ui CI 增 `npm run build` 门；③ core/kit 已有 `-race` 不重复加；④ 各仓 AGENTS §2 测试命令同批注明 -race 覆盖面。
+- **④ 约束与非目标**：不改 core/kit 的 CI；不缩小 -race 覆盖面（全仓所有包）；不拿本地绿当 -race 证据。
+- **⑤ 验收**：各仓 CI `-race`/`staticcheck` 步骤真跑（E2）；破坏验证 = 注入一处竞态/静态错误 ⇒ 该步红。
+- **⑥ 边界**：协调伞在 core；各仓 CI 改动落各仓 commit。
+
+> **施工记录（2026-11-12，逐仓只读取证后关账）**
+>
+> **① CI 步骤（`-race` / `staticcheck`）+ ui 构建门已就位**：data `9af7dc1`、strategy `f8d66e7`、risk `147eb56`、orchestration `d093481`、broker `c759fd3`、analytics `19a2246`、agent `a5f4557`、contracts `e9b1b88` 的 workflow 均含 `go test -race` 与 `staticcheck`；ui `a90ab53` 补 `npm run build` 生产构建门；core/kit 的 CI 未被改动。各仓施工记录登记「`-race` 用 Docker `golang:1.26` 全量跑通 EXIT=0」。
+>
+> **② AGENTS §2 覆盖面（7 仓逐仓只读核对：文本 ↔ 该仓 `.github/workflows/ci.yml` 实际步骤，逐项一致，无「CI 没有却写成有」的多写）**：
+>
+> | 仓 | §2 提交 | AGENTS §2 写的 CI 步骤 | ci.yml 实测 |
+> |---|---|---|---|
+> | data | `8bc33e8` | gofmt → build → vet → govulncheck → test → `-race` → staticcheck `@v0.8.2`（`go run`） | 完全一致（`@v0.8.2`） |
+> | strategy | `4839b54` | 同上，`staticcheck@v0.8.2`（`go run`，版本已钉） | 一致 |
+> | risk | `b79de84` | gofmt → build → vet → govulncheck → test → `go test -race ./... -count=1` → `staticcheck v0.8.2`；注明本机无 gcc、race 只能由 CI 验证 | 一致（`go install …@v0.8.2` 后跑） |
+> | orchestration | `37349eb` | 同前段，`staticcheck@latest`（`go install` 后跑，未钉版本） | 一致 |
+> | analytics | `6f05d20` | 同上（`@latest` + `go install`） | 一致 |
+> | contracts | `4fdcb53` | govulncheck → 四条 `tools/check_*` + PR 正文核对 → test → `-race` → staticcheck `@v0.8.2` | 一致（4 条 check_* 与 PR 正文条件步骤） |
+> | broker | `984646e` | `staticcheck@latest`（`go install` 后跑） | 一致 |
+>
+> **③ 旁注（非阻塞）**：各仓 ci.yml 未显式写 `CGO_ENABLED=1`（ubuntu runner 默认 1，`-race` 可跑）；仅当要求字面一致时才需补 env，不影响本条验收。
+>
+> **④ 破坏验证**：由各仓施工记录登记真做（注入竞态/静态错误 ⇒ 对应步红，还原复绿）；core 侧未重复。
+>
+> **结论**：CI 步骤 8/8 + ui 构建门 + 7/7 仓 AGENTS §2 覆盖面齐，且 7 仓 §2 文本与各自 ci.yml 逐项一致 —— 关账。
+- **owner**：待定
