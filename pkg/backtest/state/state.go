@@ -1,10 +1,13 @@
 package state
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
+	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/backtest/tracker"
 )
 
@@ -37,9 +40,11 @@ type BacktestState struct {
 	// without locking (immutable after construction).
 	ID string
 
-	// Status is one of "running", "completed", "failed". Mutated by
-	// the backtest goroutine and observed by API handlers. Protected
-	// by mu.
+	// Status 是运行态与契约终态的并集：StatusRunning（运行中，不属于
+	// ResultSpec 的终态三值）+ StatusCompleted / StatusInvalid / StatusFailed
+	// （契约冻结终态）。写入只经 SetStatus，非法值 fail-closed 拒绝。
+	// Mutated by the backtest goroutine and observed by API handlers.
+	// Protected by mu.
 	Status string
 
 	// Params is set at construction and never changes. The struct
@@ -89,17 +94,38 @@ type BacktestState struct {
 	terminalPositionsSet bool
 }
 
-// SetStatus atomically updates the status. No-op if the state is frozen.
-// Returns the previous status so callers can detect transitions.
-func (s *BacktestState) SetStatus(status string) (prev string, ok bool) {
+// StatusRunning 是 run 的运行态。契约 ResultSpec 只冻结终态三值
+// （completed / invalid / failed），运行态由本包定义。
+const StatusRunning = "running"
+
+// ErrInvalidStatus 表示写入的状态不在白名单内。调用方据此 fail-closed，
+// 不做 normalize —— 未知值必须暴露，而不是被猜成某个合法值。
+var ErrInvalidStatus = errors.New("backtest: invalid status")
+
+// validStatuses 是 Status 的唯一合法集合：运行态 + 契约终态三值。
+var validStatuses = map[string]struct{}{
+	StatusRunning:             {},
+	contracts.StatusCompleted: {},
+	contracts.StatusFailed:    {},
+	contracts.StatusInvalid:   {},
+}
+
+// SetStatus atomically updates the status.
+//
+// 未知状态直接拒绝（ErrInvalidStatus），状态保持不变；frozen 后是 no-op，
+// 返回当前状态与 ok=false。两种拒绝都不会写入任何值。
+func (s *BacktestState) SetStatus(status string) (prev string, ok bool, err error) {
+	if _, valid := validStatuses[status]; !valid {
+		return "", false, fmt.Errorf("%w: %q", ErrInvalidStatus, status)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.frozen {
-		return s.Status, false
+		return s.Status, false, nil
 	}
 	prev = s.Status
 	s.Status = status
-	return prev, true
+	return prev, true, nil
 }
 
 // SetResult atomically sets the result. No-op if frozen.

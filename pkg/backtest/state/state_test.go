@@ -21,12 +21,14 @@ func TestBacktestState_GetSetRoundTrip(t *testing.T) {
 	s := &BacktestState{ID: "bt-roundtrip"}
 
 	// Status
-	prev, ok := s.SetStatus("running")
+	prev, ok, err := s.SetStatus("running")
+	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "", prev)
 	assert.Equal(t, "running", s.GetStatus())
 
-	prev, ok = s.SetStatus("completed")
+	prev, ok, err = s.SetStatus("completed")
+	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "running", prev)
 	assert.Equal(t, "completed", s.GetStatus())
@@ -37,7 +39,7 @@ func TestBacktestState_GetSetRoundTrip(t *testing.T) {
 	assert.Same(t, res, s.GetResult())
 
 	// Error
-	err := errors.New("boom")
+	err = errors.New("boom")
 	require.True(t, s.SetError(err))
 	assert.Equal(t, err, s.GetError())
 
@@ -99,7 +101,8 @@ func TestBacktestState_FreezeRejectsWrites(t *testing.T) {
 	assert.True(t, s.IsCompleted())
 
 	// All writes rejected
-	prev, ok := s.SetStatus("failed")
+	prev, ok, err := s.SetStatus("failed")
+	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Equal(t, "running", prev, "status must not change after freeze")
 	assert.Equal(t, "running", s.GetStatus())
