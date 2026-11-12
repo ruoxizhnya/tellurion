@@ -43,6 +43,11 @@ var analysisRoutePolicy = authz.Policy{
 		// QT-50 ③ 第 6 类粗粒度动作：因子登记。改的是「后续所有回测能引用
 		// 哪些因子定义」的治理账本，属管理面（登记人取自 JWT，不接受自报）。
 		"POST /api/factor/registrations",
+
+		// B-05：因子分析重算。一次请求会对全票池跑横截面计算并**覆盖写**
+		// factor_returns / ic_analysis，是系统级批处理（耗时以分钟计），
+		// 属管理面；读面三条 GET 不在本表（只读面只受认证约束）。
+		"POST /api/factor-analytics/compute",
 	},
 
 	// ── ReadOnlyPOST：POST 承载查询/计算，不改变任何状态 ──

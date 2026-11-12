@@ -263,6 +263,18 @@ type Engine struct {
 // S7-P2-1: BacktestRequest and BacktestResponse moved to
 // pkg/backtest/contracts/contracts.go. Re-exported via aliases.go.
 
+// MarketDataProvider 返回构造引擎时注入的取数面。
+//
+// B-05 的因子分析计算需要同一条取数通道（bulk 日线 + 股票列表）；再往
+// ServerDeps 里加一个字段会被 deps_test.go 的字段总数断言拦住，因此从引擎
+// 暴露既有依赖，而不是复制一份。
+func (e *Engine) MarketDataProvider() marketdata.Provider {
+	if e == nil {
+		return nil
+	}
+	return e.provider
+}
+
 // NewEngine creates a new backtest engine.
 func NewEngine(v *viper.Viper, provider marketdata.Provider, logger zerolog.Logger) (*Engine, error) {
 	config := Config{}

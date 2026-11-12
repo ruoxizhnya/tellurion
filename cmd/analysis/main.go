@@ -10,6 +10,7 @@ import (
 	"github.com/ruoxizhnya/tellurion-contracts/engine"
 	"github.com/spf13/viper"
 	"tellurion/cmd/analysis/wiring"
+	"tellurion/internal/factoranalytics"
 	"tellurion/pkg/backtest"
 	"tellurion/pkg/bootstrap"
 	"tellurion/pkg/compliance"
@@ -371,6 +372,19 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 		factorRegStore = deps.Store
 	}
 	NewFactorRegistrationHandler(factorRegStore, deps.AuthSvc, deps.Logger).RegisterRoutes(router)
+	// B-05（2026-11-12）：因子分析读面（因子列表 / 分位收益 / IC）与计算触发。
+	// 读面只依赖 store；计算触发额外需要取数面（沿用引擎的 provider）与
+	// PIT 基本面快照（同一个 *PostgresStore）。任一缺失时路由照常注册、
+	// 触发端点返回 503，不把「没接线」伪装成「没数据」。
+	var factorAnalyticsStoreImpl factorAnalyticsStore
+	var factorComputer *factoranalytics.Computer
+	if deps.Store != nil && deps.Store.DB() != nil {
+		factorAnalyticsStoreImpl = deps.Store
+		if provider := deps.Engine.MarketDataProvider(); provider != nil {
+			factorComputer = factoranalytics.NewComputer(provider, deps.Store, deps.Store)
+		}
+	}
+	NewFactorAnalyticsHandler(factorAnalyticsStoreImpl, factorComputer, deps.Logger).RegisterRoutes(router)
 	// SVC-CORE-DATA-RETIRE（2026-11-08）：QT-67 的交易日历 / 上市窗口只读端点
 	// 读 trading_calendar / stocks，两表已随数据面退役；该读面回归数据服务的
 	// 已登记路由（G3 逐条处置），本进程不再注册。

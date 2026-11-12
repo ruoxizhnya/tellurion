@@ -73,6 +73,7 @@ var factorRosterBaseline = map[string]string{
 	// 删掉 DB 预热后已不再聚集名册常量，反向棘轮要求删除本条。
 	"pkg/domain/factor_def_seed.go":        "OnlyBuiltinDefinitions 的库里种子本体（CT-06-B 2026-11-10 从契约仓迁回；名册的唯一权威就在本文件，不在库外重建）",
 	"pkg/strategy/plugins/multi_factor.go": "消费声明，不是名册重建：`RequiredFactors()` 用一个 3 元素字面量点名本策略**读**的因子（value/quality/momentum），供引擎在预热后核对缓存覆盖度（CORE-FACTOR-GUARD，2026-11-11）；11 个名册常量里只列 3 个，权威仍在 pkg/domain/factor_def_seed.go。收敛条件：策略改为从 Registry 取输入清单时删本条目",
+	"internal/factoranalytics/computer.go": "能力子集声明，不是名册重建：B-05 的横截面计算器 `SupportedFactors()` 只覆盖有「因子值 + 前向收益」口径的三条（momentum/value/quality），供 normalize 校验与读面 `supported` 字段使用；完整名册的权威仍是 pkg/domain/factor_def_seed.go。收敛条件：种子定义里出现「可算横截面收益」的显式标记时改为读种子并删本条目",
 }
 
 // factorRosterThreshold 是「清单气味」的判定阈值：单文件引用名册常量

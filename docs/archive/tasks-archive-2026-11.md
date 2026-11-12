@@ -121,6 +121,7 @@
 | CORE-RISK-CREDENTIAL-PATH | 带凭证路径三态鉴权真跑取证（无 token 401 / viewer 403 / service 200） | 2026-11-12 | `a916a51` | [原文](#CORE-RISK-CREDENTIAL-PATH) |
 | OPS-X1D-PROD-MIGRATION | X1d 物理搬迁 + `visible_at` 回填（执行形态 = 整库重建） | 2026-11-12 | —（原文未记） | [原文](#OPS-X1D-PROD-MIGRATION) |
 | CORE-MEMORY-HARDENING-2026-11 | 共享内存/竞态硬化批次补登：getter 深拷贝、`Load` 深拷贝、dualrun 日志 `SyncWriter`、qt31 预算分档 | 2026-11-12 | `5e8b433`、`fac3a3f`、`b25fb6a`、`4054f52`（后接 `d50249c`） | [原文](#CORE-MEMORY-HARDENING-2026-11) |
+| CORE-FACTOR-ANALYTICS-SURFACE | B-05 后端腿：`factor_returns` / `ic_analysis` 的写者与横截面聚合读面（因子列表 / 分位收益 / IC / 计算触发） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-FACTOR-ANALYTICS-SURFACE) |
 
 ---
 
@@ -3843,3 +3844,28 @@
   - 本地四提交后：`gofmt -l` 空、`go build ./...` / `go vet ./...` / `go test ./... -count=1` 全绿（race 腿按上条口径以 CI 为准）。
 - **⑥ 边界**：core 本仓（`pkg/...` 与 `cmd/dualrun` 测试）；下游各仓是否复用同一结构由各仓自测，不在本条范围。
 - **重开条件**：无（已完成）。若新增返回内部结构的 getter，护栏测试须随之扩展。
+
+---
+
+## 二十四、2026-11-12 B-05 后端腿：因子分析写者与读面（`CORE-FACTOR-ANALYTICS-SURFACE`）
+
+<a id="CORE-FACTOR-ANALYTICS-SURFACE"></a>
+### CORE-FACTOR-ANALYTICS-SURFACE · `factor_returns` / `ic_analysis` 的写者与横截面聚合读面 [P0] ✅（2026-11-12）
+
+- **① 目标**：给 ADR-038 归 core 的两张派生表补上**生产者**与**读面**——按 UI 因子页需要提供因子列表、分位收益、IC 序列，以及一次可重放的计算触发。此前 `SaveFactorReturnBatch` / `SaveICEntryBatch` 零调用、两表为空、没有任何读端点。
+- **② 上下文**：ADR-038 把 `factor_returns` / `ic_analysis` 归 core（C3 的 `CORE-FACTOR-DERIVED-GUARD` 只做了「零写者时产物组装给出可判定缺失原因」，没有生产者）；ADR-041 D1 又明确禁止 per-symbol 因子求值面，e2e 钉住 `POST /api/factors/compute` 必须 404、`GET /api/factors/:factor_name` 必须 410。因此不能复活 `/api/factor/*` 旧路径。核查还订正了一条此前的错误假设：两张表的 `ON CONFLICT` 所需唯一索引**早已存在**（`migrationIndexStatements()` 的 `idx_fr_pk` / `idx_ic_pk`），零写者的原因不是缺索引，而是从来没有生产者；据此撤掉了起草时多余的「Migration 068」。
+- **③ 要求（实际落地）**：
+  1. **生产者** `internal/factoranalytics/computer.go`：`BulkLoadOHLCV` 取扩窗日线 + `GetFundamentalsSnapshot` 取 PIT 基本面，按 `rebalance_days` 逐日计算。口径写死并在单测钉住：momentum = `close[t]/close[t-lookback]-1`；value = `1/PE`（PE>0 才参与）；quality = `ROE`；前向收益 = `close[t+horizon]/close[t]-1`；5 分位按因子值升序、q5 = 最高组；IC = Pearson、TopIC = Spearman（平均秩）、p 值用 t 统计量双尾正态近似。票池 < `min_cross_section` 的日期进 `skipped`，不写半截分位。票池解析排除 `delisted` 与 `DelistDate < start`。
+  2. **读面 + 触发** `cmd/analysis/handlers_factor_analytics.go`：`GET /api/factor-analytics/factors`（覆盖范围 + 平均/最新 IC + `supported`）、`GET /api/factor-analytics/factors/:factor/returns`、`GET /api/factor-analytics/factors/:factor/ic`、`POST /api/factor-analytics/compute`。日期格式错误显式 400（不静默改窗口），区间上限 730 天，compute 归 ADMIN 档并带 10 分钟预算；store / computer 为 nil 时路由照常注册、请求 503。
+  3. **存储读面** `pkg/storage/factor_analytics.go`：`ListFactorAnalyticsSummaries` 单条 SQL 出「观测日数（按 `trade_date` 去重）/ 区间 / 平均 IC / 最新 IC」。
+  4. **装配**：`cmd/analysis/main.go` 用 `deps.Store` 与 `deps.Engine.MarketDataProvider()`（新增访问器，避免给 `ServerDeps` 加字段触发 `deps_test.go` 的字段总数断言）构造 store 与 computer。
+  5. **契约**：`docs/openapi.yaml` 登记 4 条路径（含请求/响应形状、401/422/503/504 语义）；`route_policy.go` 的 Admin 组登记 `POST /api/factor-analytics/compute`。
+- **④ 约束与非目标**：不提供任何 per-symbol 因子值（ADR-041 D1）；不复活 `/api/factor/*`；不新增 `ServerDeps` 字段；不改既有两表的唯一索引与列宽（已满足）；`openapi` 的跨仓收口由 contracts 仓统一同步，本仓只保证本文件与真实路由双向一致。
+- **⑤ 验收（真实输出）**：
+  - `gofmt -l ./internal ./cmd ./pkg` → 空。
+  - `go build ./...` → exit 0。
+  - `go test ./internal/factoranalytics ./cmd/analysis ./pkg/storage ./internal/repoguard -count=1` → `ok` ×4（`cmd/analysis` 含 REV-13 契约护栏双向对拍与 `route_policy_rev17_test.go` 双向守卫）。
+  - 真库腿（本机 PG）：`TEST_DATABASE_DSN=postgres://… go test ./pkg/storage -run TestFactorAnalytics_WriteReadRoundTripAndSummary -v` → `PASS (0.13s)`。该用例真跑 `SaveFactorReturnBatch` / `SaveICEntryBatch` 的 `ON CONFLICT DO UPDATE`（断言重写后行数仍为 10、值已更新）、`GetFactorReturns` / `GetICEntries` 的排序，以及 summary 的 `observations=2`（按日期去重）、`mean_ic=0.3`、`latest_ic=0.4`。
+  - 护栏：`internal/repoguard` 的 `TestNoBypassOfFactorRegistry` 对 `internal/factoranalytics/computer.go` 报「名册常量聚集」；处置不是吞掉，而是把可算因子收敛成单一 `SupportedFactors()` 并登记基线（理由：能力子集声明，权威仍在 `pkg/domain/factor_def_seed.go`；收敛条件：种子出现「可算横截面收益」显式标记时改读种子）。
+- **⑥ 边界**：core 本仓；UI 因子页的消费形状与 contracts 仓的 openapi 同步属于跨仓契约定稿，需在该仓收口后接线。
+- **重开条件**：ADR-041 D1 放开横截面之外的因子求值面，或口径（因子定义 / 前向收益 / 分位划分）需要与新增因子对齐时。

@@ -1198,6 +1198,314 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # ============================================================
+  # Factor analytics (B-05: cross-sectional returns + IC)
+  # ============================================================
+  # ADR-038 把 factor_returns / ic_analysis 两表归 core；ADR-041 D1 又禁止
+  # per-symbol 的因子求值面（/api/factors/* 已 410/404）。这一族是**横截面
+  # 聚合**读面（分位收益 / IC / 因子列表）与计算触发，不含任何单票因子值。
+  /api/factor-analytics/factors:
+    get:
+      tags: [Factor]
+      summary: List factor analytics coverage（B-05）
+      description: |
+        每个因子在 factor_returns / ic_analysis 里的观测覆盖：日期区间、
+        再平衡日数、平均 IC 与最新 IC。`supported` 是本次部署可计算的因子名册
+        （momentum / value / quality）。
+      operationId: listFactorAnalytics
+      responses:
+        '200':
+          description: Factor coverage summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        factor_name:
+                          type: string
+                        observations:
+                          type: integer
+                        start_date:
+                          type: string
+                          format: date
+                        end_date:
+                          type: string
+                          format: date
+                        mean_ic:
+                          type: number
+                        latest_ic:
+                          type: number
+                  supported:
+                    type: array
+                    items:
+                      type: string
+        '503':
+          description: Factor analytics store unavailable (service started without a database).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/factor-analytics/factors/{factor}/returns:
+    get:
+      tags: [Factor]
+      summary: Quintile returns for one factor（B-05）
+      description: |
+        按再平衡日的五分位平均收益与滚动累计收益。`quintile` 越大表示因子值
+        越高（q5 = 最高组）；`top_minus_bot` 为 q5 减 q1。
+      operationId: getFactorReturns
+      parameters:
+        - name: factor
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [momentum, value, quality]
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 默认 end-90 天；区间上限 730 天。
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 默认今天（UTC）。
+      responses:
+        '200':
+          description: Quintile return points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factor_name:
+                    type: string
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        factor_name:
+                          type: string
+                        trade_date:
+                          type: string
+                          format: date-time
+                        quintile:
+                          type: integer
+                        avg_return:
+                          type: number
+                        cumulative_return:
+                          type: number
+                        top_minus_bot:
+                          type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: Factor analytics store unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/factor-analytics/factors/{factor}/ic:
+    get:
+      tags: [Factor]
+      summary: IC series for one factor（B-05）
+      description: |
+        `ic` 为 Pearson 相关；`top_ic` 为 Spearman 秩相关；`p_value` 由
+        Pearson t 统计量做双尾正态近似。
+      operationId: getFactorIC
+      parameters:
+        - name: factor
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [momentum, value, quality]
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 默认 end-90 天；区间上限 730 天。
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 默认今天（UTC）。
+      responses:
+        '200':
+          description: IC points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factor_name:
+                    type: string
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        factor_name:
+                          type: string
+                        trade_date:
+                          type: string
+                          format: date-time
+                        ic:
+                          type: number
+                        p_value:
+                          type: number
+                        top_ic:
+                          type: number
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: Factor analytics store unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/factor-analytics/compute:
+    post:
+      tags: [Factor]
+      summary: Compute factor returns and IC, then persist（B-05）
+      description: |
+        用日线收盘价与 PIT 基本面快照计算分位收益与 IC，并写入
+        `factor_returns` / `ic_analysis`（ADR-038 归 core）。
+
+        口径：momentum = close[t]/close[t-lookback]-1；value = 1/PE（PE>0）；
+        quality = ROE；前向收益 = close[t+horizon]/close[t]-1。票池不足
+        `min_cross_section` 的日期记入 `skipped`，不会写出半截分位。
+
+        敏感写：ADMIN 档 —— 它会重算并覆盖两表的历史区间。
+      operationId: computeFactorAnalytics
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start:
+                  type: string
+                  format: date
+                end:
+                  type: string
+                  format: date
+                symbols:
+                  type: array
+                  items:
+                    type: string
+                  description: 省略 = 全部在市股票。
+                factors:
+                  type: array
+                  items:
+                    type: string
+                    enum: [momentum, value, quality]
+                  description: 省略 = 三条全算。
+                lookback_days:
+                  type: integer
+                horizon_days:
+                  type: integer
+                rebalance_days:
+                  type: integer
+                min_cross_section:
+                  type: integer
+      responses:
+        '200':
+          description: Computation summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  written:
+                    type: boolean
+                  universe:
+                    type: integer
+                  factor_count:
+                    type: integer
+                  rebalance_dates:
+                    type: integer
+                  factor_returns:
+                    type: integer
+                  ic_entries:
+                    type: integer
+                  skipped:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        trade_date:
+                          type: string
+                          format: date-time
+                        factor:
+                          type: string
+                        reason:
+                          type: string
+                        pairs:
+                          type: integer
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  last_trade_date:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: 区间内凑不出有效再平衡日（无行情或票池不足）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Factor analytics computation is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Computation exceeded the 10-minute budget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================
   # Copilot (AI strategy generation)
   # ============================================================
   # ⚠️ 以下 10 条 copilot/pipeline/explore/tools 都是 core 的**反代入口**
