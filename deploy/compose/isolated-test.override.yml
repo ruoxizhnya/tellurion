@@ -49,8 +49,10 @@ services:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
       DATABASE_DATABASE: tellurion
-      # 综合测试会高频打读面，默认 100/min 会 429
-      RATE_LIMIT_PER_MINUTE: "100000"
+      # 限流**故意不在这里写死**：`TestCompose_DefaultRateLimitIs100AndOverridable`
+      # 禁止部署面出现写死的 100000（那会让 env 覆盖变成安慰剂）。高额度由起栈
+      # 命令行给：`RATE_LIMIT_PER_MINUTE=100000 docker compose ... up`，见
+      # docs/STACK-TEST-PREREQ.md §2 ④。
       # 打开 kill-switch，UI 的 emergency-flatten 才有 200 路径；
       # 该 token 仅用于本机 mock 栈（broker 是 mock，订单不出机器）。
       TRADING_EMERGENCY_TOKEN: dev-only-emergency-token

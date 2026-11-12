@@ -46,7 +46,8 @@ docker build -f Dockerfile.service -t tellurion-core:head .
 docker compose --profile full stop
 
 # ④ 起隔离栈（9 个服务，--wait 等全部 healthy）
-docker compose -p tellurion-next -f docker-compose.yml \
+#    限流高额度只能从命令行给（override 里写死会被护栏拦下，见 §4.4）
+RATE_LIMIT_PER_MINUTE=100000 docker compose -p tellurion-next -f docker-compose.yml \
     -f deploy/compose/isolated-test.override.yml --profile full up -d --wait
 
 # ⑤ 冒烟
@@ -99,10 +100,10 @@ docker exec tellurion-next-pg-1 psql -U postgres -d tellurion -tAc \
 
 签 service token：`JWT_SECRET=... go run ./tools/issue_service_token.go -sub service:analysis -ttl 720h`。
 
-### 4.4 测试专用开关（覆盖层已给）
+### 4.4 测试专用开关（起栈命令行给）
 
-- `RATE_LIMIT_PER_MINUTE=100000`：默认 100，UI/综合测试高频打面必 429。
-- `TRADING_EMERGENCY_TOKEN=dev-only-emergency-token`：不设时 `POST /api/execution/emergency-flatten` 恒 503（按设计）；该值仅限本机 mock 栈。
+- `RATE_LIMIT_PER_MINUTE=100000`：默认 100，UI/综合测试高频打面必 429。**只能放在起栈命令行**（§2 ④）——写进 override 会被 `TestCompose_DefaultRateLimitIs100AndOverridable` 判红：部署面写死高额度会让 env 覆盖变成安慰剂。重启用例若重新 `up`，记得带上这个前缀。
+- `TRADING_EMERGENCY_TOKEN=dev-only-emergency-token`：不设时 `POST /api/execution/emergency-flatten` 恒 503（按设计）；该值仅限本机 mock 栈，由覆盖层给。
 
 ## 5. 综合测试端点矩阵（2026-11-12 实测，空库 + mock 通道）
 
