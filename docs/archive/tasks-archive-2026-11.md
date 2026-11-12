@@ -87,8 +87,8 @@
 | CORE-DATA-IMAGE-NAME-ALIGNMENT | data 镜像名跨仓口径未统一（⏸ → **撤销** 2026-11-11，未施工） | 2026-11-11 | `8483bca`（data 仓） | [撤销记录](#CORE-DATA-IMAGE-NAME-ALIGNMENT) |
 | CORE-RUNBOOK-GAP | 本仓没有 runbook，起停与装配失败只有 README 零散说明 | 2026-11-12 | 见原文 | [原文](#CORE-RUNBOOK-GAP) |
 | CORE-PG-BACKUP-DR | 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 | 2026-11-12 | 见原文 | [原文](#CORE-PG-BACKUP-DR) |
-| X-DEP-BUMP-CONSUMERS（core 腿） | 7 消费仓 bump kit pin + govulncheck 门 | 2026-11-12 | 见原文 | [原文](#X-DEP-BUMP-CONSUMERS) |
-| X-AGENTS-DEPENDENCY-TABLE（core 腿） | 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐 | 2026-11-12 | 见原文 | [原文](#X-AGENTS-DEPENDENCY-TABLE) |
+| X-DEP-BUMP-CONSUMERS（core 腿） | kit pin（6 仓；broker 未引入）+ 7 仓 govulncheck 门 | 2026-11-12 | 见原文 | [原文](#X-DEP-BUMP-CONSUMERS) |
+| X-AGENTS-DEPENDENCY-TABLE | 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐（全腿 ✅；broker 未引入 kit） | 2026-11-12 | 见原文（各仓提交） | [原文](#X-AGENTS-DEPENDENCY-TABLE) |
 | CORE-REDIS-EXIT | Redis 已退役但死代码/依赖/k8s 清单仍在 | 2026-11-12 | 见原文 | [原文](#CORE-REDIS-EXIT) |
 | CORE-BACKTEST-RANGE-COVERAGE | 回测区间静默截断（日历覆盖不足仍报 completed） | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-RANGE-COVERAGE) |
 | CORE-FACTOR-CACHE-WRITER | `public.factor_cache` 有表无写者，`multi_factor` 不可用（ADR-037 按需求值收口） | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-WRITER) |
@@ -109,7 +109,7 @@
 | CORE-RISK-REMOTE-FALLBACK-DEAD | `risk_service.url` 三处远程回落恒不可用（裁决 = 删，改 fail-closed） | 2026-11-12 | `5729395` | [原文](#CORE-RISK-REMOTE-FALLBACK-DEAD) |
 | X-PROBE-NAMING | data `/healthz` 统一探针命名，摘 `/health` 别名并复验 consumers | 2026-11-12 | data `3a40867`（core 侧无代码改动） | [原文](#X-PROBE-NAMING) |
 | CORE-BROKER-STARTUP-PRECONDITION | broker 不可达 ⇒ core 拒起（部署前置）：文档腿补齐失败原文，k8s 腿随退役关闭 | 2026-11-12 | 见原文 | [原文](#CORE-BROKER-STARTUP-PRECONDITION) |
-| X-DEP-BUMP-CONSUMERS | 7 消费仓 kit pin 升级 + `govulncheck` 门（含 7 仓独立复跑 EXIT=0） | 2026-11-12 | 见原文（各仓提交） | [原文](#X-DEP-BUMP-CONSUMERS) |
+| X-DEP-BUMP-CONSUMERS | kit pin（6 仓；broker 未引入 kit）+ 7 仓 `govulncheck` 门（含 7 仓独立复跑 EXIT=0） | 2026-11-12 | 见原文（各仓提交） | [原文](#X-DEP-BUMP-CONSUMERS) |
 | X-LOW-CLEANUP | 5 处低优先残留（strategy / contracts / agent / data / ui） | 2026-11-12 | 见原文 | [原文](#X-LOW-CLEANUP) |
 
 ---
@@ -3039,11 +3039,12 @@
 > - **未落（如实）**：生产库的**定时**备份/保留策略归运维，本单只交付方案 + 本机真演练；k8s `pg_dumpall` 口径的文档订正随 `CORE-K8S-EXIT` 一起处理（该单待授权）。
 
 <a id="X-DEP-BUMP-CONSUMERS"></a>
-### X-DEP-BUMP-CONSUMERS · 7 消费仓 bump kit pin + govulncheck 门（W5-F1 连带）[P0] · **core 腿 ✅（2026-11-12）**
+### X-DEP-BUMP-CONSUMERS · 6 个 kit 消费仓 bump pin + 7 仓 govulncheck 门（W5-F1 连带）[P0] ✅（2026-11-12，全腿）
 
-- **① 目标**：kit 安全 bump（`KIT-DEP-SECURITY-BUMP`）发版后，7 个消费仓把 kit pin 升到安全版并各补一条 `govulncheck` CI 门，让 GO-2026-5004（pgx SQLi）等漏洞在消费侧真闭合。
+- **① 目标**：kit 安全 bump（`KIT-DEP-SECURITY-BUMP`）发版后，**6 个引入 kit 的消费仓**（core/agent/data/strategy/risk/orchestration）把 kit pin 升到安全版；7 仓（另含 broker）各补一条 `govulncheck` CI 门，让 GO-2026-5004（pgx SQLi）等漏洞在消费侧真闭合。**broker 未引入 kit（`go.mod`/`go.sum` 无、`go list -m all` 不列），不在此列，也不为对齐引入**。
 - **② 上下文**：审查发现 W5-F1（ODR-072）+ 裁决 D1=b（pgx 一步收敛 v5.11.0）。GO-2026-5004 影响 7 仓（core/agent/data/strategy/risk/orch/broker），fixed v5.9.2；x/net×4（fixed v0.60.0）8 仓、x/text×2 9 仓。kit 是依赖底座，bump 后消费仓须跟升 pin 才真生效。前置 = `KIT-DEP-SECURITY-BUMP` + `BROKER-DEP-BUMP` + `UI-NPM-AUDIT-FIX`。
-- **③ 要求**：① kit 发安全版后，7 消费仓 `go get tellurion-kit@vX` + `go mod tidy`（只升 tag，禁 replace）；② 各仓 CI 增 `govulncheck ./...` 门；③ 各仓 AGENTS §4 依赖表同批更新（与 `X-AGENTS-DEPENDENCY-TABLE` 联动）；④ pgx 收敛到 v5.11.0 一步到位（D1=b），登记三档并存的代价。
+- **③ 要求**：① kit 发安全版后，**6 个 kit 消费仓** `go get tellurion-kit@vX` + `go mod tidy`（只升 tag，禁 replace；broker 未引入 kit，不涉及）；② 各仓 CI 增 `govulncheck ./...` 门；③ 各仓 AGENTS §4 依赖表同批更新（与 `X-AGENTS-DEPENDENCY-TABLE` 联动）；④ pgx 收敛到 v5.11.0 一步到位（D1=b），登记三档并存的代价。
+- **订正（2026-11-12 复核）**：本条原文 ①③ 写「7 消费仓」，把 broker 误当 kit 消费仓；实测 **kit 消费仓为 6 仓**，broker 只跟 `pgx` + `tellurion-contracts`。已按实际数字订正，全腿证据见文末「全腿关账记录」。
 - **④ 约束与非目标**：不手改版本号、不加 replace；不在本批顺手升无关依赖；analytics 已 v5.11.0 安全，不重复 bump。
 - **⑤ 验收**：7 仓 `govulncheck` 真跑 EXIT=0（E2）；破坏验证 = 临时 pin 回旧版 ⇒ govulncheck 红。各仓 `go build/vet/test` 绿。
 - **⑥ 边界**：协调伞在 core；各仓 pin/CI/AGENTS 改动落各仓 commit。前置 kit 发版归 `KIT-DEP-SECURITY-BUMP`。
@@ -3061,7 +3062,7 @@
 > - **未落（如实）**：其余 6 仓（agent/data/strategy/orch/broker 及 analytics 复核）的 pin/CI/AGENTS 改动按 ⑥ 归各仓，本仓不跨仓修改；伞单在 `docs/TASKS.md` 保持开放。
 
 <a id="X-AGENTS-DEPENDENCY-TABLE"></a>
-### X-AGENTS-DEPENDENCY-TABLE · 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐（W1-F4）[P2] · **core 腿 ✅（2026-11-12）**
+### X-AGENTS-DEPENDENCY-TABLE · 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐（W1-F4）[P2] ✅（2026-11-12）
 
 - **① 目标**：把 6 仓 AGENTS §4 的契约/工具版本列订正到 `go.mod` 实测值，消除「文档说 v0.9.0、实际 v0.10.0」的传播源。
 - **② 上下文**：审查发现 W1-F4（ODR-068）。六仓 AGENTS §4 写 contracts `v0.9.0` vs `go.mod` 实测 `v0.10.0`；core AGENTS:20 写 kit `v0.1.4` vs `go.mod:16` `v0.3.0`；broker AGENTS kit 列待核；core AGENTS:152/:862 的 `:8081` 归属句需订正（data-service 由 tellurion-data 提供）。risk `go.mod:35` indirect 问题归 `RISK-GOMOD-DIRECT`。
@@ -3077,6 +3078,14 @@
 > - **`:8081` 归属句三处订正**：AGENTS §2 前言（`本仓只实现 analysis-service（:8085）；data-service（:8081）源码在 tellurion-data`）、§服务视角（三进程改为「系统有」并逐一点名所属仓）、§13 当前状态（`Data ✅（:8081，源码在 tellurion-data 仓）`）。依据：`cmd/` 下只有 `analysis` / `worker` / `dualrun` / `recon`，无 data-service 进程；仓内 `:8081` 仅作为 `DATA_SERVICE_URL` 缺省值出现在代理客户端。
 > - **验收**：`python tools/check_repo_autonomy.py` GREEN（12 仓 R1~R6，core 的「AGENTS 无依赖章节」为已登记 R3 缺口，未新增）；`check_contract_pin.py` GREEN；`check_doc_links.py` EXIT=0。
 > - **未落（如实）**：其余 5 仓（agent/data/strategy/orch/broker）的 AGENTS §4 改动按 ⑥ 归各仓；core 的 AGENTS 版本列与检查器均在 CI docs job 的既有门禁下。
+
+> **✅ 全腿施工记录（2026-11-12，其余 5 仓逐仓只读取证后关账）**
+>
+> - **已对齐**：agent `8622972`、data `cbae59e`、strategy `d0b3aed`、risk `74cfbf5`、orchestration `d093481` —— 各仓 AGENTS §4 contracts 列 `v0.10.0`（kit 列随 `X-DEP-BUMP-CONSUMERS` 取 `v0.5.0`），与 `go.mod` 实测一致。
+> - **analytics** `19a2246`：kit `v0.5.0`；contracts「未引入」且理由成立（无 `analysis` 包）。
+> - **broker** `984646e`：AGENTS §4 kit 行核实为「未引入（远端最新 `v0.5.0`，2026-11-12 核实）」—— broker `go.mod` / `go.sum` 无 `tellurion-kit`、`go list -m all` 不列；**未为对齐引入依赖**（不需要那层抽象）。此前台账把该行记成「v0.2.0 已过期 ⇒ 缺腿」是**误判**，已在 `X-DEP-BUMP-CONSUMERS` 与本条同步订正。
+> - **复核约束**：只读各仓（`git log` / `grep` / `go.mod`），未改任何他人仓；本轮结束时 11 个兄弟仓 `git status --porcelain` 全空。
+> - **结论**：6 仓 AGENTS §4 与 `go.mod` 逐行一致 —— 关账。
 
 <a id="CORE-REDIS-EXIT"></a>
 ### CORE-REDIS-EXIT · Redis 已退役但死代码/依赖/k8s 清单仍在 [P1] ✅（2026-11-12）
@@ -3562,20 +3571,14 @@
 > - **未做**：未在主栈上真做「停 broker → 重建 analysis」的整栈破坏（本轮复用栈在跑全栈验收，且 2026-11-11 冷启动三次全绿已覆盖正向；隔离容器腿覆盖了同一 entrypoint 的失败分支）。
 > - **门禁**：`docker compose config --quiet` / `--profile full config --quiet` / `check_doc_links.py` / `check_deploy_consistency.py` 全 exit 0。
 
-<a id="X-DEP-BUMP-CONSUMERS"></a>
-### X-DEP-BUMP-CONSUMERS · 7 消费仓 bump kit pin + govulncheck 门（W5-F1 连带）[P0] ✅（2026-11-12）
-
-- **① 目标**：kit 安全 bump（`KIT-DEP-SECURITY-BUMP`）发版后，7 个消费仓把 kit pin 升到安全版并各补一条 `govulncheck` CI 门，让 GO-2026-5004（pgx SQLi）等漏洞在消费侧真闭合。
-- **② 上下文**：审查发现 W5-F1（ODR-072）+ 裁决 D1=b（pgx 一步收敛 v5.11.0）。GO-2026-5004 影响 7 仓（core/agent/data/strategy/risk/orch/broker），fixed v5.9.2；x/net×4（fixed v0.60.0）8 仓、x/text×2 9 仓。kit 是依赖底座，bump 后消费仓须跟升 pin 才真生效。前置 = `KIT-DEP-SECURITY-BUMP` + `BROKER-DEP-BUMP` + `UI-NPM-AUDIT-FIX`。
-- **③ 要求**：① kit 发安全版后，7 消费仓 `go get tellurion-kit@vX` + `go mod tidy`（只升 tag，禁 replace）；② 各仓 CI 增 `govulncheck ./...` 门；③ 各仓 AGENTS §4 依赖表同批更新（与 `X-AGENTS-DEPENDENCY-TABLE` 联动）；④ pgx 收敛到 v5.11.0 一步到位（D1=b），登记三档并存的代价。
-- **④ 约束与非目标**：不手改版本号、不加 replace；不在本批顺手升无关依赖；analytics 已 v5.11.0 安全，不重复 bump。
-- **⑤ 验收**：7 仓 `govulncheck` 真跑 EXIT=0（E2）；破坏验证 = 临时 pin 回旧版 ⇒ govulncheck 红。各仓 `go build/vet/test` 绿。
-- **⑥ 边界**：协调伞在 core；各仓 pin/CI/AGENTS 改动落各仓 commit。前置 kit 发版归 `KIT-DEP-SECURITY-BUMP`。
-- **core 腿（2026-11-12 已完成，见 [归档](tasks-archive-2026-11.md#X-DEP-BUMP-CONSUMERS)）**：`go.mod` kit `v0.5.0` / pgx `v5.11.0` / `go 1.26.11`，CI 增 `govulncheck` 门并三处 `setup-go` 对齐；破坏验证（pgx 回 v5.7.3 ⇒ GO-2026-5004 红）真做真还原。
-- **owner**：待定
-- **重开条件**：`KIT-DEP-SECURITY-BUMP` 发版（tag 推远端 + proxy 可解析）。
+### X-DEP-BUMP-CONSUMERS · 全腿关账记录（2026-11-12）
 
 > **施工记录（2026-11-12，逐仓只读取证 + 独立复跑 govulncheck 后关账）**
+>
+> **订正（2026-11-12 复核发现）**：本条原文 ①③ 把 broker 列为 kit 消费仓 —— 实测**不成立**：
+> broker `go.mod` / `go.sum` 均无 `tellurion-kit`，`go list -m all` 也不列，只跟 `pgx v5.11.0` +
+> `tellurion-contracts v0.10.0`。故 **kit pin 腿实际是 6 仓**（core/agent/data/strategy/risk/orchestration），
+> broker 只参与「pgx 收敛 + 工具链 + govulncheck」腿；**不为对齐而给 broker 引入 kit**（它不需要那层抽象）。
 >
 > **各腿证据（仓 / 文件 / 提交 / 当前内容）** —— 版本均为 2026-11-12 直接读 `go.mod` 实测：
 >
@@ -3587,7 +3590,7 @@
 > | strategy | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `ea9bc29`（pin）、`6edfa82`（Dockerfile） | 有 |
 > | risk | kit `v0.5.0` / pgx `v5.11.0` / go `1.26.11` | `c19634a`（pin）、`fa60378`（govulncheck 回补）、`a6e4eb2`（基础镜像） | 有 |
 > | orchestration | kit `v0.5.0` / contracts `v0.10.0` / go `1.26.11` | `d093481`（pin）、`4a7112c`（govulncheck 回补） | 有 |
-> | broker | contracts `v0.10.0` / pgx `v5.11.0` / x/text `v0.44.0` / go `1.26.11`（**无 kit 依赖**） | `9064049`（`BROKER-DEP-BUMP`）、`afeb2ee`（govulncheck）、`a6da189`（工具链对齐） | 有 |
+> | broker | contracts `v0.10.0` / pgx `v5.11.0` / x/text `v0.44.0` / go `1.26.11`（**未引入 kit**：`go.mod`/`go.sum` 无、`go list -m all` 不列） | `9064049`（`BROKER-DEP-BUMP`）、`afeb2ee`（govulncheck）、`a6da189`（工具链对齐）、`984646e`（AGENTS kit 行核实为「未引入 + 远端最新 v0.5.0」） | 有 |
 > | analytics | kit `v0.5.0` / go `1.26.11`（无 contracts / pgx 直接依赖） | `19a2246`（pin）、`f859e0b`（govulncheck 回补） | 有 |
 >
 > **独立复跑（⑤ 的 E2，本轮真做）**：`go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
@@ -3598,7 +3601,9 @@
 > **破坏验证**：core 腿在 2026-11-12 已真做真还原（pgx 回 `v5.7.3` ⇒ GO-2026-5004 红）；其余各仓在各自
 > 施工记录中登记「临时 pin 回旧版 ⇒ 红 / 还原复绿」。本轮受「核实阶段只读」约束，**未在其余仓重复降版**。
 >
-> **结论**：7/7 消费仓 pin 与 govulncheck 门齐备，且 7 仓独立复跑 EXIT=0 —— 关账。
+> **结论**：**6 个 kit 消费仓**（core/agent/data/strategy/risk/orchestration）pin 均为 `v0.5.0`；
+> **broker 未引入 kit**（不是 pin 落后，也不应为此引入）；7 仓 pgx `v5.11.0` / go `1.26.11` 对齐且
+> `govulncheck` 门齐备，独立复跑 EXIT=0 —— 关账。
 
 <a id="X-LOW-CLEANUP"></a>
 ### X-LOW-CLEANUP · 低优先整洁度残留打包（W6/W2 清单外顺手发现）[P3] ✅（2026-11-12）
