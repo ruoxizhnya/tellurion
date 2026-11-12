@@ -710,9 +710,11 @@ func errRequiredFactorsUnavailable(strategyName string, missing []cdom.FactorTyp
 	}
 	sort.Strings(names)
 	return apperrors.New(apperrors.ErrCodeDataQuality, fmt.Sprintf(
-		"strategy %q requires factor cache for [%s], but public.factor_cache has no entries in %s..%s. "+
-			"The current stack has no factor-cache writer (core's sync/factors/all route no longer exists and "+
-			"data-service does not serve factors), so the run would silently produce zero signals. Refusing to run.",
+		"strategy %q requires factors [%s], but none could be materialized for %s..%s. "+
+			"public.factor_cache is a retired legacy table (no writer, and the coverage gate no longer reads it); "+
+			"on-demand evaluation (ADR-037 D2) also produced no valid cross-section — the input fields are missing, "+
+			"or the factor kernel is code/pending and cannot be derived. The run would silently produce zero signals. "+
+			"Refusing to run.",
 		strategyName, strings.Join(names, " "), start.Format("2006-01-02"), end.Format("2006-01-02"))).
 		WithOperation("RunBacktest")
 }
@@ -1050,14 +1052,8 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		logger.Info().Msg("Factor cache warm-up completed")
 	}
 
-	// 因子覆盖度闸（2026-11-11）：策略声明的必需因子**整体**无缓存时拒跑。
-	// 必须放在任何结果行之前 —— 本栈的 factor_cache 有表无写者，放过去就会
-	// 得到一份「合法的零成交回测」，读起来像策略不赚钱。
-	if err := rc.ensureRequiredFactors(params.StrategyName); err != nil {
-		return nil, err
-	}
-
-	// P2-12：只有声明了要财报的策略才会真的去查。
+	// P2-12：只有声明了要财报的策略（或必需因子用到财报字段）才会真的去查。
+	// 必须早于因子派生：value(1/pe) 与 quality(roe) 靠这份数据现场求值。
 	if err := rc.warmFundamentalsIfNeeded(ctx, params.StrategyName, params.StockPool, params.EndDate); err != nil {
 		logger.Warn().Err(err).Msg("Fundamentals warm-up failed — 用了 pe/pb/roe 的表达式会明确失败（不会静默当 0）")
 	}
@@ -1119,6 +1115,24 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 	logger.Info().
 		Int("run_universe", len(runUniverse)).
 		Msg("RunUniverse frozen — symbol indexing is stable for the whole run (QT-23)")
+
+	// ADR-037 D2：按需求值 —— 必需因子在 run 级缓存里仍缺时，用本 run 的
+	// 行情 + 财报现场算横截面 z-score，物化到 run 私有缓存（不写库）。
+	// 放在 RunUniverse 冻结之后：截面就是本 run 的票池超集，日期轴与日循环
+	// 读到的 tradingDays 逐字一致。
+	if derived, derr := rc.deriveMissingFactors(ctx, params.StrategyName, runUniverse, tradingDays); derr != nil {
+		logger.Warn().Err(derr).Msg("On-demand factor derivation failed — coverage gate will fail closed if factors are still missing")
+	} else if derived > 0 {
+		logger.Info().Int("factors", derived).
+			Msg("On-demand factor derivation completed (ADR-037 D2, run-scoped memory only)")
+	}
+
+	// 因子覆盖度闸（2026-11-11，2026-11-12 改口径）：只读 run 级物化结果。
+	// 必须放在按需求值之后、任何结果行之前 —— 放前面会把「能算出来」当成
+	// 「没有因子」；放过去则得到一份看起来像「策略不赚钱」的零成交回测。
+	if err := rc.ensureRequiredFactors(params.StrategyName); err != nil {
+		return nil, err
+	}
 
 	// QT-25：symbol scope 的分片调度需要整段行情（按标的跑完再换下一批）。
 	// 预热 RunUniverse（此前只预热了 StockPool；指数成分可能更多）。预热失败

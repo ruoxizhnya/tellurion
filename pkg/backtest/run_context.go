@@ -157,13 +157,27 @@ func (rc *runContext) warmFactorCache(ctx context.Context) error {
 	return rc.factor.Warm(ctx, rc.start, rc.warmEnd, store)
 }
 
-// ensureRequiredFactors 是「因子覆盖度闸」：策略声明的必需因子**整体**
-// 一条缓存都没有时拒跑。
+// factorCoverage 返回必需因子中「run 级物化缓存仍无条目」的那些。
 //
-// 为什么必须在这里拦（2026-11-11 真栈实测）：`Warm` 空结果只打 Info 就继续，
-// 策略随后读到的全是「不存在」，generateSignalsFromFactorCache 逐票 continue，
-// 最后以 invalid/zero_trades 收场 —— 那个结论看起来像「策略不赚钱」，
-// 实际是「库里没有因子」。缺因子必须响亮失败，不能伪装成一份空的回测。
+// **唯一判据入口**：闸只认 run 级物化结果（DB 预热 + 按需求值合并后的
+// 那份 run 私有缓存）。`public.factor_cache` 已退役为遗留表（无写者、
+// 门禁不读它），任何「去库里看有没有因子」的判断都会把一张永远空的表
+// 当成「管线坏了」——破坏验证就是把这个函数改回读 DB，用例必须变红。
+func (rc *runContext) factorCoverage(required []cdom.FactorType) []cdom.FactorType {
+	return rc.factor.MissingFactors(required)
+}
+
+// ensureRequiredFactors 是「因子覆盖度闸」：策略声明的必需因子**整体**
+// 一条物化结果都没有时拒跑。
+//
+// 为什么必须在这里拦（2026-11-11 真栈实测）：策略读到的全是「不存在」时，
+// generateSignalsFromFactorCache 逐票 continue，最后以 invalid/zero_trades
+// 收场 —— 那个结论看起来像「策略不赚钱」，实际是「没有因子」。缺因子必须
+// 响亮失败，不能伪装成一份空的回测。
+//
+// 2026-11-12 改口径：判据从「库里的 factor_cache 有没有条目」改为「本 run
+// 按需求值后有没有物化结果」。这张表已退役（ADR-037 修订），看它等于
+// 让门禁永远看到空表 —— 内存物化做好了多因子照样 409。
 //
 // 判据的三条边界（都来自任务单）：
 //   - 只看**条目有无**，不看 z-score 取值：某因子本期全为 0 是正常数据；
@@ -185,7 +199,7 @@ func (rc *runContext) ensureRequiredFactors(strategyName string) error {
 		return nil
 	}
 
-	missing := rc.factor.MissingFactors(required)
+	missing := rc.factorCoverage(required)
 	if len(missing) == 0 {
 		return nil
 	}
@@ -203,17 +217,30 @@ func (rc *runContext) ensureRequiredFactors(strategyName string) error {
 	return errRequiredFactorsUnavailable(strategyName, missing, rc.start, rc.warmEnd)
 }
 
-// warmFundamentalsIfNeeded 只在策略声明要财报时预热一次（P2-12）。
-// 三个「不」的原文口径见 engine.go 同名注释的历史版本，语义未变：
-// 策略不要就不查、只查一次、失败不阻断 —— 变的只有「写给谁」。
+// warmFundamentalsIfNeeded 只在「策略声明要财报」或「必需因子的输入字段
+// 命中财报」时预热一次（P2-12；2026-11-12 扩到因子派生）。
+//
+// 为什么扩：ADR-037 D2 的按需求值要现场算 value(1/pe) 与 quality(roe)，
+// 而 multi_factor 本身不是 FundamentalAware —— 只按策略声明判断，派生
+// 时 provider 会因「没有财报数据」明确报错，因子照旧缺失。三个「不」的
+// 原文口径不变：不需要就不查、只查一次、失败不阻断。
 func (rc *runContext) warmFundamentalsIfNeeded(ctx context.Context, strategyName string, symbols []string, asOf time.Time) error {
 	// QT-11：类型探测走 NewInstance（执行路径不许摸注册表里的共享实例）。
 	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
 	if err != nil {
 		return nil // 本地注册表没有该策略（未加载/拼错）：不预热
 	}
-	if _, ok := strat.(strategy.FundamentalAware); !ok {
-		return nil // 价量策略：不付这份查询成本
+	needFundamentals := false
+	if _, ok := strat.(strategy.FundamentalAware); ok {
+		needFundamentals = true
+	}
+	if !needFundamentals {
+		if fd, ok := strat.(strategy.FactorDependent); ok {
+			needFundamentals = len(factorsNeedFundamentals(fd.RequiredFactors())) > 0
+		}
+	}
+	if !needFundamentals {
+		return nil // 价量策略且因子不依赖财报：不付这份查询成本
 	}
 
 	rc.e.mu.RLock()

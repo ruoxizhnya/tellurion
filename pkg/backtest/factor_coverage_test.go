@@ -35,6 +35,30 @@ func seedFactors(eng *Engine, z float64, factors ...cdom.FactorType) {
 	eng.LoadFactorCache(seed)
 }
 
+// noBarsAxisProvider 有完整交易日日历、但没有任何行情。
+//
+// 用来把 run 推到「因子覆盖度闸」这一站：日历完整 ⇒ 过覆盖度校验；
+// 行情为空 ⇒ 按需求值算不出任何截面 ⇒ 闸必须拒跑。
+type noBarsAxisProvider struct {
+	mockProvider
+	days []time.Time
+}
+
+func (p *noBarsAxisProvider) GetTradingDays(_ context.Context, start, end time.Time) ([]time.Time, error) {
+	out := make([]time.Time, 0, len(p.days))
+	for _, d := range p.days {
+		if !d.Before(start) && !d.After(end) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+func (p *noBarsAxisProvider) CheckCalendarExists(ctx context.Context, start, end time.Time) (bool, error) {
+	days, err := p.GetTradingDays(ctx, start, end)
+	return len(days) > 0, err
+}
+
 func TestEnsureRequiredFactors_AllMissingRefuses(t *testing.T) {
 	eng := newTestEngine(t)
 	rc := newTestRunSpan(t, eng, domain.BacktestParams{StrategyName: "multi_factor"})
@@ -55,10 +79,11 @@ func TestEnsureRequiredFactors_AllMissingRefuses(t *testing.T) {
 		t.Fatalf("操作名应当保留，实际 %q", appErr.Operation)
 	}
 
-	// 文案必须点名缺哪些因子 + 指向「没有写入者」这一事实，否则运维只能看到
-	// 一句「没有因子」，仍不知道是数据没同步还是管线根本不存在。
+	// 文案必须点名缺哪些因子 + 说清「表已退役、按需求值也没算出来」，否则
+	// 运维只能看到一句「没有因子」，仍不知道是数据没同步、还是管线根本
+	// 不存在、还是输入字段缺失。
 	msg := appErr.Message
-	for _, want := range []string{"multi_factor", "momentum", "quality", "value", "no factor-cache writer"} {
+	for _, want := range []string{"multi_factor", "momentum", "quality", "value", "retired", "on-demand"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("错误文案缺少 %q：%s", want, msg)
 		}
@@ -99,8 +124,13 @@ func TestEnsureRequiredFactors_PriceOnlyStrategyUnaffected(t *testing.T) {
 }
 
 // RunBacktest 层：全空时在产出任何结果之前就返回错误。
+//
+// 2026-11-12：原本挂 `mockProvider{}`（交易日轴为空），重排后会在
+// 「no trading days」处提前失败 —— 那样这条用例就不再验证因子闸了。
+// 换成显式替身：有交易日轴、没有任何行情，让流程真正走到因子闸。
 func TestRunBacktest_AllFactorsMissingReturnsErrorNoResult(t *testing.T) {
-	eng := newTestEngineWithProvider(t, &mockProvider{})
+	prov := &noBarsAxisProvider{days: weekdayDays(mustDate("2023-12-01"), mustDate("2024-02-15"))}
+	eng := newTestEngineWithProvider(t, prov)
 	eng.admission = nil
 
 	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
@@ -112,6 +142,10 @@ func TestRunBacktest_AllFactorsMissingReturnsErrorNoResult(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("因子全缺时必须返回错误，实际拿到了结果")
+	}
+	// 必须真的败在因子闸（而不是更早的「没有交易日」分支）。
+	if !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("应当败在因子覆盖度闸，实际错误：%v", err)
 	}
 	// RunBacktest 的契约是「失败也回一份 failed 信封」（handler 只认 err），
 	// 所以这里断言的是：信封里没有任何成交/权益行，状态是 failed ——

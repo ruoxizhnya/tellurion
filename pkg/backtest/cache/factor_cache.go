@@ -242,6 +242,36 @@ func (f *FactorCacheAccessor) MissingFactors(factors []cdom.FactorType) []cdom.F
 	return missing
 }
 
+// Merge 把一批按需求值得到的 z-score 并入当前缓存（而非整体替换）。
+//
+// 与 Load 的区别：Load 是「整份换掉」，Merge 是「补缺失/覆盖同键」，用于
+// ADR-037 D2 的消费点按需求值 —— 已从 DB warm 到的因子保留，算出来的补进来，
+// 同 (factor,date,symbol) 以本次计算值为准。quintile 缓存随之整体重建。
+func (f *FactorCacheAccessor) Merge(data map[cdom.FactorType]map[time.Time]map[string]float64) {
+	if len(data) == 0 {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cache == nil {
+		f.cache = make(map[cdom.FactorType]map[time.Time]map[string]float64, len(data))
+	}
+	for factor, byDate := range data {
+		if f.cache[factor] == nil {
+			f.cache[factor] = make(map[time.Time]map[string]float64, len(byDate))
+		}
+		for date, bySymbol := range byDate {
+			if f.cache[factor][date] == nil {
+				f.cache[factor][date] = make(map[string]float64, len(bySymbol))
+			}
+			for symbol, z := range bySymbol {
+				f.cache[factor][date][symbol] = z
+			}
+		}
+	}
+	f.quintileCache = buildQuintileCache(f.cache)
+}
+
 // Warm 从 store 批量预热 3 类常用因子（momentum/value/quality）。
 // store 为 nil 时 no-op；具体因子加载失败时打 Warn 不中断。
 //
