@@ -12,11 +12,14 @@ package backtest
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
+	"tellurion/pkg/domain"
+	"tellurion/pkg/strategy"
 	_ "tellurion/pkg/strategy/plugins" // 内置策略靠 init() 注册
 )
 
@@ -46,4 +49,57 @@ func TestValueScreeningMultiStockRunIsInvalidWithDataGap(t *testing.T) {
 		"每个因输入不可得被跳过的交易日都必须汇总成 data_gap_skipped")
 	assert.NotEqual(t, StatusFailed, resp.Status,
 		"策略输入不可得是数据缺口类，不是策略故障")
+}
+
+// TestValueScreeningMultiStockRunSelectsWithInjectedValueInputs 是上一条的对偶：
+// 注入每日可比的 daily_basic 快照 + ROE 后，多票价值筛选必须真的产出成交，
+// 且 run 正常 completed —— 证明「价值维度参与」不是靠缺口兜底，而是能跑通。
+func TestValueScreeningMultiStockRunSelectsWithInjectedValueInputs(t *testing.T) {
+	const numDays = 90
+	eng, _, symbols := buildSyntheticEngine(t, 5, numDays, 1)
+
+	start := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	pe, pb, roe := 10.0, 1.0, 0.2
+	snapshot := make(map[string][]domain.DailyBasicValuation, len(symbols))
+	for _, sym := range symbols {
+		series := make([]domain.DailyBasicValuation, 0, numDays)
+		for d := 0; d < numDays; d++ {
+			p, b := pe, pb
+			series = append(series, domain.DailyBasicValuation{
+				TsCode: sym, TradeDate: start.AddDate(0, 0, d),
+				PE: &p, PESource: domain.DailyBasicPESourceTTM,
+				PB: &b, PBSource: domain.DailyBasicPBSourceReported,
+			})
+		}
+		snapshot[sym] = series
+	}
+	eng.SetDailyBasicValuations(snapshot)
+
+	fundamentals := make(map[string]strategy.FundamentalSeries, len(symbols))
+	for _, sym := range symbols {
+		r := roe
+		fundamentals[sym] = strategy.FundamentalSeries{
+			{Symbol: sym, Date: start.AddDate(0, 0, -1), ROE: &r},
+		}
+	}
+	eng.SetFundamentals(fundamentals)
+
+	resp, err := eng.RunBacktest(context.Background(), BacktestRequest{
+		Strategy:       "value_screening",
+		StrategyParams: map[string]any{"rebalance_frequency": "daily", "top_n": 3},
+		StockPool:      symbols,
+		StartDate:      "2024-01-02",
+		EndDate:        "2024-03-31",
+		InitialCapital: 1_000_000,
+		RiskFreeRate:   0.03,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.Equal(t, StatusCompleted, resp.Status,
+		"价值输入齐全时 run 必须 completed，invalid=%v", resp.InvalidReasons)
+	assert.NotContains(t, resp.InvalidReasons, contracts.CodeDataGapSkipped,
+		"输入齐全时不应产生 data_gap_skipped")
+	assert.Greater(t, resp.TotalTrades, 0,
+		"价值条件全部满足且有动量时应该真的成交，而不是空跑")
 }

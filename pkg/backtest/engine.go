@@ -163,6 +163,15 @@ type Engine struct {
 	// 受 e.mu 保护：Engine 实例是共享的，多个回测可以并发跑。
 	fundamentals map[string]strategy.FundamentalSeries
 
+	// L1 逐日估值快照（CORE-STRATEGY-SCREEN-LOCAL-VALUE）：symbol →
+	// 按 trade_date 升序的 market.daily_basic 行。
+	//
+	// 只在策略声明 strategy.ValuationAware 时预热一次；回测期间按回放日做
+	// PIT 截取（trade_date <= 决策日），不做运行时查询。
+	// 受 e.mu 保护：Engine 实例是共享的，多个回测可以并发跑。
+	// **装配期种子**（QT-12）：run 期间读写的是 runContext 里那份副本。
+	dailyBasic map[string][]domain.DailyBasicValuation
+
 	// L1 上市日历（P2-4）：symbol → 在市区间（上市日 / 摘牌日）。
 	//
 	// 空 map = 没有这份数据，引擎**不过滤**并如实上报（偏差维会带
@@ -1064,6 +1073,13 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		logger.Warn().Err(err).Msg("Fundamentals warm-up failed — 用了 pe/pb/roe 的表达式会明确失败（不会静默当 0）")
 	}
 
+	// CORE-STRATEGY-SCREEN-LOCAL-VALUE：只有声明 ValuationAware 的策略才会
+	// 预热 market.daily_basic 逐日估值。窗口 [start, end] + start 前一条；
+	// 回测期间只读快照，按回放日做 PIT 截取。
+	if err := rc.warmValuationsIfNeeded(ctx, params.StrategyName, params.StockPool, params.StartDate, params.EndDate); err != nil {
+		logger.Warn().Err(err).Msg("DailyBasic valuation warm-up failed — 价值筛选会明确报数据缺口（不会静默空选）")
+	}
+
 	// D6：只有声明了要日内特征的策略才会真的去预热（同财报范式）。
 	// 快照在启动前一次取完全区间；回测期间策略只读快照 —— 运行时
 	// 查询 provider 是红线（蓝图 §4.3）。
@@ -1543,6 +1559,17 @@ func (e *Engine) SetFundamentals(records map[string]strategy.FundamentalSeries) 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.fundamentals = records
+}
+
+// SetDailyBasicValuations 让调用方直接注入逐日估值快照，跳过预热。
+//
+// 给测试与「没有 Postgres 也想跑价值策略」的场景留的门。格式要求：
+// symbol → 按 trade_date 升序的 domain.DailyBasicValuation（PIT 截取由
+// 引擎按回放日做；金额单位必须是元，存储层负责万元换算）。
+func (e *Engine) SetDailyBasicValuations(snapshot map[string][]domain.DailyBasicValuation) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.dailyBasic = snapshot
 }
 
 // SetListingWindows 让调用方直接注入上市日历（P2-4），跳过预热。

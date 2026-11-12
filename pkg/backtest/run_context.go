@@ -57,6 +57,10 @@ type runContext struct {
 	fundamentals map[string]strategy.FundamentalSeries
 	listing      map[string]ListingWindow
 	intraday     map[string][]domain.OHLCV
+	// dailyBasic 是本 run 的逐日估值快照（symbol → 按 trade_date 升序）。
+	// 只在策略声明 ValuationAware 时预热一次；回测期间按回放日做 PIT 截取，
+	// 不做运行时查询（蓝图 §4.3 红线）。
+	dailyBasic map[string][]domain.DailyBasicValuation
 
 	// provider 是本 run 的信号供给（QT-11 的 run 级实例缓存在它里面）。
 	provider strategy.SignalProvider
@@ -97,6 +101,7 @@ func newRunContext(e *Engine, params domain.BacktestParams) *runContext {
 	seedFundamentals := e.fundamentals
 	seedListing := e.listing
 	seedIntraday := e.intraday
+	seedDailyBasic := e.dailyBasic
 	seedWorkers := e.parallelWorkers
 	e.mu.RUnlock()
 
@@ -111,6 +116,7 @@ func newRunContext(e *Engine, params domain.BacktestParams) *runContext {
 		fundamentals: seedFundamentals,
 		listing:      seedListing,
 		intraday:     seedIntraday,
+		dailyBasic:   seedDailyBasic,
 		start:        params.StartDate,
 		end:          params.EndDate,
 		warmEnd:      params.EndDate,
@@ -257,6 +263,101 @@ func (rc *runContext) warmFundamentalsIfNeeded(ctx context.Context, strategyName
 	return nil
 }
 
+// warmValuationsIfNeeded 预热 run 内逐日估值快照（CORE-STRATEGY-SCREEN-LOCAL-VALUE）。
+//
+// 范式同 warmFundamentalsIfNeeded：策略不要就不查、只查一次、失败不阻断
+// （run 流程会打 Warn；策略用到价值条件时以 ErrDataGap 明确失败，不静默
+// 退回纯动量）。
+//
+// 数据源是 `market.daily_basic`（写者归 tellurion-data）。窗口取
+// `[start, end]`，另取 start 之前最近一条 —— 首个决策日若恰好是周末/停牌，
+// 按 `trade_date <= 决策日` 的 PIT 口径仍要有可用估值，否则会造出假的
+// 零覆盖缺口。
+func (rc *runContext) warmValuationsIfNeeded(
+	ctx context.Context, strategyName string, symbols []string, start, end time.Time,
+) error {
+	strat, err := strategy.DefaultRegistry.NewInstance(strategyName)
+	if err != nil {
+		return nil // 本地注册表没有该策略：与估值预热无关
+	}
+	if _, ok := strat.(strategy.ValuationAware); !ok {
+		return nil // 不用价值维度的策略：不付这份查询成本
+	}
+
+	rc.mu.RLock()
+	seeded := rc.dailyBasic
+	rc.mu.RUnlock()
+	if len(seeded) > 0 {
+		rc.e.logger.Info().
+			Int("symbols", len(seeded)).
+			Msg("DailyBasic valuation snapshot already seeded — skip warm-up")
+		return nil
+	}
+
+	rc.e.mu.RLock()
+	store := rc.e.store
+	rc.e.mu.RUnlock()
+	if store == nil {
+		// 装配缺口不许静默（同 intraday 范式）：策略明确要价值维度，而
+		// 进程里没有 DB —— 没有快照可预热，value_screen 随后会报数据缺口。
+		rc.e.logger.Warn().
+			Str("strategy", strategyName).
+			Msg("store 未装配 —— 估值快照不会预热；价值筛选将明确报数据缺口（缺失≠0，不静默空选）")
+		return nil
+	}
+
+	prior, err := store.GetDailyBasicValuations(ctx, symbols, start.AddDate(0, 0, -1))
+	if err != nil {
+		return err
+	}
+	history, err := store.GetDailyBasicHistory(ctx, symbols, start, end)
+	if err != nil {
+		return err
+	}
+
+	merged := mergeDailyBasicSnapshot(prior, history)
+	rc.mu.Lock()
+	rc.dailyBasic = merged
+	rc.mu.Unlock()
+
+	rows := 0
+	for _, series := range merged {
+		rows += len(series)
+	}
+	rc.e.logger.Info().
+		Int("symbols", len(symbols)).
+		Int("stocks_with_valuations", len(merged)).
+		Int("valuation_rows", rows).
+		Time("start", start).
+		Time("end", end).
+		Msg("DailyBasic valuation snapshot warm-up completed")
+	return nil
+}
+
+// mergeDailyBasicSnapshot 把「start 之前最近一条」与区间内逐日行拼成
+// 按日期升序的序列。区间行本身已升序（storage 契约）。
+func mergeDailyBasicSnapshot(
+	prior map[string]domain.DailyBasicValuation,
+	history map[string][]domain.DailyBasicValuation,
+) map[string][]domain.DailyBasicValuation {
+	out := make(map[string][]domain.DailyBasicValuation, len(history)+len(prior))
+	for symbol, rows := range history {
+		out[symbol] = rows
+	}
+	for symbol, p := range prior {
+		rows := out[symbol]
+		// prior 严格早于 start；若区间首行与它同日（理论上不会），以区间行为准。
+		if len(rows) > 0 && !rows[0].TradeDate.After(p.TradeDate) {
+			continue
+		}
+		merged := make([]domain.DailyBasicValuation, 0, len(rows)+1)
+		merged = append(merged, p)
+		merged = append(merged, rows...)
+		out[symbol] = merged
+	}
+	return out
+}
+
 // warmIntradayIfNeeded 预热日内分钟快照（D6；范式同 warmFundamentalsIfNeeded）。
 // 三个「不」不变：策略不要就不查、只走 Router、失败不阻断。
 func (rc *runContext) warmIntradayIfNeeded(ctx context.Context, strategyName string, symbols []string, start, end time.Time) error {
@@ -323,6 +424,13 @@ func (rc *runContext) fundamentalsSnapshot() map[string]strategy.FundamentalSeri
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.fundamentals
+}
+
+// dailyBasicSnapshot 返回本 run 的逐日估值快照（只读语义同上）。
+func (rc *runContext) dailyBasicSnapshot() map[string][]domain.DailyBasicValuation {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.dailyBasic
 }
 
 // intradaySnapshot 返回本 run 的日内快照（只读语义同上）。
@@ -441,6 +549,7 @@ func (rc *runContext) newSignalProvider(strategyName string) strategy.SignalProv
 	// 引擎级 method value 会让本 run 读到别的 run 写进引擎的那份。
 	p.SetFactorReader(rc.factorZScore)
 	p.SetFundamentalsProvider(rc.fundamentalsSnapshot)
+	p.SetValuationProvider(rc.dailyBasicSnapshot)
 	return p
 }
 

@@ -25,12 +25,23 @@ type FundamentalsReader interface {
 	GetFundamentalsPITBulk(ctx context.Context, symbols []string, asOf time.Time) (map[string][]domain.Fundamental, error)
 }
 
+// ValuationReader 是个股日频估值 PIT 取数端口。
+//
+// 口径与 storage 的同名方法逐字一致：只返回 `trade_date <= asOf` 的最近一条；
+// 区间方法只返回 [start, end] 内的逐日行、按票与日期升序。缺失的 symbol
+// 不出现在 map 里（「没有行」与「有行但 PE/PB 为 NULL」是两种缺失）。
+type ValuationReader interface {
+	GetDailyBasicValuations(ctx context.Context, symbols []string, asOf time.Time) (map[string]domain.DailyBasicValuation, error)
+	GetDailyBasicHistory(ctx context.Context, symbols []string, start, end time.Time) (map[string][]domain.DailyBasicValuation, error)
+}
+
 // Storage 是引擎对持久化层的全部需求。
 //
-// 三个能力各自独立，组合在这里只为让装配层一次 `SetStore` 完成接线；
+// 各能力独立，组合在这里只为让装配层一次 `SetStore` 完成接线；
 // 任何实现只要方法集齐全就能注入（测试可用内存替身，不必起 PG）。
 type Storage interface {
 	FundamentalsReader
+	ValuationReader
 	RunProvenanceWriter
 	AdjustmentAnchorStore
 }

@@ -191,6 +191,10 @@ type LocalSignalProvider struct {
 	registry     *Registry
 	factorReader FactorZScoreReader
 	fundamentals func() map[string]FundamentalSeries
+	// valuations 是 run 内逐日估值快照供给（CORE-STRATEGY-SCREEN-LOCAL-VALUE）。
+	// 每个回放日按 asOf 绑定成 PIT 读取器注入 ValuationAware 策略；
+	// 引擎不接时保持 nil，策略用到价值条件时明确报数据缺口。
+	valuations func() map[string][]domain.DailyBasicValuation
 	// intraday 是日内分钟特征供给（D6）。nil = 引擎没接日内快照
 	// （没配 Router / 没预热），IntradayAware 策略拿不到供给，
 	// 用到特征时明确失败（契约注释口径）。
@@ -272,6 +276,11 @@ func (p *LocalSignalProvider) SetFactorReader(r FactorZScoreReader) {
 // SetFundamentalsProvider 绑定基本面快照供给（对应 FundamentalAware 注入）。
 func (p *LocalSignalProvider) SetFundamentalsProvider(f func() map[string]FundamentalSeries) {
 	p.fundamentals = f
+}
+
+// SetValuationProvider 绑定 run 内逐日估值快照供给（对应 ValuationAware 注入）。
+func (p *LocalSignalProvider) SetValuationProvider(f func() map[string][]domain.DailyBasicValuation) {
+	p.valuations = f
 }
 
 // SetIntradayProvider 绑定日内分钟特征供给（D6，对应 IntradayAware 注入）。
@@ -387,6 +396,16 @@ func (p *LocalSignalProvider) Signals(ctx context.Context, scope Scope, asOf tim
 	}
 	if fu, ok := strat.(FundamentalAware); ok && p.fundamentals != nil {
 		fu.SetFundamentals(p.fundamentals())
+	}
+	// 估值快照按回放日绑定：策略拿到的是「截至 asOf」的 PIT 视图，
+	// 不会看到未来行。供给为 nil 时显式清空（策略实例跨日复用，
+	// 留着昨天的 reader 等于让今天用旧快照）。
+	if va, ok := strat.(ValuationAware); ok {
+		if p.valuations != nil {
+			va.SetValuationReader(NewValuationReader(p.valuations(), asOf))
+		} else {
+			va.SetValuationReader(nil)
+		}
 	}
 	// D6：日内特征注入。nil 供给时不注入 —— 策略保留旧状态（没拿到
 	// 就没有），用到特征时明确失败，不塞空 provider 假装有数据。

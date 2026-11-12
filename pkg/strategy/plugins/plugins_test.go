@@ -194,7 +194,14 @@ func TestValueScreeningStrategy_WithMockData(t *testing.T) {
 		"600001.SH": createTestBars("600001.SH", 70, "up"),
 	}
 
-	// 单票模式走本地价量动量路径，不需要外部价值筛选服务。
+	// 价值维度的输入按「决策日（最新 bar 日期）」注入 PIT 快照。
+	asOf := bars["600001.SH"][len(bars["600001.SH"])-1].Date
+	setValueInputs(s, asOf,
+		map[string]float64{"600001.SH": 10},
+		map[string]float64{"600001.SH": 1},
+		map[string]float64{"600001.SH": 0.2})
+
+	// 单票与多票走同一条价值筛选路径：条件生效后只按动量排名出信号。
 	signals, err := s.GenerateSignals(context.Background(), bars, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, signals)
