@@ -683,8 +683,15 @@ func TestQT31_5000SymbolsWithinShardBudget(t *testing.T) {
 	}
 	meta := qt31ScaleMeta("qt31-5000", universe, days)
 
+	// 本用例断言的是「5000 个分片都跑完 + 实例/内存峰值落在预算内」，不是单次
+	// 延迟。race 构建下 5000 分片的合法调用会偶发越过冻结的 5ms 单次预算
+	// （CI 43225785786：A3774.SZ: module closed with context deadline exceeded；
+	// 同一份代码在 43225020965 是绿的 ⇒ 抖动，不是回归）。故这里沿用
+	// qt31_percall_race_test.go 的构建模式分档常量：普通构建仍是 5ms。
+	budget := wasmShardTestBudget(workers)
+	budget.PerCall = qt31PerCallBudget
 	p := qt31Provider(qt31StateMachineArtifact(), wasmShardConfig{
-		Budget: wasmShardTestBudget(workers),
+		Budget: budget,
 	})
 
 	started := time.Now()
