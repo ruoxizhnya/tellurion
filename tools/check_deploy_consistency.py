@@ -435,6 +435,8 @@ CROSS_REPO_ENV_READERS: dict[str, str] = {
     "TUSHARE_TOKEN": "tellurion-data：数据服务的 Tushare 传输（X1c）读取本 env；本仓只负责注入",
     "DATABASE_URL": "tellurion-data：cmd/dataservice/main.go 读这一个 DSN 建连接池（不再读 DATABASE_HOST/PORT/USER/DATABASE）",
     "DATA_MARKET_SCHEMA": "tellurion-data：cmd/dataservice/main.go 传给 store.Options.MarketSchema（X1d 方向，出厂 market）",
+    "STRATEGY_ASSET_URL": "tellurion-agent：cmd/ai/lifecycle.go BindEnv strategy_asset.url，cmd/ai/endpoints.go 解析主机名（QT-32-B）",
+    "STRATEGY_ASSET_TOKEN": "tellurion-agent：cmd/ai/lifecycle.go BindEnv strategy_asset.token（空 = 不发 Authorization，启动期 warn；QT-32-B）",
 }
 
 

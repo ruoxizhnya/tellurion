@@ -324,6 +324,18 @@ services:
       # 没有 /api/factor/compute|evaluate（ADR-041）。三个工具显式返回「能力未提供」，
       # 不发请求；该 URL 保留仅用于将来重新接线。
       AI_SERVICE_FACTOR_API_URL: http://analysis-service:8085
+      # 资产服务（tellurion-strategy）在 agent 镜像之外：容器里 localhost 是自己，
+      # 所以缺省指向宿主网关（与 analysis 的 STRATEGY_ASSET_RESOLVE_URL 同口径，
+      # :232）；full profile 可覆盖为 http://strategy:8090。
+      # 写侧自 2026-11-12 起全闸（role=service，见 strategy docs/api-schema.md）。
+      STRATEGY_ASSET_URL: ${STRATEGY_ASSET_URL:-http://host.docker.internal:8090}
+      # 资产登记链的 service token（core 的 tools/issue_service_token.go 签发，
+      # sub=service:agent，与 strategy 段 JWT_SECRET 同源）。
+      # 【条件必需】注入 JWT_SECRET（鉴权姿态）时必须有值：此时空 token =
+      # 登记链 401，且 agent 启动期显式 warn「token is empty … set
+      # STRATEGY_ASSET_TOKEN」（不静默降权）；无 secret 的第 3 态下公开链路照旧。
+      # 仓库里只留空占位，不得写默认明文。
+      STRATEGY_ASSET_TOKEN: ${STRATEGY_ASSET_TOKEN:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1/chat/completions}
       AI_MODEL: ${AI_MODEL:-}
