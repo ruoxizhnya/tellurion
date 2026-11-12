@@ -287,12 +287,12 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：协调伞在 core；各仓 CI 改动落各仓 commit。
 - **owner**：待定
 
-### X-PROBE-NAMING · data `/health`→`/healthz` 统一探针命名（D12=a）[P3] ⬜
+### X-PROBE-NAMING · data `/healthz` 统一探针命名（D12=a）[P3] ⬜
 
-- **① 目标**：把 data 的 `/health` 统一为 `/healthz`（对齐其余服务仓），并同批改所有消费者，消除探针命名分叉。
-- **② 上下文**：审查发现 W6（ODR-073）+ 裁决 D12=a。data 用 `/health`，其余服务仓用 `/healthz`；compose/k8s/core 反代多处消费 data `/health`。改名是 breaking，须同批改消费者。
-- **③ 要求**：① data 增 `/healthz`（保留 `/health` 过渡或直删，二选一写死）；② grep 全工作区 data `/health` 消费者同批改；③ data AGENTS/api-schema/runbook 同批；④ 与 `CORE-K8S-EXIT`（data-deployment.yaml 探针）联动。
-- **④ 约束与非目标**：不改其余服务仓探针；不静默删 `/health` 而漏改消费者（先 grep 全量）。
+- **① 目标**：把 data 的存活探针统一为 `/healthz`（对齐其余服务仓），并同批改所有消费者，消除探针命名分叉。
+- **② 上下文**：审查发现 W6（ODR-073）+ 裁决 D12=a。data 已落 `/healthz` 规范名，`/health` 保留为带 `Deprecation` / `Link` / `Warning` 三信号的过渡别名（见 data `docs/api-schema.md` §1.1）；摘别名前须确认消费者已全部切到 `/healthz`。
+- **③ 要求**：① data 保持 `/healthz` 规范名，`/health` 过渡别名按 §1.1 条件摘除；② grep 全工作区 data `/healthz` 消费者同批改（core 侧 2026-11-12 已清零）；③ data AGENTS/api-schema/runbook 同批；④ 与 `CORE-K8S-EXIT`（data-deployment.yaml 探针）联动。
+- **④ 约束与非目标**：不改其余服务仓探针；不静默摘 `/health` 别名而漏改消费者（先 grep 全量）。
 - **⑤ 验收**：data `/healthz` 真栈 200（E1）；grep 无悬空 `/health` 消费；破坏验证 = 漏改一处消费者 ⇒ 该处探针红。
 - **⑥ 边界**：协调伞在 core；data 改名落 data commit，消费者落各仓 commit。
 - **owner**：待定
