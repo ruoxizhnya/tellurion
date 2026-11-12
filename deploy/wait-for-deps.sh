@@ -17,9 +17,11 @@
 # ── 等什么：从**应用自己的配置**推导，不另维护一份依赖清单 ──────────────
 #
 #   DATABASE_HOST + DATABASE_PORT  →  等 <host>:<port>
-#   REDIS_URL                      →  去 scheme 后等 <host>:<port>
 #   BROKER_URL                     →  去 scheme 后等 <host>:<port>（2026-11-11 起）
 #   RISK_SERVICE_RESOLVE_URL       →  仅当 RISK_SERVICE_RESOLVE_ENABLED=true 时等
+#
+# Redis 自 2026-11-12 起不再等待：`CORE-REDIS-EXIT` 删掉了三处死代码与 go-redis
+# 依赖，仓内已无 `REDIS_URL` 读取点，多等一个不存在的依赖只会让默认栈空转。
 #
 # 这样「等的」与「连的」在结构上不可能不一致。
 #
@@ -45,10 +47,6 @@ targets=""
 if [ -n "${DATABASE_HOST:-}" ]; then
     targets="$targets ${DATABASE_HOST}:${DATABASE_PORT:-5432}"
 fi
-if [ -n "${REDIS_URL:-}" ]; then
-    # redis://host:6379/0 → host:6379（去掉 scheme 与 path）
-    targets="$targets $(printf '%s' "$REDIS_URL" | sed -E 's|^[A-Za-z]+://||; s|/.*$||')"
-fi
 if [ -n "${BROKER_URL:-}" ]; then
     # http://broker:8091 → broker:8091（去掉 scheme 与 path）。
     # analysis 装配期无条件构造执行通道，broker 不在就必然拒起 —— 这里等它，
@@ -65,7 +63,7 @@ fi
 targets="${WAIT_FOR_DEPS:-$targets}"
 
 if [ -z "$targets" ]; then
-    echo "wait-for-deps: 没有可推导的依赖（DATABASE_HOST / REDIS_URL / BROKER_URL 都为空），直接启动" >&2
+    echo "wait-for-deps: 没有可推导的依赖（DATABASE_HOST / BROKER_URL 都为空），直接启动" >&2
     exec "$@"
 fi
 

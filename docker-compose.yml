@@ -36,10 +36,10 @@
 #                                          ⚠️ tools/local-infra.sh 默认指向
 #                                          .workbuddy/binaries/postgres（17.5，当前
 #                                          未运行）；两者抢 5432，不能同时起
-#     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass；⚠️ 2026-11-10 起
-#                                          **本栈已无消费者**（data 面退役后
-#                                          REDIS_URL 全链路无读取点，已移除；
-#                                          接回缓存时连同检查器一起加回来）
+#     Redis 7.4.11      127.0.0.1:6379   —— 无 requirepass；⚠️ 本仓自 2026-11-12
+#                                          `CORE-REDIS-EXIT` 起**零读取点**
+#                                          （go-redis 依赖与三处死代码已删），
+#                                          宿主 Redis 可停用，本栈不依赖它
 #
 #   Docker 容器（本文件）
 #     data-service     :8081   多源数据接入
@@ -55,7 +55,7 @@
 #
 # **为什么把数据库挪出容器**：Docker Desktop 在本机受沙箱限制（启动时会拉起
 # wsl.exe 而在程序黑名单里，且起来之后还会自发退出），把最该稳的一层挂在最不稳
-# 的一层上不划算。原生 PG/Redis 出问题只看两个进程的日志。
+# 的一层上不划算。原生 PG 出问题只看一个进程的日志。
 #
 # ⚠️ **容器内访问宿主机必须用 host.docker.internal，不是 localhost** ——
 # 容器里的 localhost 指容器自己。实测（2026-09-25）Docker Desktop 默认就把
@@ -70,9 +70,9 @@
 # 容器里，这一层没有变，不要改成 localhost。
 #
 # 端口绑定约定（AUD-13 的推广，2026-09-25）：**本栈里没有任何东西绑 0.0.0.0
-# 在宿主机上**。数据库/缓存那半由原生进程的配置承担（postgresql.conf 的
-# listen_addresses、redis.conf 的 bind，真身由 tools/local-infra.sh 的 netstat
-# 断言守着）；应用服务这半由本文件的 ports 映射承担 —— 八条映射**全部**带
+# 在宿主机上**。数据库那半由原生进程的配置承担（postgresql.conf 的
+# listen_addresses，真身由 tools/local-infra.sh 的 netstat 断言守着）；
+# 应用服务这半由本文件的 ports 映射承担 —— 八条映射**全部**带
 # 127.0.0.1: 前缀。
 #
 # 为什么应用端口也必须回环：容器**必须**绑 0.0.0.0 才能被发布端口转发 ——
@@ -213,7 +213,7 @@ services:
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
       DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
-      # REDIS_URL 于 2026-11-10 移除（同 data-service：本仓已无 redis 读取点）。
+      # 本仓无 Redis 依赖（2026-11-12 CORE-REDIS-EXIT 已删 go-redis 与读取点）。
       DATA_SERVICE_URL: http://data-service:8081
       # STRATEGY_SERVICE_URL 已随 OBS-11（2026-10-09）删除：策略服务 standby
       # （ADR-012），per-day HTTP 信号 fallback 不复存在。
@@ -317,7 +317,7 @@ services:
       DATABASE_PORT: 5432
       DATABASE_USER: postgres
       DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}
-      # REDIS_URL 于 2026-11-10 移除（ai-service 的代码也不读 redis）。
+      # 本仓无 Redis 依赖（2026-11-12 CORE-REDIS-EXIT 已删 go-redis 与读取点）。
       DATA_SERVICE_URL: http://data-service:8081
       # factor.compute / factor.evaluate / compute_factor_ic 在当前栈上不可用：
       # core 只注册 POST /api/factor/registrations 与反代 GET /api/factors/:name，

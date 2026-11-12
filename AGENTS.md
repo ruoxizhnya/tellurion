@@ -95,7 +95,6 @@
 | **AI 服务** | Go + Gin | :8086（**源码在 `tellurion-agent` 仓**，2026-10-09 AI 拆仓；compose 直接以 agent 仓为构建上下文，无需 core 命名上下文） |
 | **风控 + 执行** | **in-process** | **合并到 analysis (per ODR-021, P1-15)** |
 | 数据库 | PostgreSQL | :5432 |
-| 缓存 | Redis | :6379 |
 
 > **CR-36 (ODR-012)**: previously only analysis/data/strategy/AI were listed.
 > risk-service(8083) and execution-service(8084) were added in CR-36.
@@ -167,10 +166,9 @@ Browser (Vue SPA :5173)
   ├──► GET /api/datasource/status ──► analysis-service → DataAdapter
   ├──► GET /api/plugins       ──► analysis-service → PluginLoader
   │
-  └──► Redis (:6379) ◄──── factor_cache, session store, sync_job_cache
-              │
-              └──► PostgreSQL (:5432) ◄── stocks, ohlcv, fundamentals,
-                                          backtest_jobs, sync_jobs, sync_schedules
+  └──► PostgreSQL (:5432) ◄── stocks, ohlcv, fundamentals,
+                              backtest_jobs, sync_jobs, sync_schedules,
+                              factor_cache（按需求值，见 ADR-037）
 
   data-service :8081 (tushare data ingestion)
   （strategy-service :8082 已于 REV-16 删除，ADR-012 关闭）
@@ -363,7 +361,8 @@ docker compose down                     # Stop all services
 > `<repo>/deploy/compose.yaml` 是**各仓自证资产**，不属于本地统一栈。
 > 默认栈的 broker 是 **mock 通道**（订单永不触达真实柜台）；要接真实柜台必须
 > 显式 `BROKER_CHANNEL=live` 且对端 `/version` 自报 `live`，否则装配期拒起。
-> PostgreSQL / Redis 不在容器内（宿主机原生；Redis 已退役）。
+> PostgreSQL 不在容器内（宿主机原生 16.15）；**Redis 于 2026-11-12 随
+> `CORE-REDIS-EXIT` 彻底移除**（代码/依赖/配置/清单全删，不是"已退役但还在"）。
 > 完整口径见 `docs/ARCHITECTURE.md` §1 与 `docker-compose.yml` 文件头。
 > EquityDeep **不再新增 worker 容器** —— ADR-023 已把它从「工作面」降为
 > **数据底座**（产业链图谱 + 研究洞察两块，见 §2），其取数经 L1 数据层，

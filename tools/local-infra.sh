@@ -2,6 +2,11 @@
 # 本机原生基础设施启停（PostgreSQL + Redis）—— 「数据库跑宿主机、服务跑容器」
 # 形态的统一入口。
 #
+# ⚠️ 2026-11-12 `CORE-REDIS-EXIT` 起，**本仓不再依赖 Redis**：三处死代码与
+#    go-redis 依赖已删除，`REDIS_URL` 全链路无读取点。本脚本仍保留 Redis 启停
+#    能力（其他仓的 opt-in 集成测试可能复用同一宿主实例），但 core 的默认栈
+#    不需要它 —— 只起 PG 也完全能跑。
+#
 # 用法: tools/local-infra.sh {start|stop|status}
 #
 # 为什么是原生而不是容器：见 docker-compose.yml 文件头。一句话是 Docker Desktop

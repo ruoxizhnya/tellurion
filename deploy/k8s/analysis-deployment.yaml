@@ -33,8 +33,8 @@ spec:
             # 此前注入的是 POSTGRES_PASSWORD（零读取者），于是密码根本到不了
             # 应用手里。
             #
-            # REDIS_PASSWORD 已删除：本项目 redis 没有 --requirepass，不校验
-            # 密码，那个 env 零读取者（详见 configmap.yaml 的说明）。
+            # REDIS_PASSWORD / REDIS_URL 均不存在：CORE-REDIS-EXIT（2026-11-12）
+            # 已删除本仓全部 Redis 死代码与 go-redis 依赖，k8s 侧不再需要占位说明。
             - name: DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:

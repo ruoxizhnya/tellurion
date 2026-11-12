@@ -91,7 +91,7 @@ database:
   sslmode: "disable"
 
 # ── 地址口径（2026-11-11 统一）：本文件是**宿主机直跑视角** ──────────
-# DB / Redis / 所有服务地址默认都指向本机（localhost:<port>）。容器内一律
+# DB / 所有服务地址默认都指向本机（localhost:<port>）。容器内一律
 # 由 docker-compose.yml / deploy/k8s 的 environment 覆盖成服务名 ——
 # compose 服务名（data-service / ai-service / strategy）只在容器网络内可解析，
 # 宿主机上解析不到。
@@ -107,11 +107,8 @@ database:
 # 容器 DNS 会在**启动时**报错并点名该注入哪个 env，而不是等第一条业务请求在
 # 远处 connection refused / no such host。
 #
-# Redis：本仓已无运行时读取点（2026-11-10 起 compose 的 REDIS_URL 移除，
-# 见 deploy/k8s/configmap.yaml）。键保留只为与旧 data-service 配置的历史口径
-# 一致（该文件已随数据面退役删除）；本地 redis 不校验密码，这里也不放密码。
-redis:
-  url: "redis://localhost:6379"
+# Redis（键与配置段）已于 2026-11-12 随 `CORE-REDIS-EXIT` 删除：三处死代码与
+# go-redis 依赖一并移除，本仓**没有**任何读取点，也没有缓存接线计划。
 
 data_service:
   url: "http://localhost:8081"

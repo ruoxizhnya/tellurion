@@ -14,7 +14,7 @@ verified-by: SVC-CORE-BROKER-RETIRE 施工（2026-11-10）；实盘-ready 定位
 > | broker HTTP 通道 | ✅ **生产唯一实现**（`pkg/brokerhttp`；`BROKER_URL` 缺失即装配失败） |
 > | `MockTrader` | ❌ **已删除**（SVC-CORE-BROKER-RETIRE，2026-11-10）——本文第 6 节仅作历史参考 |
 > | `AdvancedTrader` | 仅接口定义 |
-> | `OrderStore` | 接口保留；`RedisOrderStore` 在仓，PostgreSQL 实现已删除 |
+> | `OrderStore` | 接口保留；`RedisOrderStore` 于 2026-11-12 随 `CORE-REDIS-EXIT` 删除，PostgreSQL 实现已删除；仓内只剩测试用 `MemoryOrderStore` |
 > | XTP 券商适配 | ❌ **已删除**（`pkg/trading/broker/xtp`）；券商适配 owner 在 `tellurion-broker` |
 >
 > **通道口径（2026-11-10）**：core 的执行通道 = `tellurion-broker` 的 HTTP 面
@@ -71,8 +71,7 @@ verified-by: SVC-CORE-BROKER-RETIRE 施工（2026-11-10）；实盘-ready 定位
          ▼                        ▼
 ┌─────────────────┐    ┌──────────────────────┐
 │   OrderStore    │    │   Broker API         │
-│  (Memory/PG/    │    │  (REST/WebSocket)    │
-│   Redis)        │    │                      │
+│  (Memory，测试用) │    │  (REST/WebSocket)    │
 └─────────────────┘    └──────────────────────┘
 ```
 
@@ -273,7 +272,7 @@ type OrderStore interface {
 
 - **MemoryOrderStore**: 内存存储（测试用）
 - **PostgresOrderStore**: ~~PostgreSQL 持久化~~ —— 已随 SVC-CORE-BROKER-RETIRE 删除
-- **RedisOrderStore**: Redis 缓存（在仓）
+- **RedisOrderStore**: ~~Redis 缓存~~ —— 已于 2026-11-12 随 `CORE-REDIS-EXIT` 删除（零实例化，`go-redis` 依赖同批移除）
 
 ## 8. 真实券商接入规范
 

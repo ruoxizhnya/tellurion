@@ -1,7 +1,7 @@
 ---
 status: evergreen
-last-verified: 2026-11-11
-verified-by: 2026-11-11 阶段 B core 对齐（B5-4）：按清单实测逐项核对 kind / 镜像 / 副本数 / 端口；同日补 PG 主版本核对（本机运行实例 16.15 实测、k8s 已对齐 16、生产版本未知）与 `replicas: 2` 的进程内状态核实
+last-verified: 2026-11-12
+verified-by: 2026-11-12 `CORE-REDIS-EXIT`：删除 `redis-deployment.yaml`，按实测重数清单为 7 个 YAML 文件 / 11 个对象（Deployment×3、Service×4、ConfigMap/Ingress/Namespace/StatefulSet 各 1），并把两处口径不一致改为两处；2026-11-11 阶段 B core 对齐（B5-4）：按清单实测逐项核对 kind / 镜像 / 副本数 / 端口；同日补 PG 主版本核对（本机运行实例 16.15 实测、k8s 已对齐 16、生产版本未知）与 `replicas: 2` 的进程内状态核实
 ---
 
 # `deploy/k8s/` —— **跨仓部署资产**，不是本仓的构建产物
@@ -9,17 +9,16 @@ verified-by: 2026-11-11 阶段 B core 对齐（B5-4）：按清单实测逐项�
 > 这批清单暂由 core 托管（G-05 裁决：先托管、写明跨界与迁出条件），但它描述的是
 > **整套栈**，不是 core 一个仓库的部署形态。改之前先读下面的「迁出条件」。
 
-## 清单（8 个文件，10 个对象）
+## 清单（7 个文件，11 个对象）
 
 | 文件 | 内容 | 镜像来源 |
 |---|---|---|
 | `namespace.yaml` | Namespace `tellurion` | — |
-| `configmap.yaml` | 应用 env：`DATABASE_*` / `DATA_SERVICE_URL` / `DATA_MARKET_SCHEMA` / `LOGGING_LEVEL`（`REDIS_URL` 已于 2026-11-10 删除） | — |
+| `configmap.yaml` | 应用 env：`DATABASE_*` / `DATA_SERVICE_URL` / `DATA_MARKET_SCHEMA` / `LOGGING_LEVEL`（`REDIS_URL` 与 Redis 依赖已于 2026-11-12 随 `CORE-REDIS-EXIT` 彻底删除） | — |
 | `analysis-deployment.yaml` | Deployment（`replicas: 2`）+ Service `analysis-service:8085`；探针 `/api/health` | **本仓**：`tellurion/analysis:latest` |
 | `data-deployment.yaml` | Deployment + Service `data-service:8081`；`DATABASE_URL` 由 configmap 四键 + Secret 密码拼出 | 跨仓：`tellurion/data:latest`（`tellurion-data`） |
 | `web-deployment.yaml` | Deployment + Service `web:8080`（`targetPort: http`） | 跨仓：`tellurion/web:latest`（`tellurion-ui`） |
 | `postgres-statefulset.yaml` | Service `postgres:5432`（headless）+ StatefulSet（`replicas: 1`，`postgres:16-alpine`）；`POSTGRES_USER` / `POSTGRES_DB` 用 `configMapKeyRef` 从 `DATABASE_USER` / `DATABASE_DATABASE` 翻译。逐项事实见下一节 | 官方镜像 |
-| `redis-deployment.yaml` | Deployment + Service `redis:6379`（本仓运行时无消费者，见「三处口径不一致」1） | 官方 `redis:7-alpine` |
 | `ingress.yaml` | Ingress `tellurion.local` → `web:8080` | — |
 
 `broker` / `risk` / `strategy` / `analytics` / `orchestration` **不在**这些清单里 ——
@@ -123,22 +122,14 @@ pg_upgrade --check \
 - 演练记录写回本节（日期 / 源版本 / 目标版本 / 方案 / 行数对拍 / 回滚耗时）；
 - **当前状态：无任何演练记录。** 主版本变更前必须先补这一节。
 
-## 三处口径不一致（核实结论，不是笔误）
+## 两处口径不一致（核实结论，不是笔误）
 
-1. **Redis 部署了，但本仓运行时零读者**：`redis-deployment.yaml` 仍部署
-   `redis:7-alpine`，而 `configmap.yaml` 已于 2026-11-10 删除 `REDIS_URL`
-   （`SVC-CORE-DATA-RETIRE`）。核实：`pkg/storage.NewCache` 全仓**零调用方**
-   （只有定义 `pkg/storage/redis.go:22`），`cmd/*` 没有任何 redis 读取点 ⇒
-   集群里那个 Redis 目前**没有运行期消费者**。唯一沾边的是
-   `tellurion-kit/db/connect_integration_test.go:35` 的 opt-in `TEST_REDIS_URL`
-   测试（非运行时读者、默认 skip）。删或留取决于缓存是否接线回来
-   （`docs/ARCHITECTURE.md` §4）。
-2. **PG 在集群内 vs「PG 不在容器内」**：`docs/ARCHITECTURE.md` 的「都不在容器内」
+1. **PG 在集群内 vs「PG 不在容器内」**：`docs/ARCHITECTURE.md` 的「都不在容器内」
    指**本地统一栈（`docker-compose.yml`）**——2026-11-11 起它连 postgres 服务都没有，
    全部经 `host.docker.internal:5432` 连宿主机原生 16.15；k8s 形态自带 `postgres`
    StatefulSet（本目录）。两种形态的备份 / 升级 / 扩容责任完全不同，别把一句话
    套到两处。
-3. **PG 主版本**：见上一节 —— 本机在跑 16.15、CI / k8s 都是 16，
+2. **PG 主版本**：见上一节 —— 本机在跑 16.15、CI / k8s 都是 16，
    **k8s 已对齐，无需换 tag**；生产版本**未知**，已挂起待确认。此前「本地与生产
    口径是 17.x」的说法经核实不成立：17.5 只是未运行的便携二进制与历史注释。
 
@@ -166,7 +157,7 @@ SSE 与指标同理是进程内状态。
 1. `tellurion-ui` 与 `tellurion-data` 各自维护自己的 Deployment / Service 片段，镜像
    tag 由各自 CI 决定；
 2. 出现独立部署仓或 Helm chart；
-3. PG / Redis 改由托管服务提供（届时它们不再是「跨仓资产」，而是环境外部依赖）。
+3. PG 改由托管服务提供（届时它不再是「跨仓资产」，而是环境外部依赖）。
 
 在达成之前，改本目录必须同时跑：
 

@@ -39,7 +39,8 @@
         └────────────────────────────┘
 ```
 
-> **Redis 已不在拓扑里**：缓存面随数据面退役（2026-11-10），本仓零读取点。
+> **Redis 已彻底移除**：缓存面随数据面退役（2026-11-10），三处死代码与
+> `go-redis` 依赖于 2026-11-12 删除（`CORE-REDIS-EXIT`），本仓零读取点。
 > 历史设计见 [ARCHITECTURE.md](docs/ARCHITECTURE.md) §4。
 
 `cmd/dualrun` 是双跑对齐实验的编排工具，不是常驻服务。（此前的
@@ -58,7 +59,8 @@ grep -n "ports:" -A2 docker-compose.yml # compose 发布端口
 
 - **PostgreSQL**（宿主机原生或任意可达实例）—— 今天**唯一**的基础设施硬依赖；
   `config/analysis-service.yaml` 是宿主机视角，容器内由 compose 的 env 覆盖。
-- **Redis 不是前置**：缓存面已退役（2026-11-10），本仓零读取点；不用装、不用连。
+- **Redis 不是前置**：缓存面已退役（2026-11-10），死代码与 go-redis 依赖已于 2026-11-12 删除；
+  不用装、不用连。
 - **`DATA_SERVICE_URL`（若注入）必须是绝对 URL 且主机名可解析**：启动期
   `pkg/bootstrap.ValidateServiceEndpoint` 会解析它，宿主机上误留容器 DNS
   （`http://data-service:8081`）会**启动即报错**并被点名。
@@ -195,10 +197,10 @@ bash tools/local-stack.sh           # 起/停本地栈并断言端口
 
 | 层 | 选型 |
 |---|---|
-| 语言 | **Go 1.25.0**（`go.mod`） |
+| 语言 | **Go 1.26.11**（`go.mod`，随 kit v0.5.0 的要求对齐） |
 | HTTP | Gin v1 + `net/http`；SSE 直通（`FlushInterval = -1`） |
 | 数据库访问 | **pgx v5**（`pgxpool`）+ 手写 SQL；**无 ORM**（仓内零 GORM 依赖） |
-| 缓存 / 事件 | ~~go-redis v9~~（`RedisCache` 零调用方，缓存面已退役，见 ARCHITECTURE §4）；PG 版事件总线（`pkg/msgbus`）+ 事件存储 |
+| 缓存 / 事件 | 无 Redis（三处死代码与 `go-redis` 于 2026-11-12 删除，见 ARCHITECTURE §4）；PG 版事件总线（`pkg/msgbus`）+ 事件存储 |
 | 数据库 | PostgreSQL（宿主机原生或外部托管）；本仓 `migrate()` **不建 hypertable** —— 行情表 owner = `tellurion-data` |
 | 前端 | 独立仓 `tellurion-ui`：Vue 3 + TypeScript + Vite + Naive UI + Pinia |
 | 可观测 | Prometheus `/metrics`、结构化 zerolog、请求 ID 透传 |
@@ -219,7 +221,7 @@ tellurion/
 ├── config/              # 唯一运行期 yaml：analysis-service.yaml（data / ai 的配置已随拆仓移出）
 ├── deploy/              # k8s 清单（跨仓部署资产，见 deploy/k8s/README.md）与依赖等待脚本
 ├── tools/               # 本地栈脚本、文档死链检查、覆盖率门禁、双跑工具
-└── docker-compose.yml   # 服务编排（不含 PG / Redis / 前端）
+└── docker-compose.yml   # 服务编排（不含 PG / Redis / 前端；Redis 已无任何依赖）
 ```
 
 ## License

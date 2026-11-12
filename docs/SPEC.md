@@ -206,7 +206,7 @@ L1  数据层       行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日
 |---|---|---|---|
 | A | 原始源响应 | PG `ingest.raw`（`content_hash` 唯一键） | ❌ 仅持 `content_hash` |
 | B | 规范化数据（OHLCV / 财报 / 日历 / 公司行为） | PG `market.*` | ❌ 只读证据 API |
-| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*` + Redis `factor_cache` | ❌ 只读计算 API |
+| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*` + `factor_cache`（PG 单层，按需求值） | ❌ 只读计算 API |
 | D | 研究叙事（人的判断） | **Vault markdown**（事实源） | — |
 | E | 研究结构化状态 | PG `research.*`（D 的确定性投影，可 DROP 重建） | 权威在 D |
 
@@ -1944,7 +1944,7 @@ core 的执行器只做取数 + 归一，然后把点投给 `tellurion-data` 的
 **「储备」的操作含义**（免得下一个人再猜）：
 
 - **数据留在表里**。已经花掉的配额是沉没成本，而这两张表还是 DBT-09 / DBT-10 两条链路的**验收载体** —— 删表等于把那两单的取证基础一起丢掉，所以「储备」**不等于**「清掉」。
-- **不建排程、不接读方**。要启用，先回答「服务哪个研究问题」，再走 D3 的因子定义流程 + `factor_cache`（Redis，C 类派生计算）归属。
+- **不建排程、不接读方**。要启用，先回答「服务哪个研究问题」，再走 D3 的因子定义流程 + `factor_cache`（PG，C 类派生计算）归属。
 
 ### `ingest.raw` 里只放真归档（DBT-15 裁决：经授权按锚点删除，2026-10-25）
 
@@ -2039,20 +2039,12 @@ type DataAdapter struct {
 - **Fallback**: A read-only L0-facing provider (e.g., `HttpProvider` → data service) when local data is missing
 - **Auto-switching**: Health checks on every request, automatic fallback on failure
 
-### CachedProvider (Redis Cache Decorator)
+### CachedProvider（Redis 缓存装饰）—— **已于 2026-11-12 移除**
 
-Wraps any Provider with Redis caching:
-
-```go
-type CachedProvider struct {
-    inner  Provider
-    redis  *redis.Client
-    config CacheConfig
-}
-```
-
-- Cache TTL: 1 hour for OHLCV, 24 hours for fundamentals
-- Cache key format: `ohlcv:{symbol}:{start}:{end}`
+`pkg/marketdata/cached_provider.go` 随 `CORE-REDIS-EXIT` 删除：`CachedProvider` /
+`CacheConfig` 全仓零实例化，`go-redis` 依赖一并移除。本仓没有任何缓存装饰层；
+行情读路径直接走本地 PG 与 data 服务回落。历史设计（TTL 1h OHLCV / 24h
+fundamentals、`ohlcv:{symbol}:{start}:{end}` 键）只在 Git 历史里，不再作为接线参照。
 
 ### DataEventBus (Pub/Sub)
 
@@ -3722,8 +3714,8 @@ agent 仓时，还会比它的 `database.*` 与 compose 的 `ai-service` env。
 `cmd/analysis` 与 `cmd/worker` 都接了 `viper.AutomaticEnv()` + `SetEnvKeyReplacer(".", "_")`，所以
 **配置键里的 `.` 换成 `_` 就是 env 名**：`database.host` → `DATABASE_HOST`、
 `server.gin_mode` → `SERVER_GIN_MODE`、`logging.level` → `LOGGING_LEVEL`、
-`redis.url` → `REDIS_URL`。这是本仓**唯一**的重命名规则，不要再发明第二种 ——
-AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存在的规则。
+`risk_service.resolve_url` → `RISK_SERVICE_RESOLVE_URL`。这是本仓**唯一**的重命名规则，
+不要再发明第二种 —— AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存在的规则。
 
 `tools/check_deploy_consistency.py` 的检查 6 会把「部署里注入的 env」与
 「Go 源码里真的被读到的键」对账：注入一个没人读的 env 会报错。
@@ -3736,7 +3728,7 @@ AUD-35 的两个死键（`LOG_LEVEL` / `LOG_FORMAT`）就是照抄了并不存�
 | `auth` | `jwt_secret`（env `JWT_SECRET` 或 `AUTH_JWT_SECRET`）/ `allow_insecure`（env `AUTH_INSECURE`）/ `insecure_exposure`（env `AUTH_INSECURE_EXPOSURE`，只认 `loopback-published`）/ `issuer` / `access_token_ttl` / `refresh_token_ttl` | `pkg/bootstrap.InitAuth` → `DecideAuthStartup`（P0-4 三态启动裁决）+ `pkg/auth`（Middleware / RequireRole 执行 401 / 403 / `503 auth_unavailable`）+ `pkg/authz`（写面策略表） |
 | `rate_limit` | `per_minute`（env `RATE_LIMIT_PER_MINUTE`） | 网关限流中间件 |
 | `database` | `url`（整串 DSN 覆盖点）/ `host` / `port` / `user` / `password` / `database` / `sslmode` | `pkg/storage.BuildDSN` |
-| `redis` | `url` | **本仓已无运行时读取点**（2026-11-10 起）：`pkg/storage.NewCache` 零调用方，compose / k8s 的 `REDIS_URL` 同批删除；键保留只为历史口径，缓存接线回来时再补读点 |
+| ~~`redis`~~ | ~~`url`~~ | **已于 2026-11-12 移除**（`CORE-REDIS-EXIT`）：三处死代码、`go-redis` 依赖、`redis.url` 配置段、k8s 清单与 `wait-for-deps.sh` 等待段同批删除，本仓无缓存层 |
 | `data_service` | `url` / `token` | 服务间 HTTP 调用（`pkg/bootstrap` 启动期要求绝对 URL） |
 | `risk_service.url` | `url` | **只有一处读者**：`pkg/backtest/engine.go` 的远程回落（`riskManager == nil` 时拼 `/detect_regime`、`/calculate_position`、`/check_stoploss`，键空则缺省 `http://localhost:8083`）。该分支在生产路径上不可达（两个入口都无条件注入进程内 RiskManager），且缺省基址无服务、tellurion-risk（:8089）也不提供这三个路径 —— 是**活读但恒不可用的死回落**，处置见 TASKS `CORE-RISK-REMOTE-FALLBACK-DEAD`。**它不是 risk 服务的地址**，risk 在 `risk_service.resolve_url` |
 | `risk_service.resolve_*` | `enabled` / `url` / `token` / `timeout` | `cmd/analysis/wiring.LoadRiskPolicy`（SVC-CORE-RISK-RETIRE）：14 个风控限额的**真相源**是 tellurion-risk 的规则快照，启动期 `POST /api/risk/resolve` → `risk.PolicyFromSnapshot`；`enabled=false` = 未接入，用 `risk.BuiltinPolicy()` 代码常量兜底（日志 `risk_policy_source=builtin_default`）。**`config/*.yaml` 不再有 `risk_manager:` 段** |

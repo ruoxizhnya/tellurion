@@ -18,11 +18,11 @@ verified-by: 2026-11-11 部署形态收敛：本地只留一个 `docker-compose.
 微服务架构，Analysis Service 作为 API 网关协调 Data Service 与 AI
 Service。**部署形态有两种，别把两者的配置混着读**（G-05；2026-11-11 收敛，见下）：
 
-| 形态 | 编排来源 | 服务集合 | PG / Redis 在哪 |
+| 形态 | 编排来源 | 服务集合 | PG 在哪 / Redis |
 |---|---|---|---|
-| 本地统一栈（默认，无 profile） | 本仓 `docker-compose.yml` | 4 个：data-service / broker / analysis-service / ai-service | **都不在容器内**：各服务经 `host.docker.internal` 连宿主机原生安装的 PostgreSQL 16.15（Redis 已退役，见 §4） |
+| 本地统一栈（默认，无 profile） | 本仓 `docker-compose.yml` | 4 个：data-service / broker / analysis-service / ai-service | PG **不在容器内**：各服务经 `host.docker.internal` 连宿主机原生 PostgreSQL 16.15；**Redis 已于 2026-11-12 彻底移除**（见 §4） |
 | 本地统一栈 `--profile full` | 同上 | 再加 4 个：risk / strategy / analytics / orchestration | 同上（DSN 同样走 `host.docker.internal:5432`） |
-| k8s | `deploy/k8s/`（**跨仓部署资产**，处置见 `deploy/k8s/README.md`） | analysis / data / web 三个 Deployment + postgres StatefulSet + redis Deployment | 两者都在集群内 |
+| k8s | `deploy/k8s/`（**跨仓部署资产**，处置见 `deploy/k8s/README.md`） | analysis / data / web 三个 Deployment + postgres StatefulSet（`redis-deployment.yaml` 已于 2026-11-12 删除） | PG 在集群内 |
 
 > **2026-11-11 定案：本地只留一个 compose。** 主任指令要求单一文件，避免三份
 > 各说各话；QT-79 的代裁 `D-DEPLOY-1 = A`（core compose 与
@@ -67,8 +67,8 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
   │                               核对 channel，不一致即拒起）
 ```
 
-> **本图不含 Redis**：缓存面已退役（data 面退役后 `redis.url` 零读取点），
-> 历史设计见 §4。
+> **本图不含 Redis**：Redis 于 2026-11-12 随 `CORE-REDIS-EXIT` 彻底移除（三处死代码
+> 与 `go-redis` 依赖已删），历史设计见 §4。
 
 > **REV-16（2026-10-17）**：`strategy-service`（:8082）已删除——OBS-11 删掉信号端点后
 > 它只剩 `/health` 与恒空的 `/strategies`，零调用方；ADR-012 已关闭。`pkg/strategy`
@@ -113,7 +113,7 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 |---|---|---|
 | A 原始源响应 `ingest.raw` | 外部响应的逐字节归档（class A） | **`tellurion-data` 唯一 writer**（摄取时自动归档）。唯一外部写端点是它的 `POST /ingest/points`（data ADR-0006，G-03）；core 侧 `POST /api/ingest/raw` 已随 `SVC-CORE-DATA-RETIRE` 删除，只剩契约测试里的历史例外条目 |
 | B 规范化行情 `market.*`（`stocks`/`ohlcv_daily_qfq`/`trading_calendar`/`splits`/`dividends`/`index_constituents` 等） | 可从 A 重建的规范化数据 | **`tellurion-data` 唯一 writer**（2026-11-08 起这些表从 `public` 迁到 `market`，G-04）；core 只读四张裸表（清单见 [SPEC.md](SPEC.md) 的「跨仓只读表依赖清单」）。**例外：`stock_fundamentals` 不在此分区** —— 第 142 行已如实登记它仍是 core 的 `public` 表（归属裁决 2026-11-12：DDL/写者/读者都在 core，读面是 `GET /api/fundamental/{symbol}`） |
-| C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 与「实验日志」已退役：前者零读取点（见 §4），后者随 `SVC-CORE-AI-RETIRE` 删除 |
+| C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 已删除（2026-11-12，见 §4）；「实验日志」随 `SVC-CORE-AI-RETIRE` 删除 |
 | ~~E 研究结构化投影 `research.*`~~ **已退役** | vault markdown 的可重建投影 | 三表（`profile`/`conclusion`/`question`）与 5 条索引随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`migrate()` 不再建 `research` schema |
 
 ---
@@ -165,27 +165,14 @@ grep -n "CREATE SCHEMA IF NOT EXISTS" pkg/storage/postgres.go
 
 ---
 
-## 4. 缓存设计（Redis :6379）—— ⚠️ **已退役，本节保留历史**
+## 4. 缓存设计（Redis :6379）—— **已于 2026-11-12 移除**
 
-> **2026-11-10 起本仓没有 Redis 读取点**：`pkg/storage.NewCache` 零调用方，
-> `redis.url` 与部署侧的 `REDIS_URL` 同批删除（口径见 `tools/check_deploy_consistency.py`
-> 的 `INFRA_ENV_REQUIRED` 注与 [SPEC.md](SPEC.md) §主要配置段）。k8s 里仍有一份
-> `redis-deployment.yaml`（跨仓部署资产，见 `deploy/k8s/README.md`），但今天没有
-> 任何服务读它 —— 那是**部署侧存量**，不是本仓的依赖。下面是退役前的设计，
-> 留作缓存接线回来时的参照。
-
-`pkg/storage/cache.go`（`storage.Cache` 接口，`RedisCache` 实现，**今天零调用方**）：
-
-| 用途 | 说明 |
-|---|---|
-| `factor_cache` | 因子计算缓存（PG 表 + Redis 双层；Redis miss 回表） |
-| session store | JWT 会话（auth） |
-| `sync_job_cache` | data-service 同步任务状态热数据（随数据面退役） |
-| `DataCache` | data-service 读路径缓存装饰（随数据面退役） |
-
-~~Redis 不可用时服务不启动即失败~~ —— 该约束随读取点一起失效：今天既没有装配期
-建连，也没有 `REDIS_URL` 注入。缓存若要回来，必须先接上读点，再恢复这条
-fail-closed 断言，否则「Redis 是必需依赖」只是一句无人执行的声称。
+> **一句话历史**：Redis 于 2026-11-12 随 `CORE-REDIS-EXIT` 移除 —— `pkg/storage` 的
+> `Cache`/`RedisCache`、`pkg/trading` 的 `RedisOrderStore`、`pkg/marketdata` 的
+> `CachedProvider` 三处死代码删除，`go-redis` 依赖、`redis.url` 配置段、
+> `deploy/k8s/redis-deployment.yaml` 与 `wait-for-deps.sh` 的等待段同批移除。
+> 本仓今天**没有任何缓存层**；`factor_cache` 走 PG 表（见 ADR-037 的按需求值口径）。
+> 退役前的双层设计留在 Git 历史与本文件旧版本里，不再作为接线参照。
 
 ---
 
@@ -205,7 +192,7 @@ tellurion/
 │   ├── marketdata/   # 规范层读路径（Router 透明路由 + 1m→15m/1d 聚合，数据因子蓝图 D1）
 │   ├── trading/      # 交易运行域 + paper/live 执行编排（LiveTrader 抽象券商；含回放 feed 与价格笼子）
 │   ├── risk/         # 风控（in-process 并入 analysis）
-│   ├── storage/      # PG 存储——DDL 主真相在 postgres.go（3 处模块内自建表除外，见 §3）；Redis 实现零调用方（见 §4）
+│   ├── storage/      # PG 存储——DDL 主真相在 postgres.go（3 处模块内自建表除外，见 §3）；Redis 实现已删除（见 §4）
 │   ├── strategy/     # 策略框架 + 插件 + 表达式 + SignalProvider/信号面
 │   └── validation/   # 验证器链（五维纯计算）
 ├── web/              # Vue 3 前端——⚠️ 已拆仓至 tellurion-ui（2026-10-09），本目录历史遗留
@@ -271,7 +258,7 @@ tellurion/
 
 | 端口 | 归属 |
 |---|---|
-| 5432 / 6379 | PostgreSQL / Redis（宿主机） |
+| 5432 | PostgreSQL（宿主机） |
 | 8081 | data-service |
 | 8085 | analysis-service（API 网关） |
 | 8086 | ai-service（agent 仓构建） |
@@ -429,7 +416,7 @@ schema / 内核四态 / 版本哈希纪律的文档真相在
        域外即缺失）          纵向 5 因子               进 Skipped 报告）
               └────────────────────┴───────────┬────────────┘
                                                ▼
-                              factor_cache（PG）+ Redis 双层
+                              factor_cache（PG 单层，按需求值）
                               产出形状 = D1 FactorOutput（缺失≠0）
 ```
 

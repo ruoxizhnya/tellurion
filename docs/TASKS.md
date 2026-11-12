@@ -209,16 +209,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：core CI 与 Dockerfile；其余仓镜像门见 `X-CI-RACE-STATICCHECK`。
 - **owner**：待定
 
-### CORE-REDIS-EXIT · Redis 已退役但死代码/依赖/k8s 清单仍在 [P1] ⬜
-
-- **① 目标**：把已退役的 Redis 从 core 彻底清出（死代码 + `go.mod` 依赖 + k8s 清单 + 启动脚本），消除「看起来还在用」的误导。
-- **② 上下文**：审查发现 W2-F3（ODR-069）。`pkg/storage/redis.go:39` / `redis_order_store.go:24` / `cached_provider.go:47` 零生产调用方；`go.mod:12` 仍 `go-redis v9.7.3`；`deploy/k8s/redis-deployment.yaml` 与 `deploy/wait-for-deps.sh:48` 仍等 Redis。AGENTS §5 已写「Redis 已退役」，代码与清单未跟上。
-- **③ 要求**：① 删三处死代码（先 grep 确认零调用，含测试）；② `go mod tidy` 去掉 go-redis（若无其它消费者）；③ 删 `redis-deployment.yaml` 与 `wait-for-deps.sh` 的 Redis 等待段；④ 与 `CORE-K8S-EXIT` 撞 k8s 文件时按单号串行。
-- **④ 约束与非目标**：不删任何仍在用的缓存路径（先证伪「零调用」）；不改 `go.mod` 其它依赖版本。
-- **⑤ 验收**：`go build/vet/test ./... -count=1` 全绿；grep `go-redis`/`redis` 生产侧零命中；破坏验证 = 恢复一处死代码引用 ⇒ build 或 grep 护栏红。
-- **⑥ 边界**：core 死代码/依赖/k8s/脚本；kit `db` 的 Redis 连接能力是否保留归 kit 自裁。
-- **owner**：待定
-
 ### CORE-MIGRATION-REPLAY-GUARD · `migrate()` 无事务、无重放指纹，迁移半途失败不可判定 [P1] ⬜
 
 - **① 目标**：给 core 内联迁移一个**可重放、可判定**的护栏，对齐 data 仓已有的三指纹重放腿，让「迁移半途失败/重复执行」不再静默。

@@ -89,6 +89,7 @@
 | CORE-PG-BACKUP-DR | 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 | 2026-11-12 | 见原文 | [原文](#CORE-PG-BACKUP-DR) |
 | X-DEP-BUMP-CONSUMERS（core 腿） | 7 消费仓 bump kit pin + govulncheck 门 | 2026-11-12 | 见原文 | [原文](#X-DEP-BUMP-CONSUMERS) |
 | X-AGENTS-DEPENDENCY-TABLE（core 腿） | 6 仓 AGENTS §4 依赖表与 go.mod 实测对齐 | 2026-11-12 | 见原文 | [原文](#X-AGENTS-DEPENDENCY-TABLE) |
+| CORE-REDIS-EXIT | Redis 已退役但死代码/依赖/k8s 清单仍在 | 2026-11-12 | 见原文 | [原文](#CORE-REDIS-EXIT) |
 
 ---
 
@@ -3055,3 +3056,26 @@
 > - **`:8081` 归属句三处订正**：AGENTS §2 前言（`本仓只实现 analysis-service（:8085）；data-service（:8081）源码在 tellurion-data`）、§服务视角（三进程改为「系统有」并逐一点名所属仓）、§13 当前状态（`Data ✅（:8081，源码在 tellurion-data 仓）`）。依据：`cmd/` 下只有 `analysis` / `worker` / `dualrun` / `recon`，无 data-service 进程；仓内 `:8081` 仅作为 `DATA_SERVICE_URL` 缺省值出现在代理客户端。
 > - **验收**：`python tools/check_repo_autonomy.py` GREEN（12 仓 R1~R6，core 的「AGENTS 无依赖章节」为已登记 R3 缺口，未新增）；`check_contract_pin.py` GREEN；`check_doc_links.py` EXIT=0。
 > - **未落（如实）**：其余 5 仓（agent/data/strategy/orch/broker）的 AGENTS §4 改动按 ⑥ 归各仓；core 的 AGENTS 版本列与检查器均在 CI docs job 的既有门禁下。
+
+<a id="CORE-REDIS-EXIT"></a>
+### CORE-REDIS-EXIT · Redis 已退役但死代码/依赖/k8s 清单仍在 [P1] ✅（2026-11-12）
+
+- **① 目标**：把已退役的 Redis 从 core 彻底清出（死代码 + `go.mod` 依赖 + k8s 清单 + 启动脚本），消除「看起来还在用」的误导。
+- **② 上下文**：审查发现 W2-F3（ODR-069）。`pkg/storage/redis.go:39` / `redis_order_store.go:24` / `cached_provider.go:47` 零生产调用方；`go.mod:12` 仍 `go-redis v9.7.3`；`deploy/k8s/redis-deployment.yaml` 与 `deploy/wait-for-deps.sh:48` 仍等 Redis。AGENTS §5 已写「Redis 已退役」，代码与清单未跟上。
+- **③ 要求**：① 删三处死代码（先 grep 确认零调用，含测试）；② `go mod tidy` 去掉 go-redis（若无其它消费者）；③ 删 `redis-deployment.yaml` 与 `wait-for-deps.sh` 的 Redis 等待段；④ 与 `CORE-K8S-EXIT` 撞 k8s 文件时按单号串行。
+- **④ 约束与非目标**：不删任何仍在用的缓存路径（先证伪「零调用」）；不改 `go.mod` 其它依赖版本。
+- **⑤ 验收**：`go build/vet/test ./... -count=1` 全绿；grep `go-redis`/`redis` 生产侧零命中；破坏验证 = 恢复一处死代码引用 ⇒ build 或 grep 护栏红。
+- **⑥ 边界**：core 死代码/依赖/k8s/脚本；kit `db` 的 Redis 连接能力是否保留归 kit 自裁。
+- **owner**：待定
+
+> **✅ 施工记录（2026-11-12，本条即施工 commit）**
+>
+> - **证伪「零调用」（先做）**：对 `NewCache(` / `NewRedisOrderStore(` / `NewCachedProvider` / `storage.Cache` / `CacheConfig` / `OrderStore` 全仓（含 `_test.go`）逐模式搜索 —— 前四个**零命中**（`OrderStore` 只在 `docs/live-trading.md` 的接口说明与 `MemoryOrderStore` 测试替身里），确认三处都是死代码。
+> - **删除**：`pkg/storage/redis.go`、`pkg/storage/types.go`（仅 `Cache` 接口）、`pkg/storage/redis_namespace_test.go`、`pkg/trading/redis_order_store.go`、`pkg/marketdata/cached_provider.go`、`deploy/k8s/redis-deployment.yaml`；`pkg/storage/constants.go` 只留 PG 连接池与 `DefaultBatchSize`。
+> - **依赖**：`go mod tidy` 后 `go.mod` 无 `redis/go-redis`，`go.sum` 同步收敛。
+> - **部署/配置面**：`deploy/wait-for-deps.sh` 删 REDIS 等待段（头注释留一句历史）；`config/analysis-service.yaml` 删 `redis:` 段并改写地址口径注释；`deploy/k8s/configmap.yaml` 删 Redis 占位注释块、`analysis-deployment.yaml` 改注释；`docker-compose.yml` 三处注释与 `tools/local-infra.sh` 头注释改为「本仓零读取点，Redis 可停用（脚本仍保留能力供其他仓 opt-in 测试复用）」；`tools/check_deploy_consistency.py` 无功能改动（`NATIVE_DB_DEPS` 仍守「compose 不得出现 redis 服务」，`DEAD_ENV` 仍禁 `REDIS_*` 回归）。
+> - **文档**：`README`（依赖表/快速开始/compose 说明）、`AGENTS`（依赖表删「缓存 Redis」行、架构图去掉 Redis 节点、部署段改写）、`docs/ARCHITECTURE.md`（§1 部署表、分区表、目录说明、端口表、因子链路）、`docs/SPEC.md`（类别 C 归属、D3 存储说明、CachedProvider 节、配置段表与键名示例）、`docs/live-trading.md`（OrderStore 实现清单与分层图）、`deploy/k8s/README.md`（清单重数为实测 7 文件/11 对象、两处口径不一致）全部改为「已删除」，历史只留一句。
+> - **回归护栏**：新增 `internal/repoguard/redis_retired_test.go` 三组断言 —— 五处文件不存在、`go.mod` 与任意 `.go` 无 `redis/go-redis`、部署/配置面（去注释后）无 `REDIS_URL` 且 config 无 `redis:` 段；另有正向对照（`data_service:` / `BROKER_URL` / `pgx/v5` 必须仍在，防文件被掏空假绿）。
+> - **验收（真实输出）**：`go build ./...` EXIT=0；`go vet ./...` EXIT=0；`go test ./... -count=1` EXIT=0（`repoguard` 三组用例绿）；`python tools/check_doc_links.py` → `✓ 未发现坏链`、`EXIT=0`。
+> - **破坏验证**：① 以空包文件复活 `pkg/storage/redis.go` ⇒ `TestRedisRetiredArtifactsStayGone` 报 `pkg\storage\redis.go 仍存在 …`、EXIT=1；删除后复绿。② 在 `docker-compose.yml` 临时加 `REDIS_URL: redis://127.0.0.1:6379` ⇒ `TestDeployAndConfigSurfacesHaveNoRedis` 报 `docker-compose.yml 仍有生效的 REDIS_URL 配置 …`、EXIT=1；删除后复绿。（断言按去注释后的内容判定，避免「说明已删除」的历史注释造成假红。）
+> - **未落（如实）**：kit 仓的 Redis 连接能力按 ⑥ 归 kit 自裁，本仓未动；`tools/local-infra.sh` 仍保留 Redis 启停能力（其他仓的 opt-in 集成测试可能复用同一宿主实例），只把头注释改为「core 不需要」。
