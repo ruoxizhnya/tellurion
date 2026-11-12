@@ -199,17 +199,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：审查证据、ODR 立案、各仓立单；修复施工归各修复单。
 - **施工记录（W0 基线，2026-11-11）**：12 仓工作树全干净（in-place = 干净 checkout），HEAD 锚定：core `27e0c15` / agent `8ace9b9` / analytics `cc440f0` / broker `fbaa9fe` / contracts `fb19870` / data `2fdf48b` / docs `975a403` / kit `7d7c3a8` / orchestration `ab2ee94` / risk `693f590` / strategy `03a5d91` / ui `90d0a2c`。**基线红名单 = 空**：10 Go 仓 gofmt/build/vet/test 全 EXIT=0；contracts 5 护栏 + conformance 全 0；kit 2 护栏全 0；core 4 Python 检查器全 0；docs 3 检查器 + 38 条自测全 0（guide_refs 首跑 GBK 假红，UTF-8 复跑绿）；ui lint/typecheck/vitest 全 0（**945 条 eslint warnings 不红**，T-1/K-7 候选发现留 W6 立案；vitest 38 文件全过）。agent 两条历史红（QT-17 ③ 端点字面量）已随数据面退役消解（grep 零命中）。DB 依赖腿无 DSN 按设计 skip，留 W3/W5/W6；-race 本机无 gcc，只认 CI。**W0-3 C2 核实**：research_tool vault 镜像回落有契约授权（legacy §3.3/§3.5 + agent db-schema.md:73 + hermes tools yaml:445），不构成违规；治理观察一条（C2 规范文本住归档层）留 W1 G-4。日志：`C:\Users\ruoxi\.qoder-cn\plans\audit-w0\<repo>.log`。
 
-### CORE-PG-BACKUP-DR · 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 [P0] ⬜
-
-- **① 目标**：给本机唯一活库 `quant_trading` 一份**可恢复**的备份方案，覆盖全部 schema（含不可重建的 `ai.experiments` / `ai.*promotions` / `risk` 规则），并真跑一次恢复演练。
-- **② 上下文**：审查发现 W5-F4（`tellurion-docs:docs/archive/odr/odr-072-audit-wave5-security-reliability-deps.md`）。本机 `quant_trading` 是唯一活库，承载 22 张 `market.*` + `quant.*` / `ai.*` / `strategy.*` / `risk.*` / `broker.*` / `run.*` / `analysis.*`；`deploy/k8s/README.md:88-90` 的 `pg_dumpall` 口径只覆盖非活跃面，`docs/archive/TASKS-2026-10-16-archived.md:888` 把备份记为「另议」至今未落。`ai.experiments` / promote 审计 / risk 规则属**不可重建**数据（丢了无法从行情重算）。
-- **③ 要求**：① 备份覆盖全 schema（`pg_dump -Fc` 整库或逐 schema，二选一并写死）；② 恢复演练在**独立 `_test` 库或快照**上真跑一次，行数逐表对拍；③ 不可重建数据单独标注「丢失即不可恢复」；④ 步骤写进 `docs/runbook.md`（与 `CORE-RUNBOOK-GAP` 同批或其后）。
-- **④ 约束与非目标**：不改任何 schema；**禁止在 `quant_trading` 活库上跑破坏性恢复**（DATA-09：演练只走 `_test` 库/快照）；不引入托管备份服务。
-- **⑤ 验收**：一次真备份 + 一次真恢复到独立库，逐表行数对拍一致；破坏验证 = 恢复时故意漏一个 schema ⇒ 对拍红。真退出码 + 行数证据。
-- **⑥ 边界**：备份/恢复方案与演练归本单；生产库定时执行归运维。
-- **owner**：待定
-- **重开条件**：无外部前置（A1/A4 已授权 `_test` 库演练）；生产定时备份须运维接入。
-
 ### CORE-CI-IMAGE-GATE · 9 仓 CI 无镜像构建门，compose 引用的镜像可能从未被构建验证 [P2] ⬜
 
 - **① 目标**：让「compose/k8s 引用的镜像真能构建出来」成为 CI 可判定门，而不是只在本地 `docker build` 碰运气。

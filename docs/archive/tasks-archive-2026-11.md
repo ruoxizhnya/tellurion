@@ -86,6 +86,7 @@
 | QT-82 | 数据面退役后 5 条 core 有库用例在「空库 + 官方迁移」上必红（`ohlcv_minute` / `market_activity` 已无 DDL） | 2026-11-10 | —（原文未记） | [原文](#QT-82) |
 | CORE-DATA-IMAGE-NAME-ALIGNMENT | data 镜像名跨仓口径未统一（⏸ → **撤销** 2026-11-11，未施工） | 2026-11-11 | `8483bca`（data 仓） | [撤销记录](#CORE-DATA-IMAGE-NAME-ALIGNMENT) |
 | CORE-RUNBOOK-GAP | 本仓没有 runbook，起停与装配失败只有 README 零散说明 | 2026-11-12 | 见原文 | [原文](#CORE-RUNBOOK-GAP) |
+| CORE-PG-BACKUP-DR | 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 | 2026-11-12 | 见原文 | [原文](#CORE-PG-BACKUP-DR) |
 
 ---
 
@@ -2989,3 +2990,26 @@
 > - **验收**：`python tools/check_doc_links.py` → `✓ 未发现坏链`、`扫描 67 个 Markdown 文件`、`EXIT=0`。
 > - **破坏验证**：在 `docs/runbook.md` 临时加一行 `[broken](does-not-exist.md)` → 检查器输出 `docs\runbook.md -> does-not-exist.md`、`EXIT=1`；删掉该行后复跑 `EXIT=0`。
 > - **未落（如实）**：⑤ 的三条破坏场景（停 PG / 不给 `BROKER_URL` / 反序起 broker）需真栈冷启动，本轮容器栈正在运行、按纪律未 `down`，该腿并入 `CORE-BROKER-STARTUP-PRECONDITION` 同批冷启动执行；本单只完成静态原文核对与链接门禁。
+
+<a id="CORE-PG-BACKUP-DR"></a>
+### CORE-PG-BACKUP-DR · 唯一活库 `quant_trading` 无覆盖全 schema 的备份/灾备 [P0] ✅（2026-11-12）
+
+- **① 目标**：给本机唯一活库 `quant_trading` 一份**可恢复**的备份方案，覆盖全部 schema（含不可重建的 `ai.experiments` / `ai.*promotions` / `risk` 规则），并真跑一次恢复演练。
+- **② 上下文**：审查发现 W5-F4（`tellurion-docs:docs/archive/odr/odr-072-audit-wave5-security-reliability-deps.md`）。本机 `quant_trading` 是唯一活库，承载 22 张 `market.*` + `quant.*` / `ai.*` / `strategy.*` / `risk.*` / `broker.*` / `run.*` / `analysis.*`；`deploy/k8s/README.md:88-90` 的 `pg_dumpall` 口径只覆盖非活跃面，`docs/archive/TASKS-2026-10-16-archived.md:888` 把备份记为「另议」至今未落。`ai.experiments` / promote 审计 / risk 规则属**不可重建**数据（丢了无法从行情重算）。
+- **③ 要求**：① 备份覆盖全 schema（`pg_dump -Fc` 整库或逐 schema，二选一并写死）；② 恢复演练在**独立 `_test` 库或快照**上真跑一次，行数逐表对拍；③ 不可重建数据单独标注「丢失即不可恢复」；④ 步骤写进 `docs/runbook.md`（与 `CORE-RUNBOOK-GAP` 同批或其后）。
+- **④ 约束与非目标**：不改任何 schema；**禁止在 `quant_trading` 活库上跑破坏性恢复**（DATA-09：演练只走 `_test` 库/快照）；不引入托管备份服务。
+- **⑤ 验收**：一次真备份 + 一次真恢复到独立库，逐表行数对拍一致；破坏验证 = 恢复时故意漏一个 schema ⇒ 对拍红。真退出码 + 行数证据。
+- **⑥ 边界**：备份/恢复方案与演练归本单；生产库定时执行归运维。
+- **owner**：待定
+- **重开条件**：无外部前置（A1/A4 已授权 `_test` 库演练）；生产定时备份须运维接入。
+
+> **✅ 施工记录（2026-11-12，本条即施工 commit）**
+>
+> - **坐标订正（以现码/实测为准）**：本机唯一活库的库名是 **`tellurion`**（`pg_database` 实测），不是台账里的 `quant_trading`；schema 数是 **10**（`ai` / `analysis` / `audit` / `ingest` / `market` / `public` / `quant` / `risk` / `run` / `strategy`），表 **82**。下方取证均按实测口径。
+> - **口径写死**：整库 `pg_dump -Fc`（不按 schema 拆），恢复只进独立 `_test` 库。
+> - **落地**：新增 `tools/pg_backup_drill.ps1`（`PGPASSWORD` 环境变量取凭据；dump → 转纯文本按 `COPY` 块取备份当时的逐表行数 → `DROP/CREATE` 演练库 → `pg_restore --exit-on-error` → 结构五计数对拍 → 逐表行数对拍 → 默认清理）。`docs/runbook.md` §7 写入口径、命令、2026-11-12 真跑证据、不可重建/可重建两张清单与恢复后最小复核。
+> - **真跑（真实输出）**：`DUMP_OK size=312706`、`DUMP_TABLES=82`、`STRUCTURE_MATCH schemas=10 tables=82 indexes=187 sequences=28 constraints=178`、`ROWCOUNTS_MATCH dump_tables=82 restored_tables=82`、`CLEANUP test_db_dropped=tellurion_dr_test`、`EXIT=0`。
+> - **行数对拍的基准选择**：以 dump 内 `COPY` 行数为准，而不是跑完后回查源库 —— 演练窗口内线上写入会让 `run.backtest_jobs` 从 5 涨到 6（实测），用实时源库数会把正常写入误判成丢数据。
+> - **破坏验证（两条，均真做真还原）**：① 恢复后临时 `DROP SCHEMA analysis CASCADE` ⇒ `STRUCTURE_MISMATCH src=schemas=10 tables=82 … dst=schemas=9 tables=77 …`、`EXIT=1`（⑤ 点名的判据）；② 恢复后临时删 `market.stocks` 一行 ⇒ `ROWCOUNTS_MISMATCH count=1 / market.stocks dump=5580 restored=5579`、`EXIT=1`。删掉注入后复跑全绿，脚本 `sha256=1DA5963F9C4E6DA572925EE68C9768D6FE76D6D1B84BEFC03EAD115FF70B75AB` 与注入前逐字节一致。
+> - **不可重建清单**：见 `docs/runbook.md` §7.4（`strategy.*`、`risk.rule_*`、`run.*` 结果与 provenance、`analysis.*`、`ai.*`、`public.users`、审计留痕、`ingest.raw`、`public.fundamentals_detail` 等）；可重建清单见 §7.5（`market.*` 等，代价 = 第三方配额 + 时间）。
+> - **未落（如实）**：生产库的**定时**备份/保留策略归运维，本单只交付方案 + 本机真演练；k8s `pg_dumpall` 口径的文档订正随 `CORE-K8S-EXIT` 一起处理（该单待授权）。

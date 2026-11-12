@@ -143,10 +143,110 @@ INFO ... risk limits loaded from tellurion-risk snapshot (SVC-CORE-RISK-RETIRE) 
 | 风控限额与 risk 不一致 | `risk_policy_source` 是哪一态 | §4 末尾 |
 | 回测结果 `DATA_QUALITY / 409` 点名因子缺失 | 因子缓存/派生表是否有写者 | [`TASKS.md`](TASKS.md) `CORE-FACTOR-CACHE-WRITER` / ADR-037 |
 
-## 7. 备份与恢复
+## 7. 备份与恢复（DR 演练）
 
-全 schema 备份与恢复演练的步骤、证据口径由 [`TASKS.md`](TASKS.md) 的 `CORE-PG-BACKUP-DR` 落地，落地后补入本节
-（含逐表行数对拍与「不可重建数据」清单）。
+### 7.1 口径（写死，不做二选一）
+
+- **备份形态**：**整库** `pg_dump -Fc`（custom format），覆盖本机 `tellurion` 库的**全部 10 个 schema**
+  （`ai` / `analysis` / `audit` / `ingest` / `market` / `public` / `quant` / `risk` / `run` / `strategy`）。
+  不按 schema 拆——同一库里的 `risk` / `strategy` / `run` 等 schema 与 `public` 有跨 schema 引用，
+  拆开备份会造出一套恢复顺序问题，收益为零。
+- **恢复演练**：必须恢复到**独立 `_test` 库**（默认 `tellurion_dr_test`），**绝不允许**覆盖 `tellurion`。
+- **凭据**：只从 `PGPASSWORD` 环境变量读取，不写入脚本、命令历史或仓库文件。
+- **版本**：`pg_dump` / `pg_restore` 主版本必须 **≥** 服务端主版本（本机同为 16）。
+
+### 7.2 一键演练（含逐表行数对拍）
+
+```powershell
+$env:PGPASSWORD = '<本机 postgres 口令>'
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/pg_backup_drill.ps1
+# 保留演练库供人工核查：加 -KeepTestDatabase
+# 其他库/实例（仍是本机）：-Database <name> -TestDatabase <name>_dr -Port 5432
+```
+
+脚本做六件事，任一步失败即 `EXIT≠0`：
+
+1. `pg_dump -Fc` 整库 → 临时目录（不入仓）；
+2. 把 dump 转纯文本，按 `COPY` 块统计**备份当时**的逐表行数（用来隔离演练窗口内的线上写入）；
+3. `DROP/CREATE` 独立 `_test` 库 → `pg_restore --no-owner --no-privileges --exit-on-error`；
+4. 结构计数对拍：schema / 表 / 索引 / 序列 / 约束五组数必须两库相等；
+5. 逐表行数对拍：以第 2 步的备份快照为基准，恢复库每表行数必须相等；
+6. 默认删演练库与中间 `.sql`（dump 文件保留，位置打印在 `DUMP_OK` 行）。
+
+### 7.3 2026-11-12 真跑证据
+
+```text
+DUMP_OK path=...\tellurion_dr_20261112015916.dump size=311549
+DUMP_TABLES=82
+STRUCTURE_MATCH schemas=10 tables=82 indexes=187 sequences=28 constraints=178
+ROWCOUNTS_MATCH dump_tables=82 restored_tables=82
+CLEANUP test_db_dropped=tellurion_dr_test
+EXIT=0
+```
+
+破坏验证（两条，均真做真还原）：
+
+1. **漏 schema**（任务 ⑤ 点名的判据）：恢复后临时 `DROP SCHEMA analysis CASCADE` →
+
+```text
+STRUCTURE_MISMATCH src=schemas=10 tables=82 indexes=187 sequences=28 constraints=178
+                    dst=schemas=9 tables=77 indexes=180 sequences=28 constraints=162
+EXIT=1
+```
+
+2. **漏行**：恢复后临时删掉 `market.stocks` 一行 →
+
+```text
+ROWCOUNTS_MISMATCH count=1
+  market.stocks dump=5580 restored=5579
+EXIT=1
+```
+
+删掉注入后复跑 `STRUCTURE_MATCH` + `ROWCOUNTS_MATCH`、`EXIT=0`；脚本 `sha256=1DA5963F…70B75AB`
+与注入前逐字节一致（`Get-FileHash` 复核）。
+
+> 演练期间线上写入会让「实时源库行数」与「备份快照行数」不同（实测 `run.backtest_jobs` 在 dump 后
+> 从 5 涨到 6）。**对拍基准必须是 dump 里的 COPY 行数**，不是跑完之后再查源库——否则会误判成丢数据。
+
+### 7.4 不可重建数据（丢失即不可恢复，必须随备份保真）
+
+| 数据 | 为什么不可重建 |
+|---|---|
+| `strategy.strategy_definitions` / `strategy_versions` / `strategy_artifact_blobs` / `strategy_build_jobs` / `strategy_promotions` | 用户上传的策略源码/artifact 与 promote 审计，仓里没有副本 |
+| `risk.rule_defs` / `rule_revisions` / `rule_snapshots` / `audit_logs` / `risk_events` | 限额规则的修订历史与风控事件是业务事实 |
+| `run.backtest_results` / `run_provenance` / `run_artifacts` / `walk_forward_reports` / `batch_runs` / `parent_jobs` / `backtest_jobs` | 复现实验依赖当时的数据快照与参数，事后无法从代码重算同一结果 |
+| `analysis.reports` / `attribution` / `mc_runs` / `sensitivity_runs` | 同上，属于已发布的分析产物 |
+| `ai.experiments` / `factor_hypothesis` / `factor_genes` / `strategy_genes` / `generation_chain` / `research_*` / `ai_costs` | 实验与生成链的留痕不可重放 |
+| `public.users` | 鉴权主体的唯一真相 |
+| `public.factor_registrations` / `factor_registration_audit` / `factor_definitions` | 因子注册与冻结定义（部分由代码 seed，但注册/审计历史不在代码里） |
+| `audit.message_log` / `public.audit_logs` | 审计留痕按定义不可重建 |
+| `ingest.raw` | 原始归档；重新拉取要消耗第三方配额且源可能已变，按不可恢复对待 |
+| `ingest.sync_jobs` / `sync_schedules` | 同步历史与排程配置 |
+| `public.fundamentals_detail` | 当前**没有生产者**（`CORE-FUNDAMENTALS-PRODUCER` 系缺口），删了就是永久 0 行 |
+| `quant.external_signals` / `alert_outbox` / `strategy_state` | 外部信号、待投递告警与运行态 |
+| `quant.industry_vitality` / `macro_series` / `supply_chain_edge` / `sw_industry_tree` / `etf_constituent` | 外部参考数据，仓内无完整生成脚本 |
+| `public.backtest_adjustment_anchors` | 回测复权锚点，与历史 run 绑定 |
+
+### 7.5 可重建数据（丢失后可重算/重同步，但有时延与配额代价）
+
+| 数据 | 重建方式 | 代价 |
+|---|---|---|
+| `market.*`（`stocks` / `ohlcv_daily_qfq` / `trading_calendar` / `index_*` / `top_list` / `capital_flow` / `fundamentals` 相关等） | 由 `tellurion-data` 重新同步 Tushare | 第三方配额 + 时间；历史越久越贵 |
+| `public.stock_fundamentals` | 同上 | 同上 |
+| `public.factor_cache` / `factor_returns` / `ic_analysis` | 由 core 消费点按需重算（ADR-037） | CPU 时间；`factor_cache` 当前无写者 |
+| `run.worker_registry` | worker 心跳重建 | 分钟级 |
+| `public.data_migrations` / `ingest.data_migrations` | 可重建迁移台账 | 历史记录丢失 |
+
+> `market.*` 虽「可重建」，但生产环境不要把它当作可随意丢弃——重建一次等于把配额与时间成本再付一遍，
+> 且源侧修订会导致与历史结果不可比。备份时**不做**按表裁剪。
+
+### 7.6 恢复后的最小复核
+
+1. `python tools/check_deploy_consistency.py`、`go build ./...`（确认代码侧 DSN/版本口径没被恢复动作改动）；
+2. 起默认栈，`/readyz` 200；
+3. 抽查三张不可重建表：`select count(*) from strategy.strategy_definitions;`、`run.run_provenance`、
+   `risk.rule_revisions`，与备份前记录比对；
+4. 抽查一条历史 run 的 `run_provenance` 能按 `run_id` 读回，且 `backtest_results` 行数与其一致。
 
 ## 8. 排查边界
 
