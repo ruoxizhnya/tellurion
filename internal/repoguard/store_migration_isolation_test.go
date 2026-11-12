@@ -91,6 +91,8 @@ var migratingCtorAllowlist = map[string]string{
 	"pkg/bootstrap/engine.go":         "analysis-service 装配路径：迁移的显式执行点之一",
 	"cmd/dualrun/main.go":             "对拍 CLI：人工显式运行，不是测试副产物",
 	"pkg/storage/integration_test.go": "integration tag：dockertest 一次性容器，构造 migrate() 就是被测对象",
+	"tools/ci/applymigrations/main.go": "CI Test job 的显式迁移步：跑 go test 前把一次性测试库迁到最新，" +
+		"让库侧用例不再长期 skip（CORE-CI-DB-LEGS-SKIPPED）",
 }
 
 // noMigrateCtorTestFiles is kept empty on purpose — every test file may call

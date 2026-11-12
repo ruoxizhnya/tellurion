@@ -41,3 +41,39 @@ CREATE TABLE IF NOT EXISTS market_activity (
 );
 
 CREATE INDEX IF NOT EXISTS idx_market_activity_trade_date ON market_activity (trade_date);
+
+-- 日线（CORE-CI-DB-LEGS-SKIPPED）：`pkg/marketdata` 的 1d 路由与
+-- `pkg/expression` 的 `open/high/low/close/volume/turnover` 可用性探测都读
+-- 裸表名 `ohlcv_daily_qfq`（生产部署由 search_path 指向 market）。
+-- 形状镜像 tellurion-data:internal/schema/market.go 的 `market.ohlcv_daily_qfq`。
+CREATE TABLE IF NOT EXISTS ohlcv_daily_qfq (
+    symbol      VARCHAR(20) NOT NULL,
+    trade_date  DATE NOT NULL,
+    open        DOUBLE PRECISION NOT NULL,
+    high        DOUBLE PRECISION NOT NULL,
+    low         DOUBLE PRECISION NOT NULL,
+    close       DOUBLE PRECISION NOT NULL,
+    volume      DOUBLE PRECISION NOT NULL,
+    turnover    DOUBLE PRECISION DEFAULT 0,
+    trade_days  INT DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (symbol, trade_date)
+);
+
+-- `pkg/storage.ScreenFundamentals` 显式 JOIN `market.stocks`（schema 限定，
+-- search_path 帮不上忙），所以这里连 schema 一起补。
+-- 形状镜像 tellurion-data:internal/schema/market.go 的 `market.stocks`。
+CREATE SCHEMA IF NOT EXISTS market;
+
+CREATE TABLE IF NOT EXISTS market.stocks (
+    symbol      VARCHAR(20) PRIMARY KEY,
+    name        VARCHAR(200) NOT NULL,
+    exchange    VARCHAR(20) NOT NULL,
+    industry    VARCHAR(100),
+    market_cap  DOUBLE PRECISION,
+    list_date   DATE,
+    delist_date DATE,
+    status      VARCHAR(20) DEFAULT 'active',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);

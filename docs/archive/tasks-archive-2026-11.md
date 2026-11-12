@@ -126,6 +126,7 @@
 | CORE-REVIEW-PENDING-AGGREGATE | A-04 断言 5 / G1：`GET /api/review/pending` 多源聚合，任一源未知即 `null`（不画恒 0 角标） | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-REVIEW-PENDING-AGGREGATE) |
 | CORE-BENCH-CALENDAR-FIXTURE | `BenchmarkBacktest` 缺交易日历：按 fixture 日期合成日历，基准恢复出 ns/op | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-BENCH-CALENDAR-FIXTURE) |
 | CORE-LISTING-SEED-UNWIRED | 上市/退市日历接入真实装配路径（主引擎 + walk-forward 窗口引擎），失败不合成并暴露 `pool_source=current` 偏差标记 | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-LISTING-SEED-UNWIRED) |
+| CORE-CI-DB-LEGS-SKIPPED | CI Test job 设 `TEST_DATABASE_DSN` + 显式迁移步，PIT / 迁移账本用例不再长期 skip；补齐外仓表镜像夹具 | 2026-11-12 | 见原文（本条即施工提交本体：CI + 工具 + 夹具 + 台账同 commit） | [原文](#CORE-CI-DB-LEGS-SKIPPED) |
 
 ---
 
@@ -3956,3 +3957,29 @@
 >   - 新增用例：契约映射（null/退市日当天仍在市/坏日期降级为未知边界）、Bearer 透传、成功给 `point_in_time`、上游 5xx 给 `current`+`degraded` 且 `Windows` 为 nil、空 windows 视为失败、快照深拷贝隔离、读面 nil 加载器 / 成功 / 失败三态。
 > - **未覆盖**：真 data 服务联调（本机无该服务进程）；CI 侧无 PG/data 依赖，仍按既有约定不走。
 > - **跨仓需求**：contracts 仓需把 `/api/listing-windows/status` 同步进统一 openapi（本仓只保证 `docs/openapi.yaml` 与真实路由双向一致）。
+
+<a id="CORE-CI-DB-LEGS-SKIPPED"></a>
+### CORE-CI-DB-LEGS-SKIPPED · CI 的 Test job 无数据库，DB 触碰型用例长期 skip 假绿 [P2] ✅（2026-11-12）
+
+- **① 目标**：让 PIT / 迁移账本 / 存储层这类「必须连库」的用例在 CI 里真跑，而不是靠 skip 保持绿色。
+- **② 上下文**：2026-11-12 W3 回测审计实跑发现——`.github/workflows/ci.yml` 的 Test job 既没有 `services: postgres`，也没有 `TEST_DATABASE_DSN`；`pkg/storage/postgres_test.go:26` 在 DSN 为空时走 `testenv.SkipNoDB`。结果是 `pkg/storage` 的 PIT 反例（公告日之前不可见、`available_date` 生成列、market schema 读路径）与迁移账本用例**从未在 CI 执行**；这些腿本次是在隔离 PG（临时容器，已 `rm -f` + 删卷）上手工跑绿的。CI 绿不能推出这些语义没坏。
+- **③ 要求**：Test job 增加 postgres service（带 `pg_isready` healthcheck）、设 `TEST_DATABASE_DSN`，并在跑测试前应用 `NewPostgresStore` 迁移；或拆独立 `db-test` job。DSN 已设置却连不上继续保持 fail-loud（现有行为），禁止回退成 skip。
+- **④ 约束与非目标**：不许用 skip 换绿；不许把真实 DB 依赖的用例改成内存替身来绕开；不改现有测试语义。
+- **⑤ 验收**：CI 日志里 PIT / 迁移用例以 PASS 出现（非 SKIP）；一条破坏验证（例如删 `available_date` 生成列或改公告日判定）在 CI 变红并贴原文。
+- **⑥ 边界**：core 的 CI 与测试夹具；data / risk / broker / orchestration 各自的 DB 腿在各自台账登记。
+- **重开条件**：CI runner 能起 postgres service，或提供外部测试库的 DSN secret。
+
+> **施工记录（2026-11-12）**
+>
+> - **上下文订正**：② 说 Test job「没有 `services: postgres`」与事实不符 —— service 早已存在（postgres:16 + `pg_isready` healthcheck）。真正的缺口有两层：① Test 步骤**没设** `TEST_DATABASE_DSN`，也没应用迁移，库是空壳 ⇒ 库侧用例照旧 skip；② 一旦设上 DSN，三个包会立刻红，因为它们仍在读已退役给 `tellurion-data` 的表（`pkg/marketdata` 的 `ohlcv_daily_qfq`、`pkg/expression` 的字段可用性探测、`pkg/storage.ScreenFundamentals` 的 `market.stocks`）。只设 DSN 等于把「假绿」换成「真红」。
+> - **CI**（`.github/workflows/ci.yml`）：「Apply core migrations」步骤（`go run ./tools/ci/applymigrations`，同一个 `TEST_DATABASE_DSN`）在 Test 前执行；Test 步骤补 `TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable`。覆盖率基线口径同步改为「设 DSN 跑全套件」。
+> - **迁移入口**（`tools/ci/applymigrations/main.go`）：显式调用 `storage.NewPostgresStore`（迁移唯一合法入口），再调 `testenv.EnsureMarketTableFixturesSQL` 一次补齐外仓表镜像 —— 避免各测试包并行 `CREATE TABLE IF NOT EXISTS` 在 Postgres `pg_type` 唯一键上偶发竞争。`internal/repoguard` 的迁移 allowlist 登记该新入口及理由（STRUCTURE 护栏继续生效，不是放行）。
+> - **外仓表镜像**（`pkg/testenv/testdata/market_fixtures.sql`）：新增 `ohlcv_daily_qfq`（裸表名，镜像 data 的 `market.ohlcv_daily_qfq` 列形状）与 `market.stocks`（schema 限定，`ScreenFundamentals` 显式 JOIN）。`pkg/storage` 的 `testStore` 也调用 `EnsureMarketTableFixtures`，让单包跑（如 `go test ./pkg/storage`）同样自洽。
+> - **验收（真实输出，隔离 PG `tellurion_citest`）**：
+>   - 新库 → `go run ./tools/ci/applymigrations` → `applymigrations: core 迁移与外仓表夹具已应用（schema 就绪）`。
+>   - `go test ./... -count=1 -coverprofile=...` → 74 个包全 `ok`、`EXIT=0`（无 FAIL）。
+>   - `go test ./pkg/storage -v -run 'TestGetFundamentalsSnapshot_PIT_NotVisibleBeforeAnnouncement|TestFundamentalsPIT'` → `--- PASS: TestGetFundamentalsSnapshot_PIT_NotVisibleBeforeAnnouncement`、`--- PASS: TestFundamentalsPITQueriesTargetMarketSchema`（此前为 SKIP）。
+>   - `go run ./tools/coveragegate -profile=... -total-min=52 -pkg-min=tellurion/pkg/backtest=65` → `PASS: 总量 72.5% ≥ 52.0%，包级阈值全部达标`（旧基线 57.7%，DB 腿打开后 72.5%，阈值不动）。
+>   - **破坏验证**：把 `GetFundamentalsSnapshot` 的 `available_date <= $1` 临时改成 `>= $1` → 上述 PIT 用例 FAIL（公告日之后的财报被当成可见）；还原后 `git diff --stat pkg/storage/fundamentals.go` 为空、同用例 PASS。
+> - **未覆盖**：CI runner 首次跑（本机无 Actions）；`-race` 仍需 CI 的 gcc。
+

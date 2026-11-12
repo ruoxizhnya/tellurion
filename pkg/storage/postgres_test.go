@@ -30,6 +30,10 @@ func testStore(t *testing.T) *PostgresStore {
 	if err != nil {
 		t.Fatalf("[testdb] TEST_DATABASE_DSN 已设置但连不上（fail-loud）: %v", err)
 	}
+	// CORE-CI-DB-LEGS-SKIPPED：`market.stocks` 的 owner 是 tellurion-data，
+	// core 迁移不再建它；ScreenFundamentals 仍显式 JOIN 它。测试库按列形状
+	// 镜像补空表（夹具见 pkg/testenv/market_tables.go）。
+	testenv.EnsureMarketTableFixtures(t, store.DB())
 	return store
 }
 

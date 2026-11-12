@@ -96,9 +96,17 @@ jobs:
             exit 1
           fi
 
-      # 存储层测试需要 Postgres；连不上会 t.Skip，因此这里显式提供服务容器，
-      # 让 PIT 等回归测试真正被执行而不是被跳过。
-      #
+      # 存储层测试需要 Postgres。此前本 job 虽起了 service，却**不设**
+      # TEST_DATABASE_DSN、也没有迁移步 ⇒ 所有库侧用例（PIT、迁移账本等）
+      # 长期显式 skip，绿是「没验过」的绿（CORE-CI-DB-LEGS-SKIPPED）。
+      # 现在分两步对齐本地口径：先由 tools/ci/applymigrations 把一次性库迁到
+      # 最新，再在 Test 步骤给出同一个 DSN —— 迁移动作仍只走显式入口
+      # （DATA-09 的结构护栏：默认构建的测试不得调用迁移构造）。
+      - name: Apply core migrations
+        run: go run ./tools/ci/applymigrations
+        env:
+          TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
+
       # AUD-12：加 -race（需 cgo + gcc，ubuntu-latest 自带）。
       # 开门前先实测过存量：`go test -race ./...` 报 17~18 处数据竞争、16 个
       # 用例失败，全部集中在 cmd/analysis —— 测试助手在 t.Parallel() 下各自
@@ -113,10 +121,10 @@ jobs:
         # 门禁执法者是 tools/coveragegate（语句加权，与 go tool cover
         # 的 total 同口径）。阈值 = 2026-10-17 实测基线 - 5pct 余量：
         #   total 57.7% → 52；pkg/backtest 70.4% → 65；~~pkg/domain 80.4% → 75~~。
-        # 基线口径 = 不设 TEST_DATABASE_DSN 跑全套件——与本 CI 口径一致
-        # （上面的 postgres service 是空库且无迁移步，DB 测试在此模式下
-        # 显式跳过并汇总，见 pkg/testenv/dbenv.go）。要动阈值就同笔改
-        # 这里与 docs/TASKS.md 的 REV-21 完成记录，并重跑基线。
+        # 基线口径（2026-11-12 起）= **设 TEST_DATABASE_DSN** 跑全套件，DB 腿不再
+        # 跳过（CORE-CI-DB-LEGS-SKIPPED）。隔离 PG 上重跑实测 total 72.5%、
+        # pkg/backtest 82.5% —— 离 52 / 65 的下限更远，阈值不动。
+        # 要动阈值就同笔改这里与 docs/TASKS.md 的 REV-21 完成记录，并重跑基线。
         #
         # QT-05 B1（2026-10-23）：`-pkg-min=tellurion/pkg/domain=75` 那条腿已删，
         # 与 Makefile 的 `test` 目标是同一份阈值（改就两边一起改）。理由：domain
@@ -138,6 +146,7 @@ jobs:
             -pkg-min=tellurion/pkg/backtest=65
         env:
           TUSHARE_TOKEN: ""
+          TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
 
       # QT-61：把「默认跳过、且需要外部数据的用例面」在 CI 汇总里点名，让「绿」里
       # 看不见的覆盖缺口变成一条可见的 notice —— 不是把它们变红（那是噪声），也不是
