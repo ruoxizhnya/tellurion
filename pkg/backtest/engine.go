@@ -694,7 +694,7 @@ func (e *Engine) parseBacktestDateRange(ctx context.Context, req BacktestRequest
 // （请求一个库里没有日历的区间应得 409）。
 func errTradingCalendarNotSynced() error {
 	return apperrors.New(apperrors.ErrCodeDataQuality,
-		"trading calendar not synced, please run POST /sync/calendar first (with exchange 'SSE' or 'both')").
+		"trading calendar not synced, please run POST /api/sync/jobs with job_type=trading_calendar first (with exchange 'SSE' or 'both')").
 		WithOperation("RunBacktest")
 }
 

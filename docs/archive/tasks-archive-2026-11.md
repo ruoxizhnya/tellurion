@@ -92,6 +92,7 @@
 | CORE-REDIS-EXIT | Redis 已退役但死代码/依赖/k8s 清单仍在 | 2026-11-12 | 见原文 | [原文](#CORE-REDIS-EXIT) |
 | CORE-BACKTEST-RANGE-COVERAGE | 回测区间静默截断（日历覆盖不足仍报 completed） | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-RANGE-COVERAGE) |
 | CORE-FACTOR-CACHE-WRITER | `public.factor_cache` 有表无写者，`multi_factor` 不可用（ADR-037 按需求值收口） | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-WRITER) |
+| CORE-BACKTEST-OPS-TEXT | 回测排障文案指向已退役的 `/sync/calendar` 与 `sync/factors/all` | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-OPS-TEXT) |
 
 ---
 
@@ -3132,6 +3133,27 @@
 > - **验收（真实输出）**：`gofmt -l pkg/backtest` 空；`go build ./...` EXIT=0；`go vet ./pkg/backtest ./cmd/analysis` EXIT=0；`go test ./pkg/backtest/... -count=1` 全绿；`go test ./cmd/analysis -run 'Backtest|Factor' -count=1` ok；`go test ./docs/ -count=1` ok。
 > - **破坏验证（真实输出，均逐字节还原）**：① `factorCoverage` 改回读 `store.GetFactorCacheRange`（空表）⇒ `TestFactorGateReadsRunLevelNotDB` 红（门禁把所有因子判成缺失）；还原复绿。② 摘掉 `deriveMissingFactors` 接线 ⇒ `TestRunBacktest_MultiFactorOnDemandProducesTrades` 红（`DATA_QUALITY` 409，文案点名退役表与按需求值）；还原复绿。③ `MissingFactors` 判据改成恒全量重算 ⇒ `TestDeriveMissingFactors_SecondCallDoesNotRecompute` 红（第二次仍返回 3）；还原复绿。
 > - **未落（如实）**：真栈 `POST /api/backtest`（多标的 ≥60 交易日）未跑 —— 运行中的 analysis 容器镜像不含本次代码，重建镜像需主任批准（不擅自 `up --build`）。删掉 `public.factor_cache` 表与 `pkg/storage` 的读写方法属破坏性迁移，另立 `CORE-FACTOR-CACHE-RETIRE`。
+
+## 十四、2026-11-12 CORE-BACKTEST-OPS-TEXT 排障文案指向死路
+
+<a id="CORE-BACKTEST-OPS-TEXT"></a>
+### CORE-BACKTEST-OPS-TEXT · 回测排障文案指向已退役的 `/sync/calendar` 与 `sync/factors/all` [P2] ✅（2026-11-12）
+
+- **① 目标**：回测启动期/预热期的排障提示必须指向**真实存在**的入口，不能让运维照着文案去敲一条已经退役的路由。
+- **② 上下文**：`pkg/backtest/engine.go` 的「交易日历未同步」提示写的是 `POST /sync/calendar`（该路由已随数据面退役，真实入口是数据服务的 `POST /api/sync/jobs` + `job_type=trading_calendar`）；`pkg/backtest/cache/factor_cache.go` 的空表提示写的是 `sync/factors/all`（因子同步面已退役，ADR-037 D2：因子值由 run 按需求值、不写库）。同文件尾部的区间覆盖错误已经是正确口径，两处提示自相矛盾。
+- **③ 要求**：① 日历文案改用 `POST /api/sync/jobs` + `job_type=trading_calendar`；② 因子空表文案说明 `public.factor_cache` 已退役、无写者、因子按需求值（ADR-037 D2）、不存在该同步入口；③ 加静态护栏防回退。
+- **④ 约束与非目标**：只改文案与护栏，不改任何同步/派生逻辑；不动 `cmd/analysis/handlers_proxy.go` 中列举历史端点的注释（属另一单范围）；不改文档归档里的历史记录。
+- **⑤ 验收**：`gofmt -l` 空、`go build/vet/test ./... -count=1` 全绿；护栏用例钉住两条文案与正向入口。破坏验证 = 任一文案回退 ⇒ 护栏红，逐字节还原后复绿。
+- **⑥ 边界**：本仓 `pkg/backtest/engine.go`、`pkg/backtest/cache/factor_cache.go` 与 `internal/repoguard` 护栏；日历/因子数据的真实同步入口归 `tellurion-data`。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **改动**：`engine.go` 的 `errTradingCalendarNotSynced` 文案改为 `POST /api/sync/jobs with job_type=trading_calendar`；`factor_cache.go` 的 `Warm` 空结果日志改为「`public.factor_cache` 是退役遗留表（无写者）；因子按 run 按需求值（ADR-037 D2），不存在该同步入口」。
+> - **护栏**：新增 `internal/repoguard/backtest_ops_hint_test.go` —— 禁止两处出现 `POST /sync/calendar` / `sync/factors/all`，同时正向要求 `engine.go` 含真实入口、`factor_cache.go` 含 `ADR-037`（防「删掉提示了事」造成假绿）。
+> - **验收（真实输出）**：`gofmt -l pkg/backtest internal/repoguard` 空；`go build ./...` EXIT=0；`go vet ./...` EXIT=0；`go test ./internal/repoguard -run TestBacktestOpsHintsPointToLiveEntry -count=1` ok；`go test ./pkg/backtest/... -count=1` 全绿。
+> - **破坏验证（真实输出，均逐字节还原）**：① 把日历文案改回 `POST /sync/calendar` ⇒ 护栏红（`仍提示 POST /sync/calendar`）；还原后 `engine.go` 哈希回到 `C32DBEAD…39E840C`，复绿。② 把因子文案改回 `sync/factors/all` ⇒ 护栏红（`仍提示 sync/factors/all`）；还原后 `factor_cache.go` 哈希回到 `544BFBA2…5B0D09`，复绿。
+> - **重开条件**：若未来数据侧重新提供因子批量同步入口（须先重新裁决因子值 owner，见 `CORE-FACTOR-CACHE-RETIRE` 重开条件），再改文案并同步更新本护栏；在此之前不得在 core 文案里指任何因子同步路由。
+
 
 
 

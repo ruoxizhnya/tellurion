@@ -294,7 +294,8 @@ func (f *FactorCacheAccessor) Warm(ctx context.Context, start, end time.Time, st
 			continue
 		}
 		if len(entries) == 0 {
-			f.logger.Info().Str("factor", string(factor)).Msg("No factor cache entries in DB — run sync/factors/all first")
+			f.logger.Info().Str("factor", string(factor)).
+				Msg("No factor cache entries in DB — public.factor_cache is a retired legacy table (no writer); factors are evaluated on demand per run (ADR-037 D2), no sync endpoint exists")
 			continue
 		}
 		for _, entry := range entries {
