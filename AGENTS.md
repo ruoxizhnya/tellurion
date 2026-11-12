@@ -354,6 +354,12 @@ docker compose logs -f analysis-service  # Tail analysis service logs
 docker compose down                     # Stop all services
 ```
 
+> **排查环境变量**：不要直接 `env` 打明文（2026-11-12 有过 `TUSHARE_TOKEN` 明文进工具输出的
+> 事故）。统一走 `env | tools/redact-env.sh`（容器同理：`docker exec <svc> env | tools/redact-env.sh`）：
+> 键名**后缀**命中 `_TOKEN` / `_SECRET` / `_PASSWORD` / `_DSN` / `_API_KEY` / `_ACCESS_KEY` /
+> `_PRIVATE_KEY` / `_CREDENTIALS` 的值一律替换为 `<redacted len=N>`，新变量自动覆盖。
+> `tools/redact-env.sh --selftest` 自证。
+
 > **部署形态（2026-11-11 定案）**：本地只留**一个** `docker-compose.yml`，
 > 差异用 profile 表达（默认 4 个服务；`full` 加 4 个；`orchestration-worker` /
 > `tools` / `nt` 各自独立）。原 `docker-compose.services.yml` / `.e2e.yml` /
