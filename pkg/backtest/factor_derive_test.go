@@ -216,33 +216,22 @@ func TestDeriveMissingFactors_NonDerivableFactorStaysMissing(t *testing.T) {
 	require.True(t, derivableFactorDef(mom), "momentum 是 formula，应可派生")
 }
 
-// ─── 5. 覆盖度闸读 run 级物化结果，不读退役的 DB 表 ─────────────────
-
-// emptyFactorStore 模拟「public.factor_cache 是空表」这一事实：
-// 它的读取恒返回空。门禁若回退到看这张表，本用例就必须变红。
-type emptyFactorStore struct {
-	Storage
-}
-
-func (s *emptyFactorStore) GetFactorCacheRange(
-	_ context.Context, _ cdom.FactorType, _, _ time.Time,
-) ([]*domain.FactorCacheEntry, error) {
-	return nil, nil
-}
+// ─── 5. 覆盖度闸读 run 级物化结果，不读已删除的 DB 表 ─────────────────
 
 func TestFactorGateReadsRunLevelNotDB(t *testing.T) {
 	eng := newTestEngine(t)
-	eng.store = &emptyFactorStore{}
+	// 不注入任何 Storage：public.factor_cache 已删除（CORE-FACTOR-CACHE-RETIRE），
+	// 门禁若回退到「去库里看有没有因子」，这里必然失败。
 	seedFactors(eng, 1.0, cdom.FactorMomentum, cdom.FactorQuality, cdom.FactorValue)
 
 	rc := newTestRunSpan(t, eng, domain.BacktestParams{StrategyName: "multi_factor"})
 	require.Zero(t, len(rc.factorCoverage([]cdom.FactorType{cdom.FactorValue})),
-		"run 级缓存有条目 ⇒ 门禁必须放行，哪怕 DB 表为空")
+		"run 级缓存有条目 ⇒ 门禁必须放行，哪怕没有任何持久化层")
 	require.NoError(t, rc.ensureRequiredFactors("multi_factor"),
-		"门禁不得去看已退役的 public.factor_cache")
+		"门禁不得去看已删除的 public.factor_cache")
 }
 
-// ─── 6. 全链路：空 factor_cache + multi_factor ⇒ completed 且成交 ────
+// ─── 6. 全链路：无 DB 因子表 + multi_factor ⇒ completed 且成交 ────
 
 func TestRunBacktest_MultiFactorOnDemandProducesTrades(t *testing.T) {
 	const days = 70

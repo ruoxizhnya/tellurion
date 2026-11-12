@@ -13,8 +13,9 @@ package repoguard
 //     `strategies` 表）。
 //  3. 正向对照：运行时 `pkg/strategy/registry.go` 仍在且含 `DefaultRegistry`
 //     （ADR-036 §6「运行时 pkg/strategy 保留」）；`pkg/storage/postgres.go`
-//     仍建 `factor_cache` —— 防「删过头」造成的假绿（`backtest_jobs` 已于
-//     SVC-ORCH-G3 收尾腿退役，其护栏见 walkforward_persistence_retired_test.go）。
+//     仍建 `factor_returns` —— 防「删过头」造成的假绿（`backtest_jobs` 已于
+//     SVC-ORCH-G3 收尾腿退役，`factor_cache` 已于 CORE-FACTOR-CACHE-RETIRE
+//     退役，其护栏见 TestFactorCachePersistenceIsRetired）。
 //
 // 为什么是静态断言：表已删，无库时「查不到这张表」什么也不证明；SQL 文本
 // 是纯事实，静态检查在无库 CI 环境同样有效。
@@ -83,7 +84,7 @@ func TestStrategyDefinitionsPersistenceIsRetired(t *testing.T) {
 			"ADR-036 §6 明写运行时 pkg/strategy 保留；若确已整体删除，请同批订正本护栏")
 	}
 	postgres := stripGoLineComments(readFile(t, filepath.Join(storageDir, "postgres.go")))
-	for _, kept := range []string{"factor_cache"} {
+	for _, kept := range []string{"factor_returns"} {
 		keptRe := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+` + kept + `\b`)
 		if !keptRe.MatchString(postgres) {
 			t.Errorf("pkg/storage/postgres.go 里找不到 %s 的 CREATE TABLE —— "+

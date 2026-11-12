@@ -10,8 +10,9 @@ package repoguard
 //     的 `run.walk_forward_reports`）。
 //  2. `pkg/backtest/walkforward` 的非测试 Go 文件**不 import**
 //     `tellurion/pkg/storage` —— 计算引擎不得重新长出一条落库腿。
-//  3. 正向对照：`pkg/storage/postgres.go` 仍须建 `factor_cache`
-//     （`backtest_jobs` 半边归 `SVC-ORCH-G3`，已于收尾腿退役）；
+//  3. 正向对照：`pkg/storage/postgres.go` 仍须建 `factor_returns`
+//     （`backtest_jobs` 归 `SVC-ORCH-G3`、`factor_cache` 归
+//     `CORE-FACTOR-CACHE-RETIRE`，均已于收尾腿退役）；
 //     若 postgres.go 被整块删空，这条先红，防止前两条假绿。
 //
 // 为什么是静态断言而不是行为测试：表已被删掉，连不上库时「没有这张表」什么
@@ -61,11 +62,12 @@ func TestWalkForwardReportsPersistenceIsRetired(t *testing.T) {
 		}
 	}
 
-	// ③ 正向对照：本次**保留**的 factor_cache 必须仍在 DDL 里，防止「整块删空」
-	// 让前两条假绿。backtest_jobs 半边已于 SVC-ORCH-G3 收尾腿退役，其护栏见
-	// TestBacktestJobsPersistenceIsRetired。
+	// ③ 正向对照：本次**保留**的 factor_returns 必须仍在 DDL 里，防止「整块删空」
+	// 让前两条假绿。backtest_jobs 已于 SVC-ORCH-G3 收尾腿退役，
+	// factor_cache 已于 CORE-FACTOR-CACHE-RETIRE 退役；它们的护栏分别见
+	// TestBacktestJobsPersistenceIsRetired 与 TestFactorCachePersistenceIsRetired。
 	postgres := stripGoLineComments(readFile(t, filepath.Join(storageDir, "postgres.go")))
-	for _, kept := range []string{"factor_cache"} {
+	for _, kept := range []string{"factor_returns"} {
 		keptRe := regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+` + kept + `\b`)
 		if !keptRe.MatchString(postgres) {
 			t.Errorf("pkg/storage/postgres.go 里找不到 %s 的 CREATE TABLE —— "+
@@ -125,8 +127,8 @@ func TestBacktestJobsPersistenceIsRetired(t *testing.T) {
 		t.Error("pkg/storage/postgres.go 里找不到 DROP TABLE IF EXISTS backtest_jobs —— " +
 			"退役必须真正执行（Migration 065），否则存量库留着孤儿表")
 	}
-	if !regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+factor_cache\b`).MatchString(postgres) {
-		t.Error("pkg/storage/postgres.go 里找不到 factor_cache 的 CREATE TABLE —— 护栏正向对照失效")
+	if !regexp.MustCompile(`(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+factor_returns\b`).MatchString(postgres) {
+		t.Error("pkg/storage/postgres.go 里找不到 factor_returns 的 CREATE TABLE —— 护栏正向对照失效")
 	}
 }
 

@@ -142,27 +142,12 @@ func (rc *runContext) warmCache(ctx context.Context, symbols []string) error {
 	return rc.cache.Warm(ctx, symbols, rc.start, rc.warmEnd, rc.e.effectiveProvider)
 }
 
-// warmFactorCache 预热因子 z-score。
-//
-// e.store 是 `Storage` 接口（SVC-CORE-RUN-RETIRE ③ 之后不再是具体指针），
-// 这里只需普通 nil 判断；把具体 nil 指针塞进接口的 typed-nil 陷阱由装配层
-// 负责避免（见 ports.go 的接线纪律）。
-func (rc *runContext) warmFactorCache(ctx context.Context) error {
-	rc.e.mu.RLock()
-	store := rc.e.store
-	rc.e.mu.RUnlock()
-	if store == nil {
-		return nil
-	}
-	return rc.factor.Warm(ctx, rc.start, rc.warmEnd, store)
-}
-
 // factorCoverage 返回必需因子中「run 级物化缓存仍无条目」的那些。
 //
-// **唯一判据入口**：闸只认 run 级物化结果（DB 预热 + 按需求值合并后的
-// 那份 run 私有缓存）。`public.factor_cache` 已退役为遗留表（无写者、
-// 门禁不读它），任何「去库里看有没有因子」的判断都会把一张永远空的表
-// 当成「管线坏了」——破坏验证就是把这个函数改回读 DB，用例必须变红。
+// **唯一判据入口**：闸只认 run 级物化结果（按需求值后合并的那份 run 私有
+// 缓存）。`public.factor_cache` 已删除（CORE-FACTOR-CACHE-RETIRE），任何
+// 「去库里看有没有因子」的判断都会把一张不存在的表当成「管线坏了」——
+// 破坏验证就是把这个函数改回读 DB，用例必须变红。
 func (rc *runContext) factorCoverage(required []cdom.FactorType) []cdom.FactorType {
 	return rc.factor.MissingFactors(required)
 }

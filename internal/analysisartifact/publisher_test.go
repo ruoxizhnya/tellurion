@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
@@ -35,29 +34,6 @@ type fakeEngine struct {
 
 func (f fakeEngine) GetBacktestPositions(runID string) ([]domain.Position, error) {
 	return f.positions, nil
-}
-
-// fakeFactorCache 以「因子 + 窗口末日的 z-score」满足发布期读面。
-type fakeFactorCache struct {
-	zscores fakeZScores
-	date    time.Time
-}
-
-func (f fakeFactorCache) GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error) {
-	out := make([]*domain.FactorCacheEntry, 0, len(f.zscores))
-	for symbol, perFactor := range f.zscores {
-		z, ok := perFactor[factor]
-		if !ok {
-			continue
-		}
-		out = append(out, &domain.FactorCacheEntry{
-			Symbol:     symbol,
-			TradeDate:  f.date,
-			FactorName: factor,
-			ZScore:     z,
-		})
-	}
-	return out, nil
 }
 
 type fakeCatalog struct {
@@ -121,12 +97,11 @@ func publisherFixture() (*Publisher, *fakeEngine, *fakeArtifactStore, *fakeDeliv
 		Engine:  eng,
 		Market:  market,
 		Catalog: catalog,
-		FactorCache: fakeFactorCache{
-			date: in.EndDate,
-			zscores: fakeZScores{
-				"A": {cdom.FactorMomentum: 1.0},
-				"B": {cdom.FactorMomentum: -1.0},
-			},
+		// run 级物化结果由装配层注入；worker 在 run 结束后没有该读面时留 nil，
+		// factor-exposures 按缺输入 fail-closed。
+		ZScores: fakeZScores{
+			"A": {cdom.FactorMomentum: 1.0},
+			"B": {cdom.FactorMomentum: -1.0},
 		},
 		FactorReturns: fakeFactorReturns{cdom.FactorMomentum: {{TradeDate: in.EndDate, TopMinusBot: 0.05}}},
 		Provenance:    fakeProvenance{rec: provenanceFixture()},
@@ -184,7 +159,7 @@ func TestPublish_NoFactorZScoresFailClosed(t *testing.T) {
 	t.Parallel()
 
 	p, _, store, deliverer := publisherFixture()
-	p.FactorCache = nil
+	p.ZScores = nil
 
 	require.NoError(t, p.Publish(context.Background(), responseFixture()))
 

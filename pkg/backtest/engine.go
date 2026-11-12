@@ -1046,12 +1046,6 @@ func (e *Engine) runBacktestInternal(ctx context.Context, state *BacktestState) 
 		logger.Info().Msg("Cache warm-up completed")
 	}
 
-	if err := rc.warmFactorCache(ctx); err != nil {
-		logger.Warn().Err(err).Msg("Factor cache warm-up failed — strategies will fall back to HTTP computation")
-	} else if rc.factor.Len() > 0 {
-		logger.Info().Msg("Factor cache warm-up completed")
-	}
-
 	// P2-12：只有声明了要财报的策略（或必需因子用到财报字段）才会真的去查。
 	// 必须早于因子派生：value(1/pe) 与 quality(roe) 靠这份数据现场求值。
 	if err := rc.warmFundamentalsIfNeeded(ctx, params.StrategyName, params.StockPool, params.EndDate); err != nil {

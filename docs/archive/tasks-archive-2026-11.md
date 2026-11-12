@@ -93,6 +93,7 @@
 | CORE-BACKTEST-RANGE-COVERAGE | 回测区间静默截断（日历覆盖不足仍报 completed） | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-RANGE-COVERAGE) |
 | CORE-FACTOR-CACHE-WRITER | `public.factor_cache` 有表无写者，`multi_factor` 不可用（ADR-037 按需求值收口） | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-WRITER) |
 | CORE-BACKTEST-OPS-TEXT | 回测排障文案指向已退役的 `/sync/calendar` 与 `sync/factors/all` | 2026-11-12 | 见原文 | [原文](#CORE-BACKTEST-OPS-TEXT) |
+| CORE-FACTOR-CACHE-RETIRE | `public.factor_cache` 空表无写者，真正删表并清读写面 | 2026-11-12 | 见原文 | [原文](#CORE-FACTOR-CACHE-RETIRE) |
 
 ---
 
@@ -3153,6 +3154,53 @@
 > - **验收（真实输出）**：`gofmt -l pkg/backtest internal/repoguard` 空；`go build ./...` EXIT=0；`go vet ./...` EXIT=0；`go test ./internal/repoguard -run TestBacktestOpsHintsPointToLiveEntry -count=1` ok；`go test ./pkg/backtest/... -count=1` 全绿。
 > - **破坏验证（真实输出，均逐字节还原）**：① 把日历文案改回 `POST /sync/calendar` ⇒ 护栏红（`仍提示 POST /sync/calendar`）；还原后 `engine.go` 哈希回到 `C32DBEAD…39E840C`，复绿。② 把因子文案改回 `sync/factors/all` ⇒ 护栏红（`仍提示 sync/factors/all`）；还原后 `factor_cache.go` 哈希回到 `544BFBA2…5B0D09`，复绿。
 > - **重开条件**：若未来数据侧重新提供因子批量同步入口（须先重新裁决因子值 owner，见 `CORE-FACTOR-CACHE-RETIRE` 重开条件），再改文案并同步更新本护栏；在此之前不得在 core 文案里指任何因子同步路由。
+
+## 十五、2026-11-12 CORE-FACTOR-CACHE-RETIRE 删表与读写面清理
+
+<a id="CORE-FACTOR-CACHE-RETIRE"></a>
+### CORE-FACTOR-CACHE-RETIRE · `public.factor_cache` 退役遗留表的删表与读面清理 [P1] ✅（2026-11-12）
+
+- **① 目标**：把 `public.factor_cache` 作为退役遗留表彻底收尾——删表、删本仓全部读写方法、清理 migrations 与文档口径，让「表在但没人写/没人读」的误导性形态从库里消失。
+- **② 上下文**：`CORE-FACTOR-CACHE-WRITER`（ADR-037 D2）已于 2026-11-12 按「消费点按需求值」实现并归档（§十三）。实现后事实为：因子值 owner=core、形态=按需实时求值并物化到 **run 级内存**，全栈无任何数据库写者；覆盖度门禁只读 run 级物化。本步前置取证见下方施工记录。
+- **③ 要求**：删表；删 `pkg/storage` 全部读写方法；删 `pkg/backtest/ports.go` 与 `cache.FactorStore` 的持久化接口；清理 `Warm` 的 DB 读取与 Publisher 的 DB 重读；迁移里只加一条 `DROP TABLE IF EXISTS public.factor_cache`；留静态护栏防复发；台账归档并写重开条件。
+- **④ 约束与非目标**：不恢复任何因子写者（ADR-037 D2 不变）；不改 `multi_factor` 加权逻辑；不触动 `factor_returns` / `ic_analysis`；跨仓 data/analytics 不改。
+- **⑤ 验收**：`gofmt -l` 空、`go build/vet/test ./... -count=1` 全绿；`psql` 实测表不存在；静态护栏禁止生产代码再出现 `factor_cache` 读写与旧方法名。破坏验证：加回一行 `INSERT INTO public.factor_cache` ⇒ 护栏红，逐字节还原后复绿。
+- **⑥ 边界**：本仓 `pkg/storage`、`pkg/backtest/{ports,aliases,run_context,engine}.go`、`pkg/backtest/cache/factor_cache.go`、`internal/analysisartifact`、`cmd/worker`、`docs/migrations/` 与 `docs/{ARCHITECTURE,SPEC,runbook}.md` 的退役标注。ADR-037 D3 修订在 `tellurion-docs`，不在本条重复。
+- **重开条件**：① 将来要求**跨 run 复用**已算好的因子值（此时须重新裁决因子值 owner 与物化形态，而不是恢复本表）；或 ② 出现外部预计算缓存愿意按同一口径灌入并被多个 run 消费，需要重新评估写者与缓存失效策略。未满足任一条前，本条只做删除，不做替代实现。
+- **风险**：删表不可逆；退役前实测为空表（见下）。若在其他环境发现非空，必须先停手备份或改走「保留表但零写者」方案，不得直接 DROP。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **前置取证（真实输出）**：`SELECT count(*) FROM public.factor_cache` = `0`；全仓非测试代码无 `SaveFactorCacheBatch` 调用点（仅定义）；`Warm` 唯一调用点 `runContext.warmFactorCache` 与 Publisher 的 `FactorCache.GetFactorCacheRange` 是仅有的两个读面，均在本条删除。
+> - **代码改动**：
+>   - `pkg/storage/cache.go` 删除 `SaveFactorCacheBatch` / `GetFactorCache` / `GetFactorCacheRange`；
+>   - `pkg/domain/factor.go` 删除 `FactorCacheEntry`；`pkg/backtest/ports.go` 的 `Storage` 去掉 `cache.FactorStore`，`aliases.go` 去掉别名；
+>   - `pkg/backtest/cache/factor_cache.go` 删除 `FactorStore` 与 `Warm`（保留 run 级 `Load/Merge/Get/GetQuintile`）；`run_context.go` 删除 `warmFactorCache`，`engine.go` 删除其调用；
+>   - `internal/analysisartifact/publisher.go` 删除 `FactorCacheReader` 与 `zscoresFor`，改为可选注入 `ZScores FactorZScores`；未注入时 factor-exposures 按缺输入 fail-closed（与删表前空表的实际行为一致）；`cmd/worker/main.go` 不再注入；
+>   - `pkg/storage/postgres.go` 删除 Migration 006 建表、026/027 对 `factor_cache` 的 ALTER 与 3 条索引，新增 Migration 066 单条 `DROP TABLE IF EXISTS public.factor_cache`；回滚 DDL 见 `docs/migrations/066_drop_factor_cache_table.sql`。
+> - **原表最终形状（退役时刻，回滚依据）**：
+>
+> ```sql
+> CREATE TABLE public.factor_cache (
+>     id SERIAL PRIMARY KEY,
+>     symbol VARCHAR(20) NOT NULL,
+>     trade_date DATE NOT NULL,
+>     factor_name VARCHAR(32) NOT NULL,      -- 026 widen
+>     raw_value DOUBLE PRECISION,
+>     z_score DOUBLE PRECISION,
+>     percentile DOUBLE PRECISION,
+>     created_at TIMESTAMPTZ DEFAULT NOW(),
+>     citation JSONB NOT NULL DEFAULT '[]'::jsonb  -- 027
+> );
+> CREATE UNIQUE INDEX idx_fc_pk ON public.factor_cache(symbol, trade_date, factor_name);
+> CREATE INDEX idx_fc_trade_date ON public.factor_cache(trade_date);
+> CREATE INDEX idx_fc_factor_name ON public.factor_cache(factor_name);
+> ```
+>
+> - **真实删表（本机 PG 16.15 / tellurion 库）**：`DROP TABLE IF EXISTS public.factor_cache` 执行成功；随后 `to_regclass('public.factor_cache')` = `ABSENT`，`factor_returns` / `ic_analysis` 两张保留表仍在；`factor_cache_id_seq` 随表删除。
+> - **护栏**：新增 `internal/repoguard/factor_cache_retired_test.go`（`TestFactorCachePersistenceIsRetired`）——扫 `pkg/internal/cmd` 非测试 `.go`，禁止 `FROM/INTO/UPDATE/JOIN/CREATE/ALTER/TRUNCATE … factor_cache` 与旧方法名 `GetFactorCacheRange` / `SaveFactorCacheBatch` / `GetFactorCache`；正向要求 `postgres.go` 恰好一条 `DROP TABLE IF EXISTS public.factor_cache`。同步把 `walkforward_persistence_retired_test.go` / `strategy_definitions_retired_test.go` 的正向对照从 `factor_cache` 换成 `factor_returns`，`factor_registry_test.go` 反向棘轮按设计删除已不聚集名册常量的条目。
+> - **验收（真实输出）**：`gofmt -l pkg internal cmd` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` 全绿。
+> - **破坏验证（真实输出，逐字节还原）**：往 `pkg/storage/cache.go` 临时加回一行 `var _ = \`INSERT INTO public.factor_cache …\`` ⇒ `TestFactorCachePersistenceIsRetired` 红（点名 `pkg/storage/cache.go 仍出现 factor_cache 读写 SQL`）；删除该行后 `cache.go` SHA256 回到 `B01224FB666037841898D03B00A6D83E57F6920B37235D18553B88B2FCF5CCB1`，复绿。
 
 
 

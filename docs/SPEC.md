@@ -206,7 +206,7 @@ L1  数据层       行情 | 财务 | 产业链图谱 | 研究洞察 | 实验日
 |---|---|---|---|
 | A | 原始源响应 | PG `ingest.raw`（`content_hash` 唯一键） | ❌ 仅持 `content_hash` |
 | B | 规范化数据（OHLCV / 财报 / 日历 / 公司行为） | PG `market.*` | ❌ 只读证据 API |
-| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*`；因子值按 ADR-037 D2 在 run setup 按需求值、物化到 run 级内存（`public.factor_cache` 是退役遗留表，无写者、门禁不读） | ❌ 只读计算 API |
+| C | 派生计算结果（因子 / 回测 / IC） | PG `quant.*`；因子值按 ADR-037 D2 在 run setup 按需求值、物化到 run 级内存（`public.factor_cache` 已于 `CORE-FACTOR-CACHE-RETIRE` 删除，不得重建） | ❌ 只读计算 API |
 | D | 研究叙事（人的判断） | **Vault markdown**（事实源） | — |
 | E | 研究结构化状态 | PG `research.*`（D 的确定性投影，可 DROP 重建） | 权威在 D |
 
@@ -2837,9 +2837,10 @@ GET /api/runs/:id/factor-exposures     - 逐因子暴露 + 区间因子收益
 - `benchmark_sector_weights` = 基准成分按期末 `MarketCap` 加权的行业权重；
 - `benchmark_sector_returns` / `benchmark_return` = 窗口首末收盘、同样按市值加权；
 - `exposure` = 持仓 `weight` 加权的期末因子 z-score；`factor_return` = 窗口末
-  `top_minus_bot`。z-score 由 `Publisher.FactorCache` 按 run 窗口从 `factor_cache`
-  重读（与 run 内预热同源）：QT-12 之后 run 内的因子缓存是 runContext 私有的、
-  run 结束即释放，worker 里的引擎级缓存只是装配期种子（为空），不能复用；
+  `top_minus_bot`。z-score 由 `Publisher.ZScores`（run 级物化读面）在装配期注入；
+  未注入时 factor-exposures 按缺输入 fail-closed，不编空归因。`public.factor_cache`
+  已删除（`CORE-FACTOR-CACHE-RETIRE`），发布期不再回库重读：QT-12 之后 run 内的
+  因子缓存是 runContext 私有的、run 结束即释放；
 - 因子清单取自 `tellurion-contracts:domain.BuiltinFactorDefinitions`（种子定义是
   唯一权威，本仓 `internal/repoguard` 钉住不许再抄一份清单）。名册在册 ≠ 本次有数：
   取不到 z-score 或 `top_minus_bot` 的因子不进产物。

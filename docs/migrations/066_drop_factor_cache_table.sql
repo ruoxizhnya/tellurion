@@ -1,0 +1,35 @@
+-- Migration 066 — CORE-FACTOR-CACHE-RETIRE（2026-11-12）
+--
+-- 归属：tellurion core 仓 pkg/storage/postgres.go migrationStatements()。
+-- 背景：ADR-037 D2 裁决因子值由消费点按需求值、物化到 run 级内存，不写库；
+--       public.factor_cache 自此无写者、无读者（门禁只认 run 级物化），
+--       空表继续存在只会误导后来者「灌数即可用」。本迁移真正删表。
+--
+-- ── Up ──────────────────────────────────────────────────────────────────────
+
+DROP TABLE IF EXISTS public.factor_cache;
+
+-- ── Down（仅回滚用；生产不得自动执行）──────────────────────────────────────
+--
+-- 重建的是**退役时刻的最终形状**：Migration 006 初建 VARCHAR(20)，
+-- Migration 026 放宽到 VARCHAR(32)，Migration 027 追加 citation JSONB。
+-- 回滚只恢复表结构，不恢复任何数据（退役前已证实 count(*) = 0）。
+--
+-- CREATE TABLE IF NOT EXISTS public.factor_cache (
+--     id SERIAL PRIMARY KEY,
+--     symbol VARCHAR(20) NOT NULL,
+--     trade_date DATE NOT NULL,
+--     factor_name VARCHAR(32) NOT NULL,
+--     raw_value DOUBLE PRECISION,
+--     z_score DOUBLE PRECISION,
+--     percentile DOUBLE PRECISION,
+--     created_at TIMESTAMPTZ DEFAULT NOW(),
+--     citation JSONB NOT NULL DEFAULT '[]'::jsonb
+-- );
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_fc_pk
+--     ON public.factor_cache(symbol, trade_date, factor_name);
+-- CREATE INDEX IF NOT EXISTS idx_fc_trade_date ON public.factor_cache(trade_date);
+-- CREATE INDEX IF NOT EXISTS idx_fc_factor_name ON public.factor_cache(factor_name);
+--
+-- 重开条件：若未来要跨 run 复用因子值，须先重新裁决因子值 owner
+-- （见 docs/TASKS.md 归档 §十五 与 ADR-037），不得直接跑上面的 Down 段复活旧表。

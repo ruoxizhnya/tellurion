@@ -127,7 +127,6 @@ func run() error {
 		Market:        market,
 		Catalog:       &analysisartifact.ProviderStockCatalog{Provider: market},
 		FactorReturns: store,
-		FactorCache:   store,
 		Provenance:    store,
 		Artifacts:     store,
 		Deliverer:     client,

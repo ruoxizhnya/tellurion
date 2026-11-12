@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,109 +10,6 @@ import (
 )
 
 import "tellurion/pkg/domain"
-
-// ── Factor Cache ──────────────────────────────────────────────────────────────
-
-// SaveFactorCacheBatch saves multiple factor cache entries in a batch.
-func (s *PostgresStore) SaveFactorCacheBatch(ctx context.Context, entries []*domain.FactorCacheEntry) error {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	batch := &pgx.Batch{}
-	for _, e := range entries {
-		// Empty citation is stored as '[]' — the explicit "no A→B chain
-		// established" marker (ODR-061), never NULL.
-		citation := e.Citation
-		if len(citation) == 0 {
-			citation = json.RawMessage("[]")
-		}
-		batch.Queue(`
-			INSERT INTO factor_cache (symbol, trade_date, factor_name, raw_value, z_score, percentile, citation)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (symbol, trade_date, factor_name) DO UPDATE SET
-				raw_value = EXCLUDED.raw_value,
-				z_score = EXCLUDED.z_score,
-				percentile = EXCLUDED.percentile,
-				citation = EXCLUDED.citation
-		`, e.Symbol, e.TradeDate, e.FactorName, e.RawValue, e.ZScore, e.Percentile, citation)
-	}
-
-	results := tx.SendBatch(ctx, batch)
-
-	for i := 0; i < len(entries); i++ {
-		if _, err := results.Exec(); err != nil {
-			results.Close()
-			return fmt.Errorf("batch factor_cache insert failed at index %d: %w", i, err)
-		}
-	}
-
-	// pgx v5: the batch results must be closed before the transaction can be
-	// committed — Commit on a connection with an open batch fails with
-	// "conn busy" (found by the ODR-061 runtime acceptance, 2026-09-16).
-	if err := results.Close(); err != nil {
-		return fmt.Errorf("failed to close batch results: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	s.logger.Info().Int("count", len(entries)).Msg("Batch factor_cache saved")
-	return nil
-}
-
-// GetFactorCache retrieves a single factor cache entry.
-func (s *PostgresStore) GetFactorCache(ctx context.Context, symbol string, date time.Time, factor cdom.FactorType) (*domain.FactorCacheEntry, error) {
-	query := `
-		SELECT id, symbol, trade_date, factor_name, raw_value, z_score, percentile, citation
-		FROM factor_cache
-		WHERE symbol = $1 AND trade_date = $2 AND factor_name = $3
-	`
-	var e domain.FactorCacheEntry
-	err := s.pool.QueryRow(ctx, query, symbol, date, factor).Scan(
-		&e.ID, &e.Symbol, &e.TradeDate, &e.FactorName, &e.RawValue, &e.ZScore, &e.Percentile, &e.Citation,
-	)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get factor cache: %w", err)
-	}
-	return &e, nil
-}
-
-// GetFactorCacheRange retrieves factor cache entries for a factor within a date range.
-func (s *PostgresStore) GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, startDate, endDate time.Time) ([]*domain.FactorCacheEntry, error) {
-	query := `
-		SELECT id, symbol, trade_date, factor_name, raw_value, z_score, percentile, citation
-		FROM factor_cache
-		WHERE factor_name = $1 AND trade_date >= $2 AND trade_date <= $3
-		ORDER BY trade_date ASC, symbol ASC
-	`
-	rows, err := s.pool.Query(ctx, query, factor, startDate, endDate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query factor cache range: %w", err)
-	}
-	defer rows.Close()
-
-	var results []*domain.FactorCacheEntry
-	for rows.Next() {
-		var e domain.FactorCacheEntry
-		if err := rows.Scan(&e.ID, &e.Symbol, &e.TradeDate, &e.FactorName, &e.RawValue, &e.ZScore, &e.Percentile, &e.Citation); err != nil {
-			return nil, fmt.Errorf("failed to scan factor cache row: %w", err)
-		}
-		results = append(results, &e)
-	}
-
-	return results, rows.Err()
-}
 
 // ── Factor Returns ────────────────────────────────────────────────────────────
 

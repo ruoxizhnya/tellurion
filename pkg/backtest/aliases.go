@@ -126,7 +126,6 @@ type EngineRunner = contracts.EngineRunner
 type (
 	CacheManager        = cache.CacheManager
 	FactorCacheAccessor = cache.FactorCacheAccessor
-	FactorStore         = cache.FactorStore
 )
 
 // ErrQuintileNotFound re-exported from cache/.

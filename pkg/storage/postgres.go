@@ -192,17 +192,9 @@ func migrationStatements() []string {
 		)`,
 		// SVC-CORE-DATA-RETIRE（2026-11-08）：trading_calendar / dividends /
 		// index_constituents 的建表已随数据面退役（owner = 数据服务仓）。
-		// Migration 006: docs/migrations/006_add_factor_cache_table.sql
-		`CREATE TABLE IF NOT EXISTS factor_cache (
-			id SERIAL PRIMARY KEY,
-			symbol VARCHAR(20) NOT NULL,
-			trade_date DATE NOT NULL,
-			factor_name VARCHAR(20) NOT NULL,
-			raw_value DOUBLE PRECISION,
-			z_score DOUBLE PRECISION,
-			percentile DOUBLE PRECISION,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
+		// CORE-FACTOR-CACHE-RETIRE（2026-11-12）：Migration 006 的
+		// factor_cache 建表已删除；该表退役（ADR-037 D2，因子按需求值、不写库），
+		// 由本文件末尾的 Migration 066 DROP。
 		// SVC-CORE-DATA-RETIRE（2026-11-08）：splits 的建表已随数据面退役。
 		// Migration 024: docs/migrations/024_add_factor_returns_table.sql
 		`CREATE TABLE IF NOT EXISTS factor_returns (
@@ -371,15 +363,13 @@ func migrationStatements() []string {
 		END $$`,
 		// Migration 026: docs/migrations/026_widen_factor_name.sql (EQD-P1-2 / 桥 B1)
 		// 桥 B1 的 5 个纵向基本面因子名最长 24 字符，超出既有 VARCHAR(20)。
-		// 因子链路的三个表同源同一列，须同时放宽；加宽 varchar 为 metadata-only，不改写表。
-		`ALTER TABLE factor_cache ALTER COLUMN factor_name TYPE VARCHAR(32)`,
+		// 因子链路的两个表同源同一列，须同时放宽；加宽 varchar 为 metadata-only，不改写表。
+		// factor_cache 一条随 CORE-FACTOR-CACHE-RETIRE 删除（表已 DROP）。
 		`ALTER TABLE factor_returns ALTER COLUMN factor_name TYPE VARCHAR(32)`,
 		`ALTER TABLE ic_analysis ALTER COLUMN factor_name TYPE VARCHAR(32)`,
 		// Migration 027: docs/migrations/027_factor_cache_citation.sql (ODR-061 / P5-1 切片 C2)
-		// factor_cache 因子行携带来源批次坐标 [{"content_hash":"<64hex>"}]，输出面展开为
-		// ADR-022 §5 五元组。'[]' = 该数字的 A→B 链尚未建立（momentum/value/quality 及
-		// 历史行），与 NULL 相对。带默认值加列为 metadata-only；幂等，重复启动等价 no-op。
-		`ALTER TABLE factor_cache ADD COLUMN IF NOT EXISTS citation JSONB NOT NULL DEFAULT '[]'::jsonb`,
+		// factor_cache 的 citation 列已随表退役（CORE-FACTOR-CACHE-RETIRE，Migration 066 DROP），
+		// 本迁移不再执行。历史文件保留在 docs/migrations/ 供追溯。
 		// Migration 025: docs/migrations/025_equitydeep_field_consolidation.sql (EQD-P3-1 / C-8)
 		// fundamentals 与 stock_fundamentals 的 12 个指标列同名同义，两条写入路径同源于
 		// tushare fina_indicator 且都把 trade_date 取成 end_date，故存量按 symbol→ts_code
@@ -646,6 +636,13 @@ func migrationStatements() []string {
 	// 的离线库，升级前应先在部署侧执行一次 064 的 SELECT 回填。
 	migrations = append(migrations, `DROP TABLE IF EXISTS backtest_jobs`)
 
+	// Migration 066（CORE-FACTOR-CACHE-RETIRE）：public.factor_cache 退役。
+	// ADR-037 D2 之后因子值由消费点按需求值并物化到 run 级内存，全栈无写者、
+	// 门禁只读 run 级；空表继续保留只会误导下一位读者「灌数即可用」。
+	// 只此一条 DROP，不夹带其他 DDL；回滚语句见
+	// docs/migrations/066_drop_factor_cache_table.sql（down 段）。
+	migrations = append(migrations, `DROP TABLE IF EXISTS public.factor_cache`)
+
 	return migrations
 }
 
@@ -666,9 +663,8 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_code ON stock_fundamentals(ts_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_stock_fundamentals_date ON stock_fundamentals(trade_date)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_fc_pk ON factor_cache(symbol, trade_date, factor_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_fc_trade_date ON factor_cache(trade_date)`,
-		`CREATE INDEX IF NOT EXISTS idx_fc_factor_name ON factor_cache(factor_name)`,
+		// CORE-FACTOR-CACHE-RETIRE：idx_fc_pk / idx_fc_trade_date / idx_fc_factor_name
+		// 随 factor_cache 表一并退役（Migration 066 DROP）。
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_fr_pk ON factor_returns(factor_name, trade_date, quintile)`,
 		`CREATE INDEX IF NOT EXISTS idx_fr_trade_date ON factor_returns(trade_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_fr_factor ON factor_returns(factor_name)`,

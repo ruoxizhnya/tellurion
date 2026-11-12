@@ -234,7 +234,7 @@ EXIT=1
 |---|---|---|
 | `market.*`（`stocks` / `ohlcv_daily_qfq` / `trading_calendar` / `index_*` / `top_list` / `capital_flow` / `fundamentals` 相关等） | 由 `tellurion-data` 重新同步 Tushare | 第三方配额 + 时间；历史越久越贵 |
 | `public.stock_fundamentals` | 同上 | 同上 |
-| `public.factor_cache` | **已退役遗留表（空表是预期，不是故障）**：不重建、不写入；因子值由 core 消费点按需重算（ADR-037 D2，物化到 run 级内存） | — |
+| `public.factor_cache` | **已删除（`CORE-FACTOR-CACHE-RETIRE`，Migration 066 `DROP TABLE`）**：不得重建、不得写入；因子值由 core 消费点按需重算（ADR-037 D2，物化到 run 级内存） | — |
 | `factor_returns` / `ic_analysis` | 由 core 消费点按需重算（ADR-038） | CPU 时间；两表当前无写者 |
 | `run.worker_registry` | worker 心跳重建 | 分钟级 |
 | `public.data_migrations` / `ingest.data_migrations` | 可重建迁移台账 | 历史记录丢失 |

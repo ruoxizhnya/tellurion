@@ -207,7 +207,9 @@ func truncateAll(t *testing.T, ctx context.Context, store *PostgresStore) {
 	// SVC-CORE-DATA-RETIRE：行情/日历/成分等 21 张表已退役，本仓不再创建，
 	// TRUNCATE 它们会直接报 “relation does not exist”。
 	tables := []string{
-		"stock_fundamentals", "factor_cache",
+		"stock_fundamentals",
+		// CORE-FACTOR-CACHE-RETIRE：factor_cache 已退役（Migration 066 DROP），
+		// 不再 TRUNCATE 一张不存在的表。
 		"factor_returns", "ic_analysis",
 		// SVC-ORCH-G3 收尾腿：backtest_jobs 已退役（Migration 065 DROP），
 		// 结论面改为 run.backtest_results。

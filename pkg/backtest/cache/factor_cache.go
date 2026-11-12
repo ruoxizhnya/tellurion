@@ -11,7 +11,7 @@ package cache
 //   - 提供 GetFactorZScore (lock-free 读取)
 //   - 提供 GetQuintile (读取预计算的 quintile) — P1-C
 //   - 提供 ComputeQuintile (z-score → 1-5 quintile 映射) — P1-C
-//   - 提供 Warm (从持久化端口批量预热，含 quintile 预计算)
+//   - 提供 Merge (消费点按需求值后并入，ADR-037 D2)
 //
 // Engine 通过 Engine.FactorCache() 访问；旧字段 e.factorCache 与
 // 旧方法 (LoadFactorCache / GetFactorZScore / warmFactorCache) 保留为
@@ -20,12 +20,11 @@ package cache
 // 设计动机：
 //   - 因子缓存与 OHLCV 缓存是**两套独立关注点**：
 //     * OHLCV 缓存由 CacheManager 持有（L1 volatile）
-//     * 因子缓存由 FactorCacheAccessor 持有（可由 DB 持久层 warm）
+//     * 因子缓存由 FactorCacheAccessor 持有（纯内存、run 级）
 //   - 拆分后两个组件可独立单测、独立演进
-//   - future: 因子缓存可引入 lazy load / TTL / 持久化而不影响 OHLCV 路径
+//   - ADR-037 D2：因子值由消费点按需求值并物化到本次 run，不再有 DB 预热
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"time"
@@ -33,14 +32,6 @@ import (
 	"github.com/rs/zerolog"
 	cdom "github.com/ruoxizhnya/tellurion-contracts/domain"
 )
-
-import "tellurion/pkg/domain"
-
-// FactorStore is the minimal interface FactorCacheAccessor needs from a
-// persistence layer. 生产实现（storage 的 PG store）在装配层做编译期自证。
-type FactorStore interface {
-	GetFactorCacheRange(ctx context.Context, factor cdom.FactorType, start, end time.Time) ([]*domain.FactorCacheEntry, error)
-}
 
 // FactorCacheAccessor manages the L1 factor z-score cache.
 type FactorCacheAccessor struct {
@@ -245,7 +236,7 @@ func (f *FactorCacheAccessor) MissingFactors(factors []cdom.FactorType) []cdom.F
 // Merge 把一批按需求值得到的 z-score 并入当前缓存（而非整体替换）。
 //
 // 与 Load 的区别：Load 是「整份换掉」，Merge 是「补缺失/覆盖同键」，用于
-// ADR-037 D2 的消费点按需求值 —— 已从 DB warm 到的因子保留，算出来的补进来，
+// ADR-037 D2 的消费点按需求值 —— 已物化的因子保留，算出来的补进来，
 // 同 (factor,date,symbol) 以本次计算值为准。quintile 缓存随之整体重建。
 func (f *FactorCacheAccessor) Merge(data map[cdom.FactorType]map[time.Time]map[string]float64) {
 	if len(data) == 0 {
@@ -270,61 +261,6 @@ func (f *FactorCacheAccessor) Merge(data map[cdom.FactorType]map[time.Time]map[s
 		}
 	}
 	f.quintileCache = buildQuintileCache(f.cache)
-}
-
-// Warm 从 store 批量预热 3 类常用因子（momentum/value/quality）。
-// store 为 nil 时 no-op；具体因子加载失败时打 Warn 不中断。
-//
-// Nil-check 注意事项：FactorStore 是 interface。Go 的 typed-nil 陷阱
-// 意味着把「值为 nil 的具体指针」塞进接口会得到一个**非 nil 的 interface
-// 值**——直接调用方法会 panic。装配层注入时必须先判具体指针，再传接口。
-// 这里只做 interface==nil 检查。
-func (f *FactorCacheAccessor) Warm(ctx context.Context, start, end time.Time, store FactorStore) error {
-	if store == nil {
-		return nil
-	}
-
-	factors := []cdom.FactorType{cdom.FactorMomentum, cdom.FactorValue, cdom.FactorQuality}
-	combined := make(map[cdom.FactorType]map[time.Time]map[string]float64)
-
-	for _, factor := range factors {
-		entries, err := store.GetFactorCacheRange(ctx, factor, start, end)
-		if err != nil {
-			f.logger.Warn().Str("factor", string(factor)).Err(err).Msg("Failed to load factor cache from DB")
-			continue
-		}
-		if len(entries) == 0 {
-			f.logger.Info().Str("factor", string(factor)).
-				Msg("No factor cache entries in DB — public.factor_cache is a retired legacy table (no writer); factors are evaluated on demand per run (ADR-037 D2), no sync endpoint exists")
-			continue
-		}
-		for _, entry := range entries {
-			if entry == nil {
-				continue
-			}
-			if combined[entry.FactorName] == nil {
-				combined[entry.FactorName] = make(map[time.Time]map[string]float64)
-			}
-			if combined[entry.FactorName][entry.TradeDate] == nil {
-				combined[entry.FactorName][entry.TradeDate] = make(map[string]float64)
-			}
-			combined[entry.FactorName][entry.TradeDate][entry.Symbol] = entry.ZScore
-		}
-		f.logger.Info().
-			Str("factor", string(factor)).
-			Int("entries", len(entries)).
-			Msg("Factor cache loaded from DB")
-	}
-
-	if len(combined) > 0 {
-		f.mu.Lock()
-		f.cache = combined
-		// P1-C: 预计算 quintile 并缓存，使 GetQuintile 成为纯查表操作。
-		f.quintileCache = buildQuintileCache(combined)
-		f.mu.Unlock()
-	}
-
-	return nil
 }
 
 // Len 返回当前缓存中的 factor 数量（仅供测试 / 监控）。
