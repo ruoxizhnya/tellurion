@@ -71,12 +71,12 @@ ${DC} up -d postgres redis data-service
 
 echo "→ 等 data-service 就绪 (:${PORT})"
 for _ in $(seq 1 90); do
-	if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+	if curl -sf "http://localhost:${PORT}/healthz" >/dev/null 2>&1; then
 		break
 	fi
 	sleep 1
 done
-if ! curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+if ! curl -sf "http://localhost:${PORT}/healthz" >/dev/null 2>&1; then
 	echo "✗ data-service 没就绪，日志尾部："
 	${DC} logs --tail=25 data-service
 	exit 1
