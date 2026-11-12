@@ -10,8 +10,14 @@
 # 它做三件事：
 #   1. 加一个**一次性** PG 容器（卷 tellurion-next_next-pgdata）——绝不指向宿主
 #      5432 上的部署库 `tellurion`（那个库继续无账本，用于验证一次性接管）。
-#   2. 把七个有库服务的 DSN 全部改到该容器；analysis-service 换成本仓 HEAD 镜像。
+#   2. 把**八个**有库服务（含 SVC-ORCH-G3 新增的 orchestration-worker）的 DSN
+#      全部改到该容器；analysis-service 与 worker 换成本仓 HEAD 镜像。
 #   3. 把断路器与限流调到综合测试口径（kill-switch 打开、限流放大）。
+#
+# ⚠️ worker 必须一起改：根 compose 里它写死 `host.docker.internal:5432`（默认栈
+#    连宿主部署库）。漏改时 worker 会把 run.backtest_results / quant.run_provenance
+#    写进宿主库，而 core 读隔离库 ⇒ 完成态 run 的 report/trades/equity 500、
+#    provenance 404，且**污染宿主部署库**。
 #
 # 宿主端口与默认栈一致（8081/8085/8086/8087/8088/8089/8090/8091），PG 额外
 # 发布 127.0.0.1:15432 便于 psql；起本栈前先 `docker compose --profile full stop`
@@ -98,6 +104,22 @@ services:
   orchestration:
     environment:
       ORCHESTRATION_DSN: postgres://postgres:postgres@pg:5432/tellurion?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  # SVC-ORCH-G3 的 worker 是第 8 个 DB 消费者：它写 core 的结果面
+  # （run.backtest_results）与留痕面（quant.run_provenance），必须和 core 同库。
+  # 根 compose 默认 host.docker.internal:5432（默认栈连宿主部署库），这里改到 pg；
+  # 镜像同样钉 CORE_IMAGE，避免 compose 另建一份陈旧的 tellurion-next-worker。
+  worker:
+    image: ${CORE_IMAGE:-tellurion-core:head}
+    environment:
+      DATABASE_HOST: pg
+      DATABASE_PORT: "5432"
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_DATABASE: tellurion
     depends_on:
       pg:
         condition: service_healthy

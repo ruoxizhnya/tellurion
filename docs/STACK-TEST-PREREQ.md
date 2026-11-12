@@ -56,7 +56,13 @@ curl -s http://127.0.0.1:8085/readyz
 
 - **陈旧镜像自检**（比时间，不比 tag）：每仓 `git log -1 --format='%h %cI'` 的提交时间必须早于对应镜像的 `docker images --format '{{.Repository}}:{{.Tag}} {{.CreatedAt}}'`。2026-11-12 实测过一次教训：只重建 core 时 ai-service 仍是 01:44 的旧镜像，而 agent 的 `787f9ff`（`GET /api/explore/review/pending`）是 16:25 提交——上游 404，core 的 `/api/review/pending` 就退化成 `ai_explore: unavailable`，看起来像"真缺实现"。
 - 镜像 tag 变了（或 image ID 变了）compose 才会自动重建容器；拿不准就在 ④ 后加 `--force-recreate`。
-- 覆盖层只做三件事：加独立 PG、把七个有库服务的 DSN 指过去、把 core 换成 HEAD 镜像并放大限流/打开 kill-switch。**它必须叠加在根 `docker-compose.yml` 上**，不是第二份部署形态。
+- 覆盖层只做三件事：加独立 PG、把**八个**有库服务的 DSN 指过去（含 `orchestration-worker`）、把 core 与 worker 换成 HEAD 镜像并放大限流/打开 kill-switch。**它必须叠加在根 `docker-compose.yml` 上**，不是第二份部署形态。
+- **worker 是第 8 个 DB 消费者**：根 compose 默认 `DATABASE_HOST=host.docker.internal`（连宿主部署库）；覆盖层必须把它改到 `pg`。漏改的后果不是「跑不通」，而是**结果写进了另一个库**——完成态 run 在 core 读面全 500/404，同时污染宿主部署库。异步用例起 worker 用：
+  ```bash
+  docker compose -p tellurion-next -f docker-compose.yml \
+      -f deploy/compose/isolated-test.override.yml \
+      --profile full --profile orchestration-worker up -d --wait worker
+  ```
 - 删库重来：`docker compose -p tellurion-next -f docker-compose.yml -f deploy/compose/isolated-test.override.yml down -v`（`-v` 会删测试卷，不会碰部署库）。
 
 ## 3. 迁移账本验收（本栈实测）
@@ -80,6 +86,7 @@ docker exec tellurion-next-pg-1 psql -U postgres -d tellurion -tAc \
 ### 4.1 数据库
 
 - core / ai：「四键」`DATABASE_HOST` / `DATABASE_PORT` / `DATABASE_USER` / `DATABASE_PASSWORD` / `DATABASE_DATABASE`；覆盖层填 `pg:5432`。
+- orchestration-worker：与 core 同「四键」——它写 core 的结果面与留痕面，**必须与 core 同库**。覆盖层填 `pg:5432`；漏改就会写进宿主部署库。worker 没有 HTTP 面，健康判据是「注册成功 + 能领到活」（`docker logs` 里有 claim 记录、编排 `GET /api/runs/jobs?status=running` 能看到它）。
 - data：`DATABASE_URL`；risk / strategy / analytics / orchestration：各自的 `*_DATABASE_URL` / `*_DSN`。
 
 ### 4.2 装配期硬前置（缺一即拒起）
