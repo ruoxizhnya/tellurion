@@ -37,14 +37,11 @@ import (
 //	存在条目 = 该文件仍会打已退役路由，且改法超出「网关死反代」的边界；
 //	修好之后必须删掉条目（下方的 staleness 断言会强制，留着就红）。
 //
-// 目前唯一一条：策略插件里 `/screen` 的 HTTP 兜底。它调的是 data 的
-// `/screen`（`defaultDataServiceURL` = :8081），与网关面同一缺陷，但替换它要先
-// 裁决「策略兜底的票池从哪来」（core 本地供数 / run 级物化），不是把 URL 改一
-// 下就完的事，故立项另做而不是在本单里顺带改。
-var retiredUpstreamAllowlist = map[string]string{
-	"pkg/strategy/utils.go": "CallScreenAPI 的 /screen 兜底（multi_factor:552 / value_screen:285）：" +
-		"已立项 CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM",
-}
+// 2026-11-12 已清空：策略插件里 `/screen` 的 HTTP 兜底随
+// CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM 裁决（B1）整条删除 ——
+// value_screen 多票改为返回可诊断的 contracts.ErrDataGap，multi_factor 只保留
+// run 级因子缓存与本地价量两条来源。
+var retiredUpstreamAllowlist = map[string]string{}
 
 func TestRetiredUpstreamPathsAreNotProxied(t *testing.T) {
 	t.Parallel()
@@ -120,6 +117,36 @@ func TestRetiredUpstreamPathsAreNotProxied(t *testing.T) {
 	} {
 		if !strings.Contains(want.body, want.need) {
 			t.Errorf("缺失正向对照「%s」：cmd/analysis/%s 里找不到 %q —— 删除替代实现会让反向断言假绿",
+				want.name, want.file, want.need)
+		}
+	}
+
+	// 正向对照（策略侧）：删掉 `dataServiceURL + "/screen"` 两条腿不算修好，必须
+	// 证明替代路径真的在。value_screen 多票的统一出口是 contracts.ErrDataGap
+	// （引擎据此记 data_gap_skipped、终态 invalid），multi_factor 只剩 run 级
+	// 因子缓存与本地价量两条来源。
+	strategyFiles := map[string]string{
+		"pkg/strategy/plugins/value_screen.go": stripGoLineComments(readFile(t,
+			filepath.Join(root, "pkg", "strategy", "plugins", "value_screen.go"))),
+		"pkg/strategy/plugins/multi_factor.go": stripGoLineComments(readFile(t,
+			filepath.Join(root, "pkg", "strategy", "plugins", "multi_factor.go"))),
+	}
+	for _, want := range []struct {
+		file string
+		name string
+		need string
+	}{
+		{"pkg/strategy/plugins/value_screen.go", "多票缺数据的可诊断出口",
+			"contracts.ErrDataGap"},
+		{"pkg/strategy/plugins/value_screen.go", "缺数据点名到表与字段",
+			"market.stock_fundamentals"},
+		{"pkg/strategy/plugins/multi_factor.go", "本地价量替代路径",
+			"generateSignalsFromPriceData("},
+		{"pkg/strategy/plugins/multi_factor.go", "run 级因子缓存路径",
+			"generateSignalsFromFactorCache("},
+	} {
+		if !strings.Contains(strategyFiles[want.file], want.need) {
+			t.Errorf("缺失正向对照「%s」：%s 里找不到 %q —— 删除替代路径会让反向断言假绿",
 				want.name, want.file, want.need)
 		}
 	}

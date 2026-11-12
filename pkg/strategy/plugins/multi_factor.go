@@ -4,9 +4,7 @@ package plugins
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
-	"net/http"
 	"sort"
 	"time"
 
@@ -41,10 +39,6 @@ type multiFactorStrategy struct {
 	*strategy.BaseStrategy
 	params MultiFactorConfig
 
-	httpClient     *http.Client
-	screenCache    *strategy.ScreenCache
-	dataServiceURL string
-
 	factorReader strategy.FactorZScoreReader
 }
 
@@ -52,9 +46,6 @@ type multiFactorStrategy struct {
 func (s *multiFactorStrategy) Configure(params map[string]any) error {
 	s.Lock()
 	defer s.Unlock()
-	if s.screenCache == nil {
-		s.screenCache = strategy.NewScreenCache(30)
-	}
 	if v, ok := params["value_weight"]; ok {
 		if val, ok := parseFloatParam(v); ok {
 			s.params.ValueWeight = val
@@ -102,18 +93,16 @@ func (s *multiFactorStrategy) Weight(signal strategy.Signal, portfolioValue floa
 	return weight
 }
 
-// Cleanup releases resources (cache, HTTP client).
+// Cleanup releases resources.
 func (s *multiFactorStrategy) Cleanup() {
-	s.screenCache = nil
-	s.httpClient = nil
 	s.params = MultiFactorConfig{}
 	s.factorReader = nil
 }
 
 // SetFactorCache injects a pre-computed factor z-score reader.
 // When set, GenerateSignals reads z-scores from this cache (zero-latency)
-// instead of computing them via HTTP API calls on each rebalance day.
-// Pass nil to clear and fall back to HTTP-based computation.
+// instead of falling back to the local price-data computation on each
+// rebalance day. Pass nil to clear.
 func (s *multiFactorStrategy) SetFactorCache(reader strategy.FactorZScoreReader) {
 	s.factorReader = reader
 }
@@ -186,25 +175,6 @@ func (s *multiFactorStrategy) Parameters() []strategy.Parameter {
 			Description: "Rebalance frequency: daily, weekly, monthly",
 		},
 	}
-}
-
-// callScreenAPI calls the /screen endpoint to get all stocks with fundamental data.
-// An empty filter set returns stocks that have any fundamental data recorded.
-func (s *multiFactorStrategy) callScreenAPI(dateStr string) ([]domain.ScreenResult, error) {
-	req := domain.ScreenRequest{
-		Filters: domain.ScreenFilters{},
-		Date:    dateStr,
-		Limit:   2000,
-	}
-
-	results, err := strategy.CallScreenAPI(s.httpClient, s.dataServiceURL, s.screenCache, req)
-	if err != nil {
-		log.Printf("[multi_factor] Screen API call failed for date %s: %v", dateStr, err)
-		return nil, fmt.Errorf("screen API failed for %s: %w", dateStr, err)
-	}
-
-	log.Printf("[multi_factor] Screen API returned %d stocks for date %s", len(results), dateStr)
-	return results, nil
 }
 
 // rankPercentile sorts the input values and returns each element's percentile rank.
@@ -318,7 +288,6 @@ func (s *multiFactorStrategy) GenerateSignals(
 			return nil, nil
 		}
 	}
-	screenDateStr := screenDate.Format("20060102")
 
 	// Check rebalance frequency
 	// For single/few stocks, always rebalance to ensure signals are generated
@@ -334,9 +303,10 @@ func (s *multiFactorStrategy) GenerateSignals(
 		return sellSignals, nil
 	}
 
-	// Get all stocks with fundamentals from the /screen API
-	// OR read pre-computed z-scores from L1 factor cache (zero-latency path)
-	// OR compute from price data directly for single-stock mode
+	// 因子排序来源只有两条：run 级 z-score 缓存（生产路径恒注入 reader），
+	// 或本地价量计算。原先还有一条「>3 票走 data 服务 /screen」的腿 ——
+	// 该路由从未在 tellurion-data 注册，调用必然失败后被静默吞掉并回落到
+	// 价量计算，等价于从未生效，只多打一次注定失败的请求。
 	var ranked []rankedStock
 
 	if s.factorReader != nil {
@@ -345,16 +315,8 @@ func (s *multiFactorStrategy) GenerateSignals(
 		if len(ranked) == 0 {
 			ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
 		}
-	} else if len(bars) <= 3 {
-		// Single or few stocks: compute factors from price data directly
-		ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
 	} else {
-		var err error
-		ranked, err = s.generateSignalsFromHTTP(ctx, bars, screenDate, screenDateStr, lookback, vw, qw, mw)
-		if err != nil {
-			// Fallback to price-data based computation
-			ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
-		}
+		ranked = s.generateSignalsFromPriceData(bars, lookback, vw, qw, mw)
 	}
 
 	// Sort by composite score descending
@@ -540,120 +502,6 @@ func (s *multiFactorStrategy) generateSignalsFromPriceData(
 	return ranked
 }
 
-// generateSignalsFromHTTP is the fallback path: calls screen API and computes factors in-process.
-func (s *multiFactorStrategy) generateSignalsFromHTTP(
-	ctx context.Context,
-	bars map[string][]domain.OHLCV,
-	screenDate time.Time,
-	screenDateStr string,
-	lookback int,
-	vw, qw, mw float64,
-) ([]rankedStock, error) {
-	screened, err := s.callScreenAPI(screenDateStr)
-	if err != nil {
-		return nil, fmt.Errorf("screen API call failed: %w", err)
-	}
-
-	type stockData struct {
-		symbol   string
-		pe       *float64
-		roe      *float64
-		momentum float64
-		valid    bool
-	}
-
-	stockList := make([]stockData, 0, len(screened))
-	for _, sr := range screened {
-		sd := stockData{symbol: sr.TsCode}
-		if sr.PE != nil && *sr.PE > 0 {
-			sd.pe = sr.PE
-		}
-		if sr.ROE != nil {
-			sd.roe = sr.ROE
-		}
-		data, ok := bars[sr.TsCode]
-		if !ok || len(data) < lookback+1 {
-			stockList = append(stockList, sd)
-			continue
-		}
-		// Sort by date ascending using shared utility
-		sorted := sortOHLCV(data)
-		endIdx := len(sorted) - 1
-		if endIdx >= lookback {
-			startPrice := sorted[endIdx-lookback].Close
-			endPrice := sorted[endIdx].Close
-			if startPrice > 0 {
-				sd.momentum = (endPrice - startPrice) / startPrice
-				sd.valid = true
-			}
-		}
-		stockList = append(stockList, sd)
-	}
-
-	var peValues []float64
-	var roeValues []float64
-	var momValues []float64
-	peIndices := make(map[int]bool)
-	roeIndices := make(map[int]bool)
-	momIndices := make(map[int]bool)
-
-	for i, sd := range stockList {
-		if sd.pe != nil {
-			peValues = append(peValues, *sd.pe)
-			peIndices[i] = true
-		}
-		if sd.roe != nil {
-			roeValues = append(roeValues, *sd.roe)
-			roeIndices[i] = true
-		}
-		if sd.valid {
-			momValues = append(momValues, sd.momentum)
-			momIndices[i] = true
-		}
-	}
-
-	peRanks := rankPercentile(peValues)
-	roeRanks := rankPercentile(roeValues)
-	momRanks := rankPercentile(momValues)
-
-	peRankIdx := 0
-	roeRankIdx := 0
-	momRankIdx := 0
-
-	var ranked []rankedStock
-	for i, sd := range stockList {
-		var valueScore, qualityScore, momentumScore float64
-		if peIndices[i] {
-			valueScore = peRanks[peRankIdx]
-			peRankIdx++
-		}
-		if roeIndices[i] {
-			qualityScore = roeRanks[roeRankIdx]
-			roeRankIdx++
-		}
-		if momIndices[i] {
-			momentumScore = momRanks[momRankIdx]
-			momRankIdx++
-		}
-
-		composite := vw*valueScore + qw*qualityScore + mw*momentumScore
-		if !peIndices[i] && !roeIndices[i] {
-			composite = momentumScore
-			valueScore = 0
-			qualityScore = 0
-		}
-
-		ranked = append(ranked, rankedStock{
-			symbol:         sd.symbol,
-			compositeScore: composite,
-			valueScore:     valueScore,
-			qualityScore:   qualityScore,
-			momentumScore:  momentumScore,
-		})
-	}
-	return ranked, nil
-}
-
 // generateSellSignals generates sell signals for positions with negative momentum.
 func (s *multiFactorStrategy) generateSellSignals(
 	bars map[string][]domain.OHLCV,
@@ -699,10 +547,6 @@ func (s *multiFactorStrategy) generateSellSignals(
 	return signals, nil
 }
 
-// defaultDataServiceURL is the fallback URL for the data service.
-// It can be overridden via configuration.
-const defaultDataServiceURL = "http://localhost:8081"
-
 func newMultiFactorStrategy() strategy.Strategy {
 	s := &multiFactorStrategy{
 		BaseStrategy: strategy.NewBaseStrategy("multi_factor", "Multi-factor: rank stocks by weighted combination of value, quality, and momentum scores"),
@@ -714,9 +558,6 @@ func newMultiFactorStrategy() strategy.Strategy {
 			TopN:               10,
 			RebalanceFrequency: "monthly",
 		},
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		screenCache:    strategy.NewScreenCache(30),
-		dataServiceURL: defaultDataServiceURL,
 	}
 	return s
 }

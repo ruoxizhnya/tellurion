@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
@@ -189,22 +188,15 @@ func TestValueScreeningStrategy_WithMockData(t *testing.T) {
 			MomentumDays: 60,
 			TopN:         10,
 		},
-		dataServiceURL: "http://localhost:8081",
-		httpClient:     &http.Client{Timeout: 1 * time.Millisecond},
-		screenCache:    strategy.NewScreenCache(30),
 	}
 
 	bars := map[string][]domain.OHLCV{
 		"600001.SH": createTestBars("600001.SH", 70, "up"),
 	}
 
-	// Without HTTP client, this should return error or empty signals
+	// 单票模式走本地价量动量路径，不需要外部价值筛选服务。
 	signals, err := s.GenerateSignals(context.Background(), bars, nil)
-	// Error expected since no HTTP client configured
-	if err != nil {
-		t.Logf("Expected error without HTTP client: %v", err)
-		return
-	}
+	require.NoError(t, err)
 	assert.NotNil(t, signals)
 }
 
@@ -218,20 +210,15 @@ func TestMultiFactorStrategy_WithMockData(t *testing.T) {
 			LookbackDays:   60,
 			TopN:           10,
 		},
-		dataServiceURL: "http://localhost:8081",
-		httpClient:     &http.Client{Timeout: 1 * time.Millisecond},
-		screenCache:    strategy.NewScreenCache(30),
 	}
 
 	bars := map[string][]domain.OHLCV{
 		"600001.SH": createTestBars("600001.SH", 70, "up"),
 	}
 
+	// 没有注入 factorReader 时走本地价量计算，同样不需要外部服务。
 	signals, err := s.GenerateSignals(context.Background(), bars, nil)
-	if err != nil {
-		t.Logf("Expected error without HTTP client: %v", err)
-		return
-	}
+	require.NoError(t, err)
 	assert.NotNil(t, signals)
 }
 

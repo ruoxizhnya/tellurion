@@ -4,10 +4,10 @@ package plugins
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 	"time"
 
+	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 )
@@ -27,19 +27,12 @@ type ValueScreeningConfig struct {
 type valueScreeningStrategy struct {
 	*strategy.BaseStrategy
 	params ValueScreeningConfig
-
-	httpClient     *http.Client
-	screenCache    *strategy.ScreenCache
-	dataServiceURL string
 }
 
 // Configure sets the strategy parameters.
 func (s *valueScreeningStrategy) Configure(params map[string]any) error {
 	s.Lock()
 	defer s.Unlock()
-	if s.screenCache == nil {
-		s.screenCache = strategy.NewScreenCache(30)
-	}
 	if v, ok := params["pe_max"]; ok {
 		if val, ok := parseFloatParam(v); ok {
 			s.params.PEMax = val
@@ -87,10 +80,8 @@ func (s *valueScreeningStrategy) Weight(signal strategy.Signal, portfolioValue f
 	return weight
 }
 
-// Cleanup releases resources (cache, HTTP client).
+// Cleanup releases resources.
 func (s *valueScreeningStrategy) Cleanup() {
-	s.screenCache = nil
-	s.httpClient = nil
 	s.params = ValueScreeningConfig{}
 }
 
@@ -156,24 +147,6 @@ func (s *valueScreeningStrategy) Parameters() []strategy.Parameter {
 	}
 }
 
-// callScreenAPI calls the /screen endpoint and returns filtered stock results.
-func (s *valueScreeningStrategy) callScreenAPI(dateStr string) ([]domain.ScreenResult, error) {
-	peMax := s.params.PEMax
-	roeMin := s.params.ROEMin
-	pbMax := s.params.PBMax
-
-	req := domain.ScreenRequest{
-		Filters: domain.ScreenFilters{
-			PE_max:  &peMax,
-			PB_max:  &pbMax,
-			ROE_min: &roeMin,
-		},
-		Date:  dateStr,
-		Limit: 500,
-	}
-	return strategy.CallScreenAPI(s.httpClient, s.dataServiceURL, s.screenCache, req)
-}
-
 // GenerateSignals generates buy/sell signals based on value screening + momentum ranking.
 func (s *valueScreeningStrategy) GenerateSignals(
 	ctx context.Context,
@@ -229,7 +202,6 @@ func (s *valueScreeningStrategy) GenerateSignals(
 			return nil, nil
 		}
 	}
-	screenDateStr := screenDate.Format("20060102")
 
 	// Check rebalance frequency
 	// For single/few stocks, always rebalance to ensure signals are generated
@@ -281,71 +253,21 @@ func (s *valueScreeningStrategy) GenerateSignals(
 			})
 		}
 	} else {
-		// Multi-stock mode: call screen API
-		screened, err := s.callScreenAPI(screenDateStr)
-		if err != nil {
-			// Fallback: use bars directly
-			for symbol, data := range bars {
-				if len(data) < momentumDays+1 {
-					continue
-				}
-				// Sort by date ascending using shared utility
-				sorted := sortOHLCV(data)
-
-				endIdx := len(sorted) - 1
-				if endIdx < momentumDays {
-					continue
-				}
-
-				startPrice := sorted[endIdx-momentumDays].Close
-				endPrice := sorted[endIdx].Close
-				if startPrice <= 0 {
-					continue
-				}
-
-				momentum := (endPrice - startPrice) / startPrice
-				momResults = append(momResults, stockMomentum{
-					symbol:   symbol,
-					momentum: momentum,
-				})
-			}
-		} else {
-			// Build a set of screened symbols for quick lookup
-			screenedSet := make(map[string]struct{})
-			for _, sr := range screened {
-				screenedSet[sr.TsCode] = struct{}{}
-			}
-
-			// Calculate momentum for screened stocks
-			for _, sr := range screened {
-				symbol := sr.TsCode
-				data, ok := bars[symbol]
-				if !ok || len(data) < momentumDays+1 {
-					continue
-				}
-
-				// Sort by date ascending using shared utility
-				sorted := sortOHLCV(data)
-
-				endIdx := len(sorted) - 1
-				if endIdx < momentumDays {
-					continue
-				}
-
-				startPrice := sorted[endIdx-momentumDays].Close
-				endPrice := sorted[endIdx].Close
-				if startPrice <= 0 {
-					continue
-				}
-
-				momentum := (endPrice - startPrice) / startPrice
-
-				momResults = append(momResults, stockMomentum{
-					symbol:   symbol,
-					momentum: momentum,
-				})
-			}
-		}
+		// 多票模式必须真的按 pe_max / pb_max / roe_min 筛过 —— 这三条条件需要
+		// market.stock_fundamentals 的 pe/pb/roe，core 侧没有本地面。原先这里
+		// 打的是 data 服务的 `POST /screen`，而该路由从未在 tellurion-data
+		// 注册（只剩遗留鉴权策略键），请求必然失败。
+		//
+		// 失败后静默退回纯动量选股，结果看起来"有数"，但价值条件一条都没
+		// 生效 —— 这是**策略输入不可得**，不是行情数据缺失。所以逐日返回可
+		// 诊断的 ErrDataGap（引擎记为 data_gap_skipped、终态 invalid），
+		// 而不是产出会被误当作价值筛选结果的信号。
+		return nil, fmt.Errorf(
+			"value_screening 多票模式价值筛选输入不可得（策略输入缺失，不是行情数据缺失）："+
+				"缺 market.stock_fundamentals 的 pe / pb / roe（core 侧无可读来源，"+
+				"data 服务也未注册 /screen 路由）；本日 %s 的筛选条件 pe<=%g / pb<=%g / roe>=%g "+
+				"一条都未生效，因此不能退回纯动量选股：%w",
+			screenDate.Format("2006-01-02"), peMax, pbMax, roeMin, contracts.ErrDataGap)
 	}
 
 	// Sort by momentum descending (highest return = rank 1)
@@ -471,9 +393,6 @@ func newValueScreeningStrategy() strategy.Strategy {
 			TopN:               10,
 			RebalanceFrequency: "monthly",
 		},
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		screenCache:    strategy.NewScreenCache(30),
-		dataServiceURL: defaultDataServiceURL,
 	}
 	return s
 }

@@ -100,6 +100,7 @@
 | CORE-RUNNER-FLAKE-RESIDUAL | 先证伪：20+50+负载 20 次全绿 ⇒ 未复现，不改代码，留重开条件 | 2026-11-12 | 见原文 | [原文](#CORE-RUNNER-FLAKE-RESIDUAL) |
 | CORE-DEPLOY-DRIFT-PARAM | `${DATABASE_NAME:-tellurion}` 漂移：实测 10 处同值；检查器补 `${VAR:-default}` 展开 + 5f 全局同值断言 | 2026-11-12 | 见原文 | [原文](#CORE-DEPLOY-DRIFT-PARAM) |
 | CORE-CI-ARCHIVE-LINKS-FIX | 归档层 60 条相对链接缺层级 + 2 处失效配置引用；只修链接/加注记，不动历史判断 | 2026-11-12 | 见原文 | [原文](#CORE-CI-ARCHIVE-LINKS-FIX) |
+| CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM | 策略插件 `/screen` 死腿（裁决 B1）：value_screen 多票返回可诊断 ErrDataGap，multi_factor 只删死腿 | 2026-11-12 | 见原文 | [原文](#CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM) |
 
 ---
 
@@ -3356,3 +3357,28 @@
 > - **破坏验证 B（去掉「已删除」注记）**：删掉 `config/ai-service.yaml` 行的「已删除」字样 ⇒ exit 1，报 2 条该路径（原引用 + 注记内跨仓写法），证明注记是这两条的唯一豁免来源；逐字还原。
 > - **还原后校验和**（SHA256，取自破坏验证还原完毕、追加本节文字之前）：`docs/archive/tasks-archive-2026-11.md` = `37B3C7F1D30FEB3C2B37FCB01D5ABD417AC6EBDC40EBACD368B0E08799745ECB`；`docs/archive/TASKS-2026-10-14-archived.md` = `9331F67F75E43920950B9D4EDD1F03F8BF7DB80CDC6EE8624250E7A8A436A416`；`docs/archive/TASKS-2026-10-16-gen2-archived.md` = `D7A34518B3A99F832BDBC30A83344B51B563539C615B8825E2DE0A14617CF3AA`。
 > - **回归**：`python tools/check_doc_links.py --include-archive` exit 0（85 个文件，坏链 0 / 失效配置引用 0 / 入口 frontmatter 齐全）；默认层 `python tools/check_doc_links.py` exit 0（67 个文件）—— 未给归档层开白名单，也没放宽任何断言。
+
+## 二十二、2026-11-12 CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM 策略插件 `/screen` 死腿（裁决 B1）
+
+<a id="CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM"></a>
+### CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM · 策略插件仍把 `/screen` 兜底打到已退役路由 [P2] ✅ 完成（2026-11-12）
+
+- **① 目标**：让 `multi_factor` / `value_screen` 的兜底腿不再依赖 data 从未存在的 `/screen` 路由。
+- **② 上下文**：`CORE-DEAD-PROXY-SCREEN-VERIFY`（2026-11-12）的静态护栏在 `pkg/strategy/utils.go` 抓到残留：`CallScreenAPI` 仍拼 `dataServiceURL + "/screen"`（`defaultDataServiceURL` = `http://localhost:8081`），调用点为 `multi_factor.go:552` / `value_screen.go:285`。该路由必 404，随后回落到按 bar 直接计算，功能不假，但每次多一次注定失败的 HTTP 往返 + 错误日志。网关面（`/api/screen` 本地供数）已由前者收口，本条只针对插件兜底。
+- **③ 要求**：先裁决兜底票池来源（注入本地 `ScreenFundamentals` / 消费 run 级物化），再改两处 fallback；删掉 `CallScreenAPI` / `ScreenCache` 与 `internal/repoguard/dead_proxy_upstream_test.go` 的 `retiredUpstreamAllowlist` 条目（护栏 staleness 断言会强制）。
+- **④ 约束与非目标**：不改策略选股语义、不引入第二个写入口、不删断言换绿。
+- **⑤ 验收**：两处兜底不再发起 HTTP；`retiredUpstreamAllowlist` 归零；破坏验证 = 把 `+ "/screen"` 加回 ⇒ 护栏红。
+- **⑥ 边界**：`pkg/strategy`；网关面与 UI 面不在本条。
+- **owner**：待定
+
+> **✅ 施工记录（2026-11-12，`CORE-STRATEGY-SCREEN-FALLBACK-DEAD-UPSTREAM`）**
+>
+> - **裁决**：主任定 **B1** —— `value_screen` 删死腿并返回缺数据（包 `contracts.ErrDataGap`），`multi_factor` **只删死腿**、不加错误路径（生产 `pkg/backtest/run_context.go` 恒 `SetFactorReader`，那条腿不可达；不为对称去动它的控制流）。
+> - **生产面依赖自查（先自查后动手）**：workspace 级 `grep -E "value_screen|value-screen|valueScreening"` 命中 core 自身代码/测试、`pkg/strategy/plugins/testdata/value-5stock-1yr.json`、`tellurion-strategy/internal/asset/builtin.go`（仅内置策略名清单）与 `docs/TASKS.md`（本条自身）。`testdata` 的 description 只记录「基本面须由 data 服务 `/Screen` 提供」这一**依赖**、不是可用性承诺，且该夹具无任何测试加载（`value-5stock` 全 workspace 无第二处引用）；`tellurion-docs`、`tellurion-ui` 无相关承诺。结论：**无生产面承诺「多票 value_screen 能出结果」**，按 B1 施工。
+> - **改动**：① `pkg/strategy/utils.go` 删除 `CallScreenAPI` / `ScreenCache` / `NewScreenCache` / `Get` / `Set` 与 `defaultDataServiceURL`，只留 `IsRebalanceDay` / `LatestBarDate`；② `value_screen.go` 多票分支改为返回可诊断 `ErrDataGap`，消息点名 `market.stock_fundamentals` 的 `pe` / `pb` / `roe`、当日的 `pe<=… / pb<=… / roe>=…` 条件「一条都未生效」、并明确「策略输入缺失，不是行情数据缺失」「不能退回纯动量选股」；③ `multi_factor.go` 删除 HTTP 腿、`generateSignalsFromHTTP`、`callScreenAPI`、`screenDateStr` 与相关字段，保留 run 级因子缓存 + 本地价量两条来源，控制流不变。
+> - **真验红（同一条引擎用例，改前/改后各跑一次）**：`pkg/backtest/value_screen_data_gap_test.go` 用 5 票 × 90 个交易日 × 每日调仓。**改前**（`git checkout HEAD --` 三个生产文件后运行）⇒ `status=completed`、`invalid_reasons=[]`，即"以前能出数"的那份假成功；**改后** ⇒ `status=invalid`、`invalid_reasons` 含 `data_gap_skipped`，且 `err == nil`（run 跑完）。还原用 `$env:TEMP` 备份逐字节回拷，三个文件 SHA256 与备份一致。
+> - **新增/改写的测试**：`TestValueScreenMultiStockFailsWithDiagnosableDataGap`（`errors.Is(err, contracts.ErrDataGap)` + 消息逐项断言 `market.stock_fundamentals`、`pe`/`pb`/`roe`、`策略输入`、`不是行情数据缺失`、`一条都未生效`、`不能退回纯动量选股`、实际阈值，且断言不返回信号）；`TestValueScreeningMultiStockRunIsInvalidWithDataGap`（引擎级终态）；`dead_proxy_upstream_test.go` 删除 `pkg/strategy/utils.go` 白名单条目并新增 4 条**正向对照**（`value_screen.go` 含 `contracts.ErrDataGap` 与 `market.stock_fundamentals`、`multi_factor.go` 含 `generateSignalsFromPriceData(` 与 `generateSignalsFromFactorCache(`）—— 删路由不算修好，替代路径必须在。
+> - **测试改写说明（不是删断言换绿）**：`MultiFactorCompositeScore` / `TopN`、`ValueScreenMomentumRanking` / `TopN` 原先靠假 `/screen` 返回的 PE/ROE 决定排名/票数，该生产路径已删除，故改为走本地价量路径并保留原有强度、票数、排序断言；`MultiFactorCompositeScore` 的原「A 必须第一」依赖已删的 PE/ROE 输入（本地价量口径下 value 分用价格区间反比，排序会翻），改为断言「4 票全出买入信号 + 强度为正 + 按复合分降序」。`TestMultiFactorZeroPE` / `TestMultiFactorNilPEAndROE` / `TestMultiFactorCache` / `TestValueScreenCache` 的主体是已删除的 `/screen` 解析与缓存，随特性一并删除。
+> - **破坏验证**：① 在 `multi_factor.go` 末尾加 `var _ = "http://localhost:8081" + "/screen"` ⇒ repoguard 恰好点名该文件；还原后复绿（SHA256 与备份逐字节一致）。② 真验红见上条（改前 `completed` → 改后 `invalid`）。
+> - **还原后校验和**（SHA256，取自破坏验证还原完毕、追加本节文字之前）：`pkg/strategy/utils.go` = `942B71D0A25B8F9FBD75B3920B3265D679DD820BC05C08AC841FED5F75C6FD9B`；`pkg/strategy/plugins/multi_factor.go` = `B5034F4E6E00BF5107B69255F8BED4E8BC0F8A7FC1F45BB32C1CC5D4228DCC3E`；`pkg/strategy/plugins/value_screen.go` = `1A18409A2B20D60409AA17247087CB007A7C0EBC19B4C4B479E3F5DEFD130F87`（与破坏验证前的 `$env:TEMP` 备份逐字节一致）。
+> - **回归**：`go build ./...` / `go vet ./...` / `gofmt -l` 全 0；`go test ./pkg/strategy/... ./pkg/backtest/ ./internal/repoguard/` 全绿；`docker compose config --quiet`、`docker compose --profile full config --quiet`、`python tools/check_doc_links.py`、`python tools/check_deploy_consistency.py` 均 exit 0。

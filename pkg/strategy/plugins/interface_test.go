@@ -180,8 +180,8 @@ func TestValueScreeningStrategy_Interface(t *testing.T) {
 
 	t.Run("Cleanup", func(t *testing.T) {
 		s.Cleanup()
-		if s.httpClient != nil {
-			t.Error("Cleanup should set httpClient to nil")
+		if s.params.PEMax != 0 || s.params.PBMax != 0 || s.params.ROEMin != 0 {
+			t.Errorf("Cleanup should reset params, got %+v", s.params)
 		}
 	})
 }
@@ -229,8 +229,11 @@ func TestMultiFactorStrategy_Interface(t *testing.T) {
 
 	t.Run("Cleanup", func(t *testing.T) {
 		s.Cleanup()
-		if s.httpClient != nil {
-			t.Error("Cleanup should set httpClient to nil")
+		if s.params.ValueWeight != 0 || s.params.TopN != 0 {
+			t.Errorf("Cleanup should reset params, got %+v", s.params)
+		}
+		if s.factorReader != nil {
+			t.Error("Cleanup should set factorReader to nil")
 		}
 	})
 }

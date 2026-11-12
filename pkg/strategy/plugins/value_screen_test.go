@@ -2,15 +2,13 @@ package plugins
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	contracts "github.com/ruoxizhnya/tellurion-contracts/engine"
 	"tellurion/pkg/domain"
 	"tellurion/pkg/strategy"
 )
@@ -93,38 +91,6 @@ func TestValueScreenNameDescription(t *testing.T) {
 }
 
 func TestValueScreenMomentumRanking(t *testing.T) {
-	var reqCount int
-	mux := http.NewServeMux()
-	mux.HandleFunc("/screen", func(w http.ResponseWriter, r *http.Request) {
-		reqCount++
-		if r.Method != http.MethodPost {
-			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
-			return
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		_ = body
-		pe := 10.0
-		roe := 0.15
-		json.NewEncoder(w).Encode(struct {
-			Count   int                   `json:"count"`
-			Results []domain.ScreenResult `json:"results"`
-		}{
-			Count: 3,
-			Results: []domain.ScreenResult{
-				{TsCode: "A", PE: &pe, ROE: &roe},
-				{TsCode: "B", PE: &pe, ROE: &roe},
-				{TsCode: "C", PE: &pe, ROE: &roe},
-			},
-		})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	httpClient := httpClientFor(srv)
-
 	now := time.Now()
 	basePrice := 100.0
 	momentumDays := 60
@@ -143,12 +109,12 @@ func TestValueScreenMomentumRanking(t *testing.T) {
 		return bars
 	}
 
-	// Use 4+ stocks to trigger the HTTP path (len(bars) > 3)
+	// 3 票走本地动量路径（多票价值筛选已是 ErrDataGap，见
+	// TestValueScreenMultiStockFailsWithDiagnosableDataGap）。
 	bars := map[string][]domain.OHLCV{
 		"A": makeBars("A", basePrice*1.10),
 		"B": makeBars("B", basePrice*1.05),
 		"C": makeBars("C", basePrice*1.01),
-		"D": makeBars("D", basePrice*1.03),
 	}
 
 	s := &valueScreeningStrategy{
@@ -160,9 +126,6 @@ func TestValueScreenMomentumRanking(t *testing.T) {
 			TopN:               2,
 			RebalanceFrequency: "daily",
 		},
-		httpClient:     httpClient,
-		screenCache:    strategy.NewScreenCache(10),
-		dataServiceURL: srv.URL,
 	}
 
 	portfolio := &domain.Portfolio{
@@ -173,9 +136,6 @@ func TestValueScreenMomentumRanking(t *testing.T) {
 	signals, err := s.GenerateSignals(context.Background(), bars, portfolio)
 	if err != nil {
 		t.Fatalf("GenerateSignals failed: %v", err)
-	}
-	if reqCount == 0 {
-		t.Fatal("expected at least 1 API call")
 	}
 
 	buySymbols := make(map[string]bool)
@@ -214,26 +174,6 @@ func TestValueScreenTopN(t *testing.T) {
 	now := time.Now()
 	basePrice := 100.0
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/screen", func(w http.ResponseWriter, r *http.Request) {
-		results := make([]domain.ScreenResult, 10)
-		for i := range results {
-			pe := float64(10 + i)
-			roe := 0.05 + float64(i)*0.01
-			results[i] = domain.ScreenResult{
-				TsCode: fmt.Sprintf("S%02d", i),
-				PE:     &pe,
-				ROE:    &roe,
-			}
-		}
-		json.NewEncoder(w).Encode(struct {
-			Count   int                   `json:"count"`
-			Results []domain.ScreenResult `json:"results"`
-		}{Count: 10, Results: results})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
 	makeBars := func(symbol string, endPrice float64) []domain.OHLCV {
 		startPrice := basePrice
 		bars := make([]domain.OHLCV, momentumDays+2)
@@ -248,32 +188,21 @@ func TestValueScreenTopN(t *testing.T) {
 		return bars
 	}
 
-	transport := &http.Transport{
-		DialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
-			_, _, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			return net.Dial("tcp", srv.Listener.Addr().String())
-		},
-	}
-	httpClient := &http.Client{Transport: transport, Timeout: 5 * time.Second}
-
 	tests := []struct {
 		name     string
 		topN     int
 		wantBuys int
 	}{
-		{"topN=3 from 10 stocks", 3, 3},
-		{"topN=5 from 10 stocks", 5, 5},
-		{"topN=1 from 10 stocks", 1, 1},
+		{"topN=1 from 3 stocks", 1, 1},
+		{"topN=2 from 3 stocks", 2, 2},
+		{"topN=3 from 3 stocks", 3, 3},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			bars := map[string][]domain.OHLCV{}
-			for i := 0; i < 10; i++ {
-				ret := 1.0 + float64(10-i)*0.01
+			for i := 0; i < 3; i++ {
+				ret := 1.0 + float64(3-i)*0.01
 				bars[fmt.Sprintf("S%02d", i)] = makeBars(fmt.Sprintf("S%02d", i), basePrice*ret)
 			}
 
@@ -286,8 +215,6 @@ func TestValueScreenTopN(t *testing.T) {
 					TopN:               tc.topN,
 					RebalanceFrequency: "daily",
 				},
-				httpClient:  httpClient,
-				screenCache: strategy.NewScreenCache(10),
 			}
 
 			portfolio := &domain.Portfolio{UpdatedAt: now, Positions: map[string]domain.Position{}}
@@ -310,32 +237,6 @@ func TestValueScreenTopN(t *testing.T) {
 }
 
 func TestValueScreenSellSignal(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/screen", func(w http.ResponseWriter, r *http.Request) {
-		pe := 10.0
-		roe := 0.15
-		json.NewEncoder(w).Encode(struct {
-			Count   int                   `json:"count"`
-			Results []domain.ScreenResult `json:"results"`
-		}{
-			Count: 3,
-			Results: []domain.ScreenResult{
-				{TsCode: "A", PE: &pe, ROE: &roe},
-				{TsCode: "B", PE: &pe, ROE: &roe},
-				{TsCode: "C", PE: &pe, ROE: &roe},
-			},
-		})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	transport := &http.Transport{
-		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-			return net.Dial("tcp", srv.Listener.Addr().String())
-		},
-	}
-	httpClient := &http.Client{Transport: transport, Timeout: 5 * time.Second}
-
 	momentumDays := 60
 	now := time.Now()
 	basePrice := 100.0
@@ -377,8 +278,6 @@ func TestValueScreenSellSignal(t *testing.T) {
 			TopN:               2,
 			RebalanceFrequency: "daily",
 		},
-		httpClient:  httpClient,
-		screenCache: strategy.NewScreenCache(10),
 	}
 
 	signals, err := s.GenerateSignals(context.Background(), bars, portfolio)
@@ -404,91 +303,75 @@ func TestValueScreenSellSignal(t *testing.T) {
 	}
 }
 
-func TestValueScreenCache(t *testing.T) {
-	var reqCount int
-	mux := http.NewServeMux()
-	mux.HandleFunc("/screen", func(w http.ResponseWriter, r *http.Request) {
-		reqCount++
-		pe := 10.0
-		roe := 0.15
-		json.NewEncoder(w).Encode(struct {
-			Count   int                   `json:"count"`
-			Results []domain.ScreenResult `json:"results"`
-		}{
-			Count: 2,
-			Results: []domain.ScreenResult{
-				{TsCode: "A", PE: &pe, ROE: &roe},
-				{TsCode: "B", PE: &pe, ROE: &roe},
-			},
-		})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	httpClient := httpClientFor(srv)
-
+// TestValueScreenMultiStockFailsWithDiagnosableDataGap 锁定 B1 语义：多票模式的
+// 价值筛选输入不可得时，必须返回可诊断的 ErrDataGap（引擎记为 data_gap_skipped、
+// 终态 invalid），而不是静默退回纯动量选股产出"看起来有数"的假结果。
+func TestValueScreenMultiStockFailsWithDiagnosableDataGap(t *testing.T) {
 	now := time.Now()
 	basePrice := 100.0
-	makeBars := func() []domain.OHLCV {
-		bars := make([]domain.OHLCV, 62)
+	momentumDays := 60
+	makeBars := func(symbol string, endPrice float64) []domain.OHLCV {
+		startPrice := basePrice
+		bars := make([]domain.OHLCV, momentumDays+2)
 		for i := range bars {
 			ratio := float64(i) / float64(len(bars)-1)
 			bars[i] = domain.OHLCV{
-				Symbol: "A",
+				Symbol: symbol,
 				Date:   now.AddDate(0, 0, -len(bars)+i),
-				Close:  basePrice + basePrice*0.05*ratio,
+				Close:  startPrice + (endPrice-startPrice)*ratio,
 			}
 		}
 		return bars
 	}
 
+	bars := map[string][]domain.OHLCV{
+		"A": makeBars("A", basePrice*1.10),
+		"B": makeBars("B", basePrice*1.05),
+		"C": makeBars("C", basePrice*1.01),
+		"D": makeBars("D", basePrice*1.03),
+	}
+
 	s := &valueScreeningStrategy{
 		params: ValueScreeningConfig{
-			PEMax:              30.0,
-			PBMax:              3.0,
-			ROEMin:             0.05,
-			MomentumDays:       60,
-			TopN:               10,
+			PEMax:              25.0,
+			PBMax:              2.0,
+			ROEMin:             0.12,
+			MomentumDays:       momentumDays,
+			TopN:               2,
 			RebalanceFrequency: "daily",
 		},
-		httpClient:     httpClient,
-		screenCache:    strategy.NewScreenCache(10),
-		dataServiceURL: srv.URL,
 	}
 
-	// Use 4+ stocks to trigger the HTTP path (len(bars) > 3)
-	bars := map[string][]domain.OHLCV{
-		"A": makeBars(),
-		"B": makeBars(),
-		"C": makeBars(),
-		"D": makeBars(),
-	}
-	// screenDate is derived from the latest bar date, which is now.AddDate(0, 0, -1)
-	screenDate := now.AddDate(0, 0, -1)
-	dateStr := screenDate.Format("20060102")
 	portfolio := &domain.Portfolio{UpdatedAt: now, Positions: map[string]domain.Position{}}
+	signals, err := s.GenerateSignals(context.Background(), bars, portfolio)
 
-	_, err := s.GenerateSignals(context.Background(), bars, portfolio)
-	if err != nil {
-		t.Fatalf("first call failed: %v", err)
+	if err == nil {
+		t.Fatalf("expected ErrDataGap for multi-stock value screening, got nil error with %d signals", len(signals))
 	}
-	if reqCount != 1 {
-		t.Errorf("first call: expected 1 request, got %d", reqCount)
+	if signals != nil {
+		t.Errorf("expected no signals alongside ErrDataGap, got %+v", signals)
 	}
-
-	cached, ok := s.screenCache.Get(dateStr)
-	if !ok {
-		t.Fatal("cache should be populated after first call")
-	}
-	if len(cached) != 2 {
-		t.Errorf("expected 2 cached results, got %d", len(cached))
+	if !errors.Is(err, contracts.ErrDataGap) {
+		t.Fatalf("expected errors.Is(err, contracts.ErrDataGap), got %v", err)
 	}
 
-	_, err = s.GenerateSignals(context.Background(), bars, portfolio)
-	if err != nil {
-		t.Fatalf("second call failed: %v", err)
-	}
-	if reqCount != 1 {
-		t.Errorf("second call (same date): expected 1 request total, got %d", reqCount)
+	msg := err.Error()
+	for _, want := range []string{
+		"market.stock_fundamentals", // 缺哪张表
+		"pe",                        // 缺哪个字段
+		"pb",
+		"roe",
+		"策略输入",      // 定性：策略输入不可得
+		"不是行情数据缺失",  // 与行情缺失区分
+		"一条都未生效",    // 哪条筛选条件未生效
+		"不能退回纯动量选股", // 说明没有假结果
+		"pe<=25",    // 实际生效值可读
+		"pb<=2",
+		"roe>=0.12",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("expected diagnostic message to contain %q, got:\n%s", want, msg)
+		}
 	}
 }
 
@@ -512,25 +395,6 @@ func TestValueScreenEmptyBars(t *testing.T) {
 }
 
 func TestValueScreenZeroMomentum(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/screen", func(w http.ResponseWriter, r *http.Request) {
-		pe := 10.0
-		roe := 0.15
-		json.NewEncoder(w).Encode(struct {
-			Count   int                   `json:"count"`
-			Results []domain.ScreenResult `json:"results"`
-		}{
-			Count: 2,
-			Results: []domain.ScreenResult{
-				{TsCode: "A", PE: &pe, ROE: &roe},
-				{TsCode: "B", PE: &pe, ROE: &roe},
-			},
-		})
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	httpClient := httpClientFor(srv)
-
 	now := time.Now()
 	price := 100.0
 	momentumDays := 60
@@ -561,8 +425,6 @@ func TestValueScreenZeroMomentum(t *testing.T) {
 			TopN:               10,
 			RebalanceFrequency: "daily",
 		},
-		httpClient:  httpClient,
-		screenCache: strategy.NewScreenCache(10),
 	}
 
 	portfolio := &domain.Portfolio{UpdatedAt: now, Positions: map[string]domain.Position{}}
@@ -601,8 +463,6 @@ func TestValueScreenAutoRegister(t *testing.T) {
 			TopN:               10,
 			RebalanceFrequency: "monthly",
 		},
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
-		screenCache: strategy.NewScreenCache(30),
 	}
 	if err := strategy.GlobalRegisterFactory(func() strategy.Strategy { return s }); err != nil {
 		t.Fatalf("failed to register value_screening: %v", err)
