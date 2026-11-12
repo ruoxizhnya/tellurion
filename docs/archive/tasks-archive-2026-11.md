@@ -105,6 +105,7 @@
 | CORE-CI-IMAGE-GATE | 镜像构建门：CI 真跑 docker build + 检查器静态守 compose build 面与 go build 目标目录 | 2026-11-12 | `dd5a98f` | [原文](#CORE-CI-IMAGE-GATE) |
 | CORE-K8S-EXIT | 退役 k8s 清单：移入 archive/ + 检查器「活跃层必须零清单」守卫 | 2026-11-12 | `480aab9` | [原文](#CORE-K8S-EXIT) |
 | CORE-REFS-TRAILER-RULE | 承认散文引用：`Refs:` trailer 改可选，任务号可追溯仍是硬约束（D8=b） | 2026-11-12 | `cca11ec` | [原文](#CORE-REFS-TRAILER-RULE) |
+| CORE-RESULT-RETENTION | 回测结果/provenance 保留期：明细 90 天、汇总与 provenance 365 天、被引用永不删 | 2026-11-12 | `f50affe`、`1d07a39`、`5af46cb` | [原文](#CORE-RESULT-RETENTION) |
 
 ---
 
@@ -3464,3 +3465,30 @@
 > - **未改历史**：不补、不删任何历史 commit 的 trailer（③ 要求）。
 > - **回归**：`python tools/check_doc_links.py` = 0（入口层 frontmatter 与路径引用均通过）；`python tools/check_doc_links.py --include-archive` = 0。纯文本改动，未触及 Go 代码 / 检查器逻辑，`go build/vet/test` 不受影响（本轮同批其它两单已各跑全量）。
 > - **破坏验证**：本单 ⑤ 未要求，也无代码判据可破坏 —— 如实登记为「不适用」，不是跳过。
+### CORE-RESULT-RETENTION · `run.backtest_results` / `quant.run_provenance` 无保留期清理 [P3] ✅（2026-11-12）
+
+- **① 目标**：给回测结果与 provenance 表一个保留期/清理口径，避免无限增长（对照 broker `order_acks` 90 天、data evidence 保留期）。
+- **② 上下文**：审查发现 I-4（ODR-073）。grep `DELETE`/`vacuum`/`retention` 对 `run.backtest_results` / `quant.run_provenance` 零命中；对照 `tellurion-broker:broker.order_acks` 90 天保留、`tellurion-data:internal/store/evidence.go:22` 保留期清理。结果表 owner=core（`backtest_results.go:40`）。
+- **③ 要求**：① 定保留期口径（天数/按 run 终态，写死可判定）；② 清理只删可重建结果，**provenance 身份坐标不可删**（审计链）；③ 单批上限 + 进程内周期清理（对齐 broker 形状）；④ 写进 `db-schema`/runbook。
+- **④ 约束与非目标**：不删 provenance 审计坐标；不改表结构；不在活库上跑破坏性清理（演练走 `_test`）。
+- **⑤ 验收**：`_test` 库清理腿真跑（过期删、未过期留、provenance 不动）；破坏验证 = 把保留期判据改反 ⇒ 用例红。
+- **⑥ 边界**：core 结果表保留期；provenance 永久保留是设定。
+- **owner**：待定
+
+> **施工记录（2026-11-12，commit `f50affe`（口径文档）、`1d07a39`（实现）、`5af46cb`（测试））**
+>
+> - **口径被 2026-11-12 主任裁决取代**：明细 90 天；run 级汇总与 provenance 365 天；被引用的结果永不删。因此 ③② / ④ / ⑥ 的「provenance 身份坐标不可删 / 永久保留 / 不改表结构」不再按原文执行——新增 `finished_at` 与 `detail_purged_at` 两列是主任明确要求的留痕；provenance 与汇总同为 365 天。上方六字段按归档约定逐字保留，未改写。
+> - **时间基准**：判据取 `finished_at`（落结论时置 `now()`，存量回填 `updated_at`），不用 `created_at`——长跑 run 用创建时间会提前过期。
+> - **明细载体**：明细不是独立子表，存在 `run.backtest_results.result` 的 `portfolio_values` / `trades` 两个 JSONB 键里；清理即摘这两个键，汇总键（收益/回撤/参数/`factor_coverage`/`pe_source`）保留。
+> - **被引用判据（真实表）**：`run.run_artifacts` / `quant.run_analysis_artifacts` / `quant.strategy_state` / `audit.message_log` 的 `run_id` 列，加运行时探测存在才查的内核表（`quant.portfolio_snapshot` / `positions` / `risk_events` / `orders` / `fills` / `recon_report`）。表不存在 ⇒ 不算引用；探测出错 ⇒ 按被引用保留。`run.batch_runs` / `parent_jobs` / `walk_forward_reports` 无 `run_id` 列，不作引用来源。
+> - **运行中**：`run.backtest_jobs` 存在且状态非终态 ⇒ 跳过；表不存在时结果行本身即终态。结果行只在终止时写入，候选集天然不含运行中 run。
+> - **执行语义**：逐 run 一个事务、先明细后汇总（先摘 JSONB 键，再删结果行与 provenance）、失败停在已提交前缀；`detail_purged_at IS NULL` 守卫保证幂等；dry-run 只读并输出逐 run 的 `trades` / `equity_points`；配置 `result_retention.*`，默认 90/365、`enabled=true`、可 `RESULT_RETENTION_ENABLED=false` 临时停。
+> - **读路径区分**：`/api/backtest/{id}/trades` 与 `/equity` 在清理后返回 `detail_purged_at`；从未有过明细的 run 无此字段。
+> - **迁移位置**：新增语句只追加在 `allMigrationStatements()` 末尾（Migration 067），不动既有数组元素——账本版本 = 下标+1，中间插入会让存量库指纹全部错位。同步把 `migrate_guard_test.go` / `migrate_guard_integration_test.go` 的序列构造改到同一函数，断言未放宽。
+> - **边界实测（有库，dockertest PG 16）**：`finished_at` 恰 89 / 90 / 91 天三条 ⇒ `detail_runs=2 summary_runs=2 skipped=3 trades=3 equity=5`；仅 91 天明细被摘且 `detail_purged_at` 非空、`total_return` 保留；89 / 90 天明细与留痕均为空。被 `run.run_artifacts` 引用与 `run.backtest_jobs.status=running` 的 91 天 run 明细均未动；failed 空载荷不写 `detail_purged_at`；366/367 天档结果行与 provenance 同事务删除，被引用者保留。
+> - **幂等实测**：同批第二次 `detail_runs=0 summary_runs=0`。
+> - **dry-run 样例**：`{"dry_run":true,"detail_cutoff":"2026-08-14T12:00:00Z","summary_cutoff":"2025-11-12T12:00:00Z","detail_runs":1,"detail_trades":2,"detail_equity_points":4,"actions":[{"run_id":"ret-test-dry-91","action":"purge_detail","trades":2,"equity_points":4}]}`；库中 `portfolio_values` 与 `detail_purged_at` 均未变。
+> - **现存库命中数（本机 `tellurion` 只读统计）**：`run.backtest_results` 107 行、`quant.run_provenance` 107 行，最早 `2026-11-11`；过 90 天 0 条、过 365 天 0 条 ⇒ 本轮清理命中 0。引用面：`run.run_artifacts` 3 行，`quant.run_analysis_artifacts` / `quant.strategy_state` / `audit.message_log` 均 0 个 run。
+> - **破坏验证（真做真还原）**：明细判据 `<` 改 `<=` ⇒ 恰 90 天用例翻红（`detail_runs=3`、90 天行被误清）；还原后 `run_retention.go` SHA256 = `D02C0C678AFACF8FD7841708B68ED914D7D0D7A11E074DE0120342B994567F50`，与破坏前一致，复跑绿。
+> - **回归（真实退出码）**：`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0；`docker compose config --quiet` / `--profile full config --quiet` / `python tools/check_doc_links.py` / `python tools/check_deploy_consistency.py` 全 exit 0；`check_doc_links.py --include-archive` 见本轮收口复跑。
+> - **残余**：`quant.run_analysis_artifacts` 自身保留期归 `CORE-ANALYSISARTIFACT-RETENTION`；无结果行的孤儿 provenance 无 `finished_at` 可判，按保守原则不自动删。
