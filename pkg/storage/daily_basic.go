@@ -1,6 +1,6 @@
 package storage
 
-// 个股日频估值读路径（CORE-STRATEGY-SCREEN-LOCAL-VALUE 的前置）。
+// 个股日频估值读路径（CORE-STRATEGY-SCREEN-LOCAL-VALUE）。
 //
 // 数据归属：`market.daily_basic` 的唯一写者是 `tellurion-data`（Tushare
 // daily_basic 导入，DDL 见 tellurion-data internal/schema/market.go）。
@@ -25,6 +25,7 @@ import (
 	"time"
 
 	apperrors "github.com/ruoxizhnya/tellurion-kit/errors"
+	"tellurion/pkg/domain"
 )
 
 // dailyBasicPITTable 是估值读取的显式限定表名（归属 tellurion-data）。
@@ -43,44 +44,21 @@ const dailyBasicPITBulkSQL = `
 		ORDER BY ts_code, trade_date DESC
 	`
 
-// 估值字段的来源标记（provenance）。
+// dailyBasicHistorySQL 取 [start, end] 区间内的逐日估值，按票、日期升序。
 //
-// 回退必须可见：只看 PE 数值无法判断某天用的是 TTM 口径还是报告期口径，
-// 而这两者可能差很多。PESource 让调用方/日志能直接分辨。
-const (
-	DailyBasicPESourceTTM      = "pe_ttm"
-	DailyBasicPESourceReported = "pe"
-	DailyBasicPBSourceReported = "pb"
-)
+// run 预热一次取完区间（回测期间策略只读 run 内快照，运行时查询 provider
+// 是红线，蓝图 §4.3）。决策日当天的行取不取由消费方按
+// `trade_date <= 决策日` 的既有 PIT 口径判断；这里只提供原始区间。
+const dailyBasicHistorySQL = `
+		SELECT ts_code, trade_date, pe_ttm, pe, pb, total_mv, circ_mv
+		FROM ` + dailyBasicPITTable + `
+		WHERE ts_code = ANY($1) AND trade_date >= $2 AND trade_date <= $3
+		ORDER BY ts_code, trade_date ASC
+	`
 
 // dailyBasicMVWanToYuan 是市值单位换算系数：上游万元 → 元。
 // 换算只在本文件的 newDailyBasicValuation 使用，调用点不得再乘一次。
 const dailyBasicMVWanToYuan = 1e4
-
-// DailyBasicValuation 是单只票在决策日之前最近一条 daily_basic 的估值快照。
-//
-// PE/PB 为 nil = 上游该列为 NULL（亏损或未发布），语义是「该票当日不参与
-// 筛选」，不是 0、不是极便宜。TotalMV/CircMV 已换算为元。
-type DailyBasicValuation struct {
-	TsCode    string
-	TradeDate time.Time
-	PE        *float64
-	PESource  string
-	PB        *float64
-	PBSource  string
-	TotalMV   *float64 // 元
-	CircMV    *float64 // 元
-}
-
-// HasComparablePE 报告该票当日是否有可比的 PE。
-//
-// false 的语义是「该票当日不参与筛选」：没有可比的估值，就不进入当天的
-// 价值横截面。它不是「被永久排除」，也不能被当成 0 或「最便宜」—— 否则
-// 亏损股会稳定排到价值榜第一。
-func (v DailyBasicValuation) HasComparablePE() bool { return v.PE != nil }
-
-// HasComparablePB 同 HasComparablePE，针对 pb。
-func (v DailyBasicValuation) HasComparablePB() bool { return v.PB != nil }
 
 // newDailyBasicValuation 把一条库行映射成估值快照，集中处理三件事：
 // pe_ttm→pe 回退（记录来源）、市值万元→元换算、NULL 保留。
@@ -88,8 +66,8 @@ func newDailyBasicValuation(
 	tsCode string,
 	tradeDate time.Time,
 	peTTM, pe, pb, totalMV, circMV *float64,
-) DailyBasicValuation {
-	v := DailyBasicValuation{
+) domain.DailyBasicValuation {
+	v := domain.DailyBasicValuation{
 		TsCode:    tsCode,
 		TradeDate: tradeDate,
 		PB:        pb,
@@ -99,13 +77,13 @@ func newDailyBasicValuation(
 	switch {
 	case peTTM != nil:
 		v.PE = peTTM
-		v.PESource = DailyBasicPESourceTTM
+		v.PESource = domain.DailyBasicPESourceTTM
 	case pe != nil:
 		v.PE = pe
-		v.PESource = DailyBasicPESourceReported
+		v.PESource = domain.DailyBasicPESourceReported
 	}
 	if pb != nil {
-		v.PBSource = DailyBasicPBSourceReported
+		v.PBSource = domain.DailyBasicPBSourceReported
 	}
 	return v
 }
@@ -126,7 +104,7 @@ func dailyBasicMVToYuan(v *float64) *float64 {
 // 诊断含义不同，消费方不应混为一谈。
 func (s *PostgresStore) GetDailyBasicValuations(
 	ctx context.Context, symbols []string, asOf time.Time,
-) (map[string]DailyBasicValuation, error) {
+) (map[string]domain.DailyBasicValuation, error) {
 	if len(symbols) == 0 {
 		return nil, nil
 	}
@@ -139,25 +117,73 @@ func (s *PostgresStore) GetDailyBasicValuations(
 	}
 	defer rows.Close()
 
-	out := make(map[string]DailyBasicValuation, len(symbols))
+	out := make(map[string]domain.DailyBasicValuation, len(symbols))
 	for rows.Next() {
-		var tsCode string
-		var tradeDate time.Time
-		var peTTM, pe, pb, totalMV, circMV sql.NullFloat64
-		if err := rows.Scan(&tsCode, &tradeDate, &peTTM, &pe, &pb, &totalMV, &circMV); err != nil {
-			return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
-				"daily_basic 估值结果行扫描失败", "storage.GetDailyBasicValuations")
+		v, err := scanDailyBasicRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		v := newDailyBasicValuation(tsCode, tradeDate,
-			nullFloatPtr(peTTM), nullFloatPtr(pe), nullFloatPtr(pb),
-			nullFloatPtr(totalMV), nullFloatPtr(circMV))
-		out[tsCode] = v
+		out[v.TsCode] = v
 	}
 	if err := rows.Err(); err != nil {
 		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
 			"daily_basic 估值结果集迭代失败", "storage.GetDailyBasicValuations")
 	}
 	return out, nil
+}
+
+// GetDailyBasicHistory 批量读取 [start, end] 区间内的逐日估值（升序）。
+//
+// 返回 map 只含区间内有行的票。用于 run 预热：策略在回测期间只读这份
+// run 内快照，按 `trade_date <= 决策日` 取最近一条，不做运行时查询。
+func (s *PostgresStore) GetDailyBasicHistory(
+	ctx context.Context, symbols []string, start, end time.Time,
+) (map[string][]domain.DailyBasicValuation, error) {
+	if len(symbols) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, dailyBasicHistorySQL, symbols, dateOnly(start), dateOnly(end))
+	if err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"daily_basic 估值区间查询失败", "storage.GetDailyBasicHistory")
+	}
+	defer rows.Close()
+
+	out := make(map[string][]domain.DailyBasicValuation, len(symbols))
+	for rows.Next() {
+		v, err := scanDailyBasicRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[v.TsCode] = append(out[v.TsCode], v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"daily_basic 估值区间结果集迭代失败", "storage.GetDailyBasicHistory")
+	}
+	return out, nil
+}
+
+// scanDailyBasicRow 扫描一行 daily_basic；NULL → nil（缺失≠0）。
+func scanDailyBasicRow(rows interface {
+	Scan(dest ...any) error
+}) (domain.DailyBasicValuation, error) {
+	var (
+		tsCode    string
+		tradeDate time.Time
+		peTTM     sql.NullFloat64
+		pe        sql.NullFloat64
+		pb        sql.NullFloat64
+		totalMV   sql.NullFloat64
+		circMV    sql.NullFloat64
+	)
+	if err := rows.Scan(&tsCode, &tradeDate, &peTTM, &pe, &pb, &totalMV, &circMV); err != nil {
+		return domain.DailyBasicValuation{}, apperrors.Wrap(err, apperrors.ErrCodeInternal,
+			"daily_basic 估值结果行扫描失败", "storage.scanDailyBasicRow")
+	}
+	return newDailyBasicValuation(tsCode, tradeDate,
+		nullFloatPtr(peTTM), nullFloatPtr(pe), nullFloatPtr(pb),
+		nullFloatPtr(totalMV), nullFloatPtr(circMV)), nil
 }
 
 // nullFloatPtr 把 sql.NullFloat64 转成指针：NULL → nil（缺失≠0）。

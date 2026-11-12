@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tellurion/pkg/domain"
 )
 
 // ──────────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ func TestDailyBasicValuation_PETTMPreferredOverPE(t *testing.T) {
 
 	require.NotNil(t, v.PE)
 	assert.Equal(t, 12.5, *v.PE)
-	assert.Equal(t, DailyBasicPESourceTTM, v.PESource, "pe_ttm 存在时不得回退")
+	assert.Equal(t, domain.DailyBasicPESourceTTM, v.PESource, "pe_ttm 存在时不得回退")
 	assert.True(t, v.HasComparablePE())
 }
 
@@ -34,7 +35,7 @@ func TestDailyBasicValuation_PETTMMissingFallsBackToPE(t *testing.T) {
 
 	require.NotNil(t, v.PE)
 	assert.Equal(t, 8.8, *v.PE)
-	assert.Equal(t, DailyBasicPESourceReported, v.PESource,
+	assert.Equal(t, domain.DailyBasicPESourceReported, v.PESource,
 		"回退到 pe 必须能从 provenance 看出来，否则事后分不清用的是哪个口径")
 	assert.True(t, v.HasComparablePE())
 }
@@ -95,6 +96,19 @@ func TestDailyBasicPITQueryTargetsMarketSchema(t *testing.T) {
 	}
 	if !strings.Contains(dailyBasicPITBulkSQL, "trade_date <= $2") {
 		t.Errorf("PIT 上界缺失：必须取 trade_date <= 决策日的最近一条，不许用未来数据：%q", dailyBasicPITBulkSQL)
+	}
+}
+
+// TestDailyBasicHistoryQueryIsBounded 锁住 run 预热区间查询的两端边界与表名。
+func TestDailyBasicHistoryQueryIsBounded(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(dailyBasicHistorySQL, "FROM market.daily_basic") {
+		t.Errorf("区间查询未显式限定 market schema：%q", dailyBasicHistorySQL)
+	}
+	if !strings.Contains(dailyBasicHistorySQL, "trade_date >= $2") ||
+		!strings.Contains(dailyBasicHistorySQL, "trade_date <= $3") {
+		t.Errorf("区间查询必须同时有下界与上界（预热窗口不得越界）：%q", dailyBasicHistorySQL)
 	}
 }
 
@@ -164,7 +178,7 @@ func TestGetDailyBasicValuations_PITFallbackAndNull(t *testing.T) {
 	assert.Equal(t, parseDate("2024-01-02"), before[withTTM].TradeDate, "PIT：只能取决策日及之前最近一条")
 	require.NotNil(t, before[withTTM].PE)
 	assert.Equal(t, 12.0, *before[withTTM].PE)
-	assert.Equal(t, DailyBasicPESourceTTM, before[withTTM].PESource)
+	assert.Equal(t, domain.DailyBasicPESourceTTM, before[withTTM].PESource)
 	assert.NotContains(t, before, lossMake, "决策日之前没有行的票不应出现（缺失≠NULL 行）")
 
 	// 决策日 01-05：withTTM 的 pe_ttm 为 NULL → 回退 pe=20；lossMake 两列都 NULL。
@@ -174,7 +188,7 @@ func TestGetDailyBasicValuations_PITFallbackAndNull(t *testing.T) {
 	require.Contains(t, onDay, withTTM)
 	require.NotNil(t, onDay[withTTM].PE)
 	assert.Equal(t, 20.0, *onDay[withTTM].PE, "pe_ttm 缺失必须回退 pe")
-	assert.Equal(t, DailyBasicPESourceReported, onDay[withTTM].PESource, "回退必须可见")
+	assert.Equal(t, domain.DailyBasicPESourceReported, onDay[withTTM].PESource, "回退必须可见")
 
 	require.Contains(t, onDay, lossMake, "有行但 PE 为 NULL 的票要能返回，供调用方区分「不可比」")
 	assert.Nil(t, onDay[lossMake].PE)
@@ -191,4 +205,12 @@ func TestGetDailyBasicValuations_PITFallbackAndNull(t *testing.T) {
 	require.NotNil(t, latest[withTTM].PE)
 	assert.Equal(t, 6.0, *latest[withTTM].PE)
 	assert.Equal(t, parseDate("2024-01-10"), latest[withTTM].TradeDate)
+
+	// 区间读取：run 预热用 [start, end]，按日期升序，未来行不进入窗口。
+	hist, err := store.GetDailyBasicHistory(ctx, []string{withTTM},
+		parseDate("2024-01-01"), parseDate("2024-01-05"))
+	require.NoError(t, err)
+	require.Len(t, hist[withTTM], 2, "只应命中 01-02 与 01-05 两行")
+	assert.Equal(t, parseDate("2024-01-02"), hist[withTTM][0].TradeDate)
+	assert.Equal(t, parseDate("2024-01-05"), hist[withTTM][1].TradeDate)
 }
