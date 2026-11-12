@@ -8,22 +8,22 @@
 
 | ID | 标题 | 收口日期 | commit / 正文所记哈希 | 证据链接 |
 |---|---|---|---|---|
-| SVC-DUAL-01 | 双 owner 全量清单（✅ 2026-11-07） | 2026-11-07 | —（原文未记） | [原文](#SVC-DUAL-01)；[`design/qt-decoupling/dual-owner-inventory-2026-11-07.md`](design/qt-decoupling/dual-owner-inventory-2026-11-07.md) |
-| SVC-RETIRE-INDEX | 旧实现退役总单（✅ 2026-11-10：七条执行单全部落定，终态复跑见索引 §3.1；代裁，待主任追认） | 2026-11-10 | —（原文未记） | [原文](#SVC-RETIRE-INDEX)；[`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md)；[`core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md) |
-| SVC-CORE-DATA-RETIRE | core 侧行情/同步数据面退役（ADR-036 G3） | 2026-11-08 | —（原文未记） | [原文](#SVC-CORE-DATA-RETIRE)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| SVC-DUAL-01 | 双 owner 全量清单（✅ 2026-11-07） | 2026-11-07 | —（原文未记） | [原文](#SVC-DUAL-01)；[`design/qt-decoupling/dual-owner-inventory-2026-11-07.md`](../design/qt-decoupling/dual-owner-inventory-2026-11-07.md) |
+| SVC-RETIRE-INDEX | 旧实现退役总单（✅ 2026-11-10：七条执行单全部落定，终态复跑见索引 §3.1；代裁，待主任追认） | 2026-11-10 | —（原文未记） | [原文](#SVC-RETIRE-INDEX)；[`design/qt-decoupling/retire-index-2026-11-07.md`](../design/qt-decoupling/retire-index-2026-11-07.md)；[`core-governance-decision-materials-2026-10-26.md`](../design/qt-decoupling/core-governance-decision-materials-2026-10-26.md) |
+| SVC-CORE-DATA-RETIRE | core 侧行情/同步数据面退役（ADR-036 G3） | 2026-11-08 | —（原文未记） | [原文](#SVC-CORE-DATA-RETIRE)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
 | SVC-CORE-RUN-RETIRE | core 侧回测任务表与落库腿退役（ADR-036 G3） | 2026-11-10 | —（原文未记） | [原文](#SVC-CORE-RUN-RETIRE) |
 | SVC-CORE-STRAT-RETIRE | core `strategies` 表与资产注册腿退役（ADR-036 G3） | 2026-11-09 | —（原文未记） | [原文](#SVC-CORE-STRAT-RETIRE) |
 | SVC-CORE-RISK-RETIRE | core 限额配置真相退役（ADR-036 G3，裁决权收口） | 2026-11-09 | —（原文未记） | [原文](#SVC-CORE-RISK-RETIRE) |
 | SVC-CORE-AN-RETIRE | core 分析产品化实现退役或冻结（ADR-036 G3） | 2026-11-09 | —（原文未记） | [原文](#SVC-CORE-AN-RETIRE) |
-| SVC-CORE-BROKER-RETIRE | core 券商与模拟撮合实现退役（ADR-036 G3 / R4） | 2026-11-10 | —（原文未记） | [原文](#SVC-CORE-BROKER-RETIRE)；[`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md) |
+| SVC-CORE-BROKER-RETIRE | core 券商与模拟撮合实现退役（ADR-036 G3 / R4） | 2026-11-10 | —（原文未记） | [原文](#SVC-CORE-BROKER-RETIRE)；[`design/qt-decoupling/retire-index-2026-11-07.md`](../design/qt-decoupling/retire-index-2026-11-07.md) |
 | SVC-CORE-AI-RETIRE | core AI 实验域遗留七表退役（ADR-036 G3 / 材料 §4.7；串行第 10） | 2026-11-10 | —（原文未记） | [原文](#SVC-CORE-AI-RETIRE) |
 | QT-75 | core 二期切 kit `statistics` / `httpserver` 并升 pin `v0.1.4` | 2026-11-07 | `170f09a`、`ecc4f2d`、`8077c36` | [原文](#QT-75) |
 | QT-76 | 告警 outbox 三条已登记缺口的收口 | 2026-11-07 | —（原文未记） | [原文](#QT-76) |
 | QT-77 | 服务间凭证的来源、签发与分发成文并落部署 | 2026-11-07 | —（原文未记） | [原文](#QT-77) |
 | QT-78 | 归因输入的 artifact 生产者（portfolio-snapshot / factor-exposures） | 2026-11-10 | `203ae0a198dd02f0530aeb70dfc0c036` | [原文](#QT-78) |
 | QT-79 | `cmd/worker` / `cmd/dualrun` 的部署形态与 core `deploy/` 归位（ADR-036 §5.1） | 2026-11-10 | —（原文未记） | [原文](#QT-79) |
-| QT-81 | 表级 writer 对拍工具（G3 停写判据缺的那件工具） | 2026-11-07 | —（原文未记） | [原文](#QT-81)；[`docs/guides/recon.md`](guides/recon.md) |
-| S-1 | 改名（✅ 2026-10-20 完成；旧仓 archive 延后） | 2026-10-20 | —（原文未记） | [原文](#S-1)；[`repo-inventory.md`](design/qt-decoupling/repo-inventory.md) |
+| QT-81 | 表级 writer 对拍工具（G3 停写判据缺的那件工具） | 2026-11-07 | —（原文未记） | [原文](#QT-81)；[`docs/guides/recon.md`](../guides/recon.md) |
+| S-1 | 改名（✅ 2026-10-20 完成；旧仓 archive 延后） | 2026-10-20 | —（原文未记） | [原文](#S-1)；[`repo-inventory.md`](../design/qt-decoupling/repo-inventory.md) |
 | QT-60 | 项目改名到 tellurion（12 仓已建 + module path + 运行时标识） | 2026-10-20 | —（原文未记） | [原文](#QT-60) |
 | QT-06 | core 打 `v0.1.0` + agent 改 require tag（S0） | 2026-10-23 | `42b0758`、`d9041c1`、`ef5985d` | [原文](#QT-06) |
 | QT-18 | 过渡期 core↔agent 连体护栏（S0） | 2026-10-21 | `e8f4847` | [原文](#QT-18) |
@@ -33,8 +33,8 @@
 | QT-03 | 可复现留痕体系（`run_spec_hash` / `dataset_snapshot_hash` / `artifact_hash`） | 2026-10-22 | —（原文未记） | [原文](#QT-03) |
 | QT-04 | 重复信号存量扫描（决定 trap / 合并） | 2026-10-22 | —（原文未记） | [原文](#QT-04) |
 | QT-05 | S1 契约层与工具层落地（代码直接写进两个新仓） | 2026-10-25 | `3e765ed` | [原文](#QT-05) |
-| QT-10 | 策略执行错误分级（fail-closed 落地） | 2026-10-24 | `7c8f4a1` | [原文](#QT-10)；[`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) |
-| QT-11 | 策略 per-run 实例（注册工厂 + `NewInstance`） | 2026-10-23 | —（原文未记） | [原文](#QT-11)；[`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) |
+| QT-10 | 策略执行错误分级（fail-closed 落地） | 2026-10-24 | `7c8f4a1` | [原文](#QT-10)；[`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) |
+| QT-11 | 策略 per-run 实例（注册工厂 + `NewInstance`） | 2026-10-23 | —（原文未记） | [原文](#QT-11)；[`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) |
 | QT-12 | run 级缓存下沉 + 资源准入（A7/A10/N8 一笔账） | 2026-10-23 | —（原文未记） | [原文](#QT-12) |
 | QT-13 | 复权锚点按 run 区间切片（digest 不许覆盖合并缓存） | 2026-10-23 | —（原文未记） | [原文](#QT-13) |
 | QT-64 | 引擎接入 `marketdata.Router`（D6 日内预热的取数通道今天没接线） | 2026-10-24 | —（原文未记） | [原文](#QT-64) |
@@ -43,14 +43,14 @@
 | QT-15 | 不可终止执行 + 重放语义（`state_only`） | 2026-10-23 | `8f21e83`、`943f65f` | [原文](#QT-15) |
 | QT-20 | 参数投递两层（`params_defaults` ⊕ `strategy_params`） | 2026-10-24 | `943f65f` | [原文](#QT-20)；[`pkg/backtest/provenance.go`](../pkg/backtest/provenance.go)；[`pkg/backtest/engine.go`](../pkg/backtest/engine.go) |
 | QT-21 | 信号顺序规范化 + 重复语义落地 | 2026-10-24 | —（原文未记） | [原文](#QT-21)；[`pkg/backtest/engine.go`](../pkg/backtest/engine.go)；[`pkg/backtest/fill_diag.go`](../pkg/backtest/fill_diag.go) |
-| QT-22 | `version_hash` canonical 冻结 + 向量测试 | 2026-10-24 | `70d9040` | [原文](#QT-22)；[`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) |
+| QT-22 | `version_hash` canonical 冻结 + 向量测试 | 2026-10-24 | `70d9040` | [原文](#QT-22)；[`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) |
 | QT-23 | `RunUniverse`（run 级稳定票池） | 2026-10-24 | `b4f4f27` | [原文](#QT-23)；[`pkg/strategy/signal_provider.go`](../pkg/strategy/signal_provider.go)；[`pkg/backtest/engine.go`](../pkg/backtest/engine.go) |
 | QT-24 | host 数据模型 v2 落地（Bars / Axis / T）+ `finalize` 归属 | 2026-10-24 | `50c368b` | [原文](#QT-24)；[`pkg/sandbox/wasm/host_api.go`](../pkg/sandbox/wasm/host_api.go)；[`pkg/sandbox/wasm/on_bar_session.go`](../pkg/sandbox/wasm/on_bar_session.go) |
 | QT-25 | `symbol` scope 分片与预算 | 2026-10-25 | `a1ae7420a093460090e797a6832d4bdc`、`381e9bf79709f902c41f2374f090e03c` | [原文](#QT-25)；[`pkg/sandbox/wasm/shard.go`](../pkg/sandbox/wasm/shard.go)；[`pkg/sandbox/wasm/session_factory.go`](../pkg/sandbox/wasm/session_factory.go) |
 | QT-26 | WASM `SignalProvider` 接线 + `EmittedSignal` 转换 | 2026-10-25 | —（原文未记） | [原文](#QT-26)；[`pkg/backtest/wasm_signal_provider.go`](../pkg/backtest/wasm_signal_provider.go)；[`pkg/backtest/engine.go`](../pkg/backtest/engine.go) |
 | QT-30 | M0：市场级状态机 PoC（Go vs WASM 逐位一致） | 2026-10-25 | `ba92567a362a5b5130427e505c991c1c` | [原文](#QT-30)；[`pkg/backtest/qt30_state_machine_test.go`](../pkg/backtest/qt30_state_machine_test.go) |
 | QT-31 | M0b：symbol scope 状态机 PoC（分片 + 分层加仓） | 2026-10-25 | —（原文未记） | [原文](#QT-31)；[`pkg/backtest/qt31_symbol_scope_test.go`](../pkg/backtest/qt31_symbol_scope_test.go) |
-| QT-32 | W4：AI 策略生成闭环（promote 人工闸门 + 全链留痕） | 2026-11-10 | `92573b5` | [原文](#QT-32)；[第二批分组方案 H8 与 §5 ⑫](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)；[`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md) |
+| QT-32 | W4：AI 策略生成闭环（promote 人工闸门 + 全链留痕） | 2026-11-10 | `92573b5` | [原文](#QT-32)；[第二批分组方案 H8 与 §5 ⑫](../design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)；[`cross-repo-dispatch-plan-wave3-2026-10-26.md`](../design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md) |
 | S2 | S2~S3 · 拆仓（W0 与 QT-05 全绿之后） | 未标注 | —（原文未记） | [原文](#S2) |
 | QT-17 | agent 数据自持（D10：`ai.*` schema 建表与迁移） | 2026-10-25 | `2a4b076` | [原文](#QT-17) |
 | QT-07 | 两仓打 tag 并把伪版本切成版本依赖（S2 → S3） | 2026-10-25 | `e742e35`、`5efe06b`、`b926c72` | [原文](#QT-07) |
@@ -59,7 +59,7 @@
 | G13 | 协调/发版收口（推送 → 升 pin → 三仓 conformance → QT-19 核对） | 2026-10-24 | `c514565`、`8018eaf`、`ea97d0a` | [原文](#G13) |
 | QT-40 | QT-40~45、QT-41b · X 线六服务 + 编译服务（正文已迁各服务仓，本仓留指针）[P1-P2] | 2026-10-25 | `524ece40fa6ad681`、`4c1de8722b516339`、`a53fe95` | [原文](#QT-40)；[cmd/data/ingest_write.go](cmd/data/ingest_write.go)；[cmd/analysis/wiring/risk_events.go](../cmd/analysis/wiring/risk_events.go) |
 | QT-50 | 装配外移（`pkg/kernel` 只留框架）+ agent ↔ core HTTP 粗粒度 | 2026-10-24 | —（原文未记） | [原文](#QT-50)；[handlers_proxy.go](handlers_proxy.go) |
-| QT-51 | 回测/实盘执行语义分离（BE-02） | 2026-11-07 | `a2e388a`、`e015a83`、`7c89aae` | [原文](#QT-51)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md)；[`cross-repo-dispatch-plan-wave2-2026-10-25.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) |
+| QT-51 | 回测/实盘执行语义分离（BE-02） | 2026-11-07 | `a2e388a`、`e015a83`、`7c89aae` | [原文](#QT-51)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md)；[`cross-repo-dispatch-plan-wave2-2026-10-25.md`](../design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) |
 | QT-52 | 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价） | 2026-10-22 | —（原文未记） | [原文](#QT-52) |
 | QT-61 | CI 基线归零（改名后暴露的 4 项预存在失败） | 2026-10-21 | `01a71e1`、`7f711e5`、`1075c28` | [原文](#QT-61) |
 | QT-62 | 宿主区声明无法核对模块自身数据段（QT-01 残余缺口） | 2026-10-22 | —（原文未记） | [原文](#QT-62) |
@@ -70,16 +70,16 @@
 | QT-68 | S3 交接件：`POST /api/walkforward` 补 `strategy_params` | 2026-10-24 | —（原文未记） | [原文](#QT-68)；[`pkg/backtest/walkforward/walkforward.go`](../pkg/backtest/walkforward/walkforward.go)；[`cmd/analysis/handlers_walkforward.go`](../cmd/analysis/handlers_walkforward.go) |
 | QT-69 | 表达式静态校验 / 目录端点（S3-c-4 交接件） | 2026-10-24 | —（原文未记） | [原文](#QT-69)；[`cmd/analysis/handlers_expression.go`](../cmd/analysis/handlers_expression.go)；[`pkg/expression/registry.go`](../pkg/expression/registry.go) |
 | QT-70 | `POST /api/risk/detect_regime` 粗粒度形状（symbol + 日期区间） | 2026-10-24 | —（原文未记） | [原文](#QT-70)；[`cmd/analysis/handlers_risk.go`](../cmd/analysis/handlers_risk.go)；[`cmd/analysis/main.go`](../cmd/analysis/main.go) |
-| QT-71 | 服务间凭证：`service` 角色 + 长期 token（裁-17 定稿） | 2026-10-25 | `7280ce6`、`fab6188`、`356dda4` | [原文](#QT-71)；[route_policy.go](../cmd/analysis/route_policy.go)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
-| QT-72 | X0 三 hash 对外读面落 core（裁-19 定稿） | 2026-10-25 | —（原文未记） | [原文](#QT-72)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md)；[`pkg/storage/backtest_jobs.go`](../pkg/storage/backtest_jobs.go) |
+| QT-71 | 服务间凭证：`service` 角色 + 长期 token（裁-17 定稿） | 2026-10-25 | `7280ce6`、`fab6188`、`356dda4` | [原文](#QT-71)；[route_policy.go](../cmd/analysis/route_policy.go)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| QT-72 | X0 三 hash 对外读面落 core（裁-19 定稿） | 2026-10-25 | —（原文未记） | [原文](#QT-72)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md)；[`pkg/storage/backtest_jobs.go`](../pkg/storage/backtest_jobs.go) |
 | QT-73 | core 横切包切 kit（一期：零语义五包，裁-18 定稿） | 2026-10-25 | —（原文未记） | [原文](#QT-73) |
-| DBT-13 | `parseEastmoneyDate` 解析失败静默回落「今天」 | 2026-10-21 | —（原文未记） | [原文](#DBT-13)；[`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DBT-13 | `parseEastmoneyDate` 解析失败静默回落「今天」 | 2026-10-21 | —（原文未记） | [原文](#DBT-13)；[`docs/design/dbt-14-18-decision-materials.md`](../design/dbt-14-18-decision-materials.md)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
 | DBT-14 | EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 | 2026-10-25 | —（原文未记） | [原文](#DBT-14) |
-| DBT-15 | `ingest.raw` 里历史探针假归档的处置 | 2026-10-25 | `e23ddec` | [原文](#DBT-15)；[`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
-| DBT-16 | EquityDeep snapshot 的**生产者**（`fundamentals_detail` 唯一可行灌数路径） | 2026-10-25 | `7b5dd8e` | [原文](#DBT-16)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
-| DBT-17 | `capital_flow` / `top_list` 零读方——接上还是明确为数据储备 | 2026-10-25 | `1a1bb38` | [原文](#DBT-17)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
-| DBT-18 | mining 的真实 Proposer（LLM/MCTS 候选生成） | 2026-10-25 | —（原文未记） | [原文](#DBT-18)；[`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
-| DATA-14 | 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）✅（2026-10-24） | 2026-10-24 | `170f09a` | [原文](#DATA-14)；[T](key, items)；[`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DBT-15 | `ingest.raw` 里历史探针假归档的处置 | 2026-10-25 | `e23ddec` | [原文](#DBT-15)；[`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DBT-16 | EquityDeep snapshot 的**生产者**（`fundamentals_detail` 唯一可行灌数路径） | 2026-10-25 | `7b5dd8e` | [原文](#DBT-16)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DBT-17 | `capital_flow` / `top_list` 零读方——接上还是明确为数据储备 | 2026-10-25 | `1a1bb38` | [原文](#DBT-17)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DBT-18 | mining 的真实 Proposer（LLM/MCTS 候选生成） | 2026-10-25 | —（原文未记） | [原文](#DBT-18)；[`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
+| DATA-14 | 空列表编码成 `null` 而不是 `[]`（🟠 契约说谎，任何客户端都会踩）✅（2026-10-24） | 2026-10-24 | `170f09a` | [原文](#DATA-14)；[T](key, items)；[`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) |
 | SPEC-R-01 | 3 处模块内自建表是否收编进 `migrate()`（DDL 真相口径收口） | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-01) |
 | SPEC-R-02 | 五张无主表的 owner 认领（L7 收尾） | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-02) |
 | SPEC-R-03 | 现役 DATA-04 与归档旧 DATA-04 同号歧义——换号处置 | 2026-10-21 | —（原文未记） | [原文](#SPEC-R-03) |
@@ -99,6 +99,7 @@
 | CORE-FEE-ROUNDING-ASSERT | 费用分项逐位断言 + 对抗夹具自检（未取整）；破坏=注入截断 ⇒ 红 | 2026-11-12 | 见原文 | [原文](#CORE-FEE-ROUNDING-ASSERT) |
 | CORE-RUNNER-FLAKE-RESIDUAL | 先证伪：20+50+负载 20 次全绿 ⇒ 未复现，不改代码，留重开条件 | 2026-11-12 | 见原文 | [原文](#CORE-RUNNER-FLAKE-RESIDUAL) |
 | CORE-DEPLOY-DRIFT-PARAM | `${DATABASE_NAME:-tellurion}` 漂移：实测 10 处同值；检查器补 `${VAR:-default}` 展开 + 5f 全局同值断言 | 2026-11-12 | 见原文 | [原文](#CORE-DEPLOY-DRIFT-PARAM) |
+| CORE-CI-ARCHIVE-LINKS-FIX | 归档层 60 条相对链接缺层级 + 2 处失效配置引用；只修链接/加注记，不动历史判断 | 2026-11-12 | 见原文 | [原文](#CORE-CI-ARCHIVE-LINKS-FIX) |
 
 ---
 
@@ -107,11 +108,11 @@
 # TASKS — 未完成项（第 4 代）
 
 > **只放未完成项**，完成即标 ✅（附日期）并移入 `archive/`。
-> 历史代：[第 1 代 35 项](archive/TASKS-2026-10-14-archived.md)、[第 2 代 27 项](archive/TASKS-2026-10-16-gen2-archived.md)、[第 3 代 6 项](archive/TASKS-2026-10-20-archived.md)（DBT 系列前提核验与证伪台账在归档内，**写 DBT 单前先读那里**）。
+> 历史代：[第 1 代 35 项](TASKS-2026-10-14-archived.md)、[第 2 代 27 项](TASKS-2026-10-16-gen2-archived.md)、[第 3 代 6 项](TASKS-2026-10-20-archived.md)（DBT 系列前提核验与证伪台账在归档内，**写 DBT 单前先读那里**）。
 > 状态：`⬜ 待做` / `🔶 进行中` / `⛔ 阻塞（有未解除前置）` / `✅ 完成（附日期）`
 >
 > **台账终扫（2026-11-10）**：任务标题带 `⬜` / `🔶` / `⛔` 的 = **0 条**（`grep -E '^#{2,3} .*(⬜|🔶|⛔)'` 为空）；正文施工记录里的旧标记是当时状态，以标题与本单最新「收口 / 终结」块为准。**本仓无开放项**。挂起 / 外部依赖：① X6c 真钱通道（`tellurion-broker` `⏸`，重开条件见 broker `docs/adr/0003`）；② `public.data_migrations` 过渡保留（退出条件见 `SVC-CORE-DATA-RETIRE`）；③ 生产库 X1d 物理搬迁与 `visible_at` 回填属运维动作（data 仓已在本机实例重放通过，生产未动）。
-> 每张 task 六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../AGENTS.md)。
+> 每张 task 六字段（目标/上下文/要求/约束与非目标/验收/边界），判据见 [AGENTS.md §8.5](../../AGENTS.md)。
 
 > **第四轮·目的对齐审计（2026-10-26）**：审的是「做出来的部分有没有偏离原始目的」，不是进度。结论：**底座主线（契约冻结 W0 / 执行正确性 W1-W2 / agent 去 replace S3 / contracts+kit）没有跑歪**；**X 线服务拆分支线跑偏**——六仓已实装（合计 51k Go LOC）、core 一件没减（202k LOC 仍在原地）、今天只有 data 一条读链真被 core 消费、部署路径曾断（`Dockerfile.service` 曾 build 已删除的 `cmd/strategy`；**2026-10-26 已删该 build/COPY 行，见下**）、risk/analytics 有 k8s 清单但没有升格 ADR。另有 4 簇 DDL 双 owner（market / run / strategy / ai）+ risk 裁决权双真相。**审计只列证据，不代裁**；候选单见该文 §六，**未立单不得开工**。正文：`docs/design/qt-decoupling/purpose-alignment-audit-2026-10-26.md`。本文件不镜像正文。
 >
@@ -131,7 +132,7 @@
 >
 > **⚠️ 上面那句「不再各自立单」已于同日晚些时候被本批推翻（2026-10-26）**：六个服务仓的 `SVC-*-G3` 单在 ⑥ 边界里逐条指向 `SVC-CORE-<X>-RETIRE`，而条目不存在 = 七条死引用；且 `SVC-RETIRE-INDEX` 自己 ④ 写明「不执行删除」，索引无法被完成；ADR-036 §5.2 又要求「删除/迁移旧实现的任务必须显式立单」。⇒ 六条执行单已落在下方「**六之二、退役执行单与四项跨仓缺口**」（判据逐字抄材料 §4，不重新发明），第七条 `SVC-CORE-AI-RETIRE` 已于 **2026-11-10 迁入本节（串行第 10，代裁·待主任追认）** 并按该单完成。冲突的取证与三条理由逐条写在那一节开头。
 >
-> **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；代码注释漂移两处均已于 2026-10-26 订正（agent `Dockerfile` 随 `cc51e84`；`bulk_insert_ddl_test.go` 随 `SVC-DEPLOY-01` 收尾笔）。**
+> **B 组决策材料（2026-10-26，0 代码，未开工）**：上述五单所需的裁决材料已出，正文见 [`design/qt-decoupling/core-governance-decision-materials-2026-10-26.md`](../design/qt-decoupling/core-governance-decision-materials-2026-10-26.md)（**本文件不镜像正文**）。内容：部署面 owner 两选一 + 目标二进制清单 + 四道验收命令实测退出码；55 张表全量归属清单（32 行双 owner / 23 行 core 自有，逐行带 `repo:path:line`）；索引退役判据（`pg_indexes` 前后快照 + 是否允许 `DROP INDEX` 的未裁项）；七条退役线的机械判据（grep 模式 + 今日基线 + 归零目标 + 反向护栏）；组内顺序与跨仓待核清单。**已如实标注：未改 `pkg/storage/postgres.go`、未删任何表/索引、未改 `Dockerfile.service` 与 compose、未改 contracts/kit pin、未改任何服务仓、未建对拍工具；代码注释漂移两处均已于 2026-10-26 订正（agent `Dockerfile` 随 `cc51e84`；`bulk_insert_ddl_test.go` 随 `SVC-DEPLOY-01` 收尾笔）。**
 >
 > **门禁基线（2026-10-26 本轮真实输出）**：`go build ./...` exit 0；`go vet ./...` exit 0；`go test ./... -count=1` exit 0（ok=70 / FAIL=0 / 无测试包=3）；`docker compose -f docker-compose.yml config -q` exit 0；`docker compose -f docker-compose.services.yml config -q` exit 0；两份合并 `config -q` 也 exit 0，**但合并后 8081 被 `data`（服务仓）与 `data-service`（core 进程）同时发布**；`python tools/check_deploy_consistency.py` **exit 0**（裁决 #10 已修 `BindEnv` 别名解析；破坏验证：删 `pkg/bootstrap/config.go:25` 的 `JWT_SECRET` / `AUTH_JWT_SECRET` 别名 ⇒ 两条假阳性复现、exit 1，逐字节还原后 exit 0）。
 >
@@ -145,7 +146,7 @@
 
 **本代的特殊性**：这不是一份「新功能清单」，是**先把契约冻死、再改实现**的施工顺序；同时按 ADR-D29 **把契约从本仓拆成独立仓**（S0 可立即做，S1 排在 W0 后，S2/S3 逐级验收）。wave-0 五行**不改任何行为**（只写契约/常量/差异报告），目的是让后面 25 张单不必返工。**跳序施工 = 第二次 ABI 破坏 + 基准全量重跑**。
 
-> **命名基线（ADR-D30）**：项目定名 **tellurion**，owner 保持 `ruoxizhnya`；**应用/服务用单段短名、库用全名**。本台账「② 上下文」里的 `quant-trading*` 是**改名前的现状描述**（不改）；「③ 要求」里的名字是**目标态**（QT-60 完成后生效）。仓名与 module path 的唯一真相源是 [`repo-inventory.md`](design/qt-decoupling/repo-inventory.md)。
+> **命名基线（ADR-D30）**：项目定名 **tellurion**，owner 保持 `ruoxizhnya`；**应用/服务用单段短名、库用全名**。本台账「② 上下文」里的 `quant-trading*` 是**改名前的现状描述**（不改）；「③ 要求」里的名字是**目标态**（QT-60 完成后生效）。仓名与 module path 的唯一真相源是 [`repo-inventory.md`](../design/qt-decoupling/repo-inventory.md)。
 
 ---
 
@@ -165,7 +166,7 @@
 - **⑤ 验收**：清单入 `docs/design/qt-decoupling/`；四簇每簇至少 1 行；随机抽 3 行路径可命中；每行五列齐全；与 `core-governance-decision-materials-2026-10-26.md` §2 的 55 行不矛盾。
 - **⑥ 边界**：不覆盖动态拼表名（材料 §2.4 已登记）；不改生产库；不替代各仓 G3 的停写验收。
 - **施工记录（2026-11-07）**：
-  - **产物**：新建 [`design/qt-decoupling/dual-owner-inventory-2026-11-07.md`](design/qt-decoupling/dual-owner-inventory-2026-11-07.md)（R1 frontmatter 齐全），五列定义 + 四簇逐行 + market roster + 已知边界 + 自检表，共 133 行。
+  - **产物**：新建 [`design/qt-decoupling/dual-owner-inventory-2026-11-07.md`](../design/qt-decoupling/dual-owner-inventory-2026-11-07.md)（R1 frontmatter 齐全），五列定义 + 四簇逐行 + market roster + 已知边界 + 自检表，共 133 行。
   - **行数算术（⑤）**：market 22（只留 roster，不重开）+ run 2 + strategy 1 + ai 7 + core-only 23 = **55**，与材料 §2.2 底数一致；`backtest_adjustment_anchors` 在材料 §2.3.2 / §2.3.6 出现两次但同表，只计一次（清单 §2 尾注已写明）。
   - **五列齐全（③）**：run / strategy / ai 三簇逐表五列；risk 簇按 ③ 要求**单列「裁决权」**（4 项：限额/阈值真相、裁决实现、告警投递、审计表），并明确 `risk.audit_logs` ≠ `public.audit_logs`（`tellurion-risk:docs/db-schema.md:23`）⇒ 不计双 owner；core-only 23 行按「owner / 当前写者 / 读方 / 备注」给全，对拍与停写条件整节统一写「不适用（core 自有）」（无对手方即无双 owner，理由在 §6 开头）。
   - **抽样 3 行命中（⑤）**：`tellurion:pkg/storage/backtest_jobs.go:14` = `INSERT INTO backtest_jobs (…)`、`tellurion-agent:cmd/ai/experiment_stopwrite_integration_test.go:28` = `func TestStopWrite_LegacyExperimentsFrozen(…)`、`tellurion:pkg/storage/research.go:101` = `FROM research.profile WHERE ticker = $1`——三条 Read 实核，**3/3 命中**。
@@ -182,7 +183,7 @@
 - **⑤ 验收**：七条全有 owner + 删除对象 + 判据 + 回滚；随机抽 2 条判据命令，退出码与材料 §4 基线一致；各仓 G3 单能反查本单。
 - **⑥ 边界**：不覆盖动态拼表名；不替代各仓 G3 的代码删除验收；不处理 `task/g3-data` 遗留。
 - **施工记录（2026-11-07）**：
-  - **产物**：新建 [`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md)（R1 frontmatter 齐全）——七行总表（owner / 删除对象 / 停写判据 / 回滚）+ 单号↔各仓 G3 双向指针 + 判据复跑 + 边界。
+  - **产物**：新建 [`design/qt-decoupling/retire-index-2026-11-07.md`](../design/qt-decoupling/retire-index-2026-11-07.md)（R1 frontmatter 齐全）——七行总表（owner / 删除对象 / 停写判据 / 回滚）+ 单号↔各仓 G3 双向指针 + 判据复跑 + 边界。
   - **判据来源**：逐字取材料 §4.1~§4.7，**未重新发明**；基线按材料 §7.4 要求**当场重跑取当前值**，差额逐条写进该文件 §3。
   - **复跑（真退出码）**：抽 2 条——data ① 写点 grep = **22 行，EXIT 0**；broker ① `tellurion/pkg/live` = **18 行 / 16 文件，EXIT 0**。其余五条同日复跑：data ②7/③1/④29 行 24 文件、run ①7②7③`*storage.PostgresStore` 30、strategy ①2②5③15、risk ①10②14③`config/analysis-service.yaml:122=false`、an 3、broker ②5、ai ①6②3③7。
   - **差额（如实，不硬凑）**：data ① 23→22（活写点少 1，未逐行核对）；strategy ③ 19→15（少 4，未逐行核对）；risk ① 11→10（`alert.enabled` 走 `GetBool`，不在原模式内）；broker ① 20 行 18 文件→18 行 16 文件（QT-51 已摘 `pkg/backtest` 的两处 `pkg/live` import，与 QT-51 记录一致）。零差额：data ②③④、run ①②、strategy ①②、risk ②、an、broker ②、ai ①②③。
@@ -208,7 +209,7 @@
 > ID 一个都不新造。若主任坚持不立单，正确动作是反过来把六仓 G3 的 ⑥ 指针删掉——那会让退役再次无主。
 >
 > **⑤ 验收的四列（grep 模式 / 今天基线 / 归零目标 / 反向护栏）逐字抄自**
-> [`core-governance-decision-materials-2026-10-26.md`](design/qt-decoupling/core-governance-decision-materials-2026-10-26.md) §4.1~§4.7
+> [`core-governance-decision-materials-2026-10-26.md`](../design/qt-decoupling/core-governance-decision-materials-2026-10-26.md) §4.1~§4.7
 > （材料 §7.4：「不要重新发明判据」）。基线数是 **2026-10-26 实测**，会随施工漂移 ⇒ 开工时**当场重跑取当前值**，
 > 归零断言只对当前值成立。
 >
@@ -234,7 +235,7 @@
 - **① 目标**：core 不再持有 `market` / `ingest` 域的 DDL、写点与 ETL 实现——数据面唯一 owner 变成本仓之外的那个仓（`tellurion-data`），本仓只经 HTTP 读。
 - **② 上下文**：判据正文 = 材料 §4.1；ADR-036 §6 退役表第 1 行；删除对象四类：core 版 22 张 market/ingest 表 DDL 与索引、`pkg/data` 的 connector/ETL/因子实现、`cmd/data` 的同步/调度腿、`pkg/storage/{bulk_insert,ohlcv,stocks,calendar,sector,cache,ingest_raw,sync_jobs,index_daily,market_activity}.go`。反向护栏今天不存在（需新建）。
 - **③ 要求**：① 按材料 §4.1「删除对象」四类删除，表名清单逐条对照（见 ⑤ ①）；② **同批**改 `pkg/storage/bulk_insert_ddl_test.go` 的 `codeReferenced`（`sync_jobs` / `sync_schedules` / `factor_genes` / `strategy_genes` / `market.index_daily`），否则 DDL 删了测试先红；③ `cmd/data` 删空后**同批**删 `Dockerfile.service:24` 的 `./cmd/data` build 腿与对应 `COPY`（材料 §1.5 明写「若改二进制清单必须同批改 `:24-25` 与 `:36-37`」）；④ `postgres.go:544` / `:582` 两条 Migration 052/054 的一次性换算随表一并删；⑤ 新建 `internal/repoguard/storage_market_tables_retired_test.go`（静态读 `postgres.go`，零 `CREATE TABLE` 断言 + `pkg/data` 目录不存在断言）。
-- **④ 例外（本单对本组的唯一偏离，需主任确认）**：材料 §4.1 的 22 名里含 `market.index_daily`，而**第三轮裁决 ⑰ 已定 `market.index_daily` owner = core**（正文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) §五 ⑰；写路径实测 `pkg/storage/index_daily.go:31`）。两者不可同时成立 ⇒ **本单按 21 名执行，`market.index_daily` 除外**，其 `CREATE TABLE` / 写点保留；若主任改判「随簇退役」，需同批订正 ⑰ 与本条，不许在施工中口头改。
+- **④ 例外（本单对本组的唯一偏离，需主任确认）**：材料 §4.1 的 22 名里含 `market.index_daily`，而**第三轮裁决 ⑰ 已定 `market.index_daily` owner = core**（正文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) §五 ⑰；写路径实测 `pkg/storage/index_daily.go:31`）。两者不可同时成立 ⇒ **本单按 21 名执行，`market.index_daily` 除外**，其 `CREATE TABLE` / 写点保留；若主任改判「随簇退役」，需同批订正 ⑰ 与本条，不许在施工中口头改。
 - **⑤ 验收**（四条 grep 全部归零，注释过滤后）：
   | # | grep 模式 | 2026-10-26 基线 | 归零目标 |
   |---|---|---|---|
@@ -427,7 +428,7 @@
     - **门禁（真实退出码）**：`gofmt -l .` 空；`go build ./...` = 0；`go vet ./...` = 0；`go test ./... -count=1` = 0。
   - **步骤 D 施工记录（2026-11-10，跨仓，独立 commit）**：
     - **`tellurion-broker:docs/TASKS.md`**：`SVC-BROKER-G3` 🔶 → **✅**，并写「⑤ 满足声明」逐条对应（① core 侧旧通道适配零调用 —— 实现已删、护栏设禁；② 同批回放订单/成交事实一致；③ `R4` 关闭；④ `X6c` 仍如实标 ⛔）；步骤 1 的指针 `cmd/analysis/wiring/broker_http_port.go` → `pkg/brokerhttp/port.go`；步骤 3 由「默认仍走旧实现、可回滚」改为「默认 broker HTTP、无回退」；步骤 4 由 ⬜ 改 ✅ 并注明 core 两次 commit。`AGENTS.md` 的「core 侧调用未接 / 迁出前的老实现待切读后退役」改为「已接 / 已于 2026-11-10 退役删除」。
-    - **`SVC-RETIRE-INDEX`**：[`design/qt-decoupling/retire-index-2026-11-07.md`](design/qt-decoupling/retire-index-2026-11-07.md) 第 6 行标 ✅（① 18→0、② 5→3、③ 保持 0）、§2 的 broker 指针改 ✅、新增 §3.1「broker 线归零复跑」；本单记录 1/7 归零，仍 🔶。
+    - **`SVC-RETIRE-INDEX`**：[`design/qt-decoupling/retire-index-2026-11-07.md`](../design/qt-decoupling/retire-index-2026-11-07.md) 第 6 行标 ✅（① 18→0、② 5→3、③ 保持 0）、§2 的 broker 指针改 ✅、新增 §3.1「broker 线归零复跑」；本单记录 1/7 归零，仍 🔶。
     - **`ARCHITECTURE.md` / `AGENTS.md`**：架构段改为「通道切换完成 + 无回退」（步骤 B 已落）；目录树 `live/` → `trading/` 并补 `brokerhttp/`；依赖表 / ODR-021 注记 / 技术债 / AUD-34 已知问题同步（步骤 B 已落，本节复核无残留）。
     - **破坏验证**：步骤 C 的实证即 ⑤ 反向护栏的当场证明（临时 `import "tellurion/pkg/live"` + 重建目录 ⇒ FAIL 退出码 1；删除还原 ⇒ 绿，sha256 未变）。
     - **门禁（真实退出码）**：core `gofmt -l .` 空、`go build ./...` = 0、`go vet ./...` = 0、`go test ./... -count=1` = 0；broker 仓本轮仅 docs / AGENTS，`go build ./...` = 0。
@@ -627,7 +628,7 @@
 - **⑤ 验收**：① 夹具驱动的真跑：构造两个临时 schema（A 写 100 行、B 写 100 行同内容）⇒ 报「相等」；B 删 3 行 ⇒ 报 `缺行 3`；B 改 1 行某列 ⇒ 报 `同键异值 1`；B 整表不存在 ⇒ 报「表不存在」而**不是**「0 行相等」（这条是本工具唯一重要的反证，破坏验证：把它折成 0 行 ⇒ 用例红）；② 只读自证用例绿；③ 材料 §2.6 ② 那张表的六个仓各有一条样例命令能跑出结果（跑不到的如实记「该簇今天无两侧可比的表」，不许造假输出）；④ `docs/guides/` 或 `docs/SPEC.md` 有它的一节 + 工具清单同批更新（Rule 1 触发表）；⑤ `go build ./... && go vet ./... && go test ./... -count=1` 三条真实退出码 0（若落 Python 则 `python tools/…` 的退出码 + 上述夹具用例的 unittest 输出）。
 - **⑥ 边界**：只做工具与调用样例；「谁该停写」归 `SVC-DUAL-01`，「停写后删代码」归六条 `SVC-CORE-*-RETIRE`，各仓自己的 writer 唯一性归 `SVC-*-G2`。
 - **施工记录（2026-11-07）**：
-  - **落点定死为 Go `cmd/recon` + `internal/recon`**（③ ④ 要求二选一）：`jackc/pgx/v5` 本仓已 `require`，流式读、`context` 超时、PG 错误码（`42P01`/`42501`）可直接用；`tools/` 的 Python 同族全是**静态文本**检查（`check_*.py` 无 DB 连接），零依赖下拿不到 PG 驱动，走 `psql` 子进程在 Windows 上脆弱。理由写进 [`docs/guides/recon.md`](guides/recon.md) §2。
+  - **落点定死为 Go `cmd/recon` + `internal/recon`**（③ ④ 要求二选一）：`jackc/pgx/v5` 本仓已 `require`，流式读、`context` 超时、PG 错误码（`42P01`/`42501`）可直接用；`tools/` 的 Python 同族全是**静态文本**检查（`check_*.py` 无 DB 连接），零依赖下拿不到 PG 驱动，走 `psql` 子进程在 Windows 上脆弱。理由写进 [`docs/guides/recon.md`](../guides/recon.md) §2。
   - **形状**（①）：`Pair` 两侧可不同名；逐表输出 `左/右行数`、`主键集合摘要`（`n=…;first=…;last=…`，仅展示，不参与判定）、`列校验和`（每列 `md5(string_agg(md5(coalesce(col::text,'__NULL__')),'' ORDER BY pk))`）、三分类差异 `缺行 / 多行 / 同键异值`；另有 `ColumnDiffs` 与 `Notes`（列集不同 / 主键不同）。行摘要用 `md5(row_to_json(t)::text)` 按主键归集。
   - **可判别状态**（②）：`equal` / `diff` / `table_missing` / `permission_denied` / `timeout` / `error` 六态。`Snapshot.Exists=false` 与 SQLSTATE `42P01` 都进 `table_missing`；`42501` → `permission_denied`；`context.DeadlineExceeded` → `timeout`；**无主键 → `ErrNoPrimaryKey` fail-loud**（不退回「只比行数」）。退出码：0 全等 / 1 有差异 / 2 用法或连接错误。
   - **只读**（③）：所有语句由 `rowDigestQuery` / `columnChecksumQuery` 生成并**逐条**过 `assertReadOnlySQL`（含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE/GRANT/REVOKE/COPY/VACUUM/REINDEX/MERGE` 或非 `SELECT` 即拒）；表名/列名一律 `quoteIdent` 双写引号。自证用例：`TestAssertReadOnlySQL_RejectsWrites`（10 条写语句全拒 + `SELECT 1` 放行 + `SHOW` 拒）、`TestReadOnly_GeneratedStatements`（表名 `update_log`、列名 `deleted_at` 不误伤）。
@@ -700,7 +701,7 @@
 <a id="S-1"></a>
 ## S-1 · 改名（✅ 2026-10-20 完成；旧仓 archive 延后）
 
-> 依据 **ADR-D30** 与 [`repo-inventory.md`](design/qt-decoupling/repo-inventory.md)。**只改名，不改业务逻辑。**
+> 依据 **ADR-D30** 与 [`repo-inventory.md`](../design/qt-decoupling/repo-inventory.md)。**只改名，不改业务逻辑。**
 > 用户口径：新建一套仓、把东西搬过去，不在旧仓大改；旧仓 archive 保留。
 
 <a id="QT-60"></a>
@@ -1034,7 +1035,7 @@
 - **⑤ 验收**：构造"每 50 天 trap 一次"的 wasm → run `failed` 且 `Failures`（诊断明细）点名日期/原因；构造缺一天数据的 provider → `invalid` 且 `invalid_reasons` 含 `data_gap_skipped`；护栏测试：把错误改回"只 log"→ 红。
 - **⑥ 边界**：只做错误分级；`EndRun` 的创建/销毁是 QT-14。
 
-> **落点已核（2026-10-23）**：三类哨兵 + `data_gap_skipped` 落 `tellurion-contracts:engine`（`execution_errors.go` 新建 + `validity.go` 追加稳定 Code）；分类包装与状态映射留 core（`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go`、`pkg/backtest/engine.go`、`engine_daily.go`）。与 QT-14 的接口边界见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.1。
+> **落点已核（2026-10-23）**：三类哨兵 + `data_gap_skipped` 落 `tellurion-contracts:engine`（`execution_errors.go` 新建 + `validity.go` 追加稳定 Code）；分类包装与状态映射留 core（`pkg/strategy/signal_provider.go`、`pkg/sandbox/wasm/on_bar_session.go`、`pkg/backtest/engine.go`、`engine_daily.go`）。与 QT-14 的接口边界见 [`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) §2.1。
 
 <a id="QT-11"></a>
 ### QT-11 · 策略 per-run 实例（注册工厂 + `NewInstance`）[P0] ✅
@@ -1046,7 +1047,7 @@
 - **⑤ 验收**：同一策略顺序跑两次逐位一致；并发两笔不串；执行路径 grep `.Get(` 零命中；14 个插件全部 `NewInstance` 成功。
 - **⑥ 边界**：只做实例生命周期；状态落库是 QT-16。
 
-> **落点已核（2026-10-23）**：`RegisterFactory` / `NewInstance` 落 core `pkg/strategy`（`registry.go` + 14 个插件 + `signal_provider.go`），**不进 contracts**——`contracts/engine/registry.go` 是内核路由注册表，不可混作本单证据。③ 的 WASM 腿今天仓内无实现（接线是 QT-26），已转记为 QT-26 的验收腿。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.2。
+> **落点已核（2026-10-23）**：`RegisterFactory` / `NewInstance` 落 core `pkg/strategy`（`registry.go` + 14 个插件 + `signal_provider.go`），**不进 contracts**——`contracts/engine/registry.go` 是内核路由注册表，不可混作本单证据。③ 的 WASM 腿今天仓内无实现（接线是 QT-26），已转记为 QT-26 的验收腿。详见 [`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) §2.2。
 
 > **进度（2026-10-23，①~④ 全落，验收 ⑤ 四条逐条对账）**：
 >
@@ -1327,7 +1328,7 @@
 >   - 真实回测路径（map 遍历发重复信号）跑 20 次 ⇒ 观测钩子看到的规范化序列逐位一致，且每个 symbol 的 3 条重复合并成 1 条 close；
 >   - 合成用例覆盖 close 优先、同向求和 clamp（0.6+0.7→1.0）、相反方向不合并、不同 bar 不合并；
 >   - `value_momentum` 20 次净值/成交逐位一致（**如实登记**：该策略 `GenerateSignals` 当前是 stub，返回空信号集，这条腿只证明整轮产出确定）。
-> - 差异报告归档：[`docs/test-cases/QT21_SIGNAL_ORDER_DIFF.md`](test-cases/QT21_SIGNAL_ORDER_DIFF.md)（实测 `input=7 output=5 duplicates_merged=2 positions_changed=4`，逐条解释）。
+> - 差异报告归档：[`docs/test-cases/QT21_SIGNAL_ORDER_DIFF.md`](../test-cases/QT21_SIGNAL_ORDER_DIFF.md)（实测 `input=7 output=5 duplicates_merged=2 positions_changed=4`，逐条解释）。
 > - **破坏验证**：注释掉日循环里的 `normalizeSignalSequence` 调用 ⇒ `TestEngineSignalSequence_TwentyRunsIdentical` 红（9 条未合并信号、且无 `:close:`）；逐字节还原后全绿。
 >
 > **门禁**：`gofmt -l .` 空、`go build ./...` / `go vet ./...` EXIT=0、`go test ./... -count=1` 全绿（含 `internal/repoguard`）。
@@ -1337,7 +1338,7 @@
 
 > **✅ 结案记录（2026-10-25 按代码对齐；原 ⛔ 阻塞记录作废）**
 >
-> ③ 的落点按 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4 归 contracts：`engine/provenance.go` 的 `StrategyVersionInput` + `Hash()` / `MustHash()`、`canonical.go` 的 `DomainStrategyVersionHash = "tellurion.strategy_version_hash.v1"`。contracts **`v0.5.0`（`70d9040`，已推远端）** 已落两者，六项口径 `strategy_id + carrier + abi_version + scope + entry + source`，并钉黄金向量 `0e6ad536…`；本仓 pin 已随 G4 升 `v0.5.0`。
+> ③ 的落点按 [`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) §2.4 归 contracts：`engine/provenance.go` 的 `StrategyVersionInput` + `Hash()` / `MustHash()`、`canonical.go` 的 `DomainStrategyVersionHash = "tellurion.strategy_version_hash.v1"`。contracts **`v0.5.0`（`70d9040`，已推远端）** 已落两者，六项口径 `strategy_id + carrier + abi_version + scope + entry + source`，并钉黄金向量 `0e6ad536…`；本仓 pin 已随 G4 升 `v0.5.0`。
 >
 > **core 侧无剩余动作**：§2.4 明确「core 不接线」，本仓不得自算第二份 version_hash。strategy 仓的本地定义已随 G5 ③ 收编（`9788196`）。
 
@@ -1348,7 +1349,7 @@
 - **⑤ 验收**：三条"必变"+ 一条"不必变"测试；向量常量固定；改动序列化顺序 → 向量测试红。
 - **⑥ 边界**：只做哈希算法；资产表结构是 QT-41。
 
-> **落点已核（2026-10-23）**：`StrategyVersionInput` + `Hash()` 落 `tellurion-contracts:engine/provenance.go`（hash 体系唯一正文），域标签 `DomainStrategyVersionHash` 加在 `canonical.go`；消费方不止 core（`tellurion-strategy` 资产服务需算同一 hash）。本单只在 contracts 定算法 + 向量测试，core 不接线。详见 [`w1-repo-ownership.md`](design/qt-decoupling/w1-repo-ownership.md) §2.4。
+> **落点已核（2026-10-23）**：`StrategyVersionInput` + `Hash()` 落 `tellurion-contracts:engine/provenance.go`（hash 体系唯一正文），域标签 `DomainStrategyVersionHash` 加在 `canonical.go`；消费方不止 core（`tellurion-strategy` 资产服务需算同一 hash）。本单只在 contracts 定算法 + 向量测试，core 不接线。详见 [`w1-repo-ownership.md`](../design/qt-decoupling/w1-repo-ownership.md) §2.4。
 
 <a id="QT-23"></a>
 ### QT-23 · `RunUniverse`（run 级稳定票池）[P0] ✅（2026-10-24，`b4f4f27`）
@@ -1588,7 +1589,7 @@
 >
 > **⚠️ 2026-10-25 18:45 实测订正（⑭ 的落地前提被推翻）**：`QT-32-A` 虽已 ✅，但它登记的 ⑦ 是后续单，其中 ⑦③ 明写：「『未过 promote 的产物被回测路径拒绝』的**执行侧**那条腿在 core + 资产服务（**QT-32 主单 ⑤**），本仓无法替它作证」⇒ **本单 ⑤ 的执行侧腿仍待做**。
 > 而该腿的落点（promote 端点）**今天既无鉴权也无调用方**：strategy 仓**零鉴权**（全仓 `JWT_SECRET|Bearer |Authorization|RequireRole|Roles\b` = **0 命中**、无 auth/role/guard/middleware 文件、`go.mod` **无 `tellurion-kit`**、`internal/httpapi/api.go:42-56` 的 **12 条路由全部无保护**），core 全仓 `grep "/promote"` = **0 命中**。
-> ⇒ **本单 ⑤ 在「审批人从哪来」被裁之前不可施工**；详见 [第二批分组方案 H8 与 §5 ⑫](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)。
+> ⇒ **本单 ⑤ 在「审批人从哪来」被裁之前不可施工**；详见 [第二批分组方案 H8 与 §5 ⑫](../design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md)。
 
 > **⑭ 审批人身份 = JWT claims 的 `sub`；闸门落在 agent 仓，strategy 侧只保留状态机**
 > **依据（实测）**：strategy 侧**审计维度缺两项** —— 全仓 `approved_by|approver|audit` = **0 命中**（无审批人字段、无独立审计表）；`internal/asset/pgstore.go:393` `Promote(...)` 的 `log` 参数在 `service.go` 调用处**硬编码为 `"promoted"`** ⇒ 落进 `strategy.strategy_artifacts.compile_log` 的只有「结论」，**没有「谁批的」**。
@@ -1598,7 +1599,7 @@
 > **🔁 2026-10-26 订正（上面「不可施工」的前提已解除；⑭ 已被 ⑫ 取代）**：⑫ 已裁（面 B1：promote 走 **core 网关 + `X-Actor`**；strategy **只对 promote/internal 三端点**引 kit service-token 校验，端口仅集群内可达），且 kit **`v0.1.4` 已发版并 push**（service token 的非数字 subject 不再 401；risk/data/analytics 三仓已升 pin）。⑭「审批人取 JWT `sub`」因此**没有承载体**（strategy 无用户态登录），实现口径以 ⑫ 为准。
 > **2026-11-10 口径（主任裁决 A）**：⑫ 的「core 网关」按**部署入口**解释（集群 ingress / 端口隔离），不是 core 代码级 promote 转发路由；core **无 `/promote` 路由**，promote 由 agent/操作者直连 strategy，core 只读校验 `status=promoted` + 审计行。若将来要求代码级网关，另立单。成文 `tellurion-strategy:docs/adr/0004-core消费边界与promote归属.md`。
 > ⇒ **⑤ 拆成两半**：**strategy 侧**（引 kit + 三端点鉴权 + 审批人留痕）= 第三批 **K8**；**core 执行侧拒绝腿**（未 promote 的产物被回测路径 fail-closed）= **K11**（前置 K8 + K10 合入）。
-> 本单整体仍记 **⬜**——⑤ 的两半都还没做，不因「前提解除」而改状态。分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md)。
+> 本单整体仍记 **⬜**——⑤ 的两半都还没做，不因「前提解除」而改状态。分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](../design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md)。
 
 > **⛔ 2026-11-07 实测：K11（⑤ 执行侧腿）前置不成立，已改判阻塞（本笔只落证据，0 代码改动）**
 > - **K8 已 ✅**（strategy `SVC-STRAT-G1`：promote 三端点 service-token + 受信 `X-Actor` + 审批落 `strategy_promotions`），K10（QT-51）也已合入；但 K11 仍无法施工，原因是**core 今天没有可判的资产状态**：
@@ -1998,15 +1999,15 @@
 
 > **⚠️ 2026-10-25 实测订正（状态不是 ⬜）**：实现已在**未合入**的 worktree 分支 `task/qt51-execution-port`（裁决时 tip `7c89aae`、基线 `170f09a`；**2026-10-26 复测 tip `e015a83`，仍不在 origin**）——
 > `pkg/backtest` 对 `pkg/live` import = **0**；`pkg/backtest/execution/port.go` 已落 `ExecutionPort`；设计见 `docs/design/qt-decoupling/qt51-execution-port.md`、等价性报告见 `docs/test-cases/QT51_BACKTEST_EQUIVALENCE_REPORT.md`（两文件都在该分支上，main 没有）。
-> **分支自述「已裁决并落地（2026-10-26）」，但 main 的 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 没有这条裁决** ⇒ 合入前需主任确认。本单在 main 上记 **🔶**，不记 ✅。
-> **未复跑**：本机 `PATH` 无 `go`（`go: command not found`），分支的门禁输出是自述，不是本轮复取结果；复取命令见 [`cross-repo-dispatch-plan-wave2-2026-10-25.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) 的 H2 节。
+> **分支自述「已裁决并落地（2026-10-26）」，但 main 的 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 没有这条裁决** ⇒ 合入前需主任确认。本单在 main 上记 **🔶**，不记 ✅。
+> **未复跑**：本机 `PATH` 无 `go`（`go: command not found`），分支的门禁输出是自述，不是本轮复取结果；复取命令见 [`cross-repo-dispatch-plan-wave2-2026-10-25.md`](../design/qt-decoupling/cross-repo-dispatch-plan-wave2-2026-10-25.md) 的 H2 节。
 > **⚠️ 上面这半句「本机无 Go」已于 2026-10-26 订正**：Go **1.25.14** 在本机可用（`C:\Users\ruoxi\AppData\Local\Programs\go1.25.14\bin\go.exe`，`go version` 实测），只是**不在默认 Git Bash 的 PATH 里**——显式加 PATH 就能复跑，「等一台有 Go 的机器」不是前置。真正未做的仍是 rebase + `gofmt`/`build`/`vet`/`test` 复跑 + 等价性报告重跑（见下条）。
 
-> **🔁 2026-10-26 订正（上面「裁决记录没有这条裁决」不成立）**：实测 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) **§五 ①（:371）已有**该裁决 —— 「拆 port，以分支 `task/qt51-execution-port`（`7c89aae`）为基线收口；不再执行 b 的『删 shim + `LiveBridge` 外移』；5 个零调用 shim 合入后另立小单删」。
+> **🔁 2026-10-26 订正（上面「裁决记录没有这条裁决」不成立）**：实测 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) **§五 ①（:371）已有**该裁决 —— 「拆 port，以分支 `task/qt51-execution-port`（`7c89aae`）为基线收口；不再执行 b 的『删 shim + `LiveBridge` 外移』；5 个零调用 shim 合入后另立小单删」。
 > ⇒ 本单**不缺裁决**，缺的只有两件：**rebase** 与**复跑门禁 + 重跑等价性报告**。分支与 main 的差：**`branch-only = 1`**（唯一那笔 `e015a83`，至今未变），`main-only` 今天读 **10**（2026-10-26 本批落账后，main = `0617f54`；同一天先后记过 6 / 9 / 11 / 12 / 13 / 3 / 7 —— **其中 7→10 正是本批自己的三笔文档提交推出来的**）。⇒ **behind 这个数每推一笔就变，谁都不许再往文档里写死**：要判 rebase 成本就现跑 `git rev-list --left-right --count main...task/qt51-execution-port`；「1 ahead」与「不在 origin」两条才是稳定的。
 > **rebase 冲突面实测（同日再核，订正「三处冲突」）**：`git merge-base main task/qt51-execution-port` = `5b9dc11`；两侧各自改动的**交集 = 3 个文件，全是文档**（`docs/TASKS.md` / `docs/ARCHITECTURE.md` / `docs/design/qt-decoupling/README.md`），**Go 侧零冲突**；`git merge-tree --write-tree main task/qt51-execution-port` 真冲突**只有 `docs/TASKS.md` 一处**，另两处自动合并。⇒ K10 的成本不在解冲突，在**复跑门禁与重跑等价性报告**。
 > **⚠️ 环境与「读哪棵树」（2026-10-26 实测，两条都会带错派工）**：① 本机 Go **可用**——`C:\Users\ruoxi\AppData\Local\Programs\go1.25.14\bin\go.exe` = go1.25.14，但**默认 Git Bash 的 PATH 里没有它**（`command -v go` 空），显式加 PATH 才能跑；「本机无 Go」与「⛔ 等 Go 环境」都不成立，「已加入 PATH 故随手可用」同样不成立。② 取证**必须在 `main` 上读**：分支 `task/qt51-execution-port` 不在 origin（`git ls-remote origin refs/heads/task/qt51*` = 0 命中）、`git merge-base --is-ancestor task/qt51-execution-port main` = **NOT_MERGED**，且它的 `docs/TASKS.md` 与本文件**同路径不同内容**（分支侧 `grep -c "SVC-"` = **0**，main 侧同一命令 = **10**（2026-10-26 上午）→ **36**（本批落账后；这个数只用来证明「两棵树内容不同」，别当口径引用——它随并发立单每笔变）。**更要命的是 main 后来补了「六之二、退役执行单」（`SVC-CORE-DATA/RUN/STRAT/RISK/AN/BROKER-RETIRE` 六条六字段单）+ `QT-75`~`QT-80`，分支上一行都没有**）。在分支工作树里读台账会得到「QT-51 已交付 + 没有 SVC 单 + 退役无人认领」三套假账。本单在 main 上记 **🔶**，不记 ✅。
-> 施工分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md) 的 **K10**（环境前置已解除，剩 rebase + 门禁 + 等价性报告）。
+> 施工分组见 [`cross-repo-dispatch-plan-wave3-2026-10-26.md`](../design/qt-decoupling/cross-repo-dispatch-plan-wave3-2026-10-26.md) 的 **K10**（环境前置已解除，剩 rebase + 门禁 + 等价性报告）。
 
 <a id="QT-52"></a>
 ### QT-52 · 市场摩擦事实核实（BE-11：停牌/成交量/复权/分红/涨跌停/集合竞价）[P1] ✅（2026-10-22）
@@ -2185,10 +2186,10 @@
 >
 > **⑦ 剩余半边的前提核对（2026-10-25，派发块 H3 主体）**：H3 要求 core「调 `POST /api/risk/resolve` 取 bundle → `rule.ParseBundle` → 构建进程内 `RiskPolicy` ⇒ 限额不再来自 `risk_manager.*`」。**按源码核对，这条本批做不了，且工单两处前提为假**；risk 侧核对 ✅（`policy.go:29/36` 含 `service`、`:32` `/audit` 未加，`87c6aa9`），**零代码改动**，门禁 `go build/vet/test ./... -count=1` 三条 EXIT=0。
 > - **⑦-1 阻塞（根本）：参数词典不存在。** ⚠️ **本条的前提已于 2026-10-26 失效，整条按「已解除」读**：risk 的参数词典已落（`tellurion-risk:internal/rule/params.go` = 246 行 / 14 个标量的字段名·单位·取值域；写侧 `internal/rule/model.go:147` 接 `validateParams`，读侧 `internal/rule/snapshot.go:163` 接 `rejectUnknownParamKeys`）。本条原来引用的取证也已失效——`internal/rule/snapshot_test.go:143-144` 今天不是 `{"pct":2.5}` / `{"max_pct":10}`，而是 `stopLossParams` / `sizingParams` 两个常量（`git grep -n '"max_pct"' -- internal/rule` = **0 命中**，改键本身登记在 `tellurion-risk:docs/TASKS.md` 的 QT-74 施工记录）。**未被本条撤下的部分**：core 的限额面仍是 14 个 `risk_manager.*` 标量（[pkg/risk/manager.go:13-28](../pkg/risk/manager.go#L13) ← [pkg/bootstrap/engine.go:38-51](../pkg/bootstrap/engine.go#L38)），而 `bundle` → `rule.ParseBundle` → `RiskPolicy` 这一半**仍未接**（core 全仓 `ParseBundle` 零调用点，实测 grep = 0）⇒ 剩下的堵点是「数值换算口径」（risk 侧 §5 第 7 条待定）与接线本身，不是「词典不存在」。
-> - **⑦-2 工单的迁仓口径与计划冲突**：H3 写「迁 contracts 是本单前置子步，不是可选项」，而本仓派发计划 [cross-repo-dispatch-plan-2026-10-25.md](design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md) 第 3 节派发块 G4 原文裁的是「**迁 contracts 是下一张单，不是本单**」。按后者执行：本批**不发 contracts 版本**——词典未定就迁形状，等于把一个零外部消费方的 DTO 升格成契约（contracts `AGENTS.md` §3 禁「只有单个仓使用的类型」，也正是该仓 `service-dto-migration-decision-material.md` §0 对 QT-45/QT-43 判「不迁」的同一条理由）。
+> - **⑦-2 工单的迁仓口径与计划冲突**：H3 写「迁 contracts 是本单前置子步，不是可选项」，而本仓派发计划 [cross-repo-dispatch-plan-2026-10-25.md](../design/qt-decoupling/cross-repo-dispatch-plan-2026-10-25.md) 第 3 节派发块 G4 原文裁的是「**迁 contracts 是下一张单，不是本单**」。按后者执行：本批**不发 contracts 版本**——词典未定就迁形状，等于把一个零外部消费方的 DTO 升格成契约（contracts `AGENTS.md` §3 禁「只有单个仓使用的类型」，也正是该仓 `service-dto-migration-decision-material.md` §0 对 QT-45/QT-43 判「不迁」的同一条理由）。
 > - **⑦-3 工单自述的串行前置未落**：H3 写「与 H1 的 QT-71 同仓串行」，实测 QT-71 本仓 ①~③ **未开工**（`pkg/auth` grep `RoleService` = **0 命中**、`cmd/analysis/route_policy.go` 无 service 档位、本文件 QT-71 状态仍 ⬜）⇒ H3 排在了自己的前置之前。
 >   > **⚠️ 2026-10-25 18:45 实测订正（这条的前置已落）**：QT-71 **已于 2026-10-25 落地**（core `aaf37bc` / `134b283`）——实测 `pkg/auth/auth.go:40` `RoleService Role = "service"` **已在**、`:48` `IsValid()` 已含它（`{viewer, trader, admin, service}`）、`:63`/`:70` `CanTrade`/`CanAdmin` 恒 false 的注释已在、`cmd/analysis/route_policy.go` 已有 Service 档位、部署清单已到 10 份（新增 `risk-deployment.yaml` / `analytics-deployment.yaml`）。⇒ **⑦-3 的「前置未落」已过期**；H3 的当前真实阻塞**只剩 ⑦-1（参数词典 → QT-74）**。
->   > **⚠️ 但 ⑦-4 已升级为 ⛔ 阻塞**：service token 在 kit 的 `httpadapter` 上**必然 401**（`IssueServiceToken` 允许非数字 subject，而 `httpadapter.go:139` 用 `UserIDInt64()` 要求 `ParseInt`）⇒ **裁-17 的服务间链路今天走不通**。裁决与三个方向见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑯。
+>   > **⚠️ 但 ⑦-4 已升级为 ⛔ 阻塞**：service token 在 kit 的 `httpadapter` 上**必然 401**（`IssueServiceToken` 允许非数字 subject，而 `httpadapter.go:139` 用 `UserIDInt64()` 要求 `ParseInt`）⇒ **裁-17 的服务间链路今天走不通**。裁决与三个方向见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑯。
 > - **⑦-4 生产 `service` token 到不了角色判定**（risk 已报协调者，源码复核成立）：`tellurion-kit:auth/httpadapter/httpadapter.go:139-141` 对非数字 subject 直接 401，而 `tellurion-kit:auth/service_token.go:46` 把裁-17 的 `sub=service:<repo>` 原样签进 `Subject`。两条腿的测试都没覆盖这条缝：kit 的 httpadapter 测试里 `IssueServiceToken` 零命中，risk 的 `TestPolicy_*` 走 `IssueTokens(1, …)` 的数字 subject（`tellurion-risk:internal/httpapi/auth_test.go:55`）⇒ **夹具绿不等于生产链路绿**。
 > - **⑦-5 订正一处取包口径（利好）**：工单要求 core 走 `bundle`，实测 `resolve` 的响应**已整包内嵌快照**（`tellurion-risk:internal/httpapi/api.go:127-130` `resolveBody.Snapshot`），且 `resolve` 已开 `service` ⇒ **不需要**给 `GET /snapshots/{hash}/bundle` 开档位，risk 未落项第 5 条的「若 core 直接拉 bundle 需新开一单」条件**不触发**。
 > - **⑦-6 验收按实测拆读（三条里两条已在账）**：「改 risk 规则 → `run_spec_hash` 变」✅（`TestQT66_RiskRulesHashIsRecordedAndMovesRunSpec`，[pkg/backtest/qt66_risk_rules_test.go:113](../pkg/backtest/qt66_risk_rules_test.go#L113)）；「同 hash 两次逐位一致」+「篡改 ⇒ `ErrSnapshotMismatch` fail-closed」✅（risk 侧 `TestAPI_ResolveLatestAndSnapshotByteIdentity` + `internal/rule/snapshot_test.go:266` 篡改腿）；**唯一未落 = 「run 的限额来自 risk 快照」**，被 ⑦-1 卡住 ⇒ 本单不整条关闭，H3 主体记 **⛔ 等 `QT-74`**。
@@ -2415,7 +2416,7 @@
 - **⑤ 验收**：service token 调 `POST /api/risk/resolve`、`GET /datasets/*`、`POST /api/backtest` 均 200；同一 token 调 `POST /api/execution/orders` 403；无 token 401；viewer token 调 resolve 仍 403（新增档位不放松既有语义）；`RoleService.CanTrade()==false` 守卫测试；`route_policy.go` 的 service 登记行数 == 1；部署清单静态检查断言三处 env 存在。
 - **⑥ 边界**：core 的角色/档位与自身策略表；risk / data 的策略表各自由本仓改（跨仓腿在各自台账）；不含 analytics 出站代码（`-core-token` / `-data-token` 已落）。
 
-> **裁决（2026-10-25，主任口径）· ①（部署清单归属）**：**部署清单归 core `deploy/k8s/`**，不在服务仓。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ①。
+> **裁决（2026-10-25，主任口径）· ①（部署清单归属）**：**部署清单归 core `deploy/k8s/`**，不在服务仓。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ①。
 >
 > **依据（实测）**：core `deploy/k8s/` 实测 8 份清单；`docker-compose.yml` 实测 3 个服务（`data-service` / `analysis-service` / `ai-service`），`JWT_SECRET` 只出现在 analysis（`:160`）与 ai（`:228`）⇒ **data-service 今天没有 secret**。**risk / analytics / orchestration / broker / data 五仓的 `AGENTS.md` 里 `deploy` / `部署清单` / `k8s` / `Dockerfile` 全部零命中** ⇒ 服务仓今天没有自己的部署面；core `AGENTS.md` 的目录结构把 `deploy/` 归 core。
 >
@@ -2434,7 +2435,7 @@
 > - [`pkg/auth/middleware.go`](../pkg/auth/middleware.go)：kit 的 `IssueServiceToken` 把 `service:risk` 原样写进 `sub`（非数字）。中间件对 `RoleService` **跳过** `UserIDInt64()`，只写 username / role / claims；**不伪造 user_id**（审计行 user_id NULL + role=service），否则真服务 token 会在解析期 401。
 > - [`pkg/authz/policy.go`](../pkg/authz/policy.go)：`Policy.Service []string` 第五档；`Role()` / `Entries()` 出 `"service"`；Middleware 的 service 档是 `RequireRole(service, trader, admin)` —— 与 risk/data 仓注释同口径（any-of，**不替代**真人）。
 > - [`cmd/analysis/route_policy.go`](../cmd/analysis/route_policy.go)：`Service` 只登记 `POST /api/backtest`（一条），并从 `Trader` 移除。QT-72 的读端点落在新增的 `ReadOnlyGET`（只读登记档，不参与变更面执法）。**文件归属如实登记**：该文件与 QT-72 共用，按派发「同仓串行」由 QT-72 那笔 commit 一并落（接手前基线 `git log -1 -- cmd/analysis/route_policy.go` = `617f7db`）。
-> - 部署（裁-①）：新增 `deploy/k8s/risk-deployment.yaml` / `analytics-deployment.yaml`；`data-` / `analysis-deployment.yaml` 补 `JWT_SECRET`；analysis 补 `RISK_SERVICE_RESOLVE_TOKEN`，analytics 补 `ANALYTICS_CORE_TOKEN` + `DATA_SERVICE_TOKEN`，**全部 secretKeyRef**；`docker-compose.yml` 给 data-service 补 `JWT_SECRET`；轮换周期写进 [`deploy/README.md`](../deploy/README.md)（JWT_SECRET 90 天 / 服务 token 30 天）。
+> - 部署（裁-①）：新增 `deploy/k8s/risk-deployment.yaml` / `analytics-deployment.yaml`；`data-` / `analysis-deployment.yaml` 补 `JWT_SECRET`；analysis 补 `RISK_SERVICE_RESOLVE_TOKEN`，analytics 补 `ANALYTICS_CORE_TOKEN` + `DATA_SERVICE_TOKEN`，**全部 secretKeyRef**；`docker-compose.yml` 给 data-service 补 `JWT_SECRET`；轮换周期写进 [`deploy/README.md`](../../deploy/README.md)（JWT_SECRET 90 天 / 服务 token 30 天）。
 >
 > **验收证据（实跑）**
 > - `go test ./pkg/auth ./pkg/authz ./internal/repoguard ./cmd/analysis -count=1` ⇒ 全 `ok`。
@@ -2464,7 +2465,7 @@
 > **⚠️ 2026-10-25 实测更新**：QT-71 的**外部**前置（kit `v0.1.2`）已解除，但 **QT-71 本仓那半（①~③ + ⑦）尚未落** ⇒ 本单**仍不能开工**（同仓同文件串行）。
 > ⇒ 本仓零代码改动。
 >
-> **裁决（2026-10-25，主任口径）· ⑬（`producer_pending`）+ ⑩（openapi 写权）**：见下方裁决块。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑬ / ⑩。
+> **裁决（2026-10-25，主任口径）· ⑬（`producer_pending`）+ ⑩（openapi 写权）**：见下方裁决块。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑬ / ⑩。
 
 - **① 目标**：给真实 run 一个今天就能用的 `GET /api/backtest/{id}/provenance`，读 `quant.run_provenance ⋈ backtest_jobs`。
 - **② 上下文（2026-10-25 实测）**：core 有表（Migration 056）与写入路径、**没有端点**；orchestration 已有 `GET /api/runs/{id}/provenance` + `ArtifactStore`，但**生产者未落**（`tellurion-orchestration:docs/ARCHITECTURE.md:75`），真实 run 查不到行。三 hash 由 core 引擎计算，orchestration 只该拿指针。**裁-19 定稿**：读面落 core；`run_artifacts` 重新定义为「worker 写的投影」，**core 不做双写**。
@@ -2690,7 +2691,7 @@
 >    另：⑧ 的「真库落库日期」那条腿今天**确认拿不到** —— `docker ps` 无输出（引擎未运行）且仓内无 `.env`
 >    （无 DSN），不是忘了跑。
 
-> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。**2026-10-25 订正**：裁-16（DBT-14）已裁决并施工完成（本单 ✅）。**⚠️ 2026-10-25 再订正（本句原写的「其余四单仍为 ⬜ …… DBT-15 未执行任何 `DELETE` / `TRUNCATE`」已被随后的裁决与执行推翻）**：裁-05~裁-09 已全部落定（裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑤⑥⑦⑧）——**DBT-15 / 16 / 17 / 18 四单现均为 ✅**（DBT-15 的删除**已执行**，164+2 行、`12,134 → 11,968`，见本文件 DBT-15 完成记录）。**「材料不等于裁决」这条仍然成立**（材料只是本单的输入），但**「其余四单仍为 ⬜」与「DBT-15 未执行任何 DELETE」两句已过期，不得再引用**。
+> **2026-10-24 决策材料已产出（未裁决，不动代码/数据）**：DBT-14~18 的裁决材料见 [`docs/design/dbt-14-18-decision-materials.md`](../design/dbt-14-18-decision-materials.md)（按任务顺序映射裁-05~裁-09）。**2026-10-25 订正**：裁-16（DBT-14）已裁决并施工完成（本单 ✅）。**⚠️ 2026-10-25 再订正（本句原写的「其余四单仍为 ⬜ …… DBT-15 未执行任何 `DELETE` / `TRUNCATE`」已被随后的裁决与执行推翻）**：裁-05~裁-09 已全部落定（裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑤⑥⑦⑧）——**DBT-15 / 16 / 17 / 18 四单现均为 ✅**（DBT-15 的删除**已执行**，164+2 行、`12,134 → 11,968`，见本文件 DBT-15 完成记录）。**「材料不等于裁决」这条仍然成立**（材料只是本单的输入），但**「其余四单仍为 ⬜」与「DBT-15 未执行任何 DELETE」两句已过期，不得再引用**。
 
 <a id="DBT-14"></a>
 ### DBT-14 · EquityDeep snapshot 契约漂移：`fetched_at` 声明 date-time、实现只收日历日 [P1] ✅（2026-10-25） · **裁-16：改实现，两者都吃、落库归一**
@@ -2713,7 +2714,7 @@
 <a id="DBT-15"></a>
 ### DBT-15 · `ingest.raw` 里历史探针假归档的处置 [P2] ✅（2026-10-25，删除已执行并追认）
 
-> **裁决（2026-10-25，主任口径）**：**删除已执行、不可回滚 ⇒ 追认**；在 main 重做纯文档落账，**不 cherry-pick** `task/g3-data` 分支。裁决全文见 [`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑤。
+> **裁决（2026-10-25，主任口径）**：**删除已执行、不可回滚 ⇒ 追认**；在 main 重做纯文档落账，**不 cherry-pick** `task/g3-data` 分支。裁决全文见 [`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑤。
 >
 > **⚠️ 计数订正（2026-10-25 实测）**：本单正文原写「**155 行**」「预期 **12,108 → 11,951**」——那是 **2026-10-19 的快照**。删除当天的实数是 **164 行 + 2 行**，`total 12,134 → 11,968`。**台账旧数字不得再引用。**
 
@@ -2740,12 +2741,12 @@
 >
 > **④ 顺带坐实的第二条授权腿**：`TEST_DATABASE_DSN` 指真库跑 `go test ./cmd/data/ -run TestIngestRawHandler -count=1 -v` ⇒ 两个用例 **PASS** ⇒ `e23ddec`（2026-10-19）那条自清理**今天有执行证据**，不再是「登记说修好了」。
 >
-> **⑤ 落账位置说明**：本单的**结论**已在本文件与 `docs/SPEC.md` 成文。原执行记录落在 core 的一个 git worktree（`tellurion-g3-data`，分支 `task/g3-data`）上，**该分支未合入 main、未推送**；实测 cherry-pick 会撞（`git merge-tree` EXIT=1，`CONFLICT in cmd/data/sync_handlers.go`），且该分支上的 DATA-14 / DBT-14 代码笔与 main 已有实现**不同口径** ⇒ **代码笔全部作废，只取结论**。处置已按 [§5 ⑤](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 落定。
+> **⑤ 落账位置说明**：本单的**结论**已在本文件与 `docs/SPEC.md` 成文。原执行记录落在 core 的一个 git worktree（`tellurion-g3-data`，分支 `task/g3-data`）上，**该分支未合入 main、未推送**；实测 cherry-pick 会撞（`git merge-tree` EXIT=1，`CONFLICT in cmd/data/sync_handlers.go`），且该分支上的 DATA-14 / DBT-14 代码笔与 main 已有实现**不同口径** ⇒ **代码笔全部作废，只取结论**。处置已按 [§5 ⑤](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) 落定。
 
 <a id="DBT-16"></a>
 ### DBT-16 · EquityDeep snapshot 的**生产者**（`fundamentals_detail` 唯一可行灌数路径）[P2] ✅（2026-10-25，裁决 = 成文「不可得」+ 产出请求）
 
-> **裁决（2026-10-25，主任口径）**：**接受「不可得」成文**，并把「需要谁产出什么格式」写成**对外产出请求**。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑥。
+> **裁决（2026-10-25，主任口径）**：**接受「不可得」成文**，并把「需要谁产出什么格式」写成**对外产出请求**。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑥。
 
 - **① 目标**：`fundamentals_detail` 有真实数据来源，或明确成文「在本仓可及的源之内不可得，需要谁产出什么」。
 - **② 上下文**（DBT-11 实测，2026-10-19）：门与读方都验证过了（真 HTTP 门 → 真库 → PIT 读回，`0 → 5 → 0` 行无残留，`1764598`）。缺的是**没人往门里投 ndjson**：`DecodeSnapshot` 的生产唯一调用点在 `cmd/data/handlers_equitydeep_ingest.go`，等的是外部 EquityDeep 产出。而 **Tushare 免费权限给不出所需字段**——纯读库取证（0 次 API 调用）：`tushare.fina_indicator` 全仓 25 条 raw 的 `fields` 只有一种形状 `[ts_code, ann_date, end_date, roe, roa, gross_margin]`，与因子需要的 `total_revenue / operating_cost / contract_liability / ocf_net / net_profit_attr / total_assets / equity_attr / inventory`（`pkg/data/equitydeep/equitydeep.go:41-49`）一个都不对得上，这 6 个名字经字典查找全部 miss。⚠️ **本单不许用编造数据灌数**：那五个因子会直接读到假财务数值。
@@ -2766,7 +2767,7 @@
 <a id="DBT-17"></a>
 ### DBT-17 · `capital_flow` / `top_list` 零读方——接上还是明确为数据储备 [P2] ✅（2026-10-25，裁决 = 两表登记「仅储备」）
 
-> **裁决（2026-10-25，主任口径）**：**接受「仅储备、暂无读方」**；不接读方、不建排程。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑦。
+> **裁决（2026-10-25，主任口径）**：**接受「仅储备、暂无读方」**；不接读方、不建排程。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑦。
 
 - **① 目标**：两张今天已有真数据的表，有一个**说得出口的用途**：要么被读（因子/API/前端任一处），要么成文声明为"仅储备、暂无读方"并解释为何值得占配额。
 - **② 上下文**：DBT-09/10 之后 `capital_flow` 18 行、`top_list` 256 行（真库实测，`1a1bb38`）。接线期间的 grep 结论是 **`capital_flow` 无任何读方**（无 handler / 无因子 / 无前端读它），这也是 DBT-09 决定**不**把它放进 cron 名单的理由——"每天烧一整桶免费配额喂一张没人读的表"。另需注意 DBT-09 的口径代价已登记：表内数值现在是 **Tushare 分档成交额**形态，多列本源不给 ⇒ 落 NULL，**两族口径混在同一张表里靠 `source` 列区分**，任何读方按东财含义解释这些列之前必须先读 `source`。
@@ -2791,7 +2792,7 @@
 <a id="DBT-18"></a>
 ### DBT-18 · mining 的真实 Proposer（LLM/MCTS 候选生成）[P3] ✅（2026-10-25，归属已裁 = agent 仓）
 
-> **裁决（2026-10-25，主任口径）**：**归 agent 仓**。本仓只保留 `mining.Proposer` 接口作为冻结契约 + 在跨仓任务索引加一条指针（**不镜像正文**）。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑧。
+> **裁决（2026-10-25，主任口径）**：**归 agent 仓**。本仓只保留 `mining.Proposer` 接口作为冻结契约 + 在跨仓任务索引加一条指针（**不镜像正文**）。裁决全文见 [`cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑧。
 
 - **① 目标**：`cmd/data mining` 的候选来源从 JSON 文件升级为真实候选生成器，或明确该能力归属 `tellurion-agent` 仓。
 - **② 上下文**：DBT-04 落地时用的是 `fileProposer`（候选 JSON 文件 → `mining.Candidate`），完成记录里写明「真实 LLM/MCTS Proposer 仍属另立工单」，且其非目标已排除「不接 AI 挖掘消费方（D8 治理层之外）」。2026-10-09 AI 层整体迁往 `tellurion-agent` 仓（ADR-027 §5 第 8 步前置切片），`pkg/ai` + 四族 AI handler 现在住那边，依赖方向单向 agent→core（repoguard 钉住）。⇒ 本单**主体不在 core**。
@@ -2860,7 +2861,7 @@
 ## 八、跨仓任务索引（不在本仓，勿双写）
 
 > 仓名以 `repo-inventory.md` §2 的「旧→新」为准；**QT-60 已于 2026-10-20 完成，实际仓名就是新名**（旧仓仍在，未归档）。
-> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：**DBT-18 · mining 的真实 Proposer（LLM/MCTS 候选生成）——✅（2026-10-25，归属已裁 = 本仓）**：本仓只保留 `mining.Proposer` 接口作为冻结契约（**接口不动**），实现细节属该仓，正文在该仓 `docs/TASKS.md` 立单（**本仓不镜像正文**）；裁决依据见 [`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑧。`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；**refactor 修复传播单** ⬜（agent↔core HTTP wire 契约消费对齐 + C1 三值 `status`/`invalid_reasons` 消费口径——正文登记在该仓 `docs/TASKS.md`，本仓不镜像）；**QT-17** ✅（2026-10-25 收口，正文在该仓）；**QT-32-A**（agent 腿，AI 生成链留痕 + promote 闸门生产者侧 fail-closed）🔶 施工中；QT-61 agent 腿 ✅ 收口记录（指回本仓 QT-61 权威版）。
+> - **`tellurion-agent` 仓**（旧 `quant-trading-agent`）：**DBT-18 · mining 的真实 Proposer（LLM/MCTS 候选生成）——✅（2026-10-25，归属已裁 = 本仓）**：本仓只保留 `mining.Proposer` 接口作为冻结契约（**接口不动**），实现细节属该仓，正文在该仓 `docs/TASKS.md` 立单（**本仓不镜像正文**）；裁决依据见 [`docs/design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`](../design/qt-decoupling/cross-repo-decision-record-2026-10-25.md) ⑧。`OBS-01-R2-A` ⬜（2026-10-16 裁决 (b)，core 零改动；2026-10-19 复核仍 ⬜）；**refactor 修复传播单** ⬜（agent↔core HTTP wire 契约消费对齐 + C1 三值 `status`/`invalid_reasons` 消费口径——正文登记在该仓 `docs/TASKS.md`，本仓不镜像）；**QT-17** ✅（2026-10-25 收口，正文在该仓）；**QT-32-A**（agent 腿，AI 生成链留痕 + promote 闸门生产者侧 fail-closed）🔶 施工中；QT-61 agent 腿 ✅ 收口记录（指回本仓 QT-61 权威版）。
 > - **`tellurion-ui` 仓**（旧 `quant-trading-ui`）：`AUD-61` 🔶（阶段一 ✅ 2026-10-23；阶段二 ③/④ 批 ✅ 2026-10-23；**① 批 ⬜ 但前置已解除**——2026-10-25 实测 `feat/design-tokens-v2-palette-sweep` 已并入旧仓 main 且内容随迁移进本仓，**今天的障碍是跑不起栈**，不是分支缺失）；`docs/design/stitch_quantlab_ux_redesign/TASKS.md` 的 `A-05` ✅、`A-08` ✅；**refactor 修复传播单** ⬜（三值 `status` 消费 + `invalid_reasons` 的 `data_gap_skipped`/`session_terminated` 展示口径，C1——正文在该仓 `docs/TASKS.md`）；QT-61 ui 腿 ✅ 收口记录（指回本仓 QT-61 权威版）。
 > - **`tellurion-contracts` 仓 / `tellurion-kit` 仓**：**QT-05** 主单 ✅（2026-10-24 契约侧结案，正文在 `tellurion-contracts:docs/TASKS.md`；kit 腿 **QT-05-B** ✅ 2026-10-22，正文在 `tellurion-kit:docs/TASKS.md`；本仓 S1 节留同号指针）；**随仓接口规格载体**（contracts `docs/API.md` / kit `docs/SCOPE.md`，M6，即 CT-01 / KT-01）✅ 与**版本策略/兼容矩阵 + GOPRIVATE 前提**（L4/L5，即 CT-02 / KT-02）✅ 见 QT-07 ③-S2-c / QT-19，正文立单在两仓自己的 `docs/TASKS.md`。
 >   - **KT-03 ✅（2026-10-23）**：kit 侧 `decimal.Div` 的舍入口径裁决为 **half away from zero（四舍五入）**并已改实现（`tellurion-kit:docs/TASKS.md` 已归档结案）。**core 侧处置：已随 QT-73 落地（2026-10-25）** —— 本仓 `pkg/decimal` 目录**已删除**，import 改指 kit 同名包（`170f09a`）；口径随切依赖自然收敛，未在 core 另改一次 `Div`。**⚠️ 台账原文「core 侧处置：不改……零生产调用」是切包前的快照，已过期**（该包现已不是「零生产调用」而是「已不在本仓」）。
@@ -3330,3 +3331,28 @@
 > - **破坏验证 A（改一处 default）**：把 `:536` orchestration 的 `DATABASE_NAME:-tellurion` 改成 `:-quantlab` ⇒ exit 1，`默认值有 2 种：quantlab, tellurion —— 各处容器会连到不同的库`。逐字还原。
 > - **破坏验证 B（改回不展开）**：在 `_expand_compose_value` 里插入 `return value.strip()`（关闭展开）⇒ exit 1，**恰好复现修前那 4 条**（`compose ${DATABASE_NAME:-tellurion}（默认 ${DATABASE_NAME:-tellurion}）vs k8s tellurion` 等）。证明这 4 条只由「不展开」造成，展开没有掩盖任何真实不一致。还原后 `grep DESTRUCTIVE-TEST` = 0。
 > - **还原与回归**：`docker-compose.yml` SHA256 = `B950A666232834E40DE0F6DA3E19ADFDB79E6B93F07869877590020165137E04`，与动手前基线**逐字节一致**；`python tools/check_deploy_consistency.py` exit 0（新增行 `✓ compose 每处 ${DATABASE_NAME:-...} 默认值相同，且与 configmap 的 DATABASE_DATABASE 同值`）；`docker compose config --quiet` 与 `docker compose --profile full config --quiet` 均 exit 0。
+
+## 二十一、2026-11-12 CORE-CI-ARCHIVE-LINKS-FIX 归档层相对链接与失效配置引用
+
+<a id="CORE-CI-ARCHIVE-LINKS-FIX"></a>
+### CORE-CI-ARCHIVE-LINKS-FIX · 归档层 ~17 处 cross-repo 相对链接缺层级 + 2 失效配置引用 [P2] ✅ 完成（2026-11-12）
+
+- **① 目标**：修掉 `c06770e` 归档引入的相对链接层级错误，让归档层可检索（死链会让归档失去价值）。
+- **② 上下文**：审查发现 W7-F1①（ODR-069）。`c06770e` 归档约 17 处 `cross-repo-*` 链接缺 `../`、`../deploy/README.md` 应为 `../../`、2 处失效配置引用。AGENTS §4 唯一例外：**失效的相对链接可以修**（保留原结论、加注说明，不改写历史判断）。
+- **③ 要求**：① 逐处修相对链接层级（只改链接，不改正文结论）；② 2 处失效配置引用指向现路径或加「已退役」注记；③ `python tools/check_doc_links.py --include-archive` 复核。
+- **④ 约束与非目标**：**不改归档正文的历史判断**（只修链接 + 加注）；不新增跨仓相对链接（用 `repo:path`）。
+- **⑤ 验收**：`check_doc_links.py --include-archive` 归档层断链归零（历史断链「只统计不判红」口径下，本次新修部分须真绿）；破坏验证 = 改回一处错误层级 ⇒ 检查器报该链。
+- **⑥ 边界**：core 归档层链接；活跃层链接本就 0 断链。
+
+> **✅ 施工记录（2026-11-12，`CORE-CI-ARCHIVE-LINKS-FIX`）**
+>
+> - **修前实测（红）**：`python tools/check_doc_links.py --include-archive` ⇒ exit 1，**60 条坏链 + 2 条失效配置引用**。数量订正：任务原文「~17 处」数的是**去重后的目标路径**，实测 **17 个目标 / 60 次引用**，全部落在 `docs/archive/tasks-archive-2026-11.md`（60 条坏链）与两份更早归档（2 条配置引用）。
+> - **改动（只动链接与注记，正文结论一字未改）**：
+>   1. `](design/…)` → `](../design/…)`、`](guides/…)` → `](../guides/…)`、`](test-cases/…)` → `](../test-cases/…)` —— 该归档文件位于 `docs/archive/`，而其中链接按 `docs/` 基址书写，缺一层 `../`。
+>   2. `](../AGENTS.md)` → `](../../AGENTS.md)`、`](../deploy/README.md)` → `](../../deploy/README.md)` —— 同样少一层，目标是仓根。
+>   3. `](archive/TASKS-2026-*.md)` → `](TASKS-2026-*.md)` —— 目标与本文同目录，多余的 `archive/` 前缀反而解析到 `docs/archive/archive/`。
+>   4. 2 处失效配置引用加「已删除」注记（保留历史判断，只补现状）：`config/ai-service.yaml` ⇒ core 已删除，现位于 `tellurion-agent:config/ai-service.yaml`（删除见 `5be75ca`）；`config/data-service.yaml` ⇒ 零读取已删除（`811d316`）。
+> - **破坏验证 A（改回一处错误层级）**：把 `SVC-CORE-DATA-RETIRE` 一行的 `../design/…cross-repo-decision-record-2026-10-25.md` 改回 `design/…` ⇒ exit 1，**恰好 1 条**坏链并点名 `docs\archive\tasks-archive-2026-11.md -> design/qt-decoupling/cross-repo-decision-record-2026-10-25.md`；逐字还原。
+> - **破坏验证 B（去掉「已删除」注记）**：删掉 `config/ai-service.yaml` 行的「已删除」字样 ⇒ exit 1，报 2 条该路径（原引用 + 注记内跨仓写法），证明注记是这两条的唯一豁免来源；逐字还原。
+> - **还原后校验和**（SHA256，取自破坏验证还原完毕、追加本节文字之前）：`docs/archive/tasks-archive-2026-11.md` = `37B3C7F1D30FEB3C2B37FCB01D5ABD417AC6EBDC40EBACD368B0E08799745ECB`；`docs/archive/TASKS-2026-10-14-archived.md` = `9331F67F75E43920950B9D4EDD1F03F8BF7DB80CDC6EE8624250E7A8A436A416`；`docs/archive/TASKS-2026-10-16-gen2-archived.md` = `D7A34518B3A99F832BDBC30A83344B51B563539C615B8825E2DE0A14617CF3AA`。
+> - **回归**：`python tools/check_doc_links.py --include-archive` exit 0（85 个文件，坏链 0 / 失效配置引用 0 / 入口 frontmatter 齐全）；默认层 `python tools/check_doc_links.py` exit 0（67 个文件）—— 未给归档层开白名单，也没放宽任何断言。
