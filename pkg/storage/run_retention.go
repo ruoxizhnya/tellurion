@@ -314,7 +314,7 @@ func (s *PostgresStore) retentionSkipReason(ctx context.Context, runID string) (
 //   - 存在但无该 run 行 ⇒ 同步回测，不活跃；
 //   - 状态非终态 ⇒ 活跃（跳过）；未知状态按活跃处理。
 func (s *PostgresStore) runIsStillActive(ctx context.Context, runID string) (bool, error) {
-	exists, err := tableExists(ctx, s.pool, "run.backtest_jobs")
+	exists, err := relationExists(ctx, s.pool, "run.backtest_jobs")
 	if err != nil {
 		return true, err
 	}
@@ -340,7 +340,7 @@ func (s *PostgresStore) runIsStillActive(ctx context.Context, runID string) (boo
 // runIsReferenced 按真实引用表检查是否有别的记录指向该 run。
 func (s *PostgresStore) runIsReferenced(ctx context.Context, runID string) (bool, error) {
 	for _, rt := range runReferenceTables {
-		exists, err := tableExists(ctx, s.pool, rt.table)
+		exists, err := relationExists(ctx, s.pool, rt.table)
 		if err != nil {
 			return true, err
 		}
@@ -359,7 +359,7 @@ func (s *PostgresStore) runIsReferenced(ctx context.Context, runID string) (bool
 	return false, nil
 }
 
-func tableExists(ctx context.Context, pool interface {
+func relationExists(ctx context.Context, pool interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, table string) (bool, error) {
 	var oid *string
