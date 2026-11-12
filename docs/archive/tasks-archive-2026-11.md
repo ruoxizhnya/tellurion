@@ -98,6 +98,7 @@
 | CORE-DEAD-PROXY-SCREEN-VERIFY | 核验 `/screen` 等死反代修复：前后各打一次 + 装配级用例 + 静态护栏（残留 `pkg/strategy` 已立项） | 2026-11-12 | 见原文 | [原文](#CORE-DEAD-PROXY-SCREEN-VERIFY) |
 | CORE-FEE-ROUNDING-ASSERT | 费用分项逐位断言 + 对抗夹具自检（未取整）；破坏=注入截断 ⇒ 红 | 2026-11-12 | 见原文 | [原文](#CORE-FEE-ROUNDING-ASSERT) |
 | CORE-RUNNER-FLAKE-RESIDUAL | 先证伪：20+50+负载 20 次全绿 ⇒ 未复现，不改代码，留重开条件 | 2026-11-12 | 见原文 | [原文](#CORE-RUNNER-FLAKE-RESIDUAL) |
+| CORE-DEPLOY-DRIFT-PARAM | `${DATABASE_NAME:-tellurion}` 漂移：实测 10 处同值；检查器补 `${VAR:-default}` 展开 + 5f 全局同值断言 | 2026-11-12 | 见原文 | [原文](#CORE-DEPLOY-DRIFT-PARAM) |
 
 ---
 
@@ -3305,3 +3306,27 @@
 >   4 个后台 CPU 烧机进程下 `go test ./pkg/sandbox/runner -run "TestRun_Timeout|TestDefaultTimeout|TestRun_JobObject" -count=20` ⇒ `ok … 139.155s`（20/20）。
 > - **限制**：本机 `CGO_ENABLED=0`，`-race` 无法开启（`go: -race requires cgo`），未做 race 压测；以「高次数 + CPU 满载」替代。
 > - **结论**：**未复现**。core HEAD 上该族残留已不存在需要改的判据；本单不产生生产代码改动。
+
+## 二十、2026-11-12 CORE-DEPLOY-DRIFT-PARAM `${DATABASE_NAME:-tellurion}` 参数漂移
+
+<a id="CORE-DEPLOY-DRIFT-PARAM"></a>
+### CORE-DEPLOY-DRIFT-PARAM · `${DATABASE_NAME:-tellurion}` 参数漂移（检查器不展开 default）[P2] ✅ 完成（2026-11-12）
+
+- **① 目标**：订正 `13c4b40` 引入的 `${DATABASE_NAME:-tellurion}` 口径漂移，并让检查器能展开 `:-default`，消除「文档默认值与真连库不一致」的假阳性/假阴性。
+- **② 上下文**：审查发现 W7-F1②（ODR-069，D7 联动）。`13c4b40` 引入 `${DATABASE_NAME:-tellurion}` 4 处；`check_deploy_consistency.py` 不展开 `:-default` ⇒ 口径漂移。本单提供该修复的单号（主任在飞改动须有单号 + 授权）。
+- **③ 要求**：① 订正各处默认值口径；② 检查器增 `:-default` 展开（先证伪「不展开」前提）；③ 不擅自改主任在飞 commit，须授权。
+- **④ 约束与非目标**：不真改连库 DSN；不扩到其它 env 展开；与 `CORE-K8S-EXIT` 撞 deploy 文件按单号串行。
+- **⑤ 验收**：`check_deploy_consistency.py` 绿且能展开 default；破坏验证 = 改一处 default ⇒ 检查器红。
+- **⑥ 边界**：core compose 参数 + 检查器。
+
+> **✅ 施工记录（2026-11-12，`CORE-DEPLOY-DRIFT-PARAM`）**
+>
+> - **数量订正（以实测为准）**：任务原文按 `13c4b40` 记 4 处，HEAD 实测 `docker-compose.yml` 里 `${DATABASE_NAME:-tellurion}` 共 **10 处 / 10 行**：`:148` data-service 的 `DATABASE_URL`；`:215` analysis-service、`:319` ai-service、`:368` worker、`:418` dualrun 的 `DATABASE_DATABASE`；`:411` dualrun 的 `-pg` 实参（在 `command:` 里）；`:446` risk、`:475` strategy、`:500` analytics、`:536` orchestration 的 DSN。**10 处的默认值全部是 `tellurion`**，与 `deploy/k8s/configmap.yaml` 的 `DATABASE_DATABASE: tellurion`、`config/analysis-service.yaml` 的 `database.database: tellurion`、`tellurion-agent/config/ai-service.yaml` 同值 ⇒ **不存在「有意不同」项，无需登记例外**；本单不改 compose 的任何一个默认值（改了就与 k8s/config 真的漂移）。
+> - **修前实测（红，4 条）**：`python tools/check_deploy_consistency.py` ⇒ exit 1，`analysis-service / ai-service 的 DATABASE_DATABASE 不一致 —— compose ${DATABASE_NAME:-tellurion} vs k8s tellurion`、`config/analysis-service.yaml 的 database.database=tellurion 与它自己的部署 env ... 不一致`、`tellurion-agent/config/ai-service.yaml ... 不一致`。四条都是「语义相等、字符串不等」的假阳性。
+> - **改动（只动检查器）**：
+>   1. `_resolve_default` → `_expand_compose_value`：按**花括号层级**配对，递归展开 `${VAR:-default}`（`${VAR}` / `${VAR:?msg}` 静态不可知 ⇒ 按空处理，fail closed）。层级配对不是洁癖：`DUALRUN_PG_DSN` 的默认值里嵌着 `${DATABASE_NAME:-tellurion}`，正则截到第一个 `}` 会展开出一个「语法正确、值错误」的 DSN。
+>   2. 比对类断言改为**先展开再比**：5b（compose ↔ k8s 库名/用户名/端口）、5c / 5c-2（config yaml ↔ compose）、3c（open-access 三态）。展开只用于比对，配置原文一字不改 —— 5e 的「DSN 必须引用 `${DATABASE_PASSWORD}`」仍读原文。
+>   3. 新增 **5f**：compose 里每一处 `${DATABASE_NAME:-...}` 的默认值必须**全仓同一个**，且与 configmap 的 `DATABASE_DATABASE` 同值；没有该参数时打 note 明说（不静默失效）。5b/5c 只覆盖 analysis/ai 两处，实测 10 处里其余 8 处（data-service DSN、worker / dualrun、四个跨仓服务 DSN）原本没有任何比值断言。
+> - **破坏验证 A（改一处 default）**：把 `:536` orchestration 的 `DATABASE_NAME:-tellurion` 改成 `:-quantlab` ⇒ exit 1，`默认值有 2 种：quantlab, tellurion —— 各处容器会连到不同的库`。逐字还原。
+> - **破坏验证 B（改回不展开）**：在 `_expand_compose_value` 里插入 `return value.strip()`（关闭展开）⇒ exit 1，**恰好复现修前那 4 条**（`compose ${DATABASE_NAME:-tellurion}（默认 ${DATABASE_NAME:-tellurion}）vs k8s tellurion` 等）。证明这 4 条只由「不展开」造成，展开没有掩盖任何真实不一致。还原后 `grep DESTRUCTIVE-TEST` = 0。
+> - **还原与回归**：`docker-compose.yml` SHA256 = `B950A666232834E40DE0F6DA3E19ADFDB79E6B93F07869877590020165137E04`，与动手前基线**逐字节一致**；`python tools/check_deploy_consistency.py` exit 0（新增行 `✓ compose 每处 ${DATABASE_NAME:-...} 默认值相同，且与 configmap 的 DATABASE_DATABASE 同值`）；`docker compose config --quiet` 与 `docker compose --profile full config --quiet` 均 exit 0。

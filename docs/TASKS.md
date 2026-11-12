@@ -238,17 +238,6 @@ verified-by: 2026-11-11 全面审查 W7 台账立单（A5 授权）——§一 �
 - **⑥ 边界**：core 归档层链接；活跃层链接本就 0 断链。
 - **owner**：待定
 
-### CORE-DEPLOY-DRIFT-PARAM · `${DATABASE_NAME:-tellurion}` 4 处参数漂移（检查器不展开 default）[P2] ⬜
-
-- **① 目标**：订正主任 `13c4b40` 在飞的 `${DATABASE_NAME:-tellurion}` 4 处漂移，并让检查器能展开 `:-default`，消除「文档默认值与真连库不一致」的假阳性/假阴性。
-- **② 上下文**：审查发现 W7-F1②（ODR-069，D7 联动）。`13c4b40`（主任在飞 commit）引入 `${DATABASE_NAME:-tellurion}` 4 处；**非真连错库**（本机活库是 `quant_trading`），但 `check_deploy_consistency.py` 不展开 `:-default` ⇒ 口径漂移。本单提供该修复的**单号**（主任在飞改动须有单号 + 授权）。
-- **③ 要求**：① 与主任确认 `13c4b40` 意图后订正 4 处默认值口径（或统一为 `quant_trading`）；② 检查器增 `:-default` 展开（先证伪「不展开」前提）；③ 不擅自改主任在飞 commit，须授权。
-- **④ 约束与非目标**：不真改连库 DSN（活库名是 `quant_trading`，见项目记忆）；**主任在飞改动须授权**；不扩到其它 env 展开。
-- **⑤ 验收**：`check_deploy_consistency.py` 绿且能展开 default；破坏验证 = 改回不展开 ⇒ 漂移用例红。
-- **⑥ 边界**：core compose 参数 + 检查器；与 `CORE-K8S-EXIT` 撞 deploy 文件按单号串行。
-- **owner**：待定
-- **重开条件**：主任授权订正其在飞 `13c4b40`。
-
 ### CORE-RUNNER-FLAKE-RESIDUAL · runner 计时断言墙钟残留（施工前先证伪：kit 7d7c3a8 已修同族）[P2] ⬜
 
 - **① 目标**：消除 core runner 计时断言对墙钟的依赖残留，让全量门禁下不再假红。

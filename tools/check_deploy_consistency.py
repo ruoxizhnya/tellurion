@@ -50,6 +50,15 @@
      的 Get*/UnmarshalKey/BindEnv/Sub 调用点推导，不是维护一张手写清单。
   7. config/*.yaml 里不得出现 ${...}（AUD-39）。本仓没有 env 展开器，占位符
      不是模板，是字面量 —— 它曾被当成真的密码 / token 用。
+  7b. compose 的比对类断言**先把 `${VAR:-default}` 展开再比**（2026-11-12）。
+     不展开时，`DATABASE_DATABASE: ${DATABASE_NAME:-tellurion}` 与 k8s 的
+     `tellurion` 是「字符串不等、语义相等」，5b/5c 会恒红（实测 4 条假阳性）；
+     反过来若把 default 改坏，不展开也**看不出来**。展开只用于**比对**，配置
+     原文一字不改（`${DATABASE_PASSWORD}` 这类「必须引用某变量」的断言仍读原文）。
+     另加 5f：compose 里每一处 `${DATABASE_NAME:-...}` 的默认值必须相同且与
+     k8s / config 的库名一致 —— 5b/5c 只覆盖 analysis / ai 两个服务，
+     实测 10 处引用里有 6 处（data-service 的 DSN、worker / dualrun 的
+     DATABASE_DATABASE、full profile 四个跨仓服务的 DSN）没人比。
   8. 死键负向钉（AUD-39）：POSTGRES_HOST/PORT、REDIS_HOST/PORT、
      REDIS_PASSWORD、DB_PASSWORD 不许回来；POSTGRES_DB/USER/PASSWORD 只许
      出现在 postgres 容器自己的 env 里。
@@ -444,9 +453,22 @@ def parse_configmap_key_refs(path: Path) -> set[str]:
     return keys
 
 
+# 5f 扫描的对象：compose 原文里每一处 `${DATABASE_NAME:-...}`（含嵌在
+# DUALRUN_PG_DSN 默认值里、以及 command: 实参里的那些）。
+_DATABASE_NAME_EXPR = re.compile(r"\$\{DATABASE_NAME(?::-([^}]*))?\}")
+
+
+def _strip_compose_comment_lines(text: str) -> str:
+    """去掉整行注释 —— 注释里为了解释这件事本身要写出 `${DATABASE_NAME:-...}`，
+    那是引文，不是配置。"""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
 def check_env_wiring(
     errors: list[str],
     compose_env: dict[str, dict[str, str]],
+    compose_text: str,
     k8s_config_text: str,
     notes: list[str],
 ) -> None:
@@ -480,11 +502,17 @@ def check_env_wiring(
     for svc in APP_ENV_SERVICES:
         env = compose_env.get(svc, {})
         for key in IDENTITY_ENV_KEYS:
-            c = env.get(key)
+            raw = env.get(key)
+            if raw is None:
+                continue
+            # 比的是**展开 default 后**的值：`${DATABASE_NAME:-tellurion}` 与
+            # `tellurion` 语义相等，拿原文比会恒红（2026-11-12 实测 4 条）。
+            c = _expand_compose_value(raw)
             k = cm_keys.get(key)
             if c is not None and k is not None and c != k:
                 errors.append(
-                    f"{svc} 的 {key} 不一致 —— compose {c} vs k8s {k}（AUD-39）")
+                    f"{svc} 的 {key} 不一致 —— compose {raw}（默认 {c}）vs "
+                    f"k8s {k}（AUD-39）")
 
     # 5b-2) REDIS_URL 的端口比对于 2026-11-10 删除：该键已从 compose 与
     # configmap 移除（data 面退役后零读取点），比对对象不存在了 —— 留着就是
@@ -504,7 +532,7 @@ def check_env_wiring(
         for yaml_key, env_key in (("user", "DATABASE_USER"),
                                   ("database", "DATABASE_DATABASE")):
             value = find_nested_value(text, "database", yaml_key)
-            want = compose_env.get(name, {}).get(env_key)
+            want = _expand_compose_value(compose_env.get(name, {}).get(env_key))
             if value and want and value != want:
                 errors.append(
                     f"config/{name}.yaml 的 database.{yaml_key}={value} 与它自己的部署 env "
@@ -530,7 +558,7 @@ def check_env_wiring(
         for yaml_key, env_key in (("user", "DATABASE_USER"),
                                   ("database", "DATABASE_DATABASE")):
             value = find_nested_value(text, "database", yaml_key)
-            want = compose_env.get("ai-service", {}).get(env_key)
+            want = _expand_compose_value(compose_env.get("ai-service", {}).get(env_key))
             if value and want and value != want:
                 errors.append(
                     f"tellurion-agent/config/ai-service.yaml 的 database.{yaml_key}={value} "
@@ -606,6 +634,40 @@ def check_env_wiring(
                     f"deploy/k8s/data-deployment.yaml 的 DATABASE_URL 缺 "
                     f"{placeholder} —— DSN 必须由 configmap/Secret 的身份字段拼出，"
                     f"写死值会在改密码/换库时静默失配")
+
+    # 5f) `${DATABASE_NAME:-...}` 的默认值必须全仓同一个，且与 k8s 的库名同值
+    #
+    # 5b/5c 只比 analysis / ai 两个服务的 DATABASE_DATABASE，可 compose 里引用
+    # 库名的实测有 10 处：data-service 的 DSN、analysis / ai / worker / dualrun
+    # 的 DATABASE_DATABASE、full profile 四个跨仓服务的 DSN，以及 dualrun 的
+    # -pg 实参（在 command: 里，5b 的 environment 解析结构根本看不到它）。
+    #
+    # 除了前两处，其余都没被比值断言覆盖：把任意一处 `:-tellurion` 改成别的
+    # 库名，检查器照旧全绿，症状是「某个容器说表不存在」而没人知道是哪份配置
+    # 错了。展开 default 只解决「比不出来」，这一项才提供「比」。
+    exprs = _DATABASE_NAME_EXPR.findall(_strip_compose_comment_lines(compose_text))
+    defaults = sorted({d.strip() for d in exprs})
+    k8s_db = cm_keys.get("DATABASE_DATABASE", "")
+    if not exprs:
+        # 库名写死也合法，但那意味着这一项失去对象 —— 明说，不静默失效
+        # （同 5b-2 / 3a 的教训：检查对象没了，脚本照常打勾就是假护栏）。
+        notes.append(
+            "docker-compose.yml 里已没有 ${DATABASE_NAME:-...} —— 库名口径改为"
+            "字面量，5f 的默认值一致性检查无对象可查")
+    elif "" in defaults:
+        errors.append(
+            "docker-compose.yml 的 ${DATABASE_NAME} 没有默认值 —— .env 未设时"
+            "compose 会插值出空库名，容器连到一个不存在的库")
+    elif len(defaults) > 1:
+        errors.append(
+            f"docker-compose.yml 的 ${{DATABASE_NAME:-...}} 默认值有 {len(defaults)} 种："
+            f"{', '.join(defaults)} —— 各处容器会连到不同的库（5b/5c 只覆盖 "
+            f"analysis/ai 两处，其余位置没人比）")
+    elif k8s_db and defaults[0] != k8s_db:
+        errors.append(
+            f"docker-compose.yml 的 ${{DATABASE_NAME:-...}} 默认值是 {defaults[0]}，"
+            f"而 deploy/k8s/configmap.yaml 的 DATABASE_DATABASE 是 {k8s_db} —— "
+            f"两条部署路径连的不是同一个库（AUD-39）")
 
     # 6) env 可达性：注入的每个 env 名都要有读取点
     names, prefixes = derive_readable_env_names()
@@ -787,24 +849,58 @@ def check_infra_is_external(
 _AUTH_TRUE_VALUES = {"true", "1", "yes", "on"}
 
 
-def _resolve_default(value: str | None) -> str:
-    """把 compose 的 `${NAME:-default}` 解析成「实际会生效的默认值」。
+def _expr_default(inner: str) -> str:
+    """从 `${...}` 的内部文本取「静态可判的默认值」。
+
+    ${NAME:-DEF} → DEF；${NAME} / ${NAME:?msg} → ""（值取决于 .env，静态不可知，
+    fail closed）。变量名里不可能含 ':'，所以第一个 ":-" 就是分隔符。
+    """
+    if ":-" in inner:
+        return inner.split(":-", 1)[1]
+    return ""
+
+
+def _expand_compose_value(value: str | None) -> str:
+    """把 compose 插值 `${NAME}` / `${NAME:-default}` 展开成「默认情况下会生效的值」。
 
     只看字符串形态，不读 .env（静态脚本读不到运行时环境）。语义：
       ${NAME:-DEF}  → DEF（.env 没设时的值）
       ${NAME}       → ""（值取决于 .env，静态不可知 → 按空处理，fail closed）
       ${NAME:?msg}  → ""（同上；缺值时 compose 自己会报错，不由本脚本负责）
-      其他          → 原样
+      其余文本      → 原样保留
+
+    **只用于比对，不用于读配置**：`${DATABASE_PASSWORD}` 这类「必须引用某变量」
+    的断言要看原文，展开后就看不到引用了。
+
+    花括号按层配对，而不是正则到第一个 `}`：`DUALRUN_PG_DSN` 的默认值里嵌着
+    `${DATABASE_NAME:-tellurion}`，按第一个 `}` 截断会展开出一个「语法正确、
+    值错误」的 DSN —— 那正是本检查要防的静默漂移。
     """
-    if value is None:
+    if not value:
         return ""
     s = value.strip()
-    if s.startswith("${") and s.endswith("}"):
-        inner = s[2:-1]
-        if ":-" in inner:
-            return inner.split(":-", 1)[1]
-        return ""
-    return s
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        if not s.startswith("${", i):
+            out.append(s[i])
+            i += 1
+            continue
+        depth, j = 1, i + 2
+        while j < len(s) and depth:
+            if s.startswith("${", j):
+                depth += 1
+                j += 2
+                continue
+            if s[j] == "}":
+                depth -= 1
+            j += 1
+        if depth:  # 未闭合：原样留下，由 5f 的残留断言报出来
+            out.append(s[i:])
+            break
+        out.append(_expand_compose_value(_expr_default(s[i + 2:j - 1])))
+        i = j
+    return "".join(out)
 
 
 def _is_loopback_bind(bind: str | None) -> bool:
@@ -827,11 +923,11 @@ def check_open_access_exposure(
     """检查 3c：open-access 的声明与端口发布范围必须互相蕴含。"""
     open_access_services = [
         svc for svc, env in compose_env.items()
-        if _resolve_default(env.get("AUTH_INSECURE")).lower() in _AUTH_TRUE_VALUES
+        if _expand_compose_value(env.get("AUTH_INSECURE")).lower() in _AUTH_TRUE_VALUES
     ]
     analysis_env = compose_env.get("analysis-service", {})
-    secret = _resolve_default(analysis_env.get("JWT_SECRET"))
-    exposure = _resolve_default(analysis_env.get("AUTH_INSECURE_EXPOSURE"))
+    secret = _expand_compose_value(analysis_env.get("JWT_SECRET"))
+    exposure = _expand_compose_value(analysis_env.get("AUTH_INSECURE_EXPOSURE"))
     has_secret = bool(secret)
 
     # 收集所有非回环映射（含 bind=None 即 0.0.0.0）
@@ -959,7 +1055,7 @@ def main() -> int:
                 f"server.gin_mode（AUD-29）；gin 会自己读 GIN_MODE，写在这里会绕过它")
 
     # 5~8) env 口径（AUD-39）
-    check_env_wiring(errors, compose_env, k8s_config_text, notes)
+    check_env_wiring(errors, compose_env, compose_text, k8s_config_text, notes)
 
     # 9) Dockerfile 的 COPY 源路径必须存在（AUD-48）
     check_dockerfile_copy_sources(errors)
@@ -979,9 +1075,12 @@ def main() -> int:
     print("✓ open-access 与端口发布范围互相蕴含（AUTH_INSECURE ⟺ 所有映射回环；"
           "对外发布 ⟹ 有 JWT_SECRET）（AUD-52 / P0-4）")
     print("✓ gin mode 无 GIN_MODE 旁路（唯一来源 server.gin_mode）")
-    print("✓ env 口径一致（compose ↔ k8s 的库名/用户名/端口相同 —— 地址按环境各写"
-          "一份，刻意不比；config/analysis-service.yaml 与 compose 一致，agent 仓的 "
+    print("✓ env 口径一致（compose ↔ k8s 的库名/用户名/端口相同 —— 先把 "
+          "${VAR:-default} 展开再比；地址按环境各写一份，刻意不比；"
+          "config/analysis-service.yaml 与 compose 一致，agent 仓的 "
           "ai-service.yaml 在工作区时同样对拍）")
+    print("✓ compose 每处 ${DATABASE_NAME:-...} 默认值相同，且与 configmap 的 "
+          "DATABASE_DATABASE 同值")
     print("✓ 注入的每个 env 都有读取点（configmap 键 + 应用 deployment 的 env）")
     print("✓ config/*.yaml 无 ${...} 占位符（本仓没有 env 展开器）")
     print("✓ 死键负向钉（POSTGRES_HOST/PORT、REDIS_HOST/PORT、"
