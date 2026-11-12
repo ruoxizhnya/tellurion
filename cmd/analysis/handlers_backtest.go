@@ -137,7 +137,15 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 					httpserver.FailCause(c, http.StatusBadGateway, "failed to submit run", submitErr)
 					return
 				}
-				c.JSON(http.StatusAccepted, gin.H{"job_id": submitted.JobID, "status": submitted.Status})
+				// queued 是「排队中」的可读标记：编排侧在 worker 领取前把作业记为
+				// pending。默认栈不含 worker（要另开 --profile orchestration-worker），
+				// 没有它时作业会一直停在 pending —— 这个字段让调用方一眼分出
+				// 「已排队、等 worker」与「已被领取、在跑」，而不是把 pending 误读成失败。
+				c.JSON(http.StatusAccepted, gin.H{
+					"job_id": submitted.JobID,
+					"status": submitted.Status,
+					"queued": submitted.Status == "pending",
+				})
 				return
 			}
 

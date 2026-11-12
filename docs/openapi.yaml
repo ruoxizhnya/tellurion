@@ -268,6 +268,12 @@ paths:
                     type: string
                   status:
                     type: string
+                    description: 编排侧任务状态：pending（排队，等 worker 领取）/ running / completed / failed
+                  queued:
+                    type: boolean
+                    description: >-
+                      true 表示作业已提交但尚无 worker 领取（status=pending）。默认栈与 full
+                      都不含 worker，需另开 --profile orchestration-worker；此时 202 仍是成功提交。
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':

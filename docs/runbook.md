@@ -21,6 +21,10 @@ docker compose down                  # 保留数据卷；本机数据在宿主 P
 ```
 
 - 默认栈是 **mock 通道**：`BROKER_CHANNEL=mock` + `BROKER_ALLOW_MOCK=true`，订单永不触达真实柜台。
+- **异步回测要 worker**：默认栈与 `--profile full` 都**不含** `worker`，`POST /api/backtest`（异步体）
+  仍会 202 成功并把作业交给 orchestration，但**没有人领取** ⇒ 作业停在 `pending`。要真正执行必须再开
+  `--profile orchestration-worker`：`docker compose --profile full --profile orchestration-worker up -d`。
+  提交回执里 `"queued": true` 就是「已排队、等 worker」；`status` 变 `running` 才表示已被领取。
 - `docker compose up` 前若 broker 镜像旧于源码（`/version` 无 `channel` 字段），core 会拒起——先
   `docker compose build broker`（镜像名见 compose）再 `up`。
 - 镜像来自平级仓 `tellurion-data` / `tellurion-agent` / `tellurion-broker`，本仓不构建它们。
@@ -42,9 +46,12 @@ RISK_SERVICE_RESOLVE_ENABLED=false SERVER_HOST=127.0.0.1 SERVER_PORT=18085 \
 
 | 进程 | 启动条件 | 坏了的后果 |
 |---|---|---|
-| `cmd/worker` | 必须给 `ORCHESTRATION_URL`（或 `-orchestration-url`） | 直接拒起（它无监听，不能空跑成功） |
+| `cmd/worker` | `--profile orchestration-worker`，且必须给 `ORCHESTRATION_URL`（或 `-orchestration-url`） | 直接拒起（它无监听，不能空跑成功）；**没起它**时异步回测停在 `pending`（回执 `queued: true`），不是丢失 |
 | `cmd/dualrun` | `--profile tools`，一次性验收门 | 跑完即退；非 0 = 对齐超阈 |
 | `cmd/recon` | 一次性对账工具 | 同上 |
+
+> `worker` **不进默认 profile**：它是无监听的执行侧，默认栈与 `full` 都能正常起服务；只有需要异步回测时才加 profile。
+> 现象对照：`GET /api/backtest` 里某作业长期 `status=pending` ⇒ 先查有没有 worker（`docker compose --profile orchestration-worker ps`）。
 
 ## 2. 探针语义（先分清，再排查）
 

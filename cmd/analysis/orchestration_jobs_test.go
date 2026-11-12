@@ -284,6 +284,9 @@ func TestAsyncEntrySubmitsToOrchestration(t *testing.T) {
 	if resp["job_id"] != "job-7" || resp["status"] != "pending" {
 		t.Fatalf("response = %v", resp)
 	}
+	if resp["queued"] != true {
+		t.Fatalf("queued must be true while status=pending (no worker has claimed it): %v", resp)
+	}
 
 	if gotBody["idempotency_key"] == "" || gotBody["idempotency_key"] == nil {
 		t.Fatalf("idempotency_key missing: %v", gotBody)
@@ -297,5 +300,50 @@ func TestAsyncEntrySubmitsToOrchestration(t *testing.T) {
 	}
 	if _, exists := spec["stock_pool"]; !exists {
 		t.Fatalf("run_spec missing stock_pool: %v", spec)
+	}
+}
+
+// TestAsyncEntryQueuedFlagTracksClaim 钉住 queued 不是恒 true：
+// 作业已被 worker 领取（status=running）时，回执必须 queued=false。
+func TestAsyncEntryQueuedFlagTracksClaim(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		queued bool
+	}{
+		{"pending", true},
+		{"running", false},
+	} {
+		t.Run(tc.status, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/runs/jobs" {
+					t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+				}
+				_, _ = io.WriteString(w, `{"job_id":"job-q","status":"`+tc.status+`","idempotent_replay":false}`)
+			}))
+			defer srv.Close()
+
+			eng := &backtest.Engine{}
+			reg := contracts.NewEngineRegistry()
+			reg.Register(contracts.DefaultKernel, eng)
+			r := gin.New()
+			registerBacktestRoutes(r, eng, reg, nil, nil, orchestrationworker.NewClient(srv.URL, srv.Client()), nil, zerolog.Nop(), nil)
+
+			body := `{"strategy_id":"momentum","universe":"600000.SH","start_date":"2026-01-01","end_date":"2026-03-01","initial_capital":500000}`
+			req := httptest.NewRequest(http.MethodPost, "/api/backtest", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202; body=%s", w.Code, w.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if resp["queued"] != tc.queued {
+				t.Fatalf("status=%s ⇒ queued=%v, want %v; resp=%v", tc.status, resp["queued"], tc.queued, resp)
+			}
+		})
 	}
 }
