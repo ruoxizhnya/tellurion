@@ -340,7 +340,11 @@ func TestGateAlerts_ProductionFireDeliversAlerts(t *testing.T) {
 
 	var logBuf bytes.Buffer
 	vs := []GateViolation{{Rule: "metric/sharpe", Message: "sharpe: go=1.2 nt=1.377 |Δ|=0.177 超绝对阈 0.05"}}
-	dispatchGateAlerts(vs, productionBreachFire(zerolog.New(&logBuf)))
+	// SyncWriter：告警管理器在 Fire 里写日志的同时，webhook 通道的
+	// deliver goroutine 也在写同一个 logger——裸 bytes.Buffer 不是并发安全的，
+	// -race 会判 DATA RACE（CI 43213312596 实测）。这与生产 writer（os.Stdout，
+	// 系统调用级写入）的并发契约不同，属测试日志汇的同步化，不改任何断言。
+	dispatchGateAlerts(vs, productionBreachFire(zerolog.New(zerolog.SyncWriter(&logBuf))))
 
 	// productionBreachFire 的 mgr.Close() 排空 webhook 队列后送达已确定；
 	// 超时护栏防将来通道语义变化时测试挂死。
@@ -386,7 +390,9 @@ func TestGateAlerts_ProductionFireLogOnly(t *testing.T) {
 
 	var logBuf bytes.Buffer
 	vs := []GateViolation{{Rule: "determinism", Message: "go 内核两次运行不一致（确定性腿破坏）"}}
-	dispatchGateAlerts(vs, productionBreachFire(zerolog.New(&logBuf)))
+	// 同 TestGateAlerts_ProductionFireDeliversAlerts：通道 goroutine 与 Fire
+	// 并发写同一日志汇，测试侧必须用 SyncWriter（-race 判据）。
+	dispatchGateAlerts(vs, productionBreachFire(zerolog.New(zerolog.SyncWriter(&logBuf))))
 
 	out := logBuf.String()
 	for _, want := range []string{alert.RuleDualRunGate, "determinism", string(alert.SeverityCritical)} {
