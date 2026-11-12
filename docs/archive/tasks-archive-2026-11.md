@@ -97,6 +97,7 @@
 | CORE-MIGRATION-REPLAY-GUARD | `migrate()` 无事务、无重放指纹 ⇒ 逐条事务 + 账本表（版本+指纹），指纹不符/账本领先拒绝启动 | 2026-11-12 | 见原文 | [原文](#CORE-MIGRATION-REPLAY-GUARD) |
 | CORE-DEAD-PROXY-SCREEN-VERIFY | 核验 `/screen` 等死反代修复：前后各打一次 + 装配级用例 + 静态护栏（残留 `pkg/strategy` 已立项） | 2026-11-12 | 见原文 | [原文](#CORE-DEAD-PROXY-SCREEN-VERIFY) |
 | CORE-FEE-ROUNDING-ASSERT | 费用分项逐位断言 + 对抗夹具自检（未取整）；破坏=注入截断 ⇒ 红 | 2026-11-12 | 见原文 | [原文](#CORE-FEE-ROUNDING-ASSERT) |
+| CORE-RUNNER-FLAKE-RESIDUAL | 先证伪：20+50+负载 20 次全绿 ⇒ 未复现，不改代码，留重开条件 | 2026-11-12 | 见原文 | [原文](#CORE-RUNNER-FLAKE-RESIDUAL) |
 
 ---
 
@@ -3281,3 +3282,26 @@
 >   `TestComputeFees_NeverQuantizesAcrossRange` 大面积 FAIL（`tradeValue=68290.73999999999 的过户费被改写` expected `0.6829074` actual `0.68`；总额同步对不上），`TestComputeFees_HalfCentBoundaryIsDetectable` 的分项逐位断言 FAIL；
 >   还原后哈希回到 `D284E578…2DAE9206`，`ok tellurion/pkg/portfolio`。
 > - **与任务原文的偏差（如实登记）**：core 仓没有「`Round(x, 2)` 的舍入点」可改，所以破坏验证的做法是**向费用算式注入截断**，而不是「把已有舍入改成截断」——两者对断言的检验等价（都是让某一项偏离真值），但前提描述需要修正。
+
+## 十九、2026-11-12 CORE-RUNNER-FLAKE-RESIDUAL 先证伪（未复现）
+
+<a id="CORE-RUNNER-FLAKE-RESIDUAL"></a>
+### CORE-RUNNER-FLAKE-RESIDUAL · runner 计时断言墙钟残留 [P2] ✅ 证伪完成：未复现（2026-11-12）
+
+- **① 目标**：先证伪——core 的 runner 计时用例是否真的会 flake；不复现就如实记录观察方式与重开条件，不改代码。
+- **② 上下文**：kit `7d7c3a8` 修过同族（把 `pkg/backtest` 与网关侧「绝对墙钟」判据改成结构断言）。core `pkg/sandbox/runner` 现存三处墙钟比较，且其中两处已带 2026-11-11 的修复注释（说明同族修法当时已落到本仓）。
+- **③ 要求**：至少 20 次；不复现 ⇒ 未复现 + 观察方式 + 建议重开条件；复现 ⇒ 失败频率与根因，再改成不依赖墙钟的判据。
+- **④ 约束与非目标**：不为「有产出」而改代码；不动 `pkg/backtest`（另有会话在写）。
+- **⑤ 验收**：跑数、通过率、每条断言的余量成文；结论为「未复现」时不产生生产代码改动。
+- **⑥ 边界**：`pkg/sandbox/runner` 的三处墙钟断言（`runner_test.go:338` 超时早于子进程 5s 自睡、`runner_test.go:578` 快速子进程早于 5s 默认上限、`limits_windows_test.go:184` 1 CPU 秒上限早于 12s 自旋）。
+- **重开条件**：① 观察到一次「`elapsed ≥ 5s` 且 err 仍是 `ErrTimeout`」的失败（本地或 CI），即墙钟余量被吃穿；② CI 引入 CPU 配额/慢 shard，使 spawn 的 P99 逼近 4s；③ 断言目标从「早于 5s」改成「显著早于」时，再引入可注入时钟。
+
+> **✅ 施工记录（2026-11-12）**
+>
+> - **判据余量**：三处都是「早于固定上限」，而非「必须 ≤ 200ms」这类紧上限——`TestRun_Timeout` 用 200ms 超时 + 子进程自睡 5000ms，断言只要求 `< 5s`（25× 余量）；`TestDefaultTimeout` 断言快速子进程 `< DefaultTimeout(5s)`；`TestRun_JobObjectCPUTimeLimitIsEnforced`（Windows、非 `-short`）断言 1 CPU 秒上限在 12s 自旋结束前生效（11s 余量）。三处均已有注释说明「不钉死绝对墙钟」的原因。
+> - **实测（真实输出）**：
+>   `go test ./pkg/sandbox/runner -count=20` ⇒ `ok … 139.289s`（20/20）；
+>   `go test ./pkg/sandbox/runner -run "TestRun_Timeout|TestDefaultTimeout" -count=50` ⇒ `ok … 10.251s`（50/50，单次 ≈205ms，与 200ms 超时吻合，距 5s 上限 ≈24×）；
+>   4 个后台 CPU 烧机进程下 `go test ./pkg/sandbox/runner -run "TestRun_Timeout|TestDefaultTimeout|TestRun_JobObject" -count=20` ⇒ `ok … 139.155s`（20/20）。
+> - **限制**：本机 `CGO_ENABLED=0`，`-race` 无法开启（`go: -race requires cgo`），未做 race 压测；以「高次数 + CPU 满载」替代。
+> - **结论**：**未复现**。core HEAD 上该族残留已不存在需要改的判据；本单不产生生产代码改动。
