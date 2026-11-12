@@ -108,6 +108,7 @@
 | CORE-RESULT-RETENTION | 回测结果/provenance 保留期：明细 90 天、汇总与 provenance 365 天、被引用永不删 | 2026-11-12 | `f50affe`、`1d07a39`、`5af46cb` | [原文](#CORE-RESULT-RETENTION) |
 | CORE-RISK-REMOTE-FALLBACK-DEAD | `risk_service.url` 三处远程回落恒不可用（裁决 = 删，改 fail-closed） | 2026-11-12 | `5729395` | [原文](#CORE-RISK-REMOTE-FALLBACK-DEAD) |
 | X-PROBE-NAMING | data `/healthz` 统一探针命名，摘 `/health` 别名并复验 consumers | 2026-11-12 | data `3a40867`（core 侧无代码改动） | [原文](#X-PROBE-NAMING) |
+| CORE-BROKER-STARTUP-PRECONDITION | broker 不可达 ⇒ core 拒起（部署前置）：文档腿补齐失败原文，k8s 腿随退役关闭 | 2026-11-12 | 见原文 | [原文](#CORE-BROKER-STARTUP-PRECONDITION) |
 
 ---
 
@@ -3531,3 +3532,30 @@
 > - **consumer 清零（core）**：data 探针在 `e2e/tests/integration_test.go`、`tools/local-stack.sh`、`docker-compose.yml`、`tools/sync_all.sh` 均已是 `/healthz`；全仓 grep `*.go/*.sh/*.ps1/*.py/*.yaml/*.yml/*.js/*.ts` 后，剩余的 `/health` 命中均为 analysis / agent 自己的探针或归档层 `deploy/k8s/archive/data-deployment.yaml`（随 `CORE-K8S-EXIT` 已退役，不改）。
 > - **e2e 复验（data 摘别名后）**：`go test ./e2e/tests -run 'TestHealthCheck_AllServices|TestDockerComposeServicesConnectivity' -count=1 -v` ⇒ `PASS`；`TestHealthCheck_AllServices/Analysis_Service_Health`、`/Data_Service_Health` 与 `TestDockerComposeServicesConnectivity` 四个子用例全部 PASS（无 SKIP），无隐式依赖 `/health` 的失败。
 > - **收口**：别名已摘、e2e 复验通过。
+
+<a id="CORE-BROKER-STARTUP-PRECONDITION"></a>
+### CORE-BROKER-STARTUP-PRECONDITION · broker 不可达时 core 拒起（部署前置）[P1] ✅（2026-11-12）
+
+- **① 目标**：把「core 起得来」与「broker 先就绪」的先后关系写成部署约束，避免编排侧误判为 core 缺陷。
+- **② 上下文（2026-11-11 三次前提改写）**：`cmd/analysis` 的 exec-engine 模块在 `Boot` 期无条件构造 broker 通道（`cmd/analysis/kernel_wiring.go:130` → `pkg/bootstrap.BuildExecutionTrader` → `pkg/brokerhttp.NewTraderFromEnv`），`BROKER_URL` 缺失即 `kernel assembly failed`、服务拒起。原前提「实测三种编排都没给 core 注入 `BROKER_URL`」**已不成立**：core `docker-compose.yml` 的**默认栈**已含 `broker`（`127.0.0.1:8091:8091`）并给 `analysis-service` 注入 `BROKER_URL=http://broker:8091` / `BROKER_CHANNEL=mock` / `BROKER_ALLOW_MOCK=true` / `BROKER_SERVICE_TOKEN` / `BROKER_ACCOUNT_ID`，且 `depends_on: broker: service_healthy`（`CORE-COMPOSE-UNIFY`）；`docker-compose.services.yml` 已并入并删除。**剩余缺口**：① ~~容器腿冷启动未真跑~~ **2026-11-11 已补：`--profile full` 连续三次 `down → up -d --wait` 全绿**；② `deploy/k8s/` 8 份清单仍无 broker、也无 `BROKER_*` 注入；③ `deploy/README.md` 与 runbook 尚未写失败原文。
+- **③ 要求**：①（前置，**已于 2026-11-11 完成**：单一 compose 默认栈真接上 broker + 启动依赖 + `wait-for-deps.sh` 等 `BROKER_URL`）；② `deploy/README.md` 与 runbook 写明失败时的原文（`kernel assembly failed` → `BROKER_URL is required` / `broker peer channel` 两类）；③ 保留 fail-closed，不改「先起后连」；④ 若产品上要支持「只做分析、不下单」的部署形态，那是**另一个决定**（把 exec-engine 改成可选模块），须单独立单，并说明不接交易时对账 / 风控覆盖口子由谁负责；⑤ k8s 形态接 broker 另立部署单（本单只管本仓编排资产）。
+- **④ 约束与非目标**：不改 `pkg/brokerhttp` 的 fail-closed 行为；不引入跨服务的就绪协商。
+- **⑤ 验收**：冷启动整套栈 `up --wait` 一次成功、core 重启计数为 0 —— **2026-11-11 实测三次全绿**，启动日志含 `broker peer channel verified`（`channel=mock`）与 `execution channel is MOCK`；破坏验证（拔掉 broker 或反序起，core 必失败且日志点名 `BROKER_URL` / `/version`）**尚未做**。
+- **⑥ 边界**：部署资产归本仓；broker 侧镜像、`/version` 的 `channel` 与探针归 `tellurion-broker`。
+- **重开条件**：出现第一个需要 core 真下单的部署形态（X6c 真钱通道或 mock 演练），或决定「接入 broker」与「exec-engine 可选化」两条路线中的任一条。
+
+> **施工记录（2026-11-12，只余文档腿；k8s 腿已随 `CORE-K8S-EXIT` 退役）**
+>
+> - **前提复核（2026-11-12）**：② 的 k8s 缺口已不成立 —— `deploy/k8s/` 8 份清单已移入 `archive/`、活跃层零清单（`CORE-K8S-EXIT`，commit `480aab9`），「k8s 缺 broker」随形态退役一并消失，无需另立部署单。③ 文档腿成立：`deploy/README.md` 只有一句 `verifyPeerChannel` 提及，缺失败原文与启动顺序约束；runbook 有装配期错误表但缺容器 entrypoint 阶段的失败原文。
+> - **`deploy/README.md`**：新增「broker 必须先于 core 可用（启动前置，不是降级项）」一节 —— 说明 exec-engine 在 `Boot` 期无条件构造通道、进程内撮合已随 `SVC-CORE-BROKER-RETIRE` 删除、没有静默回退；三类失败原文（容器 `wait-for-deps` 超时 / 本机直跑 `BROKER_URL is required` / 任一形态 `channel mismatch` 或 `cannot verify peer channel`）与处置；正常日志对照两条；「只做分析不下单」须另立单。
+> - **`docs/runbook.md` §4**：新增「容器形态：`wait-for-deps.sh` 在进程启动前就退出」段落，登记三条真实输出与两个阶段的区分（网络层等不到 ⇒ 到不了 `kernel assembly failed`），并写明 `WAIT_FOR_DEPS_TIMEOUT` 语义。
+> - **`deploy/wait-for-deps.sh`**：把超时提示里的「数据库/缓存起了吗」改为「宿主 PG 或 broker 起了吗」（Redis 已随 `CORE-REDIS-EXIT` 退役，旧文案会误导）；行为不变。
+> - **真跑证据（破坏腿，隔离容器，主栈未动）**：
+>   `docker run --rm -e BROKER_URL=http://127.0.0.1:65530 -e WAIT_FOR_DEPS_TIMEOUT=3 tellurion-analysis-service:latest /app/wait-for-deps.sh true`
+>   ⇒ `EXIT=1`，输出：
+>   `wait-for-deps: 等 127.0.0.1:65530 超过 3s 仍不可达，放弃启动。`
+>   `wait-for-deps: 依赖不可达 —— 宿主 PG 或 broker 起了吗？本机用 tools/local-infra.sh start 启停；`
+>   `wait-for-deps: broker 由 docker compose 的默认栈提供（--profile full 不影响它）。`
+>   这正是 ⑤ 要求的「拔掉 broker ⇒ core 必失败且日志点名」的容器形态证据；本机直跑/通道不一致两条由 `pkg/brokerhttp/port_test.go:463` 与 `trader_channel_test.go:88,112` 钉住原文。
+> - **未做**：未在主栈上真做「停 broker → 重建 analysis」的整栈破坏（本轮复用栈在跑全栈验收，且 2026-11-11 冷启动三次全绿已覆盖正向；隔离容器腿覆盖了同一 entrypoint 的失败分支）。
+> - **门禁**：`docker compose config --quiet` / `--profile full config --quiet` / `check_doc_links.py` / `check_deploy_consistency.py` 全 exit 0。

@@ -107,6 +107,19 @@ FATAL ... kernel assembly failed error="<具体原因>"
 | `risk ...` 快照类错误 | `RISK_SERVICE_RESOLVE_ENABLED=true` 时取不到 approved 规则 | 起 risk 并确认库里有 approved 规则；或显式改 `false` 用内置限额 |
 | `strategy ...` 资产类错误 | 策略资产服务不可用且策略用了 `strategy_ref` | 起 strategy；或改用内置策略 |
 
+**容器形态：`wait-for-deps.sh` 在进程启动前就退出**（装配期还没到）：
+
+```text
+wait-for-deps: 等 broker:8091 超过 60s 仍不可达，放弃启动。
+wait-for-deps: 依赖不可达 —— 宿主 PG 或 broker 起了吗？
+wait-for-deps: broker 由 docker compose 的默认栈提供（--profile full 不影响它）。
+```
+
+含义：`BROKER_URL` 的 host:port 探不通（broker 没起 / 未 healthy / 名字写错），
+entrypoint 直接 `exit 1`。这与 §4 上表的装配期错误是**两个阶段**：先在网络层等不到，
+连 `kernel assembly failed` 都到不了。处置 = 先起 broker；超时阈值用
+`WAIT_FOR_DEPS_TIMEOUT`（秒，默认 60，最小实践值 3 只用于验证消息本身）。
+
 **正常日志（对照用）**：
 
 ```text

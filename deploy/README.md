@@ -30,6 +30,31 @@
 `deploy/k8s/archive/`，不参与部署；恢复须另立 ADR，见
 [`k8s/README.md`](k8s/README.md)。
 
+## broker 必须先于 core 可用（启动前置，不是降级项）
+
+`analysis-service` 的 exec-engine 模块在 `Boot` 期**无条件**构造 broker 通道
+（`cmd/analysis/kernel_wiring.go` → `pkg/bootstrap.BuildExecutionTrader` →
+`pkg/brokerhttp.NewTraderFromEnv`）。所以「broker 没起来 / 不可达」不是少一个
+可选依赖，而是 **core 拒起**（fail-closed，进程内撮合已随 `SVC-CORE-BROKER-RETIRE`
+删除，没有静默回退）。编排侧不要把这种拒起误判成 core 缺陷。
+
+三类失败原文（排查入口见 [`../docs/runbook.md`](../docs/runbook.md) §4）：
+
+| 形态 | 失败原文（片段） | 含义 / 处置 |
+|---|---|---|
+| 容器（默认栈 / full） | `wait-for-deps: 等 broker:8091 超过 60s 仍不可达，放弃启动。` | entrypoint 在 `BROKER_URL` 的 host:port 探不通时退出 1；先起 broker（默认栈已 `depends_on: broker: service_healthy`）。超时由 `WAIT_FOR_DEPS_TIMEOUT` 控制 |
+| 本机直跑 | `kernel assembly failed error="broker_http: BROKER_URL is required — in-process matching was retired ..."` | 没给 `BROKER_URL`；显式指向 broker 网关 |
+| 任一形态 | `broker_http: channel mismatch: BROKER_CHANNEL=live but peer reports "mock" ...` / `cannot verify peer channel via ... — fail-closed` | 声明与对端 `/version` 自报不一致或对端不可达/无 `channel`；改声明或升级/重建 broker 镜像，**不许**放宽成「验证不了就放行」 |
+
+- 两种编排都必须给 `analysis-service` 注入 `BROKER_URL`：默认栈与 `--profile full`
+  由 compose 给 `http://broker:8091`；本机直跑按 [`runbook §1.2`](../docs/runbook.md)
+  显式给。`worker` 不直连 broker（它经 HTTP 调 core），不受这条约束。
+- 正常日志对照：`broker peer channel verified channel=mock endpoint=http://broker:8091/version`
+  + `execution channel is MOCK`。缺这两行说明核对没走到，按上表排查。
+- 若产品上要支持「只做分析、不下单」的部署形态，那是把 exec-engine 改成可选模块的
+  **另一个决定**（须单独立单，并说明不接交易时对账/风控覆盖口子由谁负责），
+  不在本编排内隐式支持。
+
 ## 跨仓服务地址：默认值面向 Docker Desktop，Linux 需显式指定
 
 `ai-service` 调 strategy 资产服务用 `STRATEGY_ASSET_URL`（写侧全闸，另需

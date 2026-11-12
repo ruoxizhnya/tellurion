@@ -74,7 +74,7 @@ for target in $targets; do
     while ! nc -z "$host" "$port" 2>/dev/null; do
         if [ "$waited" -ge "$TIMEOUT" ]; then
             echo "wait-for-deps: 等 ${host}:${port} 超过 ${TIMEOUT}s 仍不可达，放弃启动。" >&2
-            echo "wait-for-deps: 宿主机上的数据库/缓存起了吗？本机用 tools/local-infra.sh start 启停；" >&2
+            echo "wait-for-deps: 依赖不可达 —— 宿主 PG 或 broker 起了吗？本机用 tools/local-infra.sh start 启停；" >&2
             echo "wait-for-deps: broker 由 docker compose 的默认栈提供（--profile full 不影响它）。" >&2
             exit 1
         fi
