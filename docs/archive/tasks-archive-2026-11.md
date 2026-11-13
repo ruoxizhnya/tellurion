@@ -4418,4 +4418,29 @@
 > 并点名该包，删除后复绿；白名单删多了/删漏了同样由该用例报出。
 > commit：`git log --grep=CORE-DEAD-PACKAGE-DISPOSITION`。
 
+### CORE-TEST-EVIDENCE-VERSIONED · 测试证据进入版本控制或 CI artifact [P2] ✅ 2026-11-13 完成
+
+> 档 4（测试）· 来源：03-testing P2-5 · 顺序 4-5 · 依赖：主任裁决 A/B
+
+- **① 目标**：审查/验收所依赖的测试证据不再只活在仓外工作目录。
+- **② 上下文**：`reports/` 在 core 为 0 tracked 文件，全栈验收证据写在仓外 `.qoder-cn/plans/` 与 untracked `reports/`；换机器/清理后不可复核。审查建议"纳入版本控制（或改为 CI artifact）"。
+- **③ 要求**：建议 **B CI artifact + 仓内摘要**：完整日志/覆盖率上传 artifact，仓内只提交结论摘要与 run 链接；备选 **A 提交 `reports/`**（仓体积与噪声需评估）。
+- **④ 约束与非目标**：不提交大文件/二进制；不把证据塞进业务目录；不改测试本身。
+- **⑤ 验收**：B——CI 有 artifact 上传且保留期明确，仓内有可追溯摘要；A——`reports/` 有索引与保留策略。破坏验证 = 删除摘要链接 ⇒ 文档检查红。
+- **⑥ 边界**：core CI + `reports/` + 文档；跨仓证据归各仓。
+- **重开条件**：主任裁决 A 或 B（建议 B）。
+
+> **裁决与施工记录（2026-11-13，主任裁决 = B CI artifact + 仓内摘要）**：
+> `ci.yml` 的 `go` job：Test 步改为 `set -o pipefail; go test ... 2>&1 | tee gotest.log`
+> （仍生成 `coverage.out` 供覆盖率门禁）；新增 `Upload test evidence`
+> （`actions/upload-artifact@v4`，name=`test-evidence`，path=`coverage.out` /
+> `gotest.log` / `/tmp/integration.log`，`retention-days: 30`，`if: always()`，
+> `if-no-files-found: warn`）。日志/覆盖率**不入库**，仓内摘要写入
+> `reports/test-2026-11-13/summary.md` §7（含取件路径与口径）。
+> 护栏：新增 `internal/repoguard/ci_test_evidence_test.go`，按 YAML 结构钉住
+> 上传步存在、`always()`、保留期 30、三项路径齐全、顺序在 Test 之后；
+> `ci_integration_tag_test.go` 的 `ciStep` 补 `uses` / `if` / `with` 字段。
+> 破坏验证：把 `retention-days: 30` 改为 `60` ⇒ 用例 FAIL；逐字节还原 ⇒ PASS。
+> commit：`git log --grep=CORE-TEST-EVIDENCE-VERSIONED`。
+
 

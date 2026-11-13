@@ -153,7 +153,8 @@ jobs:
         # 前的旧产物），go 工具链会把它当模块内包walk 到，本地 total 会
         # 略低于 CI 的干净检出——方向保守，不影响门禁有效性。
         run: |
-          go test ./... -count=1 -race -coverprofile=coverage.out
+          set -o pipefail
+          go test ./... -count=1 -race -coverprofile=coverage.out 2>&1 | tee gotest.log
           go run ./tools/coveragegate -profile=coverage.out \
             -total-min=67 \
             -pkg-min=tellurion/pkg/backtest=77
@@ -199,6 +200,25 @@ jobs:
         env:
           TUSHARE_TOKEN: ""
           TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
+
+      # CORE-TEST-EVIDENCE-VERSIONED（2026-11-13，主任裁决 = CI artifact + 仓内摘要）：
+      # 完整测试日志与覆盖率只进 artifact，不进 git；仓内只留
+      # `reports/test-2026-11-13/summary.md` 的结论摘要与取件说明。
+      # 保留 30 天 = 覆盖一个评审周期，又不把仓外存储当永久归档。
+      # `if: always()` 是关键 —— 失败时的证据比通过时更有用；`warn` 允许
+      # Test 步在编译期就红、还没产出 coverage.out 时仍能上传其余日志。
+      # 护栏：internal/repoguard/ci_test_evidence_test.go 钉住 name/path/保留期/顺序。
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-evidence
+          path: |
+            coverage.out
+            gotest.log
+            /tmp/integration.log
+          retention-days: 30
+          if-no-files-found: warn
 
       # QT-61：把「默认跳过、且需要外部数据的用例面」在 CI 汇总里点名，让「绿」里
       # 看不见的覆盖缺口变成一条可见的 notice —— 不是把它们变红（那是噪声），也不是

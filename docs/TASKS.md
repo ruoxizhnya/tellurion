@@ -166,17 +166,7 @@ verified-by: 2026-11-13 五角审查立单 → 同日施工收口 10 条并归�
 
 > 本轮（2026-11-13）档 4 已完成 4 条（`CORE-E2E-FAIL-LOUD` / `CORE-INTEGRATION-TAG-CI` / `CORE-COVERAGE-FLOOR` / `CORE-TEST-HERMETIC`），原文与施工记录已逐字移入 [归档 §二十六](archive/tasks-archive-2026-11.md)。
 
-### CORE-TEST-EVIDENCE-VERSIONED · 测试证据进入版本控制或 CI artifact [P2] ⏸ 待主任裁决
-
-> 档 4（测试）· 来源：03-testing P2-5 · 顺序 4-5 · 依赖：主任裁决 A/B
-
-- **① 目标**：审查/验收所依赖的测试证据不再只活在仓外工作目录。
-- **② 上下文**：`reports/` 在 core 为 0 tracked 文件，全栈验收证据写在仓外 `.qoder-cn/plans/` 与 untracked `reports/`；换机器/清理后不可复核。审查建议"纳入版本控制（或改为 CI artifact）"。
-- **③ 要求**：建议 **B CI artifact + 仓内摘要**：完整日志/覆盖率上传 artifact，仓内只提交结论摘要与 run 链接；备选 **A 提交 `reports/`**（仓体积与噪声需评估）。
-- **④ 约束与非目标**：不提交大文件/二进制；不把证据塞进业务目录；不改测试本身。
-- **⑤ 验收**：B——CI 有 artifact 上传且保留期明确，仓内有可追溯摘要；A——`reports/` 有索引与保留策略。破坏验证 = 删除摘要链接 ⇒ 文档检查红。
-- **⑥ 边界**：core CI + `reports/` + 文档；跨仓证据归各仓。
-- **重开条件**：主任裁决 A 或 B（建议 B）。
+> `CORE-TEST-EVIDENCE-VERSIONED` 已按主任裁决 **B（CI artifact + 仓内摘要）** 落地（2026-11-13），原文与施工记录见 [归档 §二十七](archive/tasks-archive-2026-11.md)。
 
 #### 2026-11-13 五角审查 · 档 5（文档与代码一致性）
 

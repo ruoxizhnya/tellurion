@@ -95,3 +95,18 @@ source: docs/COMPREHENSIVE-TEST-PLAN-2026-11-13.md §7
 - 异步状态查询的真实入口是编排 `GET /api/runs/jobs/{id}`；core **没有** `/api/backtest/status/{id}`
   （`e2e/tests` 里旧轮询助手已按 `CORE-E2E-FAIL-LOUD` 删除）。
 - `-race` 与租约回收两条解除后，需同步把计划 §7.1 对应波次的 BLOCKED 改 0 并补证据文件。
+
+## 7. 证据版本化（CORE-TEST-EVIDENCE-VERSIONED，2026-11-13 主任裁决）
+
+- **口径**：CI artifact + 仓内摘要；完整日志/覆盖率**不入库**，仓内只保留本文件。
+- **artifact**：GitHub Actions 的 `go` job 上传 `test-evidence`，内容 =
+  `gotest.log`（`go test ./... -count=1 -race` 全量输出）、`coverage.out`（覆盖率门禁输入）、
+  `/tmp/integration.log`（`-tags=integration` 两包输出）。
+- **保留期**：30 天（`retention-days: 30`），覆盖一个评审周期；过期后以本摘要与
+  commit / run 编号复核。
+- **取件**：Actions run 页面 → Artifacts → `test-evidence`。
+- **失败时也上传**（`if: always()`）：红跑的日志比绿跑更有复核价值。
+- **护栏**：`internal/repoguard/ci_test_evidence_test.go` 钉住上传步存在、
+  路径三项齐全、保留期 30、且排在 Test 步之后；破坏验证 = 改保留期/删上传步 ⇒ 红。
+- **本目录其余文件**（§4/§5 列出的原始日志、`baseline.dump` 等）仍按原约定
+  **不入库、不删除**，作为本轮执行的仓外工作区证据。

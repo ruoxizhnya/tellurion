@@ -35,6 +35,11 @@ type ciStep struct {
 	Name string            `yaml:"name"`
 	Run  string            `yaml:"run"`
 	Env  map[string]string `yaml:"env"`
+	// CORE-TEST-EVIDENCE-VERSIONED 护栏需要看 upload-artifact 的结构，
+	// 不是只在注释里 grep 到关键字。
+	Uses string            `yaml:"uses"`
+	If   string            `yaml:"if"`
+	With map[string]string `yaml:"with"`
 }
 
 type ciJob struct {
