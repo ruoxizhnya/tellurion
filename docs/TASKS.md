@@ -301,17 +301,7 @@ verified-by: 2026-11-13 五角审查立单 → 同日施工收口 10 条并归�
 >   contracts CI 上验证过的 `v0.8.2`；orchestration/broker 现为 `@latest`（见归档
 >   X-CI-RACE-STATICCHECK 对账表），同批收敛。core 侧**不代改**。
 
-### X-CI-WINDOWS · Windows runner 是否纳入 CI [P3] ⏸ 待主任裁决
-
-> 档 4（测试）· 来源：03-testing P3-1 · 顺序 4-7 · 依赖：主任裁决 + runner 成本
-
-- **① 目标**：决定 Windows 专属代码是否有 CI 覆盖。
-- **② 上下文**：全仓 CI 只在 Ubuntu 跑；存在 Windows 专属分支（路径分隔符、进程管理）但无 runner 验证。
-- **③ 要求**：建议只给 core 加一条 Windows job（build + vet + 单元测试，不跑 DB/race），而非 10 仓全量铺开。
-- **④ 约束与非目标**：不改变 Linux 主门；不引入自托管 runner。
-- **⑤ 验收**：core Windows job 绿；能捕获一次 Windows 路径回归（破坏验证）。
-- **⑥ 边界**：core CI；是否推广到其他仓另行评估。
-- **重开条件**：主任批准 runner 成本与范围（建议仅 core）。
+> `X-CI-WINDOWS` 已按主任裁决 **不引入 Windows runner、改交叉编译门** 落地（2026-11-13），原文与施工记录见 [归档 §二十七](archive/tasks-archive-2026-11.md)。
 
 ## 五、W5 起栈追加验收（2026-11-12）
 

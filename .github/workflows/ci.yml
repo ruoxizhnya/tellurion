@@ -78,8 +78,17 @@ jobs:
       # vet 会连测试文件一起做类型检查，所以它同时覆盖了两者。
       #
       # 交叉编译不需要链接或运行，成本接近零（实测约 20s，与 Linux vet 同量级）。
-      - name: Vet (windows)
-        run: GOOS=windows go vet ./...
+      #
+      # X-CI-WINDOWS（2026-11-13 主任裁决 = 不引入 Windows runner，改交叉编译门）：
+      # 生产代码没有 `runtime.GOOS` 分支，真实风险只在编译期（路径分隔符 /
+      # 进程管理类型只在 Windows 构建里成立）。因此用 `GOOS=windows GOARCH=amd64`
+      # 同时跑 build（非测试源码）与 vet（含 _test.go 类型检查），不付 runner 成本。
+      # 护栏：internal/repoguard/ci_windows_crossbuild_test.go 同时钉住
+      # 「有 build+vet」与「没有 windows runner」两件事。
+      - name: Cross-compile gate (windows/amd64)
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
 
       # AUD-27：补上 gofmt 门禁。AGENTS.md §8 的提交前清单早就写了
       # 「`gofmt -l .` 无输出」，但这条检查在**本机恒失败** —— 本机

@@ -4464,4 +4464,29 @@
 > 破坏验证：删除 `Str("reason", ...)` ⇒ `live loopback only warns` FAIL；还原 ⇒ PASS。
 > commit：`git log --grep=BROKER-LIVE-LOOPBACK-GUARD`。
 
+### X-CI-WINDOWS · Windows runner 是否纳入 CI [P3] ✅ 2026-11-13 完成（core 侧，不铺其他仓）
+
+> 档 4（测试）· 来源：03-testing P3-1 · 顺序 4-7 · 依赖：主任裁决 + runner 成本
+
+- **① 目标**：决定 Windows 专属代码是否有 CI 覆盖。
+- **② 上下文**：全仓 CI 只在 Ubuntu 跑；存在 Windows 专属分支（路径分隔符、进程管理）但无 runner 验证。
+- **③ 要求**：建议只给 core 加一条 Windows job（build + vet + 单元测试，不跑 DB/race），而非 10 仓全量铺开。
+- **④ 约束与非目标**：不改变 Linux 主门；不引入自托管 runner。
+- **⑤ 验收**：core Windows job 绿；能捕获一次 Windows 路径回归（破坏验证）。
+- **⑥ 边界**：core CI；是否推广到其他仓另行评估。
+- **重开条件**：主任批准 runner 成本与范围（建议仅 core）。
+
+> **裁决与施工记录（2026-11-13，主任裁决 = 不引入 Windows runner，改交叉编译门）**：
+> 理由：生产代码没有 `runtime.GOOS` 分支，真实风险只在编译期；Windows runner
+> 只为编译期覆盖付整机成本，不划算。改动：AUD-38 的 `Vet (windows)` 升级为
+> `Cross-compile gate (windows/amd64)`，显式 `GOOS=windows GOARCH=amd64` 跑
+> `go build ./...`（非测试源码）+ `go vet ./...`（含 `_test.go` 类型检查）。
+> 护栏：新增 `internal/repoguard/ci_windows_crossbuild_test.go`，断言该步
+> build+vet 两条命令齐全，并断言**任何 job 都不得使用 windows runner**
+> （防止成本决策漂回 yml）；`ciJob` 补 `runs-on` 字段。
+> 验证：本机实跑 `windows_build_exit=0 windows_vet_exit=0`；
+> `go test ./internal/repoguard -run TestCIWindowsCrossCompileGate` PASS。
+> 破坏验证：删掉 `go build` 行 ⇒ 用例 FAIL 并点名缺失命令；逐字节还原 ⇒ PASS。
+> commit：`git log --grep=X-CI-WINDOWS`。
+
 

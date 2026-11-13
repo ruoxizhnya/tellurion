@@ -43,8 +43,9 @@ type ciStep struct {
 }
 
 type ciJob struct {
-	Env   map[string]string `yaml:"env"`
-	Steps []ciStep          `yaml:"steps"`
+	Env    map[string]string `yaml:"env"`
+	RunsOn string            `yaml:"runs-on"`
+	Steps  []ciStep          `yaml:"steps"`
 }
 
 type ciWorkflow struct {
