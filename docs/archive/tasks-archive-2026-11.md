@@ -127,6 +127,7 @@
 | CORE-BENCH-CALENDAR-FIXTURE | `BenchmarkBacktest` 缺交易日历：按 fixture 日期合成日历，基准恢复出 ns/op | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-BENCH-CALENDAR-FIXTURE) |
 | CORE-LISTING-SEED-UNWIRED | 上市/退市日历接入真实装配路径（主引擎 + walk-forward 窗口引擎），失败不合成并暴露 `pool_source=current` 偏差标记 | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-LISTING-SEED-UNWIRED) |
 | CORE-CI-DB-LEGS-SKIPPED | CI Test job 设 `TEST_DATABASE_DSN` + 显式迁移步，PIT / 迁移账本用例不再长期 skip；补齐外仓表镜像夹具 | 2026-11-12 | 见原文（本条即施工提交本体：CI + 工具 + 夹具 + 台账同 commit） | [原文](#CORE-CI-DB-LEGS-SKIPPED) |
+| CORE-DATA-MIGRATIONS-EXIT | `public.data_migrations` 过渡态退出条件（前提证伪，作废） | 2026-11-12 | —（原文未记） | [原文](#CORE-DATA-MIGRATIONS-EXIT) |
 
 ---
 
@@ -3982,4 +3983,35 @@
 >   - `go run ./tools/coveragegate -profile=... -total-min=52 -pkg-min=tellurion/pkg/backtest=65` → `PASS: 总量 72.5% ≥ 52.0%，包级阈值全部达标`（旧基线 57.7%，DB 腿打开后 72.5%，阈值不动）。
 >   - **破坏验证**：把 `GetFundamentalsSnapshot` 的 `available_date <= $1` 临时改成 `>= $1` → 上述 PIT 用例 FAIL（公告日之后的财报被当成可见）；还原后 `git diff --stat pkg/storage/fundamentals.go` 为空、同用例 PASS。
 > - **未覆盖**：CI runner 首次跑（本机无 Actions）；`-race` 仍需 CI 的 gcc。
+
+---
+
+## 二十五、2026-11-13 CORE-DATA-MIGRATIONS-EXIT 归档（作废，前提证伪）
+
+<a id="CORE-DATA-MIGRATIONS-EXIT"></a>
+### CORE-DATA-MIGRATIONS-EXIT · `public.data_migrations` 过渡态的退出条件 [P2] ✅ 作废（2026-11-12，前提证伪）
+
+> **关闭记录（2026-11-12，挂起任务处置批次，主任指令）**：前提「过渡保留物」被源码证伪——
+> ① `pkg/storage/postgres.go:329-342` 的 DDL 注释明写本表是**永久机制**：「后续同类迁移
+> **复用本表**，不要另立机制」「data_migrations 表保留，供后续仍属本仓的一次性迁移复用
+> （当前无使用者）」。它不是待退出的过渡物，而是变换型 DML（不幂等迁移）的一次性标记表；
+> 历史使用者 052/054 已随数据面退役，机制本身保留。
+> ② 全仓实测零读者零写者（grep 仅命中 DDL 与注释），不存在「谁还在读」的退出判据问题。
+> ③ 原单重开条件「X1d 生产搬迁完成且观察一个发布周期」已无对象——唯一部署库 2026-11-10
+> 已整库重建为目标形状（见 `OPS-X1D-PROD-MIGRATION` 关闭记录），无过渡态可观察。
+> ④ 原 ⑤ 验收引用的 `docs/db-schema.md` 在 core 不存在（schema 文档真相 = `docs/SPEC.md` /
+> `docs/ARCHITECTURE.md`），验收本身不可达。
+> 机制分工注记：`CORE-MIGRATION-REPLAY-GUARD`（2026-11-12）已为 DDL 重放建立
+> `core_schema_migrations` 账本；`data_migrations` 继续服务变换型 DML 的一次性标记，两者分工不同。
+> 后续一次性 DML 复用本表无需立单；若提议废除该机制，届时另立单。
+
+- **① 目标**：给 `public.data_migrations` 这个过渡保留物一个可判定的退出条件，避免它变成永久真相。
+- **② 上下文**：数据面退役（`SVC-CORE-DATA-RETIRE`，2026-11-08）后该表仍留在 `public` 作为迁移账的过渡记录；退出条件此前只写在退役单正文里，未成正式条目。
+- **③ 要求**：① 写明「谁不再读它 / 门禁怎么证明零读者」；② 退出动作 = 归档账本 + 删表 + 迁移重放仍绿；③ 若长期保留，改为显式「永久只读账本」并写进 `docs/db-schema.md`。
+- **④ 约束与非目标**：不在 `X1d` 生产搬迁完成前删；不改已应用的迁移文件。
+- **⑤ 验收**：退出时 `grep` 生产侧读点为 0、真库重放两次形状不变、`db-schema.md` 同步。
+- **⑥ 边界**：本仓 schema 生命周期；物理搬迁动作归运维（见 `OPS-X1D-PROD-MIGRATION`）。
+- **重开条件**：X1d 生产搬迁完成且观察一个发布周期。
+
+> **归档注记（2026-11-13）**：原文逐字移入；活跃层不再保留该条。作废结论见本文件 `CORE-DATA-MIGRATIONS-EXIT` 关闭记录。
 
