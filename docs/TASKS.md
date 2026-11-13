@@ -146,7 +146,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 
 > 来源：`tellurion-docs:docs/reviews/2026-11-13/02-implementation.md`。以下均为只读静态审查确认的实测项；`stockstate` 的去留已在档 2 立单，本档只补护栏与分叉收敛。
 
-### CORE-REPOGUARD-HANDLER-WIRED · 补「handler 已定义、路由未注册」护栏 [P2] ⬜
+### CORE-REPOGUARD-HANDLER-WIRED · 补「handler 已定义、路由未注册」护栏 [P2] ✅ 2026-11-13
 
 > 档 3（实现）· 来源：02-implementation P1-1 · 顺序 3-1 · 依赖：无（不依赖 stockstate 裁决）
 
@@ -156,6 +156,18 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：本条不接线 stockstate；不把 allowlist 变成永久免死金牌；不扫描测试文件里的构造调用。
 - **⑤ 验收**：临时删掉一个已注册 handler 的注册行 ⇒ 护栏红；还原 ⇒ 绿；allowlist 每条都有理由字段。
 - **⑥ 边界**：core `internal/repoguard`；handler 生命周期由 `CORE-STOCKSTATE-DISPOSITION` 决定。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `internal/repoguard/handler_wiring_test.go`。
+> 判据：扫 `cmd/analysis` 非测试文件的 `New*Handler` 构造函数，只认 `main` / `register*`
+> 函数里的调用点，且必须真的接到路由（同一表达式链里的 `.RegisterRoutes(…)`，或返回值
+> 赋给局部变量后在同一函数内对该变量调 `.RegisterRoutes`）；例外进 `unwiredHandlers`，
+> 每条必填 `Reason` + `Reopen`，构造函数消失或已接线即判白名单失效。
+> 初始白名单 1 条：`NewStockStateHandler`（等 `CORE-STOCKSTATE-DISPOSITION` 裁决）。
+> 结果：`go test ./internal/repoguard -run TestEveryHandlerConstructorIsRegistered -count=1`
+> PASS（扫到 13 个构造函数，12 个已接线、1 个在册）。
+> 破坏验证：临时删掉 `NewReconciliationHandler(...).RegisterRoutes(router)` 一行 ⇒
+> FAIL 点名 `[NewReconciliationHandler]`；从备份逐字节还原（`SHA256=9A640D47…E9AF7A`
+> 与改动前一致）⇒ 复跑 PASS。
 
 ### CORE-DATA-URL-SINGLE-DEFAULT · `data_service.url` 默认值收敛为单点 [P2] ⬜
 
