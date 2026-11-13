@@ -318,7 +318,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > ⇒ `TestE2EFailLoudOnUnexpectedStatus` FAIL 并点名该文案；从备份逐字节还原
 > （`SHA256=7F1DD9D8…B2B6F59` 与改动前一致）⇒ 复跑 PASS。
 
-### CORE-INTEGRATION-TAG-CI · `-tags=integration` 用例进入 CI [P2] ⬜
+### CORE-INTEGRATION-TAG-CI · `-tags=integration` 用例进入 CI [P2] ✅ 2026-11-13
 
 > 档 4（测试）· 来源：03-testing P2-1 · 顺序 4-2 · 依赖：无
 
@@ -328,6 +328,30 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不把 integration 用例并入默认 Test job（避免本地默认变慢）；不删 tag。
 - **⑤ 验收**：CI 日志出现 integration 用例的 PASS（数量 > 0）；故意删一个 integration 用例的断言 ⇒ 该腿红。
 - **⑥ 边界**：core `.github/workflows/ci.yml` + 测试标签。
+
+> **施工记录（2026-11-13，E1 实跑）**：`.github/workflows/ci.yml` 的 `go` job
+> 在迁移步与 Test 步之后新增 `Integration tag tests` 步（与 DB 腿共用同一
+> postgres service 与已迁移库）：
+> - `go vet -tags=integration ./...` —— 保证所有带 tag 的包可编译；
+> - `go test -tags=integration ./pkg/storage/... ./pkg/backtest/... -count=1 -v`；
+> - 两条 fail-loud：日志出现 `SKIP: integration tests require Docker` ⇒ 红
+>   （GH runner 自带 Docker，缺了是环境回归，不允许整套 storage 腿以 skip 收场）；
+>   `--- PASS:` 行数为 0 ⇒ 红（防「腿跑了但一条用例都没执行」）。
+> 覆盖范围（仓内全部正向 `//go:build integration` 目录，扫盘确认只有两个）：
+> `pkg/storage`（dockertest 一次性 PG：迁移重放守卫、告警 outbox、结果保留、
+> 运行溯源）与 `pkg/backtest`（QT-64 Router 接线腿，走 `TEST_DATABASE_DSN`；
+> `ohlcv_minute` 由迁移创建）。`pkg/storage` 的 `//go:build !integration` 文件
+> （dbsummary_test.go / strategy_state_migration_test.go）按设计不进该腿。
+> 新增护栏 `internal/repoguard/ci_integration_tag_test.go:TestCIIntegrationTagLegExists`：
+> YAML 解析 ci.yml，断言①有 `go test -tags=integration` 步且有 `go vet -tags=integration ./...`；
+> ②该 go test 行点名的包模式覆盖**扫盘得到的每一个** tag 目录（新增 tag 包漏加即红）；
+> ③迁移步与集成腿同 job 且在前；④`TEST_DATABASE_DSN` 非空。
+> 结果：`go vet -tags=integration ./...` EXIT=0（本地真跑）；`go test ./internal/repoguard`
+> 全 PASS。CI 腿本身要等推送后由 runner 执行（本地无 Docker daemon）。
+> 破坏验证：把 `Integration tag tests` 步替换为一句 echo ⇒ 护栏 FAIL
+> （「ci.yml 里没有 `go test -tags=integration` 步骤」）；从备份逐字节还原
+> （`SHA256=149B5B00…D450DC91F31` 与改动前一致）⇒ 复跑 PASS（repoguard 全包绿）。
+> 同提交文档：`AGENTS.md` §8 规范 1 增加 tag 腿的跑法与本护栏指针。
 
 ### CORE-COVERAGE-FLOOR · core 覆盖率门抬到实测低 5 点 [P2] ⬜
 

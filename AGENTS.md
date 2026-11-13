@@ -465,6 +465,12 @@ type Strategy interface {
   - 禁止用 `time.Sleep` 同步并发测试，改用 channel/`require.Eventually`/`sync.WaitGroup`
   - 测试名必须描述被测行为（如 `TestT1SellBlockedByQuantityYesterday`）
 - **验证标准**: `go test ./... -count=1 -race` 必须通过；前端 `npm test` 必须通过
+- **`-tags=integration` 用例**（要真库或 Docker）不进默认套件，由 CI 的
+  `Integration tag tests` 腿执行（`.github/workflows/ci.yml`，覆盖
+  `./pkg/storage/...` 与 `./pkg/backtest/...`）；本地改到这两个包时按同一组包跑
+  `go test -tags=integration ./pkg/storage/... ./pkg/backtest/... -count=1`。
+  新增 tag 包必须同批加进该腿 —— `internal/repoguard` 的
+  `TestCIIntegrationTagLegExists` 会扫盘核对，未覆盖即红。
 
 #### 规范 2: 代码审查（Code Review）
 

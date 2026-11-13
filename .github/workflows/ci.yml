@@ -148,6 +148,45 @@ jobs:
           TUSHARE_TOKEN: ""
           TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
 
+      # CORE-INTEGRATION-TAG-CI（2026-11-13）：`//go:build integration` 的用例
+      # 此前**零执行** —— 默认 `go test ./...` 不带 tag，本 workflow 也不带，于是
+      # 它们既不在绿里也不在红里。本步与上面的 DB 腿共用同一 postgres service 与
+      # 迁移结果，覆盖两个带 tag 的包：
+      #   - ./pkg/storage/...：dockertest 自起一次性 postgres:16-alpine（GitHub
+      #     runner 带 Docker），真库腿 = 迁移重放守卫、告警 outbox、结果保留、
+      #     运行溯源；
+      #   - ./pkg/backtest/...：QT-64 Router 接线腿，走 TEST_DATABASE_DSN 指向
+      #     本 job 已迁移的 service 库（ohlcv_minute 由迁移创建）。
+      #
+      # 先 `go vet -tags=integration ./...`：保证**所有**带 tag 的包都能编译
+      # （新增 tag 文件不会因为没人跑而烂在树里）；再跑上面两个包。
+      #
+      # 两处 fail-loud（对应 CORE-INTEGRATION-TAG-CI ②「不得默默 skip」）：
+      #   1. 检测不到 Docker ⇒ 红。GH runner 一定有 Docker，缺了是环境回归，
+      #      不能把「整套 storage 腿全 skip」当成绿；
+      #   2. `--- PASS:` 行数为 0 ⇒ 红。防止「腿跑了、其实一条用例都没执行」。
+      # 其余 skip 必须由用例自己打印原因（pkg/storage TestMain 会点名 Docker
+      # socket 与跑法；pkg/backtest 走 testenv 的 DSN 契约：未设置显式跳过、
+      # 设置但连不上 fail-loud）。
+      - name: Integration tag tests
+        run: |
+          set -o pipefail
+          go vet -tags=integration ./...
+          go test -tags=integration ./pkg/storage/... ./pkg/backtest/... -count=1 -v 2>&1 | tee /tmp/integration.log
+          if grep -q 'SKIP: integration tests require Docker' /tmp/integration.log; then
+            echo "::error::integration 腿检测不到 Docker —— CI runner 应自带 Docker，缺了是环境回归，不能按 skip 放行"
+            exit 1
+          fi
+          passed="$(grep -c '^--- PASS:' /tmp/integration.log || true)"
+          echo "integration tests PASS lines: ${passed}"
+          if [ "${passed}" -lt 1 ]; then
+            echo "::error::integration 腿里 0 条 --- PASS —— 用例全被 skip 或根本没跑到"
+            exit 1
+          fi
+        env:
+          TUSHARE_TOKEN: ""
+          TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable
+
       # QT-61：把「默认跳过、且需要外部数据的用例面」在 CI 汇总里点名，让「绿」里
       # 看不见的覆盖缺口变成一条可见的 notice —— 不是把它们变红（那是噪声），也不是
       # 静默忽略（那会永久掩盖缺口）。这两条用例原先连 CI 空 postgres service 直接红。
