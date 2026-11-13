@@ -4753,7 +4753,7 @@ components:
             $ref: '#/components/schemas/ApiIndexEntry'
         legacy:
           type: array
-          description: Deprecated compatibility aliases (all `deprecated: true`).
+          description: Deprecated compatibility aliases; every entry has `deprecated` set to true.
           items:
             $ref: '#/components/schemas/ApiIndexEntry'
 
