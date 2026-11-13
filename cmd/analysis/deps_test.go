@@ -125,8 +125,14 @@ func TestServerDeps_FieldsAreTyped(t *testing.T) {
 //     store; it is only dereferenced when a request hits /api/evidence/*,
 //     which these tests never do)
 func newMinimalDeps() *ServerDeps {
+	v := viper.New()
+	// CORE-DATA-URL-SINGLE-DEFAULT（2026-11-13）：生产启动必须显式给出
+	// data_service.url（cmd/analysis/endpoints.go 硬校验），网关反代也只在
+	// 解析成功时注册。夹具照生产前提补上这个键，否则 /api/sync/* 与
+	// /api/ohlcv/:symbol 这一族根本不会出现在路由表里。
+	v.Set("data_service.url", "http://data-service.test:8081")
 	return &ServerDeps{
-		Viper:  viper.New(),
+		Viper:  v,
 		Logger: zerolog.New(nil),
 		Metrics: func() *observability.Metrics {
 			// NewMetrics creates a private registry so it won't

@@ -90,8 +90,16 @@ func main() {
 	// 行为（不过滤票池），状态读面 /api/listing-windows/status 如实报
 	// degraded=true + pool_source=current。绝不能把「没取到」翻译成
 	// 「整批股票都在市」—— 那正是幸存者偏差本身。
-	listingLoader := listingseed.NewLoader(dataServiceURL(v), v.GetString("data_service.token"), logger)
-	if listingLoader != nil {
+	// CORE-DATA-URL-SINGLE-DEFAULT：地址与装配腿同源。启动前
+	// validateOutboundEndpoints 已硬校验该键，这里的错误只可能来自
+	// 程序内部误用（例如测试直接调 main 路径）——如实记错并跳过种子，
+	// 不拿空/猜的地址去发请求。
+	listingBase, listingBaseErr := dataServiceURL(v)
+	if listingBaseErr != nil {
+		logger.Error().Err(listingBaseErr).Msg("listing windows seed skipped: data_service.url unresolved")
+	}
+	listingLoader := listingseed.NewLoader(listingBase, v.GetString("data_service.token"), logger)
+	if listingBaseErr == nil && listingLoader != nil {
 		// 启动期硬上限：Refresh 内部 20s 超时 + 2 次重试，最坏会拖到
 		// 一分钟；启动路径只等一个上限，拿不到就按 degraded 起服务。
 		listingCtx, cancelListing := context.WithTimeout(context.Background(), 20*time.Second)

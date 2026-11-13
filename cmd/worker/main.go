@@ -74,7 +74,10 @@ func run() error {
 	// 与 analysis 的 strategy-runtime 模块同一套注入：引擎、store、风控。
 	// DataAdapter / 市场路由 / risk rules 取数口属 analysis 的装配细节，
 	// worker 今天不搬（见 docs/TASKS.md 的施工记录「未落」）。
-	engine, market := bootstrap.BuildBacktestEngine(v, store, logger)
+	engine, market, err := bootstrap.BuildBacktestEngine(v, store, logger)
+	if err != nil {
+		return fmt.Errorf("build backtest engine: %w", err)
+	}
 	engine.SetStore(store)
 	// SVC-CORE-RISK-RETIRE（2026-11-09）：限额真相源在 risk 服务快照。
 	// worker 与 analysis 必须用同一份限额（否则同一条 run 在两个进程里算出

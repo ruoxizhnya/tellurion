@@ -2138,7 +2138,7 @@ SELECT create_hypertable('factor_cache', 'date');
 >
 > - `RunMeta`：run 身份与输入快照（RunID = 引擎 backtestID / Strategy / Params / Start / End / Universe）。`Params` 通路归 QT-20，今日恒空。
 > - `SessionLifecycle`（`BeginRun(ctx, meta)` / `EndRun(ctx, runID)`）：有状态 provider 必须实现。EndRun = finalize + Close，信号归属该 runID，**不许跨 run 合并**；会话数超限 fail-closed 不排队；顺序 run 同样走 Begin/End（不做「复用会话」优化）。
-> - `Stateful`：显式状态声明。`Stateful()==true` 却未实现 `SessionLifecycle` ⇒ **装配期拒绝构造**（`strategy.ValidateSessionLifecycle`，在 `NewEngineWithOptions` 里执行；bootstrap `BuildBacktestEngine` 对该错误直接 Fatal）——不做「可选接口 + 静默降级」。
+> - `Stateful`：显式状态声明。`Stateful()==true` 却未实现 `SessionLifecycle` ⇒ **装配期拒绝构造**（`strategy.ValidateSessionLifecycle`，在 `NewEngineWithOptions` 里执行；bootstrap `BuildBacktestEngine` 把该错误连同 `data_service.url` 解析失败一起向上返回，由 `cmd/worker` 拒绝启动）——不做「可选接口 + 静默降级」。
 >
 > 引擎执行（`runBacktestInternal`）：拿到 backtestID 后 BeginRun、defer EndRun（错误路径同样走到）；EndRun 失败且本 run 无更早错误时接管为 run 失败——finalize/Close 没做成的结果不可信。绕过装配塞进来的 stateful-no-lifecycle provider 由运行期第二道门拦下（`runContext.beginProviderSession`）。
 >

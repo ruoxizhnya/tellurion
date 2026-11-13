@@ -104,6 +104,12 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 
 	// data-engine（第 3 位）：行情能力。构造逻辑与接管前
 	// buildBacktestEngine + buildDataServices 的对应行逐字一致。
+	// data-service 地址在装配期解析一次（CORE-DATA-URL-SINGLE-DEFAULT）：
+	// 缺失即 Boot 失败，不在取数时回落一个猜的地址。
+	dataServiceBase, dsErr := dataServiceURL(v)
+	if dsErr != nil {
+		return nil, fmt.Errorf("kernel: %w", dsErr)
+	}
 	dataMod := wiring.NewDataEngineModule(func() (marketdata.Provider, *marketdata.DataAdapter, error) {
 		// SVC-CORE-DATA-RETIRE（2026-11-08）：PG 直读 provider 随数据面退役，
 		// core 的行情读面只剩 HTTP（数据服务）。fallback 显式为 nil —— 不再
@@ -112,7 +118,7 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 		// 归属裁决（2026-11-12）：基本面是 core 自己的表
 		// （public.stock_fundamentals），由 NewLocalFundamentalProvider 把
 		// GetFundamental 切回本地；其余行情能力仍走 HTTP。
-		httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceURL(v), v.GetString("data_service.token"), logger)
+		httpProvider := marketdata.NewHTTPProviderWithToken(dataServiceBase, v.GetString("data_service.token"), logger)
 		provider := marketdata.NewLocalFundamentalProvider(httpProvider, store)
 		adapter := marketdata.NewDataAdapter(nil, provider, nil, logger)
 		return provider, adapter, nil
@@ -215,13 +221,13 @@ func assembleKernel(v *viper.Viper, store *storage.PostgresStore, logger zerolog
 	return &AnalysisKernel{Kernel: k, Wiring: artifacts}, nil
 }
 
-// dataServiceURL 取 data-service 地址（与 bootstrap.BuildBacktestEngine
-// 的缺省口径一致：留空回落 :8081）。
-func dataServiceURL(v *viper.Viper) string {
-	if u := v.GetString("data_service.url"); u != "" {
-		return u
-	}
-	return "http://localhost:8081"
+// dataServiceURL 取 data-service 地址。CORE-DATA-URL-SINGLE-DEFAULT（2026-11-13）
+// 起与回测取数、网关反代共用 pkg/bootstrap.DataServiceURL —— 本文件不再持有
+// 自己的 localhost 回落（那是第二套默认值）。生产启动已由
+// validateOutboundEndpoints 硬校验；装配腿拿到的错误应当直接上抛（fail-closed），
+// 不在启动期猜一个地址。
+func dataServiceURL(v *viper.Viper) (string, error) {
+	return bootstrap.DataServiceURL(v)
 }
 
 // shutdownKernel 关停内核（继承切片 2 的时序裁决：必须在 gracefulShutdown

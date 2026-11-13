@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/ruoxizhnya/tellurion-kit/httpserver"
+	"tellurion/pkg/bootstrap"
 )
 
 // maxBulkOHLCVBodyBytes 是 POST /api/v1/ohlcv/bulk 的请求体上限。一个
@@ -32,9 +33,17 @@ const maxIngestPointsBodyBytes = 8 << 20
 // by loadConfig, which meant the hardcoded docker hostname silently won
 // (ODR-062 S-B wiring fix).
 func registerProxyRoutes(router *gin.Engine, httpClient *http.Client, v *viper.Viper, logger zerolog.Logger) {
-	dataServiceURL := v.GetString("data_service.url")
-	if dataServiceURL == "" {
-		dataServiceURL = "http://data-service:8081"
+	// CORE-DATA-URL-SINGLE-DEFAULT（2026-11-13）：地址只从 bootstrap.DataServiceURL
+	// 来 —— 与回测取数（pkg/bootstrap、kernel_wiring 的行情 provider）共用同一
+	// 解析结果。此前这里私有的 `http://data-service:8081` 回落与回测侧的
+	// `http://localhost:8081` 是两套默认，缺配置时两族请求会打到不同上游。
+	// 生产启动已由 validateOutboundEndpoints 硬校验该键（缺项即拒绝启动），
+	// 所以这里解析失败只可能是测试构造的零配置；此时不注册路由（不静默
+	// 指向一个猜的地址），并留一条 error 说明。
+	dataServiceURL, urlErr := bootstrap.DataServiceURL(v)
+	if urlErr != nil {
+		logger.Error().Err(urlErr).Msg("data proxy routes not registered: data_service.url unresolved")
+		return
 	}
 
 	// ODR-062 (S-B): gateway proxy for the L0 sync-job management API

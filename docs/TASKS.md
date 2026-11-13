@@ -169,7 +169,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > FAIL 点名 `[NewReconciliationHandler]`；从备份逐字节还原（`SHA256=9A640D47…E9AF7A`
 > 与改动前一致）⇒ 复跑 PASS。
 
-### CORE-DATA-URL-SINGLE-DEFAULT · `data_service.url` 默认值收敛为单点 [P2] ⬜
+### CORE-DATA-URL-SINGLE-DEFAULT · `data_service.url` 默认值收敛为单点 [P2] ✅ 2026-11-13
 
 > 档 3（实现）· 来源：02-implementation P2-2 · 顺序 3-2 · 依赖：无
 
@@ -179,6 +179,25 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不改 data 仓、不改 URL 形状、不动显式配置优先级。
 - **⑤ 验收**：两个默认字符串收敛为一处；缺配置时行为与文档一致（若 fail-closed 则启动明确报错）；破坏验证 = 把 resolver 改回两套 ⇒ 用例红。
 - **⑥ 边界**：core 配置解析 + `handlers_proxy`。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `pkg/bootstrap/dataservice.go`
+> `DataServiceURL(v)` 作为唯一解析入口（显式配置优先，缺失 / 非绝对 URL 即错误，
+> **无隐式默认**）；三条腿全部改走它：`pkg/bootstrap/engine.go`（回测取数）、
+> `cmd/analysis/handlers_proxy.go`（`/api/sync/*` 反代，解析失败不注册该族路由并
+> 记 error，而不是静默指向猜的地址）、`cmd/analysis/kernel_wiring.go`（行情
+> provider 与 listingseed）。`BuildBacktestEngine` 由 `logger.Fatal` 改为返回
+> error，`cmd/worker` 据此拒绝启动（与 analysis 的 `validateOutboundEndpoints`
+> 同口径）。
+> 结果：`go test ./pkg/bootstrap/... ./cmd/analysis/... -count=1` 全 PASS；
+> `go build ./...` exit 0。`deps_test.newMinimalDeps` 按生产前提补
+> `data_service.url`（启动期硬校验要求该键，不是放宽断言）。
+> 破坏验证：把 `http://localhost:8081` 私有回落写回 `engine.go` ⇒
+> `TestNoDataServiceDefaultLiterals` 点名 `engine.go:29:20` 且
+> `TestBuildBacktestEngineFailsClosedOnMissingDataServiceURL` 变红；逐字节还原
+> （`SHA256=F15A88F0…8618C4C` 与改动前一致）⇒ 复跑 PASS。
+> 同提交文档：`docs/SPEC.md:2141`（Fatal → 返回 error）、
+> `docs/design/cross-repo-architecture-baseline-2026-11-11.md:44`（默认值列改为
+> 「代码内无默认」）。
 
 ### CORE-API-V1-INDEX · `/api/v1` 服务索引覆盖主面并标注 legacy [P2] ⬜
 

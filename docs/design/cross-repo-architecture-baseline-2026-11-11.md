@@ -41,7 +41,7 @@ verified-by: 12 仓代码与文档对齐审计·阶段 A 基线（三组会话�
 | 调用方 → 被调方 | 通道 | 配置键（env 覆盖） | 默认 | 证据 |
 |---|---|---|---|---|
 | UI → core | HTTP `/api/*` | 部署侧代理，仓库内无固定键 | — | `[文档]` |
-| core analysis → data | HTTP 反向代理族 `/api/sync/*`；取数 provider | `data_service.url`（`DATA_SERVICE_URL`） | `http://localhost:8081` | `[代码]` `config/analysis-service.yaml:117-122`、`cmd/analysis/handlers_proxy.go:32` |
+| core analysis → data | HTTP 反向代理族 `/api/sync/*`；取数 provider | `data_service.url`（`DATA_SERVICE_URL`） | 代码内无默认（缺失即启动失败）；yaml 的 `http://localhost:8081` 是显式配置值 | `[代码]` `pkg/bootstrap/dataservice.go`、`cmd/analysis/handlers_proxy.go`、`config/analysis-service.yaml:113-118` |
 | core analysis → agent | HTTP 反向代理 `/api/{copilot,pipeline,explore,tools}` | `ai_service.url`（`AI_SERVICE_URL`） | `http://localhost:8086` | `[代码]` `config/analysis-service.yaml:127-128`、`README.md:20-21` |
 | core analysis → risk（同步 resolve） | HTTP POST | `risk_service.resolve_url`（`RISK_SERVICE_RESOLVE_URL`）、`resolve_enabled` | `http://localhost:8089`，enabled=true | `[代码]` `config/analysis-service.yaml:188-191` |
 | core analysis → risk（事件回传） | outbox → HTTP | `risk_service.events_url`（`events_enabled` 默认 false） | 空 | `[代码]` `config/analysis-service.yaml:211-220` |
