@@ -77,10 +77,16 @@ func resolveChannel(logger zerolog.Logger, baseURL string) (string, error) {
 		return ChannelMock, nil
 	case ChannelLive:
 		if u, err := url.Parse(baseURL); err == nil && isLoopbackHost(u.Hostname()) {
+			// BROKER-LIVE-LOOPBACK-GUARD（2026-11-13 主任裁决 = Warn，不改 fail-closed）：
+			// 单机自托管下「core + brokergateway 同机」是合法部署，回环本身不能证明
+			// 对端是内存网关；真正该拦的「声明 live、对端 /version 报 mock」已由
+			// verifyPeerChannel 在启动期 fatal 拦住。这里只留可检索的 WARN 作为
+			// 部署复核线索，`reason` 供日志检索/告警规则精确匹配。
 			logger.Warn().
 				Str("channel", ChannelLive).
 				Str("url", baseURL).
-				Msg("BROKER_CHANNEL=live but BROKER_URL is loopback — verify this is a real broker gateway, not the in-memory dev gateway on :8091")
+				Str("reason", "loopback_gateway").
+				Msg("BROKER_CHANNEL=live but BROKER_URL is loopback — verify this is a real broker gateway, not the in-memory dev gateway on :8091 (peer /version check remains the authoritative gate)")
 		}
 		return ChannelLive, nil
 	case "":

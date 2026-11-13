@@ -4443,4 +4443,25 @@
 > 破坏验证：把 `retention-days: 30` 改为 `60` ⇒ 用例 FAIL；逐字节还原 ⇒ PASS。
 > commit：`git log --grep=CORE-TEST-EVIDENCE-VERSIONED`。
 
+### BROKER-LIVE-LOOPBACK-GUARD · live + 回环地址是否 fail-closed [P2] ✅ 2026-11-13 完成（core 侧）
+
+> 档 2（产品设计）· 来源：01-product-design P2-9 · 顺序 2-5 · 依赖：无
+> 台账主档在 `tellurion-broker:docs/TASKS.md`（主任另行处理）；core 侧实现位于 `pkg/brokerhttp/trader.go`，本条记录 core 侧收口。
+
+- **原目标**：裁决「`BROKER_CHANNEL=live` 但 `BROKER_URL` 是回环」应该 WARN 还是拒绝启动。
+- **原上下文**：实现落在 `pkg/brokerhttp/trader.go`（不是 broker 仓）；启动期已有 `/version` 对拍做 fail-closed。
+
+> **裁决与施工记录（2026-11-13，主任裁决 = Warn，不改 fail-closed）**：
+> 判据：单机自托管下同机网关合法，回环本身不能证明对端是内存网关；该拦的
+> 「声明 live、对端 `/version` 报 mock / 不可达 / 缺字段」已经由
+> `verifyPeerChannel` fatal 拦住。改动：WARN 增加结构化 `reason=loopback_gateway`
+> （便于部署侧精确检索），message 补一句「`/version` 仍是权威门禁」；
+> 行为不变（仍返回 `ChannelLive, nil`）。成文：`docs/live-trading.md` §11.1
+> （触发条件 / 为何不拒绝启动 / 什么时候该看它），`docs/runbook.md` 启动告警段
+> 补 `reason=loopback_gateway` 的处置与「不要改 mock 绕过」的提醒。
+> 测试：`pkg/brokerhttp/trader_channel_test.go` 断言回环 live 不报错、WARN 带
+> `reason=loopback_gateway` / `level=warn` / `channel=live`，且非回环地址完全静默。
+> 破坏验证：删除 `Str("reason", ...)` ⇒ `live loopback only warns` FAIL；还原 ⇒ PASS。
+> commit：`git log --grep=BROKER-LIVE-LOOPBACK-GUARD`。
+
 

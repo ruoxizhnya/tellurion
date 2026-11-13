@@ -26,6 +26,8 @@ verified-by: SVC-CORE-BROKER-RETIRE 施工（2026-11-10）；实盘-ready 定位
 > core 无法从 `BROKER_URL` 识别对端性质。因此通道是启动期必填声明：
 > `BROKER_CHANNEL=mock|live`，`mock` 还需 `BROKER_ALLOW_MOCK=true`（双键确认），
 > 否则装配失败；`mock` 会在启动日志打 WARN（订单永不触达真实柜台）。
+> `live` + 回环 `BROKER_URL`（`localhost` / `127.0.0.0/8` / `::1`）会打
+> `reason=loopback_gateway` 的 WARN，但**不拦截**（单机自托管合法，见 §11.1）。
 > 声明还会与对端核对：core 读 `GET <BROKER_URL>/version` 的只读 `channel`，
 > `live` 对 `mock`、端点不可达/非 2xx/缺字段一律 fatal（fail-closed）。
 >
@@ -376,6 +378,33 @@ go test ./pkg/brokerhttp/... -v
 4. **日志记录**: 所有订单操作必须记录完整日志
 5. **风控检查**: 实盘交易前必须进行资金、持仓、价格限制检查
 
+### 11.1 LOOPBACK-LIVE 告警（BROKER-LIVE-LOOPBACK-GUARD，2026-11-13）
+
+**触发**：`BROKER_CHANNEL=live` 且 `BROKER_URL` 主机是回环地址（`localhost` /
+`127.0.0.0/8` / `::1`）。启动日志出现：
+
+```json
+{"level":"warn","channel":"live","url":"http://127.0.0.1:8091","reason":"loopback_gateway",
+ "message":"BROKER_CHANNEL=live but BROKER_URL is loopback — ..."}
+```
+
+**为什么是 WARN 而不是拒绝启动**：单机自托管下 core 与 broker 网关同机部署是
+合法形态，回环地址本身不能证明对端是内存网关。真正该拦的判据已经存在且更硬：
+启动期 `GET /version` 由对端自报 `channel`，`live` 声明遇到 `mock` 对端、
+端点不可达 / 非 2xx / 缺字段一律 **fatal（fail-closed）**。把回环也改成 fatal
+会把合法自托管部署一并挡掉，属于用错误判据替代正确判据。
+
+**什么时候该看它**：
+
+1. **生产/准生产部署**出现该 WARN ⇒ 先确认 `BROKER_URL` 是否本应是远端柜台地址；
+   若只是从开发环境复制了 env，就是配置错误（此时 `/version` 对拍通常也会把
+   `mock` 对端挡住，除非对端是伪装成 `live` 的非真实网关）。
+2. **单机自托管**出现该 WARN 属预期，无需处理；把它当部署清单的一项复核即可。
+3. **告警规则**：`reason="loopback_gateway"` 可精确检索；不要按 message 文本匹配。
+
+**护栏**：`pkg/brokerhttp/trader_channel_test.go` 断言回环 live 只 WARN 不报错、
+WARN 带 `reason=loopback_gateway`，且非回环地址保持静默（不制造噪声）。
+
 ---
 
-_本文档随代码更新而更新，最后更新: 2026-05-05_
+_本文档随代码更新而更新，最后更新: 2026-11-13_

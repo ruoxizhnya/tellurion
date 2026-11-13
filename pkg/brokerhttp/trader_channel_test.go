@@ -1,6 +1,7 @@
 package brokerhttp
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,9 +44,30 @@ func TestResolveChannelRefusesSilentMock(t *testing.T) {
 	t.Run("live loopback only warns", func(t *testing.T) {
 		t.Setenv("BROKER_CHANNEL", "live")
 		t.Setenv("BROKER_ALLOW_MOCK", "")
-		ch, err := resolveChannel(logger, brokerURL)
+
+		var buf bytes.Buffer
+		warnLogger := zerolog.New(&buf)
+		ch, err := resolveChannel(warnLogger, brokerURL)
 		require.NoError(t, err)
 		assert.Equal(t, ChannelLive, ch)
+
+		// BROKER-LIVE-LOOPBACK-GUARD：告警必须带结构化 reason，部署侧才能
+		// 按 reason=loopback_gateway 检索/告警；不带 reason 的 WARN 等于噪声。
+		line := buf.String()
+		require.Contains(t, line, "loopback_gateway")
+		require.Contains(t, line, `"level":"warn"`)
+		require.Contains(t, line, `"channel":"live"`)
+	})
+
+	t.Run("live non-loopback stays quiet", func(t *testing.T) {
+		t.Setenv("BROKER_CHANNEL", "live")
+		t.Setenv("BROKER_ALLOW_MOCK", "")
+
+		var buf bytes.Buffer
+		ch, err := resolveChannel(zerolog.New(&buf), "http://broker.example.com:8091")
+		require.NoError(t, err)
+		assert.Equal(t, ChannelLive, ch)
+		assert.Empty(t, buf.String(), "只有回环才告警；正常远端网关不应制造 WARN 噪声")
 	})
 
 	t.Run("unknown value", func(t *testing.T) {

@@ -107,6 +107,12 @@ FATAL ... kernel assembly failed error="<具体原因>"
 | `risk ...` 快照类错误 | `RISK_SERVICE_RESOLVE_ENABLED=true` 时取不到 approved 规则 | 起 risk 并确认库里有 approved 规则；或显式改 `false` 用内置限额 |
 | `strategy ...` 资产类错误 | 策略资产服务不可用且策略用了 `strategy_ref` | 起 strategy；或改用内置策略 |
 
+**启动 WARN（不是错误，进程继续）—— `reason=loopback_gateway`**：
+`BROKER_CHANNEL=live` 且 `BROKER_URL` 指向回环地址时出现。生产/准生产出现 ⇒
+先查 `BROKER_URL` 是否误抄了 dev env；单机自托管（core 与 broker 同机）属预期，
+无需处理。**不要**因此改成 `BROKER_CHANNEL=mock` 绕过——通道性质仍以
+`/version` 对拍为准。判据与告警规则见 [live-trading.md §11.1](live-trading.md#111-loopback-live-告警broker-live-loopback-guard2026-11-13)。
+
 **容器形态：`wait-for-deps.sh` 在进程启动前就退出**（装配期还没到）：
 
 ```text
