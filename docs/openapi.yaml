@@ -245,12 +245,22 @@ paths:
       tags: [Backtest]
       summary: Run a backtest or create a backtest job
       description: |
-        Accepts two request formats:
+        Accepts two request formats, discriminated **explicitly**:
 
-        1. **Sync (legacy)**: `strategy` + `stock_pool` + `start_date` + `end_date` —
-           runs the backtest synchronously and returns the result.
+        1. **Sync (legacy, deprecated but supported for one compatibility cycle)**:
+           `strategy` + `stock_pool` + `start_date` + `end_date` — runs the
+           backtest synchronously and returns the result. The response carries
+           `Deprecation: true` and a `Warning: 299 - "..."` header; the body is
+           unchanged.
         2. **Async (job)**: `strategy_id` + `universe` + `start_date` + `end_date` —
            creates an async job and returns the job ID immediately.
+
+        Optional `mode: sync|async` selects the format explicitly. Without it the
+        format is inferred from the fields. Mixing sync fields (`strategy`,
+        `stock_pool`) with async fields (`strategy_id`, `universe`) is rejected
+        with 400 naming both sets — never silently routed to the async branch.
+        An incomplete async body is rejected with 400 naming the missing field
+        (`strategy_id` or `universe`).
       operationId: runBacktest
       x-agent-coarse-action: submit_backtest
       requestBody:
@@ -4892,6 +4902,14 @@ components:
       type: object
       required: [strategy, start_date, end_date]
       properties:
+        mode:
+          type: string
+          enum: [sync, async]
+          description: >-
+            Explicit envelope discriminator (CORE-BACKTEST-REQUEST-UNION).
+            `sync` selects this legacy sync envelope; `async` selects
+            CreateJobRequest. Omitted = inferred from fields, but mixing both
+            sets is always rejected with 400.
         strategy:
           type: string
           example: momentum
@@ -4977,6 +4995,14 @@ components:
       type: object
       required: [strategy_id, universe, start_date, end_date]
       properties:
+        mode:
+          type: string
+          enum: [sync, async]
+          description: >-
+            Explicit envelope discriminator (CORE-BACKTEST-REQUEST-UNION).
+            `async` selects this job envelope; `sync` selects BacktestRequest.
+            Omitted = inferred from fields, but mixing both sets is always
+            rejected with 400.
         strategy_id:
           type: string
         params:

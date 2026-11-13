@@ -228,7 +228,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > `ApiIndexEntry` schema、`ApiVersionInfo` 增加 `source`/`legacy`、`endpoints`
 > 改为对象数组。
 
-### CORE-BACKTEST-REQUEST-UNION · `POST /api/backtest` 改显式判别，去掉字段探测 [P2] ⬜
+### CORE-BACKTEST-REQUEST-UNION · `POST /api/backtest` 改显式判别，去掉字段探测 [P2] ✅ 2026-11-13
 
 > 档 3（实现）· 来源：02-implementation P2-4 · 顺序 3-4 · 依赖：调用方适配（agent / ui）另立
 
@@ -238,6 +238,21 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：合法旧请求行为不变；不动回测引擎；不在本条改 agent/ui 客户端（跨仓另立）。
 - **⑤ 验收**：同带 `strategy` 与 `strategy_id/universe` ⇒ 400；仅 `strategy_id` 无 `universe` ⇒ 400 且点名 `universe`；legacy 合法请求结果逐字节不变；契约测试覆盖 union 语义。
 - **⑥ 边界**：core handler + `openapi.yaml`；调用方适配归 agent/ui。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/backtest_request_mode.go`
+> `classifyBacktestRequest`，采用推荐方案「可选 `mode: sync|async`」：
+> 显式 mode 与字段形状冲突 400、混用 sync/async 字段 400 点名两侧字段、
+> 半套异步体 400 点名 `strategy_id`/`universe`、未知 mode 400；
+> 未给 mode 时按字段判别（兼容周期），混用同样 400（不再静默走异步）。
+> legacy 信封保留：同步响应加 `Deprecation: true` + `Warning: 299 - "…"` 头，
+> **body 逐字节不变**。
+> 结果：`go test ./cmd/analysis -run 'TestBacktestPost_' -count=1` PASS。
+> 新增 `cmd/analysis/handlers_backtest_request_union_test.go` 8 条反证/正证腿，
+> 其中 legacy 腿同时比对「不带 mode」与「带 mode=sync」两次响应体逐字节相等。
+> 破坏验证：把判别退回旧的「strategy_id && universe 同时非空」探测 ⇒
+> 4 条子用例（混用、半套异步体、mode 冲突、非对象体）立刻红；还原后复跑 PASS。
+> 同提交文档：`docs/openapi.yaml` 的 `POST /api/backtest` 描述重写，
+> `BacktestRequest` / `CreateJobRequest` 增加 `mode` 字段与 union 语义说明。
 
 ### CORE-BACKTEST-ENGINE-SPLIT · 回测引擎超大文件切分（登记不实施）[P2] ⏸
 

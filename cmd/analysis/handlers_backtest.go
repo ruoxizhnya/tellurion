@@ -93,8 +93,21 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				return
 			}
 
-			var jobReq asyncBacktestRequest
-			if json.Unmarshal(bodyBytes, &jobReq) == nil && jobReq.StrategyID != "" && jobReq.Universe != "" {
+			// CORE-BACKTEST-REQUEST-UNION（2026-11-13）：显式判别取代字段探测。
+			// 混用 sync/async 字段、半套异步体、mode 与形状冲突都在这里 400，
+			// 不再静默走异步或落到 legacy 分支报错不搭的 "strategy required"。
+			mode, modeErr := classifyBacktestRequest(bodyBytes)
+			if modeErr != nil {
+				httpserver.Fail(c, http.StatusBadRequest, modeErr.Error())
+				return
+			}
+
+			if mode == backtestModeAsync {
+				var jobReq asyncBacktestRequest
+				if err := json.Unmarshal(bodyBytes, &jobReq); err != nil {
+					httpserver.Fail(c, http.StatusBadRequest, "invalid async request body: "+err.Error())
+					return
+				}
 				// K10：异步端点接入内核路由。engine_params 过与同步路径
 				// **同一道** ValidateRunSpec 闸门（未知名 → 400 点名，
 				// "rejected, not ignored" 原则不变）。
@@ -148,6 +161,12 @@ func registerBacktestRoutes(router *gin.Engine, engine *backtest.Engine, engineR
 				})
 				return
 			}
+
+			// legacy 同步信封保留一个兼容周期（CORE-BACKTEST-REQUEST-UNION）。
+			// 标注只走响应头，body 逐字节不变 —— 已有调用方按 body 校验，
+			// 这里不能为了「提醒」改坏它们。
+			c.Header("Deprecation", "true")
+			c.Header("Warning", `299 - "legacy sync envelope is deprecated; pass mode=async with strategy_id+universe for job runs"`)
 
 			var env backtestRequestEnvelope
 			if json.Unmarshal(bodyBytes, &env) == nil && env.Strategy != "" {
