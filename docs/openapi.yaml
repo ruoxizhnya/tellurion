@@ -76,11 +76,33 @@ paths:
   # ============================================================
   # Health
   # ============================================================
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe (canonical name)
+      description: |
+        Canonical probe name shared by all 12 services
+        (X-PROBE-CANONICAL-HEALTHZ). Only checks that the process is alive;
+        `/readyz` additionally checks database connectivity and startup DDL.
+      operationId: getHealthz
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
   /health:
     get:
       tags: [Health]
-      summary: Service health check
-      description: Returns the current health status of the analysis service.
+      summary: Service health check (deprecated alias of /healthz)
+      deprecated: true
+      description: |
+        Deprecated compatibility alias of `/healthz`, kept for one
+        compatibility cycle so rolling upgrades do not mark instances
+        unhealthy. Body is identical to `/healthz`; responses carry
+        `Deprecation: true` and a `Warning: 299 - "..."` header.
       operationId: getHealth
       responses:
         '200':
@@ -95,10 +117,10 @@ paths:
       tags: [Health]
       summary: Readiness probe (database + startup DDL)
       description: |
-        **就绪**语义，与 `/health` 的**存活**语义分开：这里实际校验数据库
+        **就绪**语义，与 `/healthz` 的**存活**语义分开：这里实际校验数据库
         连接（ping）与启动 DDL 的关键表（`public.users`、`audit.message_log`、
         `run.backtest_results`、`quant.strategy_state`）。库断开或建表没跑到
-        返回 503，负载均衡据此摘流量；`/health` 同时仍是 200，不触发重启。
+        返回 503，负载均衡据此摘流量；`/healthz` 同时仍是 200，不触发重启。
         免鉴权、免限流（编排器不持有 token，且 429 会被读成「不 ready」）。
       operationId: getReadyz
       responses:
@@ -1737,7 +1759,7 @@ paths:
         answers without touching the database.
 
         **Exempt from the gateway rate limiter** (ADR-026 §5, AUD-57), alongside
-        `/health`. Rationale: throttling it makes a well-behaved client unable to
+        `/healthz`. Rationale: throttling it makes a well-behaved client unable to
         tell `429` apart from `401`, and the SPA's fail-closed probe then reads a
         rate-limited answer as "not authenticated" and bounces the whole app to
         the login page (measured: 130 rapid calls → 93x `200` / 37x `429`). This
@@ -3796,11 +3818,13 @@ paths:
   /api/health:
     get:
       tags: [Health]
-      summary: Health probe (API-namespaced alias of /health)
+      summary: Health probe (deprecated API-namespaced alias of /healthz)
+      deprecated: true
       description: |
-        Dockerfile 的 HEALTHCHECK 与前端 dev 代理打的就是这个路径（dev 下
-        vite 只代理 `/api`）。与 `GET /health` 同一 handler、同一响应体；
-        它缺失时容器从启动起就被判 unhealthy。
+        兼容期内的 deprecated 别名，规范名是 `GET /healthz`（与 `GET /health`
+        同一 handler、同一响应体，带 `Deprecation: true` 头）。前端 dev 代理
+        只转 `/api`，所以这个别名下一周期才会删；届时前端探针要先换到
+        `/healthz`。
       operationId: getAPIHealth
       responses:
         '200':

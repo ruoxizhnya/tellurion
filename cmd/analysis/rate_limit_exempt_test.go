@@ -42,6 +42,7 @@ func rateLimitTestRouter(rate int) *gin.Engine {
 
 	ok := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) }
 	for _, p := range []string{
+		"/healthz",
 		"/health",
 		"/api/health",
 		"/api/auth/status",
@@ -88,6 +89,16 @@ func TestRateLimit_AuthStatusProbeIsNeverThrottled(t *testing.T) {
 			wantOK:  n,
 			want429: 0,
 			why:     "429 会被前端 fail closed 读成「未登录」，把整站弹到登录页",
+		},
+		{
+			// X-PROBE-CANONICAL-HEALTHZ：规范探针名本身也必须豁免，
+			// 否则编排器连打它会被 429 读成 unhealthy。
+			name:    "healthz 规范探针豁免",
+			method:  http.MethodGet,
+			path:    "/healthz",
+			wantOK:  n,
+			want429: 0,
+			why:     "12 仓统一探针名；被限流会让编排器把活着的实例判成 unhealthy",
 		},
 		{
 			name:    "health 探针照旧豁免",
@@ -167,7 +178,9 @@ func TestIsRateLimitExempt_IsExactMatchNotPrefix(t *testing.T) {
 func TestRateLimitExemptPaths_AreExactlyTheDocumentedSet(t *testing.T) {
 	// 硬编码名单：任何增删都会变红。/readyz 与 /api/readyz 入选的理由是
 	// 「编排器把 429 读成不 ready」，见 pkg/bootstrap/server.go 的判据注释。
-	want := []string{"/health", "/api/health", "/readyz", "/api/readyz", "/api/auth/status"}
+	// /healthz 是 2026-11-13 起的规范名（X-PROBE-CANONICAL-HEALTHZ），
+	// /health 与 /api/health 是兼容期内的 deprecated 别名。
+	want := []string{"/healthz", "/health", "/api/health", "/readyz", "/api/readyz", "/api/auth/status"}
 	assert.Equal(t, want, rateLimitExemptPaths,
 		"限流豁免名单变了。加一条之前先回答：限流它会不会让一个正常客户端"+
 			"分不清 429 与 401？如果理由只是「这个端点很重要」，那不构成豁免。")

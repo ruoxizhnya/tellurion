@@ -135,6 +135,9 @@ var apiIndexPrefixDesc = []struct{ prefix, desc string }{
 // 但语义上已由 `/api/...` 取代（registerBacktestLegacyRedirects 内部
 // 重写到 /api/backtest；risk / execution 的根路径同理）。
 var apiIndexLegacyPaths = map[string]bool{
+	// X-PROBE-CANONICAL-HEALTHZ：规范名是 /healthz，这两个是兼容期别名。
+	"/health":              true,
+	"/api/health":          true,
 	"/backtest":            true,
 	"/backtest/:id":        true,
 	"/backtest/:id/report": true,

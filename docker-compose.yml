@@ -271,7 +271,7 @@ services:
       BROKER_SERVICE_TOKEN: ${BROKER_SERVICE_TOKEN:-dev-only-mock-token}
       BROKER_ACCOUNT_ID: ${BROKER_ACCOUNT_ID:-mock}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8085/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

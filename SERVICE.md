@@ -86,7 +86,10 @@ verified-by: 2026-11-11 实读 README / AGENTS / ARCHITECTURE / SPEC / openapi.y
 
 - **常驻进程**：`cmd/analysis`（唯一 HTTP 监听）；`cmd/worker` 是编排 worker，无监听；`cmd/dualrun` / `cmd/recon` 是一次性对齐与对账工具，不是服务。
 - **存活/就绪语义**：
-  - `GET /health`：进程存活，**不碰库**，库抖不触发重启。
+  - `GET /healthz`：进程存活，**不碰库**，库抖不触发重启。本仓规范探针名
+    （X-PROBE-CANONICAL-HEALTHZ，12 仓统一）；`GET /health` 与
+    `GET /api/health` 是兼容期内的 deprecated 别名，响应体同构并带
+    `Deprecation: true` 头，下一周期删除。
   - `GET /readyz`：DB 可 ping **且**启动 DDL 的关键表存在；任一不满足即 503。
 - **部署真相**：`docker-compose.yml`（默认栈与 `full` profile）、`Dockerfile.service`、`config/analysis-service.yaml`、`deploy/`；端口不在此卡。
 
@@ -104,7 +107,7 @@ verified-by: 2026-11-11 实读 README / AGENTS / ARCHITECTURE / SPEC / openapi.y
 
 - **影响面**：`blocking`——前端全部业务、agent 的能力调用、编排 worker 同时失效；已落库数据仍可被其他仓直读的部分不受影响。启动期风控 / 策略资产 / broker 装配是 fail-closed，缺依赖即拒起。
 - **先确认（按顺序）**：
-  1. `GET /health` 是否 200；不是则看进程日志与启动参数。
+  1. `GET /healthz` 是否 200；不是则看进程日志与启动参数。
   2. `GET /readyz` 是否 200；503 时看 DB 连通与启动迁移是否执行完。
   3. 日志里是否出现 `kernel assembly failed` / `BROKER_URL is required` / `risk_policy_source` / `broker peer channel` 这几类启动期判决。
 - **升级路径与 runbook**：`owner` → 跨仓争议 → 本仓 `docs/TASKS.md`；起停与逐类失败的原文、处置步骤见 [`docs/runbook.md`](docs/runbook.md)。

@@ -42,7 +42,7 @@ COPY config/ ./config/
 EXPOSE 8085
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8085/api/health || exit 1
+    CMD curl -f http://localhost:8085/healthz || exit 1
 
 USER nobody
 

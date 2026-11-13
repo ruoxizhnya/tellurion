@@ -16,7 +16,7 @@ verified-by: 2026-11-12 综合测试前起栈验收——用当前 HEAD（`87cc5
 
 | 服务 | 容器 | 宿主端口 | 健康路由实测 |
 |---|---|---|---|
-| analysis-service | `tellurion-next-analysis-service-1` | 8085 | `/health` 200；`/readyz` 200 `{"checks":{"database":"ok","schema":"ok"}}` |
+| analysis-service | `tellurion-next-analysis-service-1` | 8085 | `/healthz` 200；`/readyz` 200 `{"checks":{"database":"ok","schema":"ok"}}` |
 | data-service | `tellurion-next-data-service-1` | 8081 | `/healthz` 200；`/readyz` 200 `{"store":"postgres"}` |
 | ai-service | `tellurion-next-ai-service-1` | 8086 | `/health` 200；`/readyz` 200 |
 | risk | `tellurion-next-risk-1` | 8089 | `/healthz` 200；`/readyz` 200 |

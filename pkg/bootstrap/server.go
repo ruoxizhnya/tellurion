@@ -70,6 +70,10 @@ func NewRateLimiter(rate int, window time.Duration) *RateLimiter {
 // 爆破的第一道闸。**别把 `/api/auth` 前缀整个放开**；本表是逐字相等匹配，
 // 新加一条必须是有意识的动作，护栏见 bootstrap 包的 rate_limit_exempt_test。
 var RateLimitExemptPaths = []string{
+	// X-PROBE-CANONICAL-HEALTHZ（2026-11-13）：/healthz 是 12 仓统一的探针名；
+	// /health 与 /api/health 是兼容期内的 deprecated 别名，同样必须豁免，
+	// 否则滚动升级期间还没换探针的编排会先被 429 打死。
+	"/healthz",
 	"/health",
 	"/api/health",
 	"/readyz",

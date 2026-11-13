@@ -401,7 +401,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 
 > 这些是**跨多仓的协调批次**，不是 core 单仓施工。本仓台账是总序伞（docs 仓 AGENTS §4 禁止施工单进 docs），故登记在此；**每仓的实际改动落该仓自己的 commit**，按单号串行。批次内各仓的子项在各仓台账以指针引用本批，不双写正文。
 
-### X-PROBE-CANONICAL-HEALTHZ · 探针名统一为 `/healthz`（core + agent）[P2] ⬜
+### X-PROBE-CANONICAL-HEALTHZ · 探针名统一为 `/healthz`（core + agent）[P2] 🔶 core 腿 ✅ 2026-11-13／agent 腿待发
 
 > 档 3（实现）· 来源：02-implementation P2-1 · 顺序 3-7 · 依赖：无；agent 腿见 `tellurion-agent:docs/TASKS.md` → `AGENT-PROBE-HEALTHZ`
 
@@ -411,6 +411,23 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不一次性删除 `/health`（避免滚动升级断探针）；不改 `/readyz` 语义；其余 10 仓只核验不改。
 - **⑤ 验收**：core `/healthz` 200 且内容与 `/health` 同构；compose 健康检查全绿；e2e 探针断言改用 `/healthz`；`grep` 活跃文档无"core 只有 /health"表述。
 - **⑥ 边界**：core + agent 施工；data 已符合。
+
+> **施工记录（2026-11-13，E1，core 腿）**：`cmd/analysis/main.go` 新增
+> `GET /healthz`（规范名）；`/health` 与 `/api/health` 保留为 deprecated 别名，
+> 同一 handler、响应体同构，附 `Deprecation: true` + `Warning: 299` 头。
+> 同步改动：`pkg/bootstrap/server.go` 限流豁免名单加 `/healthz`（硬编码断言同步
+> 更新，并新增行为腿）、`cmd/analysis/Dockerfile` 与 `docker-compose.yml`
+> （analysis-service）HEALTHCHECK 改 `/healthz`、`e2e/tests/integration_test.go`
+> 四处探针断言改 `/healthz`、`SERVICE.md` / `docs/runbook.md` /
+> `docs/STACK-TEST-PREREQ.md` / `docs/openapi.yaml`（新增 `/healthz`，
+> `/health` 与 `/api/health` 标 `deprecated: true`）同提交更新。
+> 结果：`go test ./cmd/analysis ./pkg/bootstrap ./e2e/guard -count=1` 全 PASS。
+> 破坏验证：注释掉 `router.GET("/healthz", …)` ⇒ `TestHealthzIsCanonicalProbe`
+> FAIL（404）；还原后复跑 PASS。
+> **对侧仓待办（未跨仓改动）**：agent 需新增 `GET /healthz` 并把
+> `cmd/ai/lifecycle.go` 免鉴权白名单改为 `/healthz`（`/health` 留别名）；
+> agent 落地后 core `docker-compose.yml` 的 ai-service 健康检查（`:355`）才可切
+> `/healthz` —— 现在切会把未升级的 agent 判 unhealthy，故本腿保持 `/health`。
 
 ### X-COVERAGE-FLOOR · 12 仓覆盖率门统一抬到实测低 5 点 [P2] ⬜
 

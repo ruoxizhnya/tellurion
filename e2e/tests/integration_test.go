@@ -147,7 +147,7 @@ func probeStatus(client *http.Client, method, url string) (int, error) {
 // 后者由 probeIntegrationEnv 判（AUD-52）。
 func servicesReachable() bool {
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(baseURL + "/health")
+	resp, err := client.Get(baseURL + "/healthz")
 	if err != nil {
 		return false
 	}
@@ -157,7 +157,7 @@ func servicesReachable() bool {
 
 func TestHealthCheck_AllServices(t *testing.T) {
 	t.Run("Analysis Service Health", func(t *testing.T) {
-		resp, err := http.Get(baseURL + "/health")
+		resp, err := http.Get(baseURL + "/healthz")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -416,7 +416,7 @@ func TestDockerComposeServicesConnectivity(t *testing.T) {
 	// 左侧是**当前架构**：risk 与 execution 是 analysis 的 in-process 组件，
 	// 不是独立服务（ODR-021 / P1-15）。
 	services := map[string]string{
-		"analysis-service":                baseURL + "/api/health",
+		"analysis-service":                baseURL + "/healthz",
 		"data-service":                    dataServiceURL + "/healthz",
 		"risk (in-process, ODR-021)":      baseURL + "/api/risk/metrics",
 		"execution (in-process, ODR-021)": baseURL + "/api/execution/account",
@@ -445,7 +445,7 @@ func BenchmarkAPI_HealthCheck(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		resp, err := client.Get(baseURL + "/api/health")
+		resp, err := client.Get(baseURL + "/healthz")
 		if err != nil {
 			b.Fatal(err)
 		}

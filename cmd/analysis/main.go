@@ -314,15 +314,23 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 	}
-	router.GET("/health", healthHandler)
-	// /api/health 是同一个探针的 /api 版本。它必须存在：Dockerfile 的
-	// HEALTHCHECK 打的就是这个路径，而在此之前后端只注册了 /health ——
-	// 探针一直 404，容器从启动起就被判 unhealthy。
-	// 另外前端在 dev 下只代理 /api（vite proxy），不挂这个别名前端也探不到。
-	router.GET("/api/health", healthHandler)
+	// X-PROBE-CANONICAL-HEALTHZ（2026-11-13）：12 仓统一探针名是 /healthz。
+	// /health 与 /api/health 保留一个兼容周期作为 deprecated 别名（滚动升级
+	// 期间旧编排还在打它们，删早了会整批判 unhealthy），响应体与 /healthz
+	// 同构，只多 Deprecation/Warning 头；删除别名另立单。
+	deprecatedHealthHandler := func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Warning", `299 - "/health is deprecated; use /healthz"`)
+		healthHandler(c)
+	}
+	router.GET("/healthz", healthHandler)
+	router.GET("/health", deprecatedHealthHandler)
+	// /api/health 是同一个探针的 /api 版本。它必须存在：dev 下前端只代理
+	// /api，不挂这个别名前端探不到；同时它也是老镜像 HEALTHCHECK 的路径。
+	router.GET("/api/health", deprecatedHealthHandler)
 
-	// 就绪探针：/health 只看进程活着，/readyz 还要看「库能连 + 启动建表到位」。
-	// 库断开时这里 503、/health 仍 200 —— 负载均衡摘流量，但不重启进程。
+	// 就绪探针：/healthz 只看进程活着，/readyz 还要看「库能连 + 启动建表到位」。
+	// 库断开时这里 503、/healthz 仍 200 —— 负载均衡摘流量，但不重启进程。
 	registerReadiness(router, deps.Store, deps.Logger)
 
 	// Sprint 6 P0-3: /metrics endpoint exposing the four ADR-017 §1

@@ -57,7 +57,7 @@ RISK_SERVICE_RESOLVE_ENABLED=false SERVER_HOST=127.0.0.1 SERVER_PORT=18085 \
 
 | 探针 | 判据 | 失败时 | 用途 |
 |---|---|---|---|
-| `GET /health`（同 `/api/health`） | 进程活着、HTTP 栈没死，**不碰库** | 非 200 = 进程/监听问题 | liveness；库抖**不应**重启 |
+| `GET /healthz`（`/health`、`/api/health` 为 deprecated 别名） | 进程活着、HTTP 栈没死，**不碰库** | 非 200 = 进程/监听问题 | liveness；库抖**不应**重启 |
 | `GET /readyz`（同 `/api/readyz`） | 连接池 ping 通 **且**启动 DDL 的关键表存在，2s 预算 | 503 `{"status":"not_ready","checks":{"database":"..."}}` | readiness；摘流量，不重启 |
 
 `/readyz` 503 的 `checks.database` 原文分两类：
@@ -155,7 +155,7 @@ INFO ... risk limits loaded from tellurion-risk snapshot (SVC-CORE-RISK-RETIRE) 
 | 现象 | 先看 | 去处 |
 |---|---|---|
 | 容器 `dependency failed` / core 第一个退出 | `docker compose logs analysis-service` 第一条 `Fatal` | §4 装配期拒起 |
-| `/health` 200、`/readyz` 503 | `checks.database` 原文 | §3 数据库 |
+| `/healthz` 200、`/readyz` 503 | `checks.database` 原文 | §3 数据库 |
 | 写接口 503 `auth_unavailable` | 启动日志 `auth:` 行 | §5 鉴权三态 |
 | `/api/sync/*`、行情读 503 | data-service 是否 healthy | `tellurion-data` 的 runbook |
 | `/api/copilot|pipeline|explore|tools` 503 | ai-service 是否 healthy；agent 是否可达 | `tellurion-agent` 的 runbook |

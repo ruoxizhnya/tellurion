@@ -44,7 +44,7 @@ func TestAPIV1IndexCoversMainSurface(t *testing.T) {
 		"ANY /api/copilot/*path",
 		"ANY /api/pipeline/*path",
 		"ANY /api/tools/*path",
-		"GET /health",
+		"GET /healthz",
 		"GET /api/openapi.yaml",
 		"POST /api/screen",
 		"GET /api/ohlcv/:symbol",
@@ -58,6 +58,7 @@ func TestAPIV1IndexCoversMainSurface(t *testing.T) {
 	// legacy 段：6 条 backtest 别名 + risk/execution 根路径必须全部 deprecated。
 	legacyGot := indexKeys(legacy)
 	for _, key := range []string{
+		"GET /health", "GET /api/health",
 		"GET /backtest", "POST /backtest",
 		"GET /backtest/:id",
 		"GET /backtest/:id/report",
