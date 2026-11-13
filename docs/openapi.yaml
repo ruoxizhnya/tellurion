@@ -178,8 +178,19 @@ paths:
   /api/v1:
     get:
       tags: [Health]
-      summary: API version info
-      description: Returns service name, version, and a list of available endpoints.
+      summary: API version and endpoint index
+      description: |
+        Returns service name, version, and the endpoint index.
+
+        The index is generated from the live router table (`router.Routes()`),
+        so it cannot advertise a path that is not registered. It is split in
+        two sections:
+
+        - `endpoints`: the modern API surface (`method`, `path`, one-line
+          `description`, `deprecated: false`);
+        - `legacy`: deprecated compatibility aliases (for example
+          `/backtest/*` rewritten to `/api/backtest/*`), each with
+          `deprecated: true`.
       operationId: getApiVersion
       responses:
         '200':
@@ -4710,6 +4721,21 @@ components:
           type: string
           format: date-time
 
+    ApiIndexEntry:
+      type: object
+      required: [method, path, description, deprecated]
+      properties:
+        method:
+          type: string
+          description: HTTP method, or `ANY` for wildcard proxy families.
+        path:
+          type: string
+          description: gin route pattern (e.g. `/api/backtest/:id`).
+        description:
+          type: string
+        deprecated:
+          type: boolean
+
     ApiVersionInfo:
       type: object
       properties:
@@ -4717,10 +4743,19 @@ components:
           type: string
         version:
           type: string
+        source:
+          type: string
+          description: Where the index came from; currently always `router.Routes()`.
         endpoints:
           type: array
+          description: Modern API surface.
           items:
-            type: string
+            $ref: '#/components/schemas/ApiIndexEntry'
+        legacy:
+          type: array
+          description: Deprecated compatibility aliases (all `deprecated: true`).
+          items:
+            $ref: '#/components/schemas/ApiIndexEntry'
 
     OHLCV:
       type: object

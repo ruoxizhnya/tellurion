@@ -331,19 +331,11 @@ func registerRoutes(router *gin.Engine, deps *ServerDeps) {
 	// ADR-017 §2 (P1-2) will add an authn boundary separately.
 	router.GET("/metrics", observability.Handler(deps.Metrics))
 
-	router.GET("/api/v1", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"service": "analysis-service",
-			"version": "1.0.0",
-			"endpoints": []string{
-				"GET  /health",
-				"POST /backtest",
-				"GET  /backtest/:id/report",
-				"GET  /backtest/:id/trades",
-				"GET  /backtest/:id/equity",
-			},
-		})
-	})
+	// CORE-API-V1-INDEX（2026-11-13）：索引从 router.Routes() 生成，分
+	// 「现代 API / legacy 兼容别名（deprecated）」两段。旧实现只写死 5 条
+	// 裸路径，机器读到的自描述既缺主面也分不清兼容别名。生成放在请求时，
+	// 索引永远等于此刻路由表 —— 后注册的族不会漏。
+	router.GET("/api/v1", apiV1IndexHandler(router))
 
 	// P2-17: OpenAPI 3.0 spec + Swagger UI. The spec is embedded
 	// from docs/openapi.yaml (via docs/embed.go) and served at

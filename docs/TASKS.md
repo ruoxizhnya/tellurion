@@ -199,7 +199,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > `docs/design/cross-repo-architecture-baseline-2026-11-11.md:44`（默认值列改为
 > 「代码内无默认」）。
 
-### CORE-API-V1-INDEX · `/api/v1` 服务索引覆盖主面并标注 legacy [P2] ⬜
+### CORE-API-V1-INDEX · `/api/v1` 服务索引覆盖主面并标注 legacy [P2] ✅ 2026-11-13
 
 > 档 3（实现）· 来源：02-implementation P2-3 · 顺序 3-3 · 依赖：无
 
@@ -209,6 +209,24 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不删 legacy 别名；不改路由行为；不把索引做成 openapi 的替代。
 - **⑤ 验收**：四类主面均出现；legacy 段有 deprecated 标记；契约测试锁"索引 ⊆ 实际路由"，删一条主面注册 ⇒ 红。
 - **⑥ 边界**：core `main.go` 索引与路由测试。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/api_index.go`，
+> `/api/v1` 改为**从 `router.Routes()` 现场生成**（请求时计算，索引永远等于
+> 此刻路由表）：`endpoints` 段为现代 API（method + path + 一句话），`legacy`
+> 段为 `registerBacktestLegacyRedirects` 等兼容别名并逐条 `deprecated: true`；
+> gin `Any` 展开的 9 个方法按族合并为 `ANY`。描述按「精确 method+path →
+> 前缀族 → 兜底」三级查找，任何路由都不会因漏写描述而消失。
+> `main.go` 原 5 条写死清单删除，改为 `apiV1IndexHandler(router)`。
+> 新增 `cmd/analysis/api_index_test.go` 三条：四类主面 + 探针/契约元端点都在、
+> 索引 ⊆ 实际路由、HTTP 序列化字段与分段稳定。
+> 结果：`go test ./cmd/analysis -run 'TestAPIV1' -count=1` PASS。
+> 破坏验证：在 `registerBacktestRoutes` 开头插入 `if true { return }` ⇒
+> `TestAPIV1IndexCoversMainSurface` FAIL，点名 `POST /api/backtest` 与
+> `GET /backtest`（legacy 也未注册）；逐字节还原（`SHA256=05B7F970…0E3AD2FE`
+> 与改动前一致）⇒ 复跑 PASS。
+> 同提交文档：`docs/openapi.yaml` 的 `/api/v1` 描述重写 + 新增
+> `ApiIndexEntry` schema、`ApiVersionInfo` 增加 `source`/`legacy`、`endpoints`
+> 改为对象数组。
 
 ### CORE-BACKTEST-REQUEST-UNION · `POST /api/backtest` 改显式判别，去掉字段探测 [P2] ⬜
 
