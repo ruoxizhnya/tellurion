@@ -471,6 +471,11 @@ type Strategy interface {
   `go test -tags=integration ./pkg/storage/... ./pkg/backtest/... -count=1`。
   新增 tag 包必须同批加进该腿 —— `internal/repoguard` 的
   `TestCIIntegrationTagLegExists` 会扫盘核对，未覆盖即红。
+- **覆盖率地板**: CI 与 `make test` 共用同一份阈值 —— 总量 `-total-min=67`、
+  `pkg/backtest` `-pkg-min=tellurion/pkg/backtest=77`（2026-11-13 隔离 PG 全量
+  实测 72.6% / 82.4% 各低 5 点取整）。只有 DSN 打开、DB 腿真跑时这个数才有
+  意义；改阈值必须同批改 CI、Makefile、本节与
+  `internal/repoguard/coverage_floor_test.go` 的冻结值，并重跑基线。
 
 #### 规范 2: 代码审查（Code Review）
 

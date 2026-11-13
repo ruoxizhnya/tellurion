@@ -353,7 +353,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > （`SHA256=149B5B00…D450DC91F31` 与改动前一致）⇒ 复跑 PASS（repoguard 全包绿）。
 > 同提交文档：`AGENTS.md` §8 规范 1 增加 tag 腿的跑法与本护栏指针。
 
-### CORE-COVERAGE-FLOOR · core 覆盖率门抬到实测低 5 点 [P2] ⬜
+### CORE-COVERAGE-FLOOR · core 覆盖率门抬到实测低 5 点 [P2] ✅ 2026-11-13
 
 > 档 4（测试）· 来源：03-testing P2-2 · 顺序 4-3 · 依赖：随 §四 伞 `X-COVERAGE-FLOOR`
 
@@ -363,6 +363,31 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不通过删测试/加 `_test.go` 空壳来抬覆盖率；不追求 100%；不一次性给所有包设包级门槛（先总量 + backtest）。
 - **⑤ 验收**：CI 使用新阈值；删除一个有实质断言的测试文件 ⇒ 门红；还原 ⇒ 绿。
 - **⑥ 边界**：core `tools/coveragegate` 参数 + CI + `AGENTS.md`。
+
+> **施工记录（2026-11-13，E1 实测后落阈值）**：起隔离 PG 16 容器（独立端口
+> 55433、`max_connections=500`，不碰部署库 `tellurion` 与 `tellurion-next`），
+> `tools/ci/applymigrations` 迁移后跑全套件实测：**total 72.6%、`pkg/backtest`
+> 82.4%**（本机 `go test ./... -p 1`；并行跑会撞 PG 连接上限，属测量环境差异，
+> 不影响比例）。按「实测低 5 点取整」定 **`-total-min=67`、`-pkg-min=tellurion/pkg/backtest=77`**
+> （任务文本里的 72% 出自旧基线 77%，本次实测 82.4% ⇒ 77）。
+> 同步三处：`.github/workflows/ci.yml` Test 步与 Makefile `test` 目标（同一份阈值，
+> 改就两边一起改）、`AGENTS.md` §8 规范 1 新增「覆盖率地板」条（含口径与改动清单）。
+> 新增护栏 `internal/repoguard/coverage_floor_test.go:TestCoverageFloorIsEnforced`：
+> YAML 解析 ci.yml + 读 Makefile，断言两处数值逐字相同、均不低于冻结地板（67/77）、
+> 且 `AGENTS.md` 写出同一组数字；分叉/下调即红。
+> 破坏验证（门禁有效性，真实 profile 上做）：把 `pkg/storage` + `cmd/analysis` +
+> `pkg/marketdata` 的已覆盖语句全部翻成未覆盖（等价「成片测试被删」，total 59.4%）——
+> 旧阈值 52/65 **PASS**（门禁不执法），新阈值 67/77 **FAIL**「总量覆盖率 59.4%
+> < 阈值 67.0%（差 7.6 个百分点）」。破坏验证（护栏）：把 ci.yml 的 `-total-min`
+> 改回 52 ⇒ `TestCoverageFloorIsEnforced` FAIL 并同时点名「分叉」与「低于冻结地板」；
+> 从备份逐字节还原（`SHA256=34D4D8FA…F743FBFC` 一致）⇒ 复绿，真实 profile 上
+> `coveragegate` PASS（72.6% ≥ 67、backtest 82.4% ≥ 77）。
+> **对 ⑤ 的如实订正**：单独删一个测试文件**不会**触发红线 —— 实测把
+> `pkg/backtest` 最大的测试文件（qt04，57KB）移出后覆盖仍为 82.4%（其覆盖的语句
+> 被其他测试重复覆盖）。「5 点余量」决定了单文件删除在数学上不可能掉 5 点，
+> 该验收条件本身不成立；改用「成片覆盖回退」验证门禁（上段），符合 ⑤ 的
+> 真实意图（拦住明显回退），且已实测旧门禁在同一份数据上放行。若主任要求
+> 单文件可感，需相应缩小余量（不在本单擅改）。
 
 ### CORE-TEST-HERMETIC · 限流预算测试去掉对工作目录的依赖 [P2] ⬜
 

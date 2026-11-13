@@ -119,19 +119,25 @@ jobs:
         # 「覆盖率往下滑」从来没有红过（TEST.md 自陈「目标不是门禁」）。
         #
         # 门禁执法者是 tools/coveragegate（语句加权，与 go tool cover
-        # 的 total 同口径）。阈值 = 2026-10-17 实测基线 - 5pct 余量：
-        #   total 57.7% → 52；pkg/backtest 70.4% → 65；~~pkg/domain 80.4% → 75~~。
-        # 基线口径（2026-11-12 起）= **设 TEST_DATABASE_DSN** 跑全套件，DB 腿不再
-        # 跳过（CORE-CI-DB-LEGS-SKIPPED）。隔离 PG 上重跑实测 total 72.5%、
-        # pkg/backtest 82.5% —— 离 52 / 65 的下限更远，阈值不动。
-        # 要动阈值就同笔改这里与 docs/TASKS.md 的 REV-21 完成记录，并重跑基线。
+        # 的 total 同口径）。阈值 = 2026-11-13 实测基线 - 5pct 余量：
+        #   total 72.6% → 67；pkg/backtest 82.4% → 77。
+        # 基线口径 = **设 TEST_DATABASE_DSN** 跑全套件，DB 腿不跳过
+        # （CORE-CI-DB-LEGS-SKIPPED）。2026-11-13 在隔离 PG 16（迁移后）实测：
+        # total 72.6%、pkg/backtest 82.4%（-p 1 串行，避开本地连接数上限）。
+        # CORE-COVERAGE-FLOOR（2026-11-13）：旧阈值 52/65 比实测低 20.6 / 17.4
+        # 点，成片删测试也拦不住 —— 把 pkg/storage + cmd/analysis + pkg/marketdata
+        # 的已覆盖语句全部翻成未覆盖后 total 仍有 59.4%，旧门禁 PASS，新门禁
+        # FAIL（「差 7.6 个百分点」）。门禁自此才真的执法。
+        # 要动阈值就同笔改这里、Makefile 的 test 目标、AGENTS.md §8 与
+        # internal/repoguard/coverage_floor_test.go，并重跑基线。
         #
         # QT-05 B1（2026-10-23）：`-pkg-min=tellurion/pkg/domain=75` 那条腿已删，
         # 与 Makefile 的 `test` 目标是同一份阈值（改就两边一起改）。理由：domain
         # 整包迁到 tellurion-contracts，而 coveragegate 对「点名却不在 profile 里」
         # 的包按 0% fail-closed 判红 —— 本仓的 go test 测不到外部 module 的包，
         # 留着这条腿只能当场红。迁出后实测 total 61.2%（基线 61.9%；搬走的四包
-        # 自身是 83.2%），52 的下限余量反而更大，所以阈值本身不动。
+        # 自身是 83.2%），52 的下限余量反而更大，所以当时阈值本身不动
+        # （2026-11-13 CORE-COVERAGE-FLOOR 已按新基线抬到 67/77）。
         # 如实登记缺口：那条 75% 门槛随代码迁出后**今天没有承接者**（contracts 仓
         # CI 只跑 `go test ./... -count=1`，无覆盖率下限），已记进 docs/TASKS.md
         # 的 QT-05 core 腿结案段；要补就在 contracts 仓补，不在本仓替别的仓加门禁。
@@ -142,8 +148,8 @@ jobs:
         run: |
           go test ./... -count=1 -race -coverprofile=coverage.out
           go run ./tools/coveragegate -profile=coverage.out \
-            -total-min=52 \
-            -pkg-min=tellurion/pkg/backtest=65
+            -total-min=67 \
+            -pkg-min=tellurion/pkg/backtest=77
         env:
           TUSHARE_TOKEN: ""
           TEST_DATABASE_DSN: postgres://postgres:postgres@127.0.0.1:5432/tellurion?sslmode=disable

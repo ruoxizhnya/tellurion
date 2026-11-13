@@ -90,6 +90,9 @@ test:
 	# REV-21：与 CI 口径对齐（-count=1 -race + 覆盖率门禁）。修掉原先
 	# 「Makefile 无 -race/-count=1、CI 无 -coverprofile」的双向分叉。
 	# 阈值与 .github/workflows/ci.yml 同一份（改就两边一起改）。
+	# CORE-COVERAGE-FLOOR（2026-11-13）：按隔离 PG 全量实测（total 72.6%、
+	# pkg/backtest 82.4%）低 5 点取整，旧 52/65 抬到 67/77。改动须同批更新
+	# ci.yml、AGENTS.md §8 与 internal/repoguard/coverage_floor_test.go。
 	#
 	# QT-05 B1（2026-10-23）：删掉 -pkg-min=tellurion/pkg/domain=75 那条腿。
 	# coveragegate 对「点名却不在 profile 里」的包按 0% fail-closed 判红，而
@@ -99,8 +102,8 @@ test:
 	# 下限）；缺口记在 docs/TASKS.md 的 QT-05 core 腿结案段，不在本单替别的仓加门禁。
 	go test ./... -count=1 -race -coverprofile=coverage.out
 	go run ./tools/coveragegate -profile=coverage.out \
-		-total-min=52 \
-		-pkg-min=tellurion/pkg/backtest=65
+		-total-min=67 \
+		-pkg-min=tellurion/pkg/backtest=77
 	@echo "✅ Tests completed"
 
 lint:
