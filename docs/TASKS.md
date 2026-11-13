@@ -282,7 +282,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 
 > 来源：`tellurion-docs:docs/reviews/2026-11-13/03-testing.md`。core 的 CI DB 腿已于 2026-11-12 收口（见归档 `CORE-CI-DB-LEGS-SKIPPED`），本档不再重复立 DB 腿；7 个服务仓的 DB 腿与覆盖率门在各仓立单。
 
-### CORE-E2E-FAIL-LOUD · e2e 不再把非 200 一律当可接受 [P1] ⬜
+### CORE-E2E-FAIL-LOUD · e2e 不再把非 200 一律当可接受 [P1] ✅ 2026-11-13
 
 > 档 4（测试）· 来源：03-testing P1-1 · 顺序 4-1 · 依赖：无
 
@@ -292,6 +292,31 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不为让 e2e 绿而放宽断言；不把 e2e 改成单测；不改服务实现（若暴露真实缺陷，另立修复单）。
 - **⑤ 验收**：人为让一个依赖返回 409 ⇒ e2e 红；正常栈 ⇒ 绿；日志能区分"skip（未配置）"与"fail（返回错误）"。
 - **⑥ 边界**：`tellurion/e2e/`。
+
+> **施工记录（2026-11-13，E1 实跑）**：`e2e/tests/integration_test.go` 四条用例
+> 改为「显式声明可接受状态码 + 断言终态」，并订正两处**长期假绿**的路径错误：
+> 1. `TestOHLCVAPI_DataRetrieval`：非 200 只 `t.Logf("may need data sync")` ⇒ 现在
+>    `require` 200 + 非空 + 五个 OHLCV 字段；
+> 2. `TestFundamentalsAPI_DataRetrieval`：路径由复数 `/api/fundamentals/:symbol`
+>    改为真实单数 `/api/fundamental/:symbol`（`cmd/analysis/handlers_fundamental.go`），
+>    只接受 200（非空 `fundamental` 对象）或 404（body 含 `fundamental_not_found`），
+>    其余状态码 `t.Fatalf` 点名；
+> 3. `TestBacktestAPI_EndToEnd`：`require` 200，断言 `status=="completed"` 与
+>    `strategy`/`total_return`/`total_trades` 存在；删除 `pollForCompletion`
+>    （轮询 `/api/backtest/status/:id` —— 该路由**不存在**，超时只打日志，
+>    是第二个假绿源；异步 job 需 orchestration worker profile，不在默认 e2e 栈）；
+> 4. `TestDockerComposeServicesConnectivity`：改 `allowed []int` 表，探针只收 200，
+>    业务读面 200/401/403，**5xx 与 404 一律失败**（此前「不是 404 就算通」）。
+> `TestExecutionService_OrderPersistence` 的 `{201,400}` 与 `TestFactorAPI_*` 的
+> 精确码断言本就有理由声明，保留。
+> 新增护栏 `e2e/guard/guard_test.go:TestE2EFailLoudOnUnexpectedStatus`：AST 扫上述
+> 四条用例的函数体，要求出现 `StatusCode` + 断言调用（Equal/Contains/Fatalf/Errorf），
+> 且不得含历史吞错文案（`may need data sync` / `No fundamentals data returned` /
+> `not reachable`）。
+> 结果：`go test ./e2e/guard -count=1` PASS；`go vet ./e2e/...` exit 0。
+> 破坏验证：把 OHLCV 的 200 断言换回旧的「`t.Logf("OHLCV may need data sync")` + return」
+> ⇒ `TestE2EFailLoudOnUnexpectedStatus` FAIL 并点名该文案；从备份逐字节还原
+> （`SHA256=7F1DD9D8…B2B6F59` 与改动前一致）⇒ 复跑 PASS。
 
 ### CORE-INTEGRATION-TAG-CI · `-tags=integration` 用例进入 CI [P2] ⬜
 

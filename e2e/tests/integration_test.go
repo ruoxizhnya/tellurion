@@ -193,28 +193,26 @@ func TestBacktestAPI_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	if resp.StatusCode == http.StatusOK {
-		if jobID, ok := result["job_id"].(string); ok {
-			t.Logf("✅ Async backtest submitted successfully: job_id=%s", jobID)
-			pollForCompletion(t, jobID)
-		} else if _, ok := result["total_return"]; ok || result["status"] == "completed" {
-			totalReturn := result["total_return"].(float64)
-			totalTrades := result["total_trades"].(float64)
-			strategy := result["strategy"].(string)
-			t.Logf("✅ Sync backtest completed successfully!")
-			t.Logf("   Strategy: %s", strategy)
-			t.Logf("   Total Return: %.2f%%", totalReturn*100)
-			t.Logf("   Total Trades: %.0f", totalTrades)
-		} else {
-			t.Logf("Response received: status=%d", resp.StatusCode)
-		}
-	} else {
-		t.Logf("Backtest request failed with status %d: %s", resp.StatusCode, resp.Status)
-	}
+	// CORE-E2E-FAIL-LOUD（2026-11-13）：非 200 不再「打一行日志就算过」。
+	// 本用例发的就是 legacy 同步信封（strategy + stock_pool），按
+	// CORE-BACKTEST-REQUEST-UNION 的判别必须走同步分支并 200；202 说明
+	// 判别被改坏了（同步字段被路由到异步），同样要红。
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"POST /api/backtest（legacy 同步信封）必须 200；实测 %d，body=%s", resp.StatusCode, respBody)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(respBody, &result), "响应不是 JSON 对象: %s", respBody)
+
+	// 终态与关键字段必须被断言，而不是只打印。
+	assert.Equal(t, "completed", result["status"], "同步回测终态必须是 completed；body=%s", respBody)
+	assert.Contains(t, result, "strategy", "结果缺 strategy 字段")
+	assert.Contains(t, result, "total_return", "结果缺 total_return 字段")
+	assert.Contains(t, result, "total_trades", "结果缺 total_trades 字段")
+	t.Logf("✅ Sync backtest completed: strategy=%v total_return=%v total_trades=%v",
+		result["strategy"], result["total_return"], result["total_trades"])
 }
 
 func TestStrategyAPI_ListStrategies(t *testing.T) {
@@ -260,48 +258,61 @@ func TestOHLCVAPI_DataRetrieval(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		var ohlcv []map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&ohlcv)
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-		assert.NotEmpty(t, ohlcv, "should have OHLCV data for "+symbol)
+	// CORE-E2E-FAIL-LOUD（2026-11-13）：以前非 200 只打一行
+	// "may need data sync" 就算过 —— 数据没同步、路由写错、上游 500 一律
+	// 看不出来。e2e 栈的前提就是 data-service 已同步 2024-01 的日线，
+	// 所以这里必须 200 且非空；失败就点名原因。
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"GET /api/ohlcv/%s 必须 200（e2e 栈前提：data-service 已同步该区间日线）；实测 %d，body=%s",
+		symbol, resp.StatusCode, respBody)
 
-		firstBar := ohlcv[0]
-		assert.Contains(t, firstBar, "open")
-		assert.Contains(t, firstBar, "high")
-		assert.Contains(t, firstBar, "low")
-		assert.Contains(t, firstBar, "close")
-		assert.Contains(t, firstBar, "volume")
+	var ohlcv []map[string]interface{}
+	require.NoError(t, json.Unmarshal(respBody, &ohlcv), "响应不是 JSON 数组: %s", respBody)
+	require.NotEmpty(t, ohlcv, "应该取到 %s 在 %s..%s 的日线；空数组说明同步没跑或区间无数据", symbol, startDate, endDate)
 
-		t.Logf("✅ Retrieved %d bars for %s from %s to %s", len(ohlcv), symbol, startDate, endDate)
-	} else {
-		t.Logf("⚠️ OHLCV API returned status %d (may need data sync)", resp.StatusCode)
+	firstBar := ohlcv[0]
+	for _, k := range []string{"open", "high", "low", "close", "volume"} {
+		assert.Contains(t, firstBar, k, "日线缺字段 %s", k)
 	}
+	t.Logf("✅ Retrieved %d bars for %s from %s to %s", len(ohlcv), symbol, startDate, endDate)
 }
 
 func TestFundamentalsAPI_DataRetrieval(t *testing.T) {
 	symbol := "600000.SH"
 	date := "20240930"
 
-	url := fmt.Sprintf("%s/api/fundamentals/%s?date=%s", baseURL, symbol, date)
+	// CORE-E2E-FAIL-LOUD（2026-11-13）：路径此前写成复数
+	// `/api/fundamentals/:symbol`，真实路由是单数
+	// `/api/fundamental/:symbol`（cmd/analysis/handlers_fundamental.go）——
+	// 于是这条用例每次都 404，又被日志分支吞掉。同时把断言改成两步：
+	// 200 ⇒ 必有 fundamental 对象；404 ⇒ 必须是业务空态机器码
+	// `fundamental_not_found`（空表是合法状态，见 handler 注释）。
+	url := fmt.Sprintf("%s/api/fundamental/%s?date=%s", baseURL, symbol, date)
 	resp, err := http.Get(url)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		var fundamentals []map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&fundamentals)
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-		if len(fundamentals) > 0 {
-			f := fundamentals[0]
-			assert.Contains(t, f, "pe")
-			assert.Contains(t, f, "pb")
-			assert.Contains(t, f, "roe")
-
-			t.Logf("✅ Fundamentals for %s: PE=%v PB=%v ROE=%v", symbol, f["pe"], f["pb"], f["roe"])
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var body struct {
+			Fundamental map[string]interface{} `json:"fundamental"`
 		}
-	} else {
-		t.Log("⚠️ No fundamentals data returned (may need data sync)")
+		require.NoError(t, json.Unmarshal(respBody, &body), "响应形状应为 {\"fundamental\":{...}}: %s", respBody)
+		require.NotEmpty(t, body.Fundamental, "200 必须带非空 fundamental 对象；body=%s", respBody)
+		t.Logf("✅ Fundamentals for %s on %s: %v", symbol, date, body.Fundamental)
+	case http.StatusNotFound:
+		assert.Contains(t, string(respBody), "fundamental_not_found",
+			"404 必须是业务空态机器码，而不是路由缺失/解析错误；body=%s", respBody)
+		t.Logf("ℹ️ 基本面表在该日期无记录（合法空态）: %s", respBody)
+	default:
+		t.Fatalf("GET /api/fundamental/%s 只接受 200 或 404(fundamental_not_found)；实测 %d，body=%s",
+			symbol, resp.StatusCode, respBody)
 	}
 }
 
@@ -329,35 +340,6 @@ func TestFactorAPI_FactorComputation(t *testing.T) {
 	assert.Equal(t, http.StatusGone, getResp.StatusCode,
 		"GET /api/factors/:factor_name 必须 410 退役；实际 %d: %s", getResp.StatusCode, string(getBody))
 	assert.Contains(t, string(getBody), "factor_http_surface_retired")
-}
-
-// pollForCompletion waits for async backtest to complete
-func pollForCompletion(t *testing.T, jobID string) {
-	client := &http.Client{Timeout: timeout}
-	maxWait := 120 * time.Second
-	pollInterval := 5 * time.Second
-
-	start := time.Now()
-	for time.Since(start) < maxWait {
-		url := fmt.Sprintf("%s/api/backtest/status/%s", baseURL, jobID)
-		resp, err := client.Get(url)
-		if err != nil {
-			time.Sleep(pollInterval)
-			continue
-		}
-
-		var status map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&status)
-		resp.Body.Close()
-
-		if state, ok := status["state"].(string); ok && (state == "completed" || state == "failed") {
-			t.Logf("Job %s finished with state: %s", jobID, state)
-			return
-		}
-
-		time.Sleep(pollInterval)
-	}
-	t.Logf("⚠️ Polling timed out after %v for job %s", maxWait, jobID)
 }
 
 // TestExecutionService_OrderPersistence tests the new order persistence feature
@@ -415,26 +397,38 @@ func TestExecutionService_OrderPersistence(t *testing.T) {
 func TestDockerComposeServicesConnectivity(t *testing.T) {
 	// 左侧是**当前架构**：risk 与 execution 是 analysis 的 in-process 组件，
 	// 不是独立服务（ODR-021 / P1-15）。
-	services := map[string]string{
-		"analysis-service":                baseURL + "/healthz",
-		"data-service":                    dataServiceURL + "/healthz",
-		"risk (in-process, ODR-021)":      baseURL + "/api/risk/metrics",
-		"execution (in-process, ODR-021)": baseURL + "/api/execution/account",
+	//
+	// CORE-E2E-FAIL-LOUD（2026-11-13）：此前「不是 404 就算通」把 5xx 也放过了 ——
+	// 服务在崩、依赖没接都会显示 ✅。这里按端点显式声明可接受的状态码：
+	//   - 探针：只接受 200；
+	//   - 业务读面：200 或 401/403（鉴权开着时「端点存在但进不去」仍是连通证据）。
+	// 其余（5xx / 404）一律失败。
+	services := []struct {
+		name    string
+		url     string
+		allowed []int
+	}{
+		{"analysis-service", baseURL + "/healthz", []int{http.StatusOK}},
+		{"data-service", dataServiceURL + "/healthz", []int{http.StatusOK}},
+		{"risk (in-process, ODR-021)", baseURL + "/api/risk/metrics",
+			[]int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden}},
+		{"execution (in-process, ODR-021)", baseURL + "/api/execution/account",
+			[]int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden}},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	for name, url := range services {
-		t.Run(name, func(t *testing.T) {
-			resp, err := client.Get(url)
-			require.NoError(t, err, "%s 不可达（%s）", name, url)
+	for _, svc := range services {
+		svc := svc
+		t.Run(svc.name, func(t *testing.T) {
+			resp, err := client.Get(svc.url)
+			require.NoError(t, err, "%s 不可达（%s）", svc.name, svc.url)
 			defer resp.Body.Close()
 
-			// 200 = 通。403 = 端点存在但当前身份不够 —— 也算「服务在」
-			// （这一段测的是连通性，不是授权）。404 = 表里写的路径是错的。
-			assert.NotEqual(t, http.StatusNotFound, resp.StatusCode,
-				"%s 返回 404 —— 上表里的路径与真实路由不一致", name)
-			t.Logf("✅ %s is responding (status %d)", name, resp.StatusCode)
+			assert.Contains(t, svc.allowed, resp.StatusCode,
+				"%s 返回 %d —— 不在显式允许集合 %v 内（404 = 表里路径写错；5xx = 服务真的不健康）",
+				svc.name, resp.StatusCode, svc.allowed)
+			t.Logf("✅ %s is responding (status %d)", svc.name, resp.StatusCode)
 		})
 	}
 }

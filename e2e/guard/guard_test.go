@@ -73,6 +73,54 @@ func scanInside(t *testing.T, name string) (map[string]bool, map[string]bool, bo
 	return nil, nil, false
 }
 
+// TestE2EFailLoudOnUnexpectedStatus 是 CORE-E2E-FAIL-LOUD（2026-11-13）的
+// 结构性护栏：这些用例不允许再出现「非 200 只打一行日志就算过」的分支。
+//
+// 为什么守函数体而不是全文：日志文案可能出现在注释里（解释历史缺陷），
+// 而真正的缺陷是**分支结构** —— 把失败吞进 t.Logf/t.Log 的那段代码。
+// 判据有两条：函数体里必须出现状态码断言；不得出现历史吞错文案。
+func TestE2EFailLoudOnUnexpectedStatus(t *testing.T) {
+	banned := []string{
+		"may need data sync",
+		"No fundamentals data returned",
+		"not reachable",
+	}
+	assertions := []string{"Equal", "Contains", "Fatalf", "Errorf"}
+
+	for _, fn := range []string{
+		"TestOHLCVAPI_DataRetrieval",
+		"TestFundamentalsAPI_DataRetrieval",
+		"TestBacktestAPI_EndToEnd",
+		"TestDockerComposeServicesConnectivity",
+	} {
+		idents, strs, ok := scanInside(t, fn)
+		if !ok {
+			t.Errorf("e2e/tests/integration_test.go 里找不到 %s（改名后请同步护栏）", fn)
+			continue
+		}
+
+		hasAssertion := false
+		for _, a := range assertions {
+			if idents[a] {
+				hasAssertion = true
+				break
+			}
+		}
+		if !hasAssertion || !idents["StatusCode"] {
+			t.Errorf("%s 必须对 StatusCode 做断言（t.Equal/Contains/Fatalf）；"+
+				"CORE-E2E-FAIL-LOUD 之前的版本只打日志，CI 里恒绿", fn)
+		}
+
+		for s := range strs {
+			for _, b := range banned {
+				if strings.Contains(s, b) {
+					t.Errorf("%s 仍含吞错文案 %q —— 非预期状态码必须失败，不是日志", fn, b)
+				}
+			}
+		}
+	}
+}
+
 // TestIntegrationTestHasSkipGuard is a regression guard for S7-P0-8
 // (ODR-043-6): e2e/tests/integration_test.go must define a TestMain
 // that skips when Docker services are unreachable. Without it,
