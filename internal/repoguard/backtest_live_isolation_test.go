@@ -126,11 +126,11 @@ func TestQT51IsTradingImportMatcher(t *testing.T) {
 	cases := map[string]bool{
 		"pkg/trading":                          true,
 		"tellurion/pkg/trading":                true,
-		"tellurion/pkg/trading/margin":         true,
+		"tellurion/pkg/trading/subpackage":     true,
 		"tellurion/pkg/trading/reconciliation": true,
 		"tellurion/pkg/backtest/execution":     false,
 		"tellurion/pkg/tradingevil":            false,
-		"tellurion/pkg/tradingx/margin":        false,
+		"tellurion/pkg/tradingx/subpackage":    false,
 	}
 	for path, want := range cases {
 		assert.Equal(t, want, isTradingImport(path), "isTradingImport(%q)", path)

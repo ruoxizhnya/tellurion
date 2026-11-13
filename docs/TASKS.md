@@ -142,7 +142,7 @@ verified-by: 2026-11-13 九条挂起裁决 · core 侧落账——`CORE-STOCKSTA
 
 #### 2026-11-13 五角审查 · 档 3（实现）
 
-> 来源：`tellurion-docs:docs/reviews/2026-11-13/02-implementation.md`。以下均为只读静态审查确认的实测项；`stockstate` 的去留已在档 2 立单，本档只补护栏与分叉收敛。
+> 来源：`tellurion-docs:docs/reviews/2026-11-13/02-implementation.md`。以下均为只读静态审查确认的实测项；`stockstate` 的去留已由档 2 裁决为退役（2026-11-13），本档只补护栏与分叉收敛。
 
 > 本轮（2026-11-13）档 3 已完成 4 条（`CORE-REPOGUARD-HANDLER-WIRED` / `CORE-DATA-URL-SINGLE-DEFAULT` / `CORE-API-V1-INDEX` / `CORE-BACKTEST-REQUEST-UNION`），原文与施工记录已逐字移入 [归档 §二十六](archive/tasks-archive-2026-11.md)。
 

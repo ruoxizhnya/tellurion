@@ -616,7 +616,7 @@ git grep -n 'DROP INDEX' -- '*.go'                                    # 今天 0
 
 | 维度 | 内容 |
 |---|---|
-| 删除对象 | core 侧的券商/模拟撮合实现：`pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/` |
+| 删除对象 | core 侧的券商/模拟撮合实现：`pkg/live` 的 MockTrader、`postgres_order_store.go`、`simulated_broker.go`、`broker/xtp`、`margin/`、`reconciliation/`、`stockstate/`（**2026-11-13 追认**：`margin` / `stockstate` 已按主任裁决退役；`reconciliation` 保留） |
 | 表名 | **无**（`orders` 表的 DDL 只在**不被执行**的 `migrations/003_create_orders_table.sql`、`migrations/00000003_3_supporting_tables/up.sql:68`、`contracts/kernel_modules.schema.sql:138` ⇒ `migrate()` **不建 `orders`**；`git grep 'CREATE TABLE IF NOT EXISTS orders' -- pkg/storage/postgres.go` = 0） |
 | 包路径 | `tellurion/pkg/live`（24 个生产文件） |
 | grep 模式 | ① `"tellurion/pkg/live"`（直包）② `tellurion/pkg/live/`（子包，含 `reconciliation`/`margin`/`broker/xtp`） |
