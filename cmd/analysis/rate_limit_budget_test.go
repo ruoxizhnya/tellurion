@@ -31,12 +31,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 测试工作目录是 cmd/analysis，配置在仓库根的 config/ 下。
+// 配置在仓库根的 config/ 下。路径经 repoRootForTest 用编译期文件路径定位
+// （CORE-TEST-HERMETIC）：不再假设进程工作目录是 cmd/analysis。
 func shippedAnalysisConfig(t *testing.T) string {
 	t.Helper()
-	p, err := filepath.Abs(filepath.Join("..", "..", "config", "analysis-service.yaml"))
-	require.NoError(t, err)
-	return p
+	return filepath.Join(repoRootForTest(t), "config", "analysis-service.yaml")
 }
 
 // wiredLikeLoadConfig 复刻 loadConfig 里与限流有关的那几行装配。
@@ -122,8 +121,7 @@ func TestRateLimitPerMinute_EnvOverrideActuallyTakesEffect(t *testing.T) {
 // `tellurion-data` 仓发布，限流是数据仓内的固定档（50 rps / 突发 200），**不读**
 // `RATE_LIMIT_PER_MINUTE` —— 补回去只会得到一条看起来可调、实际不生效的配置。
 func TestCompose_DefaultRateLimitIs100AndOverridable(t *testing.T) {
-	composePath, err := filepath.Abs(filepath.Join("..", "..", "docker-compose.yml"))
-	require.NoError(t, err)
+	composePath := filepath.Join(repoRootForTest(t), "docker-compose.yml")
 
 	raw := viper.New()
 	raw.SetConfigFile(composePath)
@@ -140,8 +138,7 @@ func TestCompose_DefaultRateLimitIs100AndOverridable(t *testing.T) {
 	// 只查「YAML 赋值」形态的硬编码；文档与命令行示例里的 `=100000` 不算 ——
 	// 那个值正是必须能被覆盖的东西，禁掉它等于禁掉 e2e 姿势。
 	hardcoded := regexp.MustCompile(`(?m)^\s*(?:RATE_LIMIT_PER_MINUTE|rate_limit_per_minute)\s*:\s*["']?100000\b`)
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	require.NoError(t, err)
+	root := repoRootForTest(t)
 
 	var offenders []string
 	require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {

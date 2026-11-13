@@ -389,7 +389,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > 真实意图（拦住明显回退），且已实测旧门禁在同一份数据上放行。若主任要求
 > 单文件可感，需相应缩小余量（不在本单擅改）。
 
-### CORE-TEST-HERMETIC · 限流预算测试去掉对工作目录的依赖 [P2] ⬜
+### CORE-TEST-HERMETIC · 限流预算测试去掉对工作目录的依赖 [P2] ✅ 2026-11-13
 
 > 档 4（测试）· 来源：03-testing P2-3 · 顺序 4-4 · 依赖：无
 
@@ -399,6 +399,27 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不改限流实现；不放宽断言。
 - **⑤ 验收**：分别从仓根与临时目录运行同一用例均 PASS；从不存在父目录的结构运行 ⇒ 明确失败而非假绿。
 - **⑥ 边界**：core 该测试文件。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/repotest_helper_test.go`：
+> `repoRootForTest` 用 `runtime.Caller(0)`（编译期写进二进制的本文件路径）上溯
+> 两级定位仓根，再以 `validateRepoRoot` 校验三个标记（`go.mod`、
+> `config/analysis-service.yaml`、`docker-compose.yml`）；缺任一 ⇒ `t.Fatalf`
+> 点名缺项，**不退回工作目录、不 skip**。`rate_limit_budget_test.go` 三处
+> `filepath.Abs(filepath.Join("..",".."))`（shipped 配置、compose、扫描根）
+> 全部改走该 helper。
+> 前置事实订正：② 里提到的 `TestPreprocessedFundamentalLocalPath` / 依赖宿主
+> :8085 的用例在当前树中**不存在**（`grep -r 'TestPreprocessedFundamentalLocalPath'`
+> 无命中；非 e2e 测试里也没有对 :8085 的拨号）——该半条前提已被现状证伪，无需
+> 改。唯一「需要外部数据」的 `pkg/backtest/fixture_gen_test.go:TestGenerateFixtures`
+> 已有显式跳过（`DATA_SERVICE_TEST=1` 才跑）并写明原因，符合 ③ 的「不得静默跳过」。
+> 结果：`go test ./cmd/analysis -run 'TestRateLimitPerMinute|TestCompose_DefaultRateLimit|TestValidateRepoRoot|TestRepoRootForTest'` 全 PASS；
+> 另用 `go test -c` 编出测试二进制，分别以仓根与 `%TEMP%` 为工作目录执行同一组
+> 用例 —— 两次均 EXIT=0 / PASS（`go test` 本身做不到这一点：它总把 cwd 设成包目录，
+> 这正是原缺陷长期没被看见的原因）。
+> 破坏验证：把 `repoRootForTest` 改回 `os.Getwd()+../..`（旧机制）并重编二进制，
+> 从 `%TEMP%` 运行 ⇒ `FAIL`：`仓根定位失败："C:\Users\ruoxi\AppData" 不是 core 仓根：
+> 缺 [go.mod config\analysis-service.yaml docker-compose.yml] —— 不用工作目录兜底，也不跳过`；
+> 从备份逐字节还原（`SHA256=2D8CC765…3888566` 一致）⇒ 重编后两个 cwd 均 EXIT=0 / PASS。
 
 ### CORE-TEST-EVIDENCE-VERSIONED · 测试证据进入版本控制或 CI artifact [P2] ⏸ 待主任裁决
 
