@@ -44,7 +44,7 @@ A 股市场规则深度内建，这是自研内核最核心的资产：
 |---|---|---|
 | 涨跌停价限制 | [engine_daily.go#L152-L240](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/engine_daily.go#L152-L240)、[pricelimit.go](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/pricelimit.go) | 涨跌停阻塞交易、ST/新股价格限制 |
 | T+1 结算 | [tracker](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/tracker/tracker.go)（含 T+1 专项测试） | 今昨仓、可卖数量追踪 |
-| 集合竞价 | [auction.go](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/auction/auction.go) | 开盘/收盘竞价撮合 |
+| 集合竞价 | ~~`pkg/backtest/auction`~~ | 2026-11-13 按 `CORE-DEAD-PACKAGE-DISPOSITION` **退役**（从未接入引擎）；本评估写于退役前，历史结论保留 |
 | 费率模型 | [fees/ashare.go#L41-L59](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/fees/ashare.go#L41-L59)、[contracts.go#L29-L63](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/contracts/contracts.go#L29-L63) | 印花税（含 2023 减半沿革）、最低佣金、过户费 |
 | 收益口径 | [metrics/performance.go#L76-L107](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/metrics/performance.go#L76-L107) | 封闭系统日收益口径，规避"现金流水调整收益"的历史缺陷 |
 | 防前视偏差 | [engine.go#L656-L699](file:///c:/Users/ruoxi/Workspace/tellurion/pkg/backtest/engine.go#L656-L699) 及确定性回放测试 | 独立引擎实例、确定性回放、walk-forward 隔离 |
@@ -53,7 +53,7 @@ A 股市场规则深度内建，这是自研内核最核心的资产：
 
 | 包 | 生产代码 | 测试代码 | 说明 |
 |---|---|---|---|
-| pkg/backtest | 约 9,485 行 | 约 13,399 行 | 引擎本体 + tracker/batch/job/walkforward/metrics/auction/reporting/cache/state/execution |
+| pkg/backtest | 约 9,485 行 | 约 13,399 行 | 引擎本体 + tracker/batch/job/walkforward/metrics/reporting/cache/state/execution（`auction` 已于 2026-11-13 退役） |
 | pkg/strategy | 约 10,126 行 | 约 8,836 行 | 策略接口、注册表、表达式 DSL、插件加载 |
 | cmd/analysis | 约 4,098 行 | 约 3,380 行 | HTTP 层、回测/走查/批量接线 |
 | pkg/domain + pkg/fees | 约 1,564 行 | 约 1,599 行 | 领域对象、A 股费率 |

@@ -7,7 +7,7 @@
 // 进程内订单存储与 XTP 适配已从 core 删除。core 的唯一真实通道是 broker HTTP
 // （pkg/brokerhttp.NewTraderFromEnv；`BROKER_URL` 缺失即装配失败，不静默回退）。
 // 本包保留的是**运行域**：订单/成交/持仓类型、paper 回放会话、价格笼子、
-// 对账 / 融资融券算法。
+// 对账算法。
 //
 // Architecture (Sprint 6 P1-26, ODR-022):
 //   - LiveTrader: Core interface for order submission, cancellation, and account queries

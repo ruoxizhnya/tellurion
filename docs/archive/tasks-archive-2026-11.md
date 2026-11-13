@@ -4393,4 +4393,29 @@
 > （仅剩 repoguard 退役记录与归档/历史设计注记）。
 > commit：`git log --grep=CORE-STOCKSTATE-DISPOSITION`。
 
+### CORE-DEAD-PACKAGE-DISPOSITION · 12 个白名单死包逐包归属 [P2] ✅ 2026-11-13 完成
+
+> 档 3（实现）· 来源：02-implementation P2-6 · 顺序 3-6 · 依赖：无
+
+- **① 目标**：给 `package_wiring_test.go:72-100` 的 12 个白名单死包逐包写明性质、owner、去留与重开条件。
+- **② 上下文**：白名单含 api / auction / systemalert / margin / options / testutil / id / sandbox runner / staticcheck / strategy monitor / mining / sync；其中 `options`（期权）、`margin`（两融）、`auction`（集合竞价）是**交易能力**而非工具包，无 HTTP 入口、用户不可达；analytics 已由 ADR-0005 裁决为独立参考实现，不在本表重复。
+- **③ 要求**：产出一张"包 / 性质（工具 or 交易能力）/ owner / 去留 / 重开条件"表，写进 repoguard 注释或 `ARCHITECTURE.md`；**建议**工具类保留并写理由，交易三包按已登记债保留、暂不新增入口（不发明期权/两融/竞价需求）；若主任要求退役，另立删除单。
+- **④ 约束与非目标**：不删包、不新增 HTTP 入口、不把 analytics 拉回主流程。
+- **⑤ 验收**：12 包逐行有归属；repoguard 白名单与表一致；交易三包的"暂不暴露"有明确措辞。
+- **⑥ 边界**：core repoguard + 文档；交易三包是否退役需主任确认。
+- **重开条件**：主任确认交易三包去留（建议：暂不暴露、保留登记）。
+
+> **裁决与施工记录（2026-11-13，主任裁决 = 工具 9 包保留 / 交易三包退役）**：
+> 删除 `pkg/backtest/auction`、`pkg/trading/margin`、`pkg/strategy/options`
+> （13 个文件，生产 + 测试）；`unwiredPackages` 12 → 9，并在同处写入 9 包
+> 「包 / 性质 / owner / 去留 / 重开」逐行归属表；三包移入 `retiredPackages`，
+> 每条写明从未接线、为什么退役与重开条件。同步 `pkg/trading/trader.go` 注释、
+> `AGENTS.md` 的墙钟提供者清单、`docs/design/kernel/nautilus-trader-kernel-evaluation.md`
+> 的集合竞价行与包清单、`docs/design/qt-decoupling/retire-index-2026-11-07.md`
+> 的 2026-11-13 覆盖注记。
+> 验证：`go test ./internal/repoguard -count=1` PASS；破坏验证 =
+> 任一退役目录复活（空目录 + `.go`）⇒ `TestEveryPackageHasAConsumer` FAIL
+> 并点名该包，删除后复绿；白名单删多了/删漏了同样由该用例报出。
+> commit：`git log --grep=CORE-DEAD-PACKAGE-DISPOSITION`。
+
 

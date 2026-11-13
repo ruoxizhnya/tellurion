@@ -69,15 +69,30 @@ import (
 // (commit 6e87f8c) 把平方根冲击模型接进了 pkg/backtest/execution/execution.go
 // 的 "impact" 滑点分支，它不再是死代码。本条由本护栏自己报出 —— 白名单
 // 一旦列了「已经有人用」的包，就在替死代码打掩护。
+//
+// 2026-11-13 (CORE-DEAD-PACKAGE-DISPOSITION，主任裁决)：12 包 → 9 包。
+// 交易三包（集合竞价 / 融资融券 / 期权）退役，工具 9 包保留。逐包归属：
+//
+//	包                                性质                        owner  去留 / 重开
+//	pkg/api                           工具 · API 版本化中间件      core   保留；服务统一改成 /api/v1 时接线
+//	pkg/alert/systemalert             工具 · 运维告警             core   保留；运维告警链路落地时接线
+//	pkg/testutil                      工具 · DB 集成测试底座       core   保留；有 DB 集成套件时使用
+//	pkg/id                            工具 · ULID 生成器           core   保留；订单域重建时优先复用
+//	pkg/sandbox/runner                工具 · copilot 构建沙箱      core   保留；消费者在 agent 仓，经 module 依赖
+//	pkg/sandbox/staticcheck           工具 · LLM 代码静态检查      core   保留；同上
+//	pkg/strategy/monitor              工具 · 策略健康监测          core   保留；消费者在 agent 仓
+//	pkg/mining                        工具 · 挖掘流水线            core   保留；等 AI 线执行入口
+//	pkg/sync                          工具 · 同步作业队列          core   保留；数据服务重建时重新接线
+//
+// 交易三包不是工具：`auction`（集合竞价）、`margin`（两融）、`options`（期权）
+// 都属交易能力，零 HTTP 入口、用户不可达，且当前阶段不做实盘 / 不扩交易品种。
+// 裁决 = 退役，理由与重开条件见 retiredPackages。
 var unwiredPackages = map[string]string{
 	"tellurion/pkg/api":               "P2-16 API 版本化基础设施（APIVersionMiddleware）；各服务目前各自手写 /api/v1，待统一接线",
-	"tellurion/pkg/backtest/auction":  "P1-6 集合竞价撮合（9:15-9:25 / 14:57-15:00），待回测引擎接线",
 	"tellurion/pkg/alert/systemalert": "系统级运维告警（数据同步停滞 / 回测失败 / 策略退化），待运维链路接线",
 	// 2026-10-24 (QT-26)：pkg/sandbox/wasm 从本表移除 —— pkg/backtest 的
 	// wasmSignalProvider 已把它接进真实回测（artifact → 逐 bar → 信号 → 成交）。
-	"tellurion/pkg/trading/margin":   "融资融券账户管理 / 可融券判定，待实盘链路接线",
-	"tellurion/pkg/strategy/options": "期权策略（Black-Scholes / 二叉树），待策略层接线",
-	"tellurion/pkg/testutil":         "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
+	"tellurion/pkg/testutil": "预留的 DB 集成测试底座（AUD-43 裁决：保留，不删；归档审查报告曾把它列为「有 DB 环境下可选集成验证」的设想）",
 	// 2026-11-10（SVC-CORE-BROKER-RETIRE 步骤 B）：进程内订单存储删除后，
 	// pkg/id 的唯一消费者消失。broker 通道的 client_order_id 由
 	// pkg/brokerhttp 自己生成；ULID 生成器保留为订单域重建的候选。
@@ -133,6 +148,12 @@ var retiredPackages = map[string]string{
 	// registry 零构造，属"永远不会被执行"的实盘风控代码。重开条件 = broker
 	// ADR-0003 的 P1~P5 满足且启动实盘通道时，按该 ADR 重建而非复活本包。
 	"tellurion/pkg/trading/stockstate": "实盘证券状态校验（listed/suspended/delisting/delisted + 退市强平）已随实盘通道一并退役；当前不做实盘，重开见 tellurion-broker:docs/adr/0003",
+	// 2026-11-13（CORE-DEAD-PACKAGE-DISPOSITION，主任裁决）：交易三包退役。
+	// 判据是「交易能力 vs 工具」：三者都无 HTTP 入口、无生产导入者，用户不可达；
+	// 当前阶段不扩交易品种、不做实盘，留着只会让「能力存在」的假象延续。
+	"tellurion/pkg/backtest/auction": "集合竞价撮合（9:15-9:25 / 14:57-15:00）从未接入回测引擎；重开 = 回测口径需要真实竞价成交（不是日频开盘价近似）时，按当时的引擎接口重写并补针",
+	"tellurion/pkg/trading/margin":   "融资融券账户 / 可融券判定从未接入任何链路，且当前不做实盘；重开 = broker ADR-0003 的 P1~P5 满足并启动两融业务时，按该 ADR 重建",
+	"tellurion/pkg/strategy/options": "期权定价（Black-Scholes / 二叉树）从未接入策略层，core 只做 A 股股票策略；重开 = ROADMAP 明确纳入期权策略时另立设计，不在 core 预先复活实现",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {
