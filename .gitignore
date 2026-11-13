@@ -89,6 +89,16 @@ FRONTEND_*.md
 *.tmp
 *.temp
 
+# ── 综合测试原始证据（reports/<date>/）──────────
+# 口径见 reports/test-2026-11-13/summary.md §7（2026-11-13 主任裁决）：
+# 仓内只保留人工摘要 summary.md 入库；其余原始请求载荷、行数快照、数据库 dump、
+# 指标对齐报告一律不入库、不删除，留在原工作区路径。
+# 原始日志已由上面的全局 `*.log` 覆盖，此处不重复叠加。
+reports/**/*.dump
+reports/**/*.json
+reports/**/*.txt
+reports/**/dualrun.md
+
 # ── AI Session State (gitignored, per-session) ─────
 .session/
 .session/*
