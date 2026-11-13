@@ -435,7 +435,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 
 #### 2026-11-13 五角审查 · 档 5（文档与代码一致性）
 
-### CORE-OPENAPI-MEASUREMENT-INDEX · openapi 索引补 3 条测量端点 [P2] ⬜
+### CORE-OPENAPI-MEASUREMENT-INDEX · openapi 索引补 3 条测量端点 [P2] ✅ 2026-11-13
 
 > 档 5（文档与代码一致性）· 来源：04-doc-consistency P2-2（同 01-product-design P2-2）· 顺序 5-3 · 依赖：无
 
@@ -445,6 +445,30 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不在 core 复制 agent schema；不改端点实现；不改 UI 调用。
 - **⑤ 验收**：3 条路径出现在索引；无重复 schema；链接检查绿；删掉任一索引行 ⇒ 契约/索引测试红（若已有）。
 - **⑥ 边界**：core `docs/openapi.yaml` 索引段。
+
+> **施工记录（2026-11-13，E1 实跑）**：`docs/openapi.yaml` 的 AI Pipeline 索引段
+> 补 3 条（`POST /api/pipeline/adoption`、`GET /api/pipeline/calibration`、
+> `GET /api/pipeline/experiments/count`），均标 `x-served-by: agent`，description
+> 指向 `tellurion-agent:docs/api-schema.md` 为唯一权威，只保留「转发成功 /
+> ai-service 不可达」两档结果，**未复制**任何请求/响应 schema；段首「以下 10 条」
+> 同步改为 13 条。
+> 前置核实：三条路径在 core 仓**没有实现**（`grep -rn 'pipeline/adoption' .` 零命中，
+> 仓内也没有 `cmd/analysis/handlers_pipeline.go`），实现在
+> `tellurion-agent/cmd/ai/handlers_pipeline.go:166-168`，core 侧只经
+> `ANY /api/pipeline/*path` 反代到达 —— 与 ② 的描述一致，故按「索引补登」而非
+> 「契约新增」处理。
+> 契约对拍表：`cmd/analysis/routes_contract_rev13_test.go` 的
+> `allowedOtherHost["agent"]` 增 3 条、`require.Len(otherHost, …)` 由 11 改 14
+> （这是该护栏的既定机制：x-served-by 条数固定，新增宿主声明必须显式改断言）。
+> 新增用例 `cmd/analysis/openapi_measurement_index_test.go:TestOpenAPIMeasurementIndexEntries`：
+> 断言三条 METHOD+path 在 `paths` 里、`x-served-by=agent`、无 `requestBody`、
+> responses 下无 `content`（不复制 schema），且反代族
+> `/api/pipeline/{path}` 的 5 个常用方法确已注册（索引不指向不可达路径）。
+> 结果：`go test ./cmd/analysis` PASS（含路由契约 4 条与索引用例）。
+> 破坏验证：整块删除 `GET /api/pipeline/calibration` 索引条目 ⇒ 新用例 FAIL
+> （「索引缺 GET /api/pipeline/calibration」）且 `TestRouteContract_SpecToCode` 同时
+> FAIL（x-served-by 实有 13 条、断言要求 14）；从备份逐字节还原
+> （`SHA256=0FDA89AD…6A6B508` 一致）⇒ 复跑 PASS。
 
 ### CORE-CONTRACTS-DIR-NAMING · 澄清 core `contracts/` 目录性质 [P3] ⬜
 

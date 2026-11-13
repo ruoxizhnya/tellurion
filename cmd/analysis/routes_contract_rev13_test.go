@@ -300,9 +300,16 @@ func TestRouteContract_SpecToCode(t *testing.T) {
 			"GET /api/explore/{path}":            true,
 			"GET /api/tools":                     true,
 			"GET /api/tools/{path}":              true,
+			// CORE-OPENAPI-MEASUREMENT-INDEX（2026-11-13）：测量面索引补登。
+			// 实现在 tellurion-agent（cmd/ai/handlers_pipeline.go:166-168），core
+			// 只经 `ANY /api/pipeline/*path` 反代；定义权威在
+			// tellurion-agent:docs/api-schema.md（AI Pipeline 一节）。
+			"POST /api/pipeline/adoption":         true,
+			"GET /api/pipeline/calibration":       true,
+			"GET /api/pipeline/experiments/count": true,
 		},
 	}
-	require.Len(t, otherHost, 11, "x-served-by 只应有 11 条（ingest 1 + agent 反代入口 10）")
+	require.Len(t, otherHost, 14, "x-served-by 只应有 14 条（ingest 1 + agent 反代入口 10 + 测量面索引 3）")
 	for key, host := range otherHost {
 		allowed, knownHost := allowedOtherHost[host]
 		require.Truef(t, knownHost, "%s 声明了未登记的宿主 %q —— 新宿主必须先加进本表的白名单", key, host)

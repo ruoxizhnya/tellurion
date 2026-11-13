@@ -1557,7 +1557,7 @@ paths:
   # ============================================================
   # Copilot (AI strategy generation)
   # ============================================================
-  # ⚠️ 以下 10 条 copilot/pipeline/explore/tools 都是 core 的**反代入口**
+  # ⚠️ 以下 13 条 copilot/pipeline/explore/tools 都是 core 的**反代入口**
   # （`x-served-by: agent`，G-06 裁决：端点双声明以 agent 为准）。本文件不再
   # 复制请求/响应 schema —— 唯一完整定义在 tellurion-agent:docs/api-schema.md，
   # 那里同样标了 `x-served-by: agent`。此处只保留路径、方法与「转发成功 /
@@ -1652,6 +1652,51 @@ paths:
           required: true
           schema:
             type: string
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  # ── 测量面索引（CORE-OPENAPI-MEASUREMENT-INDEX，2026-11-13）──────────
+  # 这三条是本文件的**索引补登**，不是新契约：core 只有 `ANY /api/pipeline/*path`
+  # 反代族（cmd/analysis/handlers_proxy.go），原样转发到 ai-service；定义唯一
+  # 权威在 `tellurion-agent:docs/api-schema.md`（AI Pipeline 一节）。UI 的
+  # `pipeline.ts` / `reviewDesk` 正在经 core 调它们 —— 此前索引漏登，读者只看
+  # openapi 会以为测量面不存在。此处**不复制**请求/响应 schema。
+  /api/pipeline/adoption:
+    post:
+      tags: [AI Pipeline]
+      summary: Record an adoption / intervention decision（反代 agent）
+      description: 转发到 ai-service 的 `POST /pipeline/adoption`；请求与响应以 tellurion-agent:docs/api-schema.md 为准。
+      operationId: recordAdoptionDecision
+      x-served-by: agent
+      responses:
+        '201':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/pipeline/calibration:
+    get:
+      tags: [AI Pipeline]
+      summary: Calibration error + holdout hit rate（反代 agent）
+      description: 转发到 ai-service 的 `GET /pipeline/calibration`；报表字段以 tellurion-agent:docs/api-schema.md 为准。
+      operationId: getPipelineCalibration
+      x-served-by: agent
+      responses:
+        '200':
+          description: Upstream response (pass-through)
+        '503':
+          description: ai-service unreachable
+
+  /api/pipeline/experiments/count:
+    get:
+      tags: [AI Pipeline]
+      summary: Cumulative experiment count（反代 agent）
+      description: 转发到 ai-service 的 `GET /pipeline/experiments/count`；计数口径（由 ai.experiments 行派生）以 tellurion-agent:docs/api-schema.md 为准。
+      operationId: getExperimentCount
+      x-served-by: agent
       responses:
         '200':
           description: Upstream response (pass-through)
