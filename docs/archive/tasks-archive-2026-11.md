@@ -128,6 +128,16 @@
 | CORE-LISTING-SEED-UNWIRED | 上市/退市日历接入真实装配路径（主引擎 + walk-forward 窗口引擎），失败不合成并暴露 `pool_source=current` 偏差标记 | 2026-11-12 | 见原文（本条即施工提交本体：代码 + 测试 + 台账同 commit） | [原文](#CORE-LISTING-SEED-UNWIRED) |
 | CORE-CI-DB-LEGS-SKIPPED | CI Test job 设 `TEST_DATABASE_DSN` + 显式迁移步，PIT / 迁移账本用例不再长期 skip；补齐外仓表镜像夹具 | 2026-11-12 | 见原文（本条即施工提交本体：CI + 工具 + 夹具 + 台账同 commit） | [原文](#CORE-CI-DB-LEGS-SKIPPED) |
 | CORE-DATA-MIGRATIONS-EXIT | `public.data_migrations` 过渡态退出条件（前提证伪，作废） | 2026-11-12 | —（原文未记） | [原文](#CORE-DATA-MIGRATIONS-EXIT) |
+| CORE-REPOGUARD-HANDLER-WIRED | 补「handler 已定义、路由未注册」护栏 | 2026-11-13 | `f5a6271` | [原文](#CORE-REPOGUARD-HANDLER-WIRED) |
+| CORE-DATA-URL-SINGLE-DEFAULT | `data_service.url` 默认值收敛为单点（无隐式默认，缺失即错） | 2026-11-13 | `63e3f7f` | [原文](#CORE-DATA-URL-SINGLE-DEFAULT) |
+| CORE-API-V1-INDEX | `/api/v1` 索引改由路由表现场生成并分段标注 legacy | 2026-11-13 | `a7e8147`、`df9298d` | [原文](#CORE-API-V1-INDEX) |
+| CORE-BACKTEST-REQUEST-UNION | `POST /api/backtest` 显式 `mode` 判别，混用/半套异步体 400 | 2026-11-13 | `8e33376` | [原文](#CORE-BACKTEST-REQUEST-UNION) |
+| CORE-E2E-FAIL-LOUD | e2e 非预期状态码一律失败（删两处假绿路径与死轮询） | 2026-11-13 | `d3e3cce` | [原文](#CORE-E2E-FAIL-LOUD) |
+| CORE-INTEGRATION-TAG-CI | `-tags=integration` 用例进 CI 真跑 + 覆盖扫盘护栏 | 2026-11-13 | `3438c6b` | [原文](#CORE-INTEGRATION-TAG-CI) |
+| CORE-COVERAGE-FLOOR | core 覆盖率门抬到实测低 5 点（67 / 77） | 2026-11-13 | `2f2b790` | [原文](#CORE-COVERAGE-FLOOR) |
+| CORE-TEST-HERMETIC | 测试定位仓根改 `runtime.Caller`，不依赖工作目录 | 2026-11-13 | `9796f1c` | [原文](#CORE-TEST-HERMETIC) |
+| CORE-OPENAPI-MEASUREMENT-INDEX | openapi 索引补 3 条测量端点（`x-served-by: agent`） | 2026-11-13 | `6f88e31` | [原文](#CORE-OPENAPI-MEASUREMENT-INDEX) |
+| CORE-CONTRACTS-DIR-NAMING | 澄清 core `contracts/` 是数据契约资产、非 Go 契约仓 | 2026-11-13 | `20e50a7` | [原文](#CORE-CONTRACTS-DIR-NAMING) |
 
 ---
 
@@ -4014,4 +4024,340 @@
 - **重开条件**：X1d 生产搬迁完成且观察一个发布周期。
 
 > **归档注记（2026-11-13）**：原文逐字移入；活跃层不再保留该条。作废结论见本文件 `CORE-DATA-MIGRATIONS-EXIT` 关闭记录。
+
+---
+
+## 二十六、2026-11-13 台账卫生：五角审查档 3/4/5 已完成项逐字归档（10 条）
+
+> **本节来由（2026-11-13）**：`docs/TASKS.md` 活跃层里 10 条已标 ✅（当日施工收口）的条目，按维护规则（完成即标 ✅ 并移入 `archive/`、正文不改写）**逐字搬入**下面，标题与正文未改写；对应提交见顶部检索索引。伞条目（`X-PROBE-CANONICAL-HEALTHZ` / `X-COVERAGE-FLOOR` / `X-CI-BASELINE-PIN`）仍有对侧仓腿未落，**不归档**，留在活跃层。
+
+<a id="CORE-REPOGUARD-HANDLER-WIRED"></a>
+### CORE-REPOGUARD-HANDLER-WIRED · 补「handler 已定义、路由未注册」护栏 [P2] ✅ 2026-11-13
+
+> 档 3（实现）· 来源：02-implementation P1-1 · 顺序 3-1 · 依赖：无（不依赖 stockstate 裁决）
+
+- **① 目标**：让 repoguard 能发现"编译进来的 handler 没有注册到运行路径"。
+- **② 上下文**：`internal/repoguard/package_wiring_test.go:72-100` 只守"包无导入者"；`cmd/analysis/handlers_stock_state.go:50` 定义 6 条路由，而 `main.go` 无 `NewStockStateHandler` 调用点——护栏完全看不见这类死面。stockstate 只是样本，不是唯一潜在对象。
+- **③ 要求**：新增 AST/静态用例：扫描 `cmd/analysis` 的 `New*Handler` 构造函数，要求每个在 `main.go` 或注册函数中有对应注册调用，或在显式 allowlist 中（每条含理由 + 重开条件）；stockstate 条目在裁决前先入 allowlist，裁决后按 A/B 同步删除。
+- **④ 约束与非目标**：本条不接线 stockstate；不把 allowlist 变成永久免死金牌；不扫描测试文件里的构造调用。
+- **⑤ 验收**：临时删掉一个已注册 handler 的注册行 ⇒ 护栏红；还原 ⇒ 绿；allowlist 每条都有理由字段。
+- **⑥ 边界**：core `internal/repoguard`；handler 生命周期由 `CORE-STOCKSTATE-DISPOSITION` 决定。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `internal/repoguard/handler_wiring_test.go`。
+> 判据：扫 `cmd/analysis` 非测试文件的 `New*Handler` 构造函数，只认 `main` / `register*`
+> 函数里的调用点，且必须真的接到路由（同一表达式链里的 `.RegisterRoutes(…)`，或返回值
+> 赋给局部变量后在同一函数内对该变量调 `.RegisterRoutes`）；例外进 `unwiredHandlers`，
+> 每条必填 `Reason` + `Reopen`，构造函数消失或已接线即判白名单失效。
+> 初始白名单 1 条：`NewStockStateHandler`（等 `CORE-STOCKSTATE-DISPOSITION` 裁决）。
+> 结果：`go test ./internal/repoguard -run TestEveryHandlerConstructorIsRegistered -count=1`
+> PASS（扫到 13 个构造函数，12 个已接线、1 个在册）。
+> 破坏验证：临时删掉 `NewReconciliationHandler(...).RegisterRoutes(router)` 一行 ⇒
+> FAIL 点名 `[NewReconciliationHandler]`；从备份逐字节还原（`SHA256=9A640D47…E9AF7A`
+> 与改动前一致）⇒ 复跑 PASS。
+
+<a id="CORE-DATA-URL-SINGLE-DEFAULT"></a>
+### CORE-DATA-URL-SINGLE-DEFAULT · `data_service.url` 默认值收敛为单点 [P2] ✅ 2026-11-13
+
+> 档 3（实现）· 来源：02-implementation P2-2 · 顺序 3-2 · 依赖：无
+
+- **① 目标**：回测取数与 `/api/sync/*` 反代共用同一个地址解析结果，不再出现两套默认。
+- **② 上下文**：`pkg/bootstrap/engine.go:22-25` 缺失时回落 `http://localhost:8081`；`cmd/analysis/handlers_proxy.go:35-38` 缺失时回落 `http://data-service:8081`；`config/analysis-service.yaml:114` 正常提供配置，所以今天不漏。缺项时会表现为"回测取不到数但同步页正常"的割裂故障。
+- **③ 要求**：① 抽出唯一 resolver（显式配置优先）；② 建议缺失即启动错误，与 broker/risk 的 fail-closed 语义一致；若确有"本地无配置"场景，只保留**一个**默认值并写清适用范围；③ 回测 provider 与 sync 反代都走该 resolver。
+- **④ 约束与非目标**：不改 data 仓、不改 URL 形状、不动显式配置优先级。
+- **⑤ 验收**：两个默认字符串收敛为一处；缺配置时行为与文档一致（若 fail-closed 则启动明确报错）；破坏验证 = 把 resolver 改回两套 ⇒ 用例红。
+- **⑥ 边界**：core 配置解析 + `handlers_proxy`。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `pkg/bootstrap/dataservice.go`
+> `DataServiceURL(v)` 作为唯一解析入口（显式配置优先，缺失 / 非绝对 URL 即错误，
+> **无隐式默认**）；三条腿全部改走它：`pkg/bootstrap/engine.go`（回测取数）、
+> `cmd/analysis/handlers_proxy.go`（`/api/sync/*` 反代，解析失败不注册该族路由并
+> 记 error，而不是静默指向猜的地址）、`cmd/analysis/kernel_wiring.go`（行情
+> provider 与 listingseed）。`BuildBacktestEngine` 由 `logger.Fatal` 改为返回
+> error，`cmd/worker` 据此拒绝启动（与 analysis 的 `validateOutboundEndpoints`
+> 同口径）。
+> 结果：`go test ./pkg/bootstrap/... ./cmd/analysis/... -count=1` 全 PASS；
+> `go build ./...` exit 0。`deps_test.newMinimalDeps` 按生产前提补
+> `data_service.url`（启动期硬校验要求该键，不是放宽断言）。
+> 破坏验证：把 `http://localhost:8081` 私有回落写回 `engine.go` ⇒
+> `TestNoDataServiceDefaultLiterals` 点名 `engine.go:29:20` 且
+> `TestBuildBacktestEngineFailsClosedOnMissingDataServiceURL` 变红；逐字节还原
+> （`SHA256=F15A88F0…8618C4C` 与改动前一致）⇒ 复跑 PASS。
+> 同提交文档：`docs/SPEC.md:2141`（Fatal → 返回 error）、
+> `docs/design/cross-repo-architecture-baseline-2026-11-11.md:44`（默认值列改为
+> 「代码内无默认」）。
+
+<a id="CORE-API-V1-INDEX"></a>
+### CORE-API-V1-INDEX · `/api/v1` 服务索引覆盖主面并标注 legacy [P2] ✅ 2026-11-13
+
+> 档 3（实现）· 来源：02-implementation P2-3 · 顺序 3-3 · 依赖：无
+
+- **① 目标**：机器读 `/api/v1` 时看到的是完整主面，而不是"只有兼容别名"的自描述。
+- **② 上下文**：`cmd/analysis/main.go:326-337` 只列 `/health`、`/backtest`、`/backtest/:id/report` 等裸路径；这些路径由 `handlers_backtest.go:511-533` 的 legacy 重写与 `main.go:309` 真实提供，所以索引不是错的，是**覆盖不全**——`/api/backtest`、`/api/sync/*`、`/api/explore/*`、`/api/copilot/*` 均未列出。
+- **③ 要求**：索引分两段——"现代 API"列 method + path + 一句话；"legacy 别名（deprecated）"单列；优先从路由注册表生成，退而维护清单 + 契约测试。
+- **④ 约束与非目标**：不删 legacy 别名；不改路由行为；不把索引做成 openapi 的替代。
+- **⑤ 验收**：四类主面均出现；legacy 段有 deprecated 标记；契约测试锁"索引 ⊆ 实际路由"，删一条主面注册 ⇒ 红。
+- **⑥ 边界**：core `main.go` 索引与路由测试。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/api_index.go`，
+> `/api/v1` 改为**从 `router.Routes()` 现场生成**（请求时计算，索引永远等于
+> 此刻路由表）：`endpoints` 段为现代 API（method + path + 一句话），`legacy`
+> 段为 `registerBacktestLegacyRedirects` 等兼容别名并逐条 `deprecated: true`；
+> gin `Any` 展开的 9 个方法按族合并为 `ANY`。描述按「精确 method+path →
+> 前缀族 → 兜底」三级查找，任何路由都不会因漏写描述而消失。
+> `main.go` 原 5 条写死清单删除，改为 `apiV1IndexHandler(router)`。
+> 新增 `cmd/analysis/api_index_test.go` 三条：四类主面 + 探针/契约元端点都在、
+> 索引 ⊆ 实际路由、HTTP 序列化字段与分段稳定。
+> 结果：`go test ./cmd/analysis -run 'TestAPIV1' -count=1` PASS。
+> 破坏验证：在 `registerBacktestRoutes` 开头插入 `if true { return }` ⇒
+> `TestAPIV1IndexCoversMainSurface` FAIL，点名 `POST /api/backtest` 与
+> `GET /backtest`（legacy 也未注册）；逐字节还原（`SHA256=05B7F970…0E3AD2FE`
+> 与改动前一致）⇒ 复跑 PASS。
+> 同提交文档：`docs/openapi.yaml` 的 `/api/v1` 描述重写 + 新增
+> `ApiIndexEntry` schema、`ApiVersionInfo` 增加 `source`/`legacy`、`endpoints`
+> 改为对象数组。
+
+<a id="CORE-BACKTEST-REQUEST-UNION"></a>
+### CORE-BACKTEST-REQUEST-UNION · `POST /api/backtest` 改显式判别，去掉字段探测 [P2] ✅ 2026-11-13
+
+> 档 3（实现）· 来源：02-implementation P2-4 · 顺序 3-4 · 依赖：调用方适配（agent / ui）另立
+
+- **① 目标**：请求体二选一由显式判别决定，歧义请求明确报错，不再静默走异步分支。
+- **② 上下文**：`handlers_backtest.go:97` 以"`strategy_id` + `universe` 同时非空"判定异步体，否则 `:153` 退回 legacy 信封（要求 `strategy`）。同时携带两类字段会静默走异步；半异步体（有 `strategy_id` 无 `universe`）落到 legacy 分支报 "strategy required"，错误信息与真实原因不符。
+- **③ 要求**：① 加显式判别（独立路径 `/api/backtest/async`，或必填 `mode`，或独立媒体类型，三选一，推荐 `mode`）；② 歧义请求 400 点名冲突字段；③ 半异步体 400 点名缺失字段；④ legacy 信封保留一个兼容周期并在响应/文档标注 deprecated。
+- **④ 约束与非目标**：合法旧请求行为不变；不动回测引擎；不在本条改 agent/ui 客户端（跨仓另立）。
+- **⑤ 验收**：同带 `strategy` 与 `strategy_id/universe` ⇒ 400；仅 `strategy_id` 无 `universe` ⇒ 400 且点名 `universe`；legacy 合法请求结果逐字节不变；契约测试覆盖 union 语义。
+- **⑥ 边界**：core handler + `openapi.yaml`；调用方适配归 agent/ui。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/backtest_request_mode.go`
+> `classifyBacktestRequest`，采用推荐方案「可选 `mode: sync|async`」：
+> 显式 mode 与字段形状冲突 400、混用 sync/async 字段 400 点名两侧字段、
+> 半套异步体 400 点名 `strategy_id`/`universe`、未知 mode 400；
+> 未给 mode 时按字段判别（兼容周期），混用同样 400（不再静默走异步）。
+> legacy 信封保留：同步响应加 `Deprecation: true` + `Warning: 299 - "…"` 头，
+> **body 逐字节不变**。
+> 结果：`go test ./cmd/analysis -run 'TestBacktestPost_' -count=1` PASS。
+> 新增 `cmd/analysis/handlers_backtest_request_union_test.go` 8 条反证/正证腿，
+> 其中 legacy 腿同时比对「不带 mode」与「带 mode=sync」两次响应体逐字节相等。
+> 破坏验证：把判别退回旧的「strategy_id && universe 同时非空」探测 ⇒
+> 4 条子用例（混用、半套异步体、mode 冲突、非对象体）立刻红；还原后复跑 PASS。
+> 同提交文档：`docs/openapi.yaml` 的 `POST /api/backtest` 描述重写，
+> `BacktestRequest` / `CreateJobRequest` 增加 `mode` 字段与 union 语义说明。
+
+<a id="CORE-E2E-FAIL-LOUD"></a>
+### CORE-E2E-FAIL-LOUD · e2e 不再把非 200 一律当可接受 [P1] ✅ 2026-11-13
+
+> 档 4（测试）· 来源：03-testing P1-1 · 顺序 4-1 · 依赖：无
+
+- **① 目标**：整链 e2e 只有在"明确的非 200 预期"下才放行非 200；其余一律红。
+- **② 上下文**：`e2e/tests/integration_test.go` 中可选依赖模式把**任何非 200**（含 409）当作"跳过 / 可接受"，形成假绿——服务真坏成 409 时 e2e 仍通过，无法区分"环境未就绪"与"实现回归"。
+- **③ 要求**：① 非 200 ⇒ 失败，除非用例显式声明期望状态码与原因（如幂等 409）；② 可选依赖只允许"未配置即 skip"，不允许"返回错误也算过"；③ 断言终态为 `completed`，并核对关键字段非空。
+- **④ 约束与非目标**：不为让 e2e 绿而放宽断言；不把 e2e 改成单测；不改服务实现（若暴露真实缺陷，另立修复单）。
+- **⑤ 验收**：人为让一个依赖返回 409 ⇒ e2e 红；正常栈 ⇒ 绿；日志能区分"skip（未配置）"与"fail（返回错误）"。
+- **⑥ 边界**：`tellurion/e2e/`。
+
+> **施工记录（2026-11-13，E1 实跑）**：`e2e/tests/integration_test.go` 四条用例
+> 改为「显式声明可接受状态码 + 断言终态」，并订正两处**长期假绿**的路径错误：
+> 1. `TestOHLCVAPI_DataRetrieval`：非 200 只 `t.Logf("may need data sync")` ⇒ 现在
+>    `require` 200 + 非空 + 五个 OHLCV 字段；
+> 2. `TestFundamentalsAPI_DataRetrieval`：路径由复数 `/api/fundamentals/:symbol`
+>    改为真实单数 `/api/fundamental/:symbol`（`cmd/analysis/handlers_fundamental.go`），
+>    只接受 200（非空 `fundamental` 对象）或 404（body 含 `fundamental_not_found`），
+>    其余状态码 `t.Fatalf` 点名；
+> 3. `TestBacktestAPI_EndToEnd`：`require` 200，断言 `status=="completed"` 与
+>    `strategy`/`total_return`/`total_trades` 存在；删除 `pollForCompletion`
+>    （轮询 `/api/backtest/status/:id` —— 该路由**不存在**，超时只打日志，
+>    是第二个假绿源；异步 job 需 orchestration worker profile，不在默认 e2e 栈）；
+> 4. `TestDockerComposeServicesConnectivity`：改 `allowed []int` 表，探针只收 200，
+>    业务读面 200/401/403，**5xx 与 404 一律失败**（此前「不是 404 就算通」）。
+> `TestExecutionService_OrderPersistence` 的 `{201,400}` 与 `TestFactorAPI_*` 的
+> 精确码断言本就有理由声明，保留。
+> 新增护栏 `e2e/guard/guard_test.go:TestE2EFailLoudOnUnexpectedStatus`：AST 扫上述
+> 四条用例的函数体，要求出现 `StatusCode` + 断言调用（Equal/Contains/Fatalf/Errorf），
+> 且不得含历史吞错文案（`may need data sync` / `No fundamentals data returned` /
+> `not reachable`）。
+> 结果：`go test ./e2e/guard -count=1` PASS；`go vet ./e2e/...` exit 0。
+> 破坏验证：把 OHLCV 的 200 断言换回旧的「`t.Logf("OHLCV may need data sync")` + return」
+> ⇒ `TestE2EFailLoudOnUnexpectedStatus` FAIL 并点名该文案；从备份逐字节还原
+> （`SHA256=7F1DD9D8…B2B6F59` 与改动前一致）⇒ 复跑 PASS。
+
+<a id="CORE-INTEGRATION-TAG-CI"></a>
+### CORE-INTEGRATION-TAG-CI · `-tags=integration` 用例进入 CI [P2] ✅ 2026-11-13
+
+> 档 4（测试）· 来源：03-testing P2-1 · 顺序 4-2 · 依赖：无
+
+- **① 目标**：带 `integration` 构建标签、本地与 CI 都不跑的用例，至少在 CI 有一条真实执行路径。
+- **② 上下文**：仓内存在 `-tags=integration` 用例，但 CI 的 Test job 不带该 tag，本地文档也未要求跑 ⇒ 这批用例长期零执行。
+- **③ 要求**：① 在 CI 增加 `go test -tags=integration` 腿（与 DB 腿共用 postgres service 与迁移步）；② 无法在 CI 跑的使用例必须显式 skip 并写原因，不得默默留在 tag 后；③ 在 `docs/TASKS.md`/CI 注释记录哪些用例走该腿。
+- **④ 约束与非目标**：不把 integration 用例并入默认 Test job（避免本地默认变慢）；不删 tag。
+- **⑤ 验收**：CI 日志出现 integration 用例的 PASS（数量 > 0）；故意删一个 integration 用例的断言 ⇒ 该腿红。
+- **⑥ 边界**：core `.github/workflows/ci.yml` + 测试标签。
+
+> **施工记录（2026-11-13，E1 实跑）**：`.github/workflows/ci.yml` 的 `go` job
+> 在迁移步与 Test 步之后新增 `Integration tag tests` 步（与 DB 腿共用同一
+> postgres service 与已迁移库）：
+> - `go vet -tags=integration ./...` —— 保证所有带 tag 的包可编译；
+> - `go test -tags=integration ./pkg/storage/... ./pkg/backtest/... -count=1 -v`；
+> - 两条 fail-loud：日志出现 `SKIP: integration tests require Docker` ⇒ 红
+>   （GH runner 自带 Docker，缺了是环境回归，不允许整套 storage 腿以 skip 收场）；
+>   `--- PASS:` 行数为 0 ⇒ 红（防「腿跑了但一条用例都没执行」）。
+> 覆盖范围（仓内全部正向 `//go:build integration` 目录，扫盘确认只有两个）：
+> `pkg/storage`（dockertest 一次性 PG：迁移重放守卫、告警 outbox、结果保留、
+> 运行溯源）与 `pkg/backtest`（QT-64 Router 接线腿，走 `TEST_DATABASE_DSN`；
+> `ohlcv_minute` 由迁移创建）。`pkg/storage` 的 `//go:build !integration` 文件
+> （dbsummary_test.go / strategy_state_migration_test.go）按设计不进该腿。
+> 新增护栏 `internal/repoguard/ci_integration_tag_test.go:TestCIIntegrationTagLegExists`：
+> YAML 解析 ci.yml，断言①有 `go test -tags=integration` 步且有 `go vet -tags=integration ./...`；
+> ②该 go test 行点名的包模式覆盖**扫盘得到的每一个** tag 目录（新增 tag 包漏加即红）；
+> ③迁移步与集成腿同 job 且在前；④`TEST_DATABASE_DSN` 非空。
+> 结果：`go vet -tags=integration ./...` EXIT=0（本地真跑）；`go test ./internal/repoguard`
+> 全 PASS。CI 腿本身要等推送后由 runner 执行（本地无 Docker daemon）。
+> 破坏验证：把 `Integration tag tests` 步替换为一句 echo ⇒ 护栏 FAIL
+> （「ci.yml 里没有 `go test -tags=integration` 步骤」）；从备份逐字节还原
+> （`SHA256=149B5B00…D450DC91F31` 与改动前一致）⇒ 复跑 PASS（repoguard 全包绿）。
+> 同提交文档：`AGENTS.md` §8 规范 1 增加 tag 腿的跑法与本护栏指针。
+
+<a id="CORE-COVERAGE-FLOOR"></a>
+### CORE-COVERAGE-FLOOR · core 覆盖率门抬到实测低 5 点 [P2] ✅ 2026-11-13
+
+> 档 4（测试）· 来源：03-testing P2-2 · 顺序 4-3 · 依赖：随 §四 伞 `X-COVERAGE-FLOOR`
+
+- **① 目标**：core 覆盖率门能拦住明显回退，而不是形同虚设。
+- **② 上下文**：当前 `tools/coveragegate` 用 `-total-min=52`，而设 DSN 跑全套件实测 72.5%；`pkg/backtest` 门槛 65%，实测约 77%。门槛比实测低 20 点，删掉成片测试也不会红。
+- **③ 要求**：按"实测低 5 点"重设：总量 67%、`pkg/backtest` 72%（施工时以最新实测复核后取整）；把参数写进 CI 与 `AGENTS.md`，避免只活在命令行。
+- **④ 约束与非目标**：不通过删测试/加 `_test.go` 空壳来抬覆盖率；不追求 100%；不一次性给所有包设包级门槛（先总量 + backtest）。
+- **⑤ 验收**：CI 使用新阈值；删除一个有实质断言的测试文件 ⇒ 门红；还原 ⇒ 绿。
+- **⑥ 边界**：core `tools/coveragegate` 参数 + CI + `AGENTS.md`。
+
+> **施工记录（2026-11-13，E1 实测后落阈值）**：起隔离 PG 16 容器（独立端口
+> 55433、`max_connections=500`，不碰部署库 `tellurion` 与 `tellurion-next`），
+> `tools/ci/applymigrations` 迁移后跑全套件实测：**total 72.6%、`pkg/backtest`
+> 82.4%**（本机 `go test ./... -p 1`；并行跑会撞 PG 连接上限，属测量环境差异，
+> 不影响比例）。按「实测低 5 点取整」定 **`-total-min=67`、`-pkg-min=tellurion/pkg/backtest=77`**
+> （任务文本里的 72% 出自旧基线 77%，本次实测 82.4% ⇒ 77）。
+> 同步三处：`.github/workflows/ci.yml` Test 步与 Makefile `test` 目标（同一份阈值，
+> 改就两边一起改）、`AGENTS.md` §8 规范 1 新增「覆盖率地板」条（含口径与改动清单）。
+> 新增护栏 `internal/repoguard/coverage_floor_test.go:TestCoverageFloorIsEnforced`：
+> YAML 解析 ci.yml + 读 Makefile，断言两处数值逐字相同、均不低于冻结地板（67/77）、
+> 且 `AGENTS.md` 写出同一组数字；分叉/下调即红。
+> 破坏验证（门禁有效性，真实 profile 上做）：把 `pkg/storage` + `cmd/analysis` +
+> `pkg/marketdata` 的已覆盖语句全部翻成未覆盖（等价「成片测试被删」，total 59.4%）——
+> 旧阈值 52/65 **PASS**（门禁不执法），新阈值 67/77 **FAIL**「总量覆盖率 59.4%
+> < 阈值 67.0%（差 7.6 个百分点）」。破坏验证（护栏）：把 ci.yml 的 `-total-min`
+> 改回 52 ⇒ `TestCoverageFloorIsEnforced` FAIL 并同时点名「分叉」与「低于冻结地板」；
+> 从备份逐字节还原（`SHA256=34D4D8FA…F743FBFC` 一致）⇒ 复绿，真实 profile 上
+> `coveragegate` PASS（72.6% ≥ 67、backtest 82.4% ≥ 77）。
+> **对 ⑤ 的如实订正**：单独删一个测试文件**不会**触发红线 —— 实测把
+> `pkg/backtest` 最大的测试文件（qt04，57KB）移出后覆盖仍为 82.4%（其覆盖的语句
+> 被其他测试重复覆盖）。「5 点余量」决定了单文件删除在数学上不可能掉 5 点，
+> 该验收条件本身不成立；改用「成片覆盖回退」验证门禁（上段），符合 ⑤ 的
+> 真实意图（拦住明显回退），且已实测旧门禁在同一份数据上放行。若主任要求
+> 单文件可感，需相应缩小余量（不在本单擅改）。
+
+<a id="CORE-TEST-HERMETIC"></a>
+### CORE-TEST-HERMETIC · 限流预算测试去掉对工作目录的依赖 [P2] ✅ 2026-11-13
+
+> 档 4（测试）· 来源：03-testing P2-3 · 顺序 4-4 · 依赖：无
+
+- **① 目标**：测试不再靠"当前工作目录恰好是仓根"才成立。
+- **② 上下文**：`cmd/analysis/rate_limit_budget_test.go:21` 用 `filepath.WalkDir("..")`（或等价父目录遍历）读配置/源码，`go test` 从不同目录启动时结果不同，属非 hermetic。
+- **③ 要求**：改用 `t.TempDir()` + 内联夹具，或 `runtime.Caller` 定位仓根并显式失败（不得静默跳过）；测试只依赖自身声明的输入。
+- **④ 约束与非目标**：不改限流实现；不放宽断言。
+- **⑤ 验收**：分别从仓根与临时目录运行同一用例均 PASS；从不存在父目录的结构运行 ⇒ 明确失败而非假绿。
+- **⑥ 边界**：core 该测试文件。
+
+> **施工记录（2026-11-13，E1 实跑）**：新增 `cmd/analysis/repotest_helper_test.go`：
+> `repoRootForTest` 用 `runtime.Caller(0)`（编译期写进二进制的本文件路径）上溯
+> 两级定位仓根，再以 `validateRepoRoot` 校验三个标记（`go.mod`、
+> `config/analysis-service.yaml`、`docker-compose.yml`）；缺任一 ⇒ `t.Fatalf`
+> 点名缺项，**不退回工作目录、不 skip**。`rate_limit_budget_test.go` 三处
+> `filepath.Abs(filepath.Join("..",".."))`（shipped 配置、compose、扫描根）
+> 全部改走该 helper。
+> 前置事实订正：② 里提到的 `TestPreprocessedFundamentalLocalPath` / 依赖宿主
+> :8085 的用例在当前树中**不存在**（`grep -r 'TestPreprocessedFundamentalLocalPath'`
+> 无命中；非 e2e 测试里也没有对 :8085 的拨号）——该半条前提已被现状证伪，无需
+> 改。唯一「需要外部数据」的 `pkg/backtest/fixture_gen_test.go:TestGenerateFixtures`
+> 已有显式跳过（`DATA_SERVICE_TEST=1` 才跑）并写明原因，符合 ③ 的「不得静默跳过」。
+> 结果：`go test ./cmd/analysis -run 'TestRateLimitPerMinute|TestCompose_DefaultRateLimit|TestValidateRepoRoot|TestRepoRootForTest'` 全 PASS；
+> 另用 `go test -c` 编出测试二进制，分别以仓根与 `%TEMP%` 为工作目录执行同一组
+> 用例 —— 两次均 EXIT=0 / PASS（`go test` 本身做不到这一点：它总把 cwd 设成包目录，
+> 这正是原缺陷长期没被看见的原因）。
+> 破坏验证：把 `repoRootForTest` 改回 `os.Getwd()+../..`（旧机制）并重编二进制，
+> 从 `%TEMP%` 运行 ⇒ `FAIL`：`仓根定位失败："C:\Users\ruoxi\AppData" 不是 core 仓根：
+> 缺 [go.mod config\analysis-service.yaml docker-compose.yml] —— 不用工作目录兜底，也不跳过`；
+> 从备份逐字节还原（`SHA256=2D8CC765…3888566` 一致）⇒ 重编后两个 cwd 均 EXIT=0 / PASS。
+
+<a id="CORE-OPENAPI-MEASUREMENT-INDEX"></a>
+### CORE-OPENAPI-MEASUREMENT-INDEX · openapi 索引补 3 条测量端点 [P2] ✅ 2026-11-13
+
+> 档 5（文档与代码一致性）· 来源：04-doc-consistency P2-2（同 01-product-design P2-2）· 顺序 5-3 · 依赖：无
+
+- **① 目标**：只用 core openapi 索引的前端/脚本也能发现测量面存在。
+- **② 上下文**：`docs/openapi.yaml:1519` 声明 agent 是四组端点唯一权威、本文件只是索引；但索引只列 10 条反代路径，缺 `POST /api/pipeline/adoption`、`GET /api/pipeline/calibration`、`GET /api/pipeline/experiments/count`（`handlers_pipeline.go:166-168`），而 UI `pipeline.ts` / `reviewDesk` 正在调用。不是契约冲突，是索引漏登。
+- **③ 要求**：在索引段补 3 行，指向 `tellurion-agent:docs/api-schema.md` 为定义权威，不复制 schema；或显式写"测量面不在本索引"（推荐前者）。
+- **④ 约束与非目标**：不在 core 复制 agent schema；不改端点实现；不改 UI 调用。
+- **⑤ 验收**：3 条路径出现在索引；无重复 schema；链接检查绿；删掉任一索引行 ⇒ 契约/索引测试红（若已有）。
+- **⑥ 边界**：core `docs/openapi.yaml` 索引段。
+
+> **施工记录（2026-11-13，E1 实跑）**：`docs/openapi.yaml` 的 AI Pipeline 索引段
+> 补 3 条（`POST /api/pipeline/adoption`、`GET /api/pipeline/calibration`、
+> `GET /api/pipeline/experiments/count`），均标 `x-served-by: agent`，description
+> 指向 `tellurion-agent:docs/api-schema.md` 为唯一权威，只保留「转发成功 /
+> ai-service 不可达」两档结果，**未复制**任何请求/响应 schema；段首「以下 10 条」
+> 同步改为 13 条。
+> 前置核实：三条路径在 core 仓**没有实现**（`grep -rn 'pipeline/adoption' .` 零命中，
+> 仓内也没有 `cmd/analysis/handlers_pipeline.go`），实现在
+> `tellurion-agent/cmd/ai/handlers_pipeline.go:166-168`，core 侧只经
+> `ANY /api/pipeline/*path` 反代到达 —— 与 ② 的描述一致，故按「索引补登」而非
+> 「契约新增」处理。
+> 契约对拍表：`cmd/analysis/routes_contract_rev13_test.go` 的
+> `allowedOtherHost["agent"]` 增 3 条、`require.Len(otherHost, …)` 由 11 改 14
+> （这是该护栏的既定机制：x-served-by 条数固定，新增宿主声明必须显式改断言）。
+> 新增用例 `cmd/analysis/openapi_measurement_index_test.go:TestOpenAPIMeasurementIndexEntries`：
+> 断言三条 METHOD+path 在 `paths` 里、`x-served-by=agent`、无 `requestBody`、
+> responses 下无 `content`（不复制 schema），且反代族
+> `/api/pipeline/{path}` 的 5 个常用方法确已注册（索引不指向不可达路径）。
+> 结果：`go test ./cmd/analysis` PASS（含路由契约 4 条与索引用例）。
+> 破坏验证：整块删除 `GET /api/pipeline/calibration` 索引条目 ⇒ 新用例 FAIL
+> （「索引缺 GET /api/pipeline/calibration」）且 `TestRouteContract_SpecToCode` 同时
+> FAIL（x-served-by 实有 13 条、断言要求 14）；从备份逐字节还原
+> （`SHA256=0FDA89AD…6A6B508` 一致）⇒ 复跑 PASS。
+
+<a id="CORE-CONTRACTS-DIR-NAMING"></a>
+### CORE-CONTRACTS-DIR-NAMING · 澄清 core `contracts/` 目录性质 [P3] ✅ 2026-11-13
+
+> 档 5（文档与代码一致性）· 来源：04-doc-consistency P3-1 · 顺序 5-4 · 依赖：无
+
+- **① 目标**：读者不再把 core 根下的 `contracts/` 误认成 `tellurion-contracts` Go 契约仓或子模块。
+- **② 上下文**：core 根目录有 5 个 tracked 的 yaml/sql 数据契约资产；与独立仓 `tellurion-contracts` 同名，且 REPO-MAP 也未区分。
+- **③ 要求**：在 `contracts/` 下加一句 README 或在 `ARCHITECTURE.md` 数据归属节写明"数据契约资产（yaml/sql），非 Go 契约仓；Go 契约见 `tellurion-contracts`"；REPO-MAP 同步一句。
+- **④ 约束与非目标**：不移动文件、不改目录名、不改契约内容。
+- **⑤ 验收**：从 core 根进入 `contracts/` 能看到性质说明；REPO-MAP 无歧义表述。
+- **⑥ 边界**：core 文档 + REPO-MAP（REPO-MAP 的改动可并入 DOC-28）。
+
+> **施工记录（2026-11-13，E1 实跑）**：按 ④「不移动文件、不改目录名、不改契约
+> 内容」执行，零文件搬迁：
+> - 新增 `contracts/README.md`：明说本目录是 core 的**运行时数据契约资产**
+>   （5 个文件逐条列表：`field_dictionary.yaml`、`fundamentals_detail.schema.sql`、
+>   `kernel_modules.schema.sql`、`profile.schema.json`、`snapshot.schema.json`），
+>   并三行否定式澄清「不是 `tellurion-contracts` Go 契约仓 / 不是 submodule /
+>   不是 Go 包」，给出去处指引。
+> - `docs/ARCHITECTURE.md` §2「数据归属」表后追加同口径段落并链到
+>   `contracts/README.md`；§5 目录树里原本就有的「⚠️ 运行时数据契约资产…
+>   不是 Go 包」继续保留（两处不冲突）。
+> 新增护栏 `internal/repoguard/contracts_dir_naming_test.go:TestContractsDirIsDocumentedAsDataAssets`：
+> ① README 必须含 `tellurion-contracts` / `Go 契约` / 否定句；② **资产清单自净** ——
+> 扫 `contracts/` 下所有 yaml/yml/sql/json，凡未在 README 出现即红；③
+> `ARCHITECTURE.md` 必须同时点到 `contracts/README.md` 与 `tellurion-contracts`；
+> ④ 反向钉：`contracts/` 里出现 `.go` 即红（那才是「Go 契约仓」的形态）。
+> 结果：`go test ./internal/repoguard` 全 PASS。
+> 破坏验证（两条）：a) 移走 `contracts/README.md` ⇒ 用例 FAIL；移回后
+> `SHA256=251D28AE…26F51D7` 与改动前一致，复绿。b) 临时塞入
+> `contracts/zz_probe.yaml` ⇒ FAIL 并点名「没有出现在 README.md 里」；删除后复绿
+> （证明资产清单会随目录自净，不会过期）。
+> **跨仓要求（不在本仓改）**：`tellurion-docs` 的 REPO-MAP 需把 core 的
+> `contracts/` 标注为「core 数据契约资产（yaml/sql/json），非 Go 契约仓；Go 契约见
+> `tellurion-contracts`」—— ⑥ 允许并入该仓 DOC-28，core 侧不代改。
+
+> **归档注记（2026-11-13）**：以上 10 条原文逐字移入；活跃层不再保留正文。
+
 
