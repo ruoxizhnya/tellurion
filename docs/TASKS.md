@@ -580,7 +580,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > agent 落地后 core `docker-compose.yml` 的 ai-service 健康检查（`:355`）才可切
 > `/healthz` —— 现在切会把未升级的 agent 判 unhealthy，故本腿保持 `/health`。
 
-### X-COVERAGE-FLOOR · 12 仓覆盖率门统一抬到实测低 5 点 [P2] ⬜
+### X-COVERAGE-FLOOR · 12 仓覆盖率门统一抬到实测低 5 点 [P2] 🔶 core 腿 ✅ 2026-11-13／其余仓待各自施工
 
 > 档 4（测试）· 来源：03-testing P2-2 · 顺序 4-3 · 依赖：各仓先测后设，互不阻塞
 
@@ -590,6 +590,20 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不靠删测试/空壳测试抬覆盖；不设跨仓统一百分比（各仓基线不同）；不阻塞于 core。
 - **⑤ 验收**：12 仓中每个有测试的仓都有门；每仓至少一次"删测试 ⇒ 红 / 还原 ⇒ 绿"的破坏验证记录。
 - **⑥ 边界**：各仓自己的 CI；伞只做口径与对账。
+
+> **core 腿施工记录（2026-11-13，E1 实跑，commit `2f2b790`）**：
+> 隔离 PG16（容器 `:55433`，迁移后 `-p 1` 全量）实测 total **72.6%** / `pkg/backtest`
+> **82.4%**，按「实测 − 5 点」把 `.github/workflows/ci.yml` 与 `Makefile` 同步改为
+> `-total-min=67`、`-pkg-min=tellurion/pkg/backtest=77`；新增
+> `internal/repoguard/coverage_floor_test.go` 冻结这组数字并断言 CI/Makefile/AGENTS.md
+> 三处逐字一致。门禁有效性证据：把 `pkg/storage`+`cmd/analysis`+`pkg/marketdata`
+> 的已覆盖语句清零（total 59.4%）⇒ 旧阈值 52/65 PASS（不执法）、新阈值 67/77
+> FAIL「差 7.6 个百分点」。**⑤ 的「删一个测试文件即红」在 core 不成立**（单文件
+> 占比远小于 5 点余量，移走 `pkg/backtest/qt04_duplicate_signal_scan_test.go` 后
+> 仍 82.4%），已改用「成片回退」验证并如实登记。
+> **对侧仓要求（回报给各仓）**：contracts `CT-COVERAGE-FLOOR`、kit
+> `KIT-COVERAGE-FLOOR`、ui `UI-CI-COVERAGE` 及各服务仓 `*-CI-GATES` 按同一口径
+> （本仓最新实测 − 5 点，先测后设）各自落腿；core 侧**不代改**。
 
 ### X-CI-BASELINE-PIN · CI 工具链版本与执行次数收敛 [P3] 🔶（core 腿已落，其余仓待各自施工）
 
