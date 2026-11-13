@@ -120,6 +120,13 @@ Browser (Vue SPA，tellurion-ui 仓 :5173 dev / nginx :8080)
 | C 派生计算 `quant.*` | 因子/回测/IC/信号/产业链静态层 | core 各计算路径（可 DROP 重建）。`Redis factor_cache` 已删除（2026-11-12，见 §4）；**`public.factor_cache` 已删表**（2026-11-12，`CORE-FACTOR-CACHE-RETIRE`，Migration 066 `DROP TABLE`）：无写者、无读者、不得重建 —— 因子值按 ADR-037 D2 在 run setup 现场求值并物化到 run 级内存，「实验日志」随 `SVC-CORE-AI-RETIRE` 删除 |
 | ~~E 研究结构化投影 `research.*`~~ **已退役** | vault markdown 的可重建投影 | 三表（`profile`/`conclusion`/`question`）与 5 条索引随 `SVC-CORE-AI-RETIRE`（2026-11-10）删净，`migrate()` 不再建 `research` schema |
 
+**`contracts/` 目录不是 Go 契约仓**：core 根下的 [`contracts/`](../contracts/README.md)
+只装运行时**数据契约资产**（`field_dictionary.yaml`、`fundamentals_detail.schema.sql`、
+`kernel_modules.schema.sql`、`profile.schema.json`、`snapshot.schema.json`），被代码与
+测试直接读取；四契约的 Go 类型与工具层在独立仓 **`tellurion-contracts`**
+（`BacktestRequest` / `RunSpec` / `BacktestResult` / `ContractsVersion` 与 `engine`、
+`broker` 等）。两者**同名不同物**，本目录不是 submodule、也没有 Go 包。
+
 ---
 
 ## 3. 数据库 schema —— 主真相在 `migrate()`

@@ -470,7 +470,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 > FAIL（x-served-by 实有 13 条、断言要求 14）；从备份逐字节还原
 > （`SHA256=0FDA89AD…6A6B508` 一致）⇒ 复跑 PASS。
 
-### CORE-CONTRACTS-DIR-NAMING · 澄清 core `contracts/` 目录性质 [P3] ⬜
+### CORE-CONTRACTS-DIR-NAMING · 澄清 core `contracts/` 目录性质 [P3] ✅ 2026-11-13
 
 > 档 5（文档与代码一致性）· 来源：04-doc-consistency P3-1 · 顺序 5-4 · 依赖：无
 
@@ -480,6 +480,30 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不移动文件、不改目录名、不改契约内容。
 - **⑤ 验收**：从 core 根进入 `contracts/` 能看到性质说明；REPO-MAP 无歧义表述。
 - **⑥ 边界**：core 文档 + REPO-MAP（REPO-MAP 的改动可并入 DOC-28）。
+
+> **施工记录（2026-11-13，E1 实跑）**：按 ④「不移动文件、不改目录名、不改契约
+> 内容」执行，零文件搬迁：
+> - 新增 `contracts/README.md`：明说本目录是 core 的**运行时数据契约资产**
+>   （5 个文件逐条列表：`field_dictionary.yaml`、`fundamentals_detail.schema.sql`、
+>   `kernel_modules.schema.sql`、`profile.schema.json`、`snapshot.schema.json`），
+>   并三行否定式澄清「不是 `tellurion-contracts` Go 契约仓 / 不是 submodule /
+>   不是 Go 包」，给出去处指引。
+> - `docs/ARCHITECTURE.md` §2「数据归属」表后追加同口径段落并链到
+>   `contracts/README.md`；§5 目录树里原本就有的「⚠️ 运行时数据契约资产…
+>   不是 Go 包」继续保留（两处不冲突）。
+> 新增护栏 `internal/repoguard/contracts_dir_naming_test.go:TestContractsDirIsDocumentedAsDataAssets`：
+> ① README 必须含 `tellurion-contracts` / `Go 契约` / 否定句；② **资产清单自净** ——
+> 扫 `contracts/` 下所有 yaml/yml/sql/json，凡未在 README 出现即红；③
+> `ARCHITECTURE.md` 必须同时点到 `contracts/README.md` 与 `tellurion-contracts`；
+> ④ 反向钉：`contracts/` 里出现 `.go` 即红（那才是「Go 契约仓」的形态）。
+> 结果：`go test ./internal/repoguard` 全 PASS。
+> 破坏验证（两条）：a) 移走 `contracts/README.md` ⇒ 用例 FAIL；移回后
+> `SHA256=251D28AE…26F51D7` 与改动前一致，复绿。b) 临时塞入
+> `contracts/zz_probe.yaml` ⇒ FAIL 并点名「没有出现在 README.md 里」；删除后复绿
+> （证明资产清单会随目录自净，不会过期）。
+> **跨仓要求（不在本仓改）**：`tellurion-docs` 的 REPO-MAP 需把 core 的
+> `contracts/` 标注为「core 数据契约资产（yaml/sql/json），非 Go 契约仓；Go 契约见
+> `tellurion-contracts`」—— ⑥ 允许并入该仓 DOC-28，core 侧不代改。
 
 ## 二、跨仓指针（不在本仓，勿双写）
 
