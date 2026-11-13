@@ -85,6 +85,11 @@ verified-by: SVC-RETIRE-INDEX 七条退役线总索引（2026-11-07：判据逐�
 | ai | ①写点 ②`SeedBuiltinFactorHypotheses` ③七表 `CREATE TABLE` | 6 / 3 / 7 | **0 / 0 / 0** | 执行单计数；本次复核 seed = 0、七表 DDL 仅剩护栏注释 1 行 |
 
 > 边界偏差（已登记、待主任追认）：broker HTTP 面没有融资融券 / 对账 / 证券状态端点，故 `margin` / `reconciliation` / `stockstate` **随包改名保留**，不删；删除对象以「通道实现」为界，不以「子包」为界。
+>
+> **2026-11-13 主任复盘裁决（覆盖上条）**：`stockstate` 按 `CORE-STOCKSTATE-DISPOSITION` **退役**
+> （语义绑死 `LiveTrader`、路由零注册、`ROADMAP` 明确不做实盘），实现 / 路由 / 文档引用同批删除，
+> repoguard `retiredPackages` 记录重开条件；`margin` / `auction` / `options` 按
+> `CORE-DEAD-PACKAGE-DISPOSITION` 退役，`reconciliation` 保留。以本节裁决为准。
 
 ## 4. 边界与未决
 

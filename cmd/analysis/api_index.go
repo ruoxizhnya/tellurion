@@ -114,7 +114,6 @@ var apiIndexPrefixDesc = []struct{ prefix, desc string }{
 	{"/api/reconciliation", "对账"},
 	{"/api/alerts", "告警"},
 	{"/api/risk", "风险计算"},
-	{"/api/stock-state", "个股状态"},
 	{"/api/runs", "运行产物读面"},
 	{"/api/auth", "认证与用户管理"},
 	{"/api/factor-analytics", "因子分析"},

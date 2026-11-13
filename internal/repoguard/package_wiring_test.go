@@ -127,6 +127,12 @@ var retiredPackages = map[string]string{
 	"tellurion/pkg/data/source": "多源同步 / ETL 管线已退役，随 pkg/data 整目录删除（SVC-CORE-DATA-RETIRE）",
 	// 2026-11-10（SVC-CORE-BROKER-RETIRE 步骤 B）：交易通道实现整套退役。
 	"tellurion/pkg/trading/broker/xtp": "XTP 券商适配已删除；core 的唯一真实通道是 broker HTTP（pkg/brokerhttp），券商适配 owner 在 tellurion-broker 仓",
+	// 2026-11-13（CORE-STOCKSTATE-DISPOSITION，主任裁决 B）：证券状态 / 退市整理期
+	// 强平校验整包退役 —— 语义绑死 `trading.LiveTrader`，而 ROADMAP §明确不做
+	// 实盘交易、broker ADR-0003 把真钱通道定为当前不实施；6 条路由零注册、
+	// registry 零构造，属"永远不会被执行"的实盘风控代码。重开条件 = broker
+	// ADR-0003 的 P1~P5 满足且启动实盘通道时，按该 ADR 重建而非复活本包。
+	"tellurion/pkg/trading/stockstate": "实盘证券状态校验（listed/suspended/delisting/delisted + 退市强平）已随实盘通道一并退役；当前不做实盘，重开见 tellurion-broker:docs/adr/0003",
 }
 
 func TestEveryPackageHasAConsumer(t *testing.T) {

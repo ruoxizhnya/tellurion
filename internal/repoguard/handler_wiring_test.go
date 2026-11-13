@@ -6,9 +6,10 @@ package repoguard
 // 为什么需要它。`package_wiring_test.go` 只守「包没有导入者」，看不见另一种
 // 死面：handler 被编译进 `cmd/analysis`，构造函数也写好了，但 `main.go` /
 // `registerRoutes` 里从来没有调用点 —— 运行时那族端点完全不可达，而所有
-// 测试（单测直接构造 handler）照样绿。stockstate 就是样本：
-// `handlers_stock_state.go` 定义了 6 条路由，全仓无 `NewStockStateHandler`
-// 调用点（CORE-STOCKSTATE-DISPOSITION ⏸ 等裁决）。
+// 测试（单测直接构造 handler）照样绿。历史上的一个样本是「handler 定义了
+// 6 条路由、全仓却无构造调用点」；该能力已按 CORE-STOCKSTATE-DISPOSITION
+// （2026-11-13 主任裁决 B）连同包一并退役 —— 本条护栏继续覆盖后续新增的
+// 同类死面。
 //
 // 判据（刻意保守）：
 //   - 只扫 `cmd/analysis` 的非测试文件里的 `New*Handler` 构造函数；
@@ -42,15 +43,9 @@ type unwiredHandlerDoc struct {
 
 // unwiredHandlers 是「已定义但未注册」的显式例外。
 //
-// 2026-11-13 初始清单：1 条。
-var unwiredHandlers = map[string]unwiredHandlerDoc{
-	"NewStockStateHandler": {
-		Reason: "pkg/trading/stockstate 的去留未裁决（CORE-STOCKSTATE-DISPOSITION ⏸ 待主任裁决 A 接线 / B 退役）；" +
-			"本条只把「handler 定义了但运行时不可达」记录成机器判据，不替裁决拍板",
-		Reopen: "CORE-STOCKSTATE-DISPOSITION 裁决为 A ⇒ 接线进 registerRoutes 并删掉本条目；" +
-			"裁决为 B ⇒ 删 handler 与包，本条目同样删除",
-	},
-}
+// 2026-11-13：初始唯一例外已随 CORE-STOCKSTATE-DISPOSITION（裁决 B 退役）
+// 删除 handler 与包而清空 —— 白名单当前为空是**正确状态**，不是遗漏。
+var unwiredHandlers = map[string]unwiredHandlerDoc{}
 
 func TestEveryHandlerConstructorIsRegistered(t *testing.T) {
 	t.Parallel()

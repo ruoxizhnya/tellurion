@@ -3,7 +3,7 @@ package brokerhttp
 // SVC-CORE-BROKER-RETIRE 步骤 B：core 运行域的 `trading.LiveTrader` 实现。
 //
 // 它是 core 唯一的真实交易通道：`/api/execution/*`、止损巡检、
-// 对账、证券状态与紧急清仓全部经这里落到 tellurion-broker。进程内
+// 对账与紧急清仓全部经这里落到 tellurion-broker。进程内
 // 撮合实现已随本单删除，`BROKER_URL` 缺失即装配失败（fail-loud），
 // 不再有静默回退。
 //

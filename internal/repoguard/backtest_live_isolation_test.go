@@ -12,7 +12,7 @@ package repoguard
 //     测试也不豁免：K5 的 paper↔backtest 对账已迁到 `e2e/backtest_live/`，
 //     引擎包里不该再出现任何 `pkg/trading` 引用。
 //   - 判据：import 路径 == `pkg/trading`、以 `/pkg/trading` 结尾，或含 `/pkg/trading/`
-//     子包（`margin` / `reconciliation` / `stockstate` / `broker` 同属该域）。
+//     子包（`margin` / `reconciliation` / `broker` 同属该域）。
 //   - 命中即红，报错点名文件与 import 行。
 //
 // 正向腿：适配层文件必须存在且同时 import 两侧，确保"切断"不是靠

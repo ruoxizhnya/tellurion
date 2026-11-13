@@ -138,17 +138,7 @@ verified-by: 2026-11-13 五角审查立单 → 同日施工收口 10 条并归�
 - **重开条件（主任原话）**：用户提供**可用的隔离全栈**（含 **LLM 配额**）并**授权消耗**；
   满足后另立施工单，先 10 次预跑再决定是否扩到 100，按 ③ 的三类结果表留证。
 
-### CORE-STOCKSTATE-DISPOSITION · stockstate 能力去留裁决（接线 vs 退役）[P2] ⏸ 待主任裁决
-
-> 档 2（产品设计）· 来源：01-product-design P2-3 · 顺序 2-2 · 依赖：无；实现护栏另立（档 3 `CORE-REPOGUARD-HANDLER-WIRED`）
-
-- **① 目标**：给 `pkg/trading/stockstate` 与 6 条未注册路由一个明确归属：接线进 core，或删除/冻结并加护栏。
-- **② 上下文**：`pkg/trading/stockstate/stock_state.go` 455 行 + 测试 556 行；`cmd/analysis/handlers_stock_state.go:50` 定义 6 条路由，但 `cmd/analysis/main.go` 全仓无 `NewStockStateHandler` 调用；repoguard 只覆盖"包无导入者"，不覆盖"handler 定义了但没注册"。性质 = **未登记的完全死代码**，不是"仅缺 UI"。
-- **③ 要求**：建议 **A 接线**：装配 handler、补路由与 openapi、补调用点（停牌/退市/强平校验）与测试；若选 **B 退役**：删 handler 与包（或冻结 + 负向护栏），同步清理测试、契约与文档。
-- **④ 约束与非目标**：不新增交易执行能力、不改 broker 通道；判据是"交易安全是否属于当前阶段"——stockstate 位于下单前校验（风险域），价值高于 12 个白名单包，故建议 A；若主任认为 S1 出口前不投入交易安全增强，则选 B 冻结并写重开条件。
-- **⑤ 验收**：二选一落地；PRODUCT / REPO-MAP 不再存在"能力存在但运行时不可达"；选 A 时 6 条路由有契约与测试，选 B 时 repoguard 防复活。
-- **⑥ 边界**：core 装配与包生命周期；broker/risk 不改。
-- **重开条件**：主任裁决 A 或 B（建议 A）。
+> `CORE-STOCKSTATE-DISPOSITION` 已按主任裁决 **B 退役**（2026-11-13），原文与施工记录见 [归档 §二十七](archive/tasks-archive-2026-11.md)。
 
 #### 2026-11-13 五角审查 · 档 3（实现）
 
