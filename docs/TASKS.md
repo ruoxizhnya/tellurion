@@ -535,7 +535,7 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **⑤ 验收**：12 仓中每个有测试的仓都有门；每仓至少一次"删测试 ⇒ 红 / 还原 ⇒ 绿"的破坏验证记录。
 - **⑥ 边界**：各仓自己的 CI；伞只做口径与对账。
 
-### X-CI-BASELINE-PIN · CI 工具链版本与执行次数收敛 [P3] ⬜
+### X-CI-BASELINE-PIN · CI 工具链版本与执行次数收敛 [P3] 🔶（core 腿已落，其余仓待各自施工）
 
 > 档 4（测试）· 来源：03-testing P3-1 · 顺序 4-6 · 依赖：无
 
@@ -545,6 +545,32 @@ verified-by: 2026-11-13 五角审查立单（只立单不施工）——档 2（
 - **④ 约束与非目标**：不引入新工具；不改业务代码；不在本条改 Windows runner（另见 `X-CI-WINDOWS`）。
 - **⑤ 验收**：10 仓 CI 的 staticcheck 版本一致；agent 故意留一处未格式化 ⇒ 红；CI 总时长不高于现状（贴前后对比）。
 - **⑥ 边界**：各仓 CI；伞只做口径与对账。
+
+> **core 腿施工记录（2026-11-13，E1 实跑）**：
+> - **③① 的前提在 core 已被现状证伪**：② 写「core/agent 等用 `staticcheck@latest`」，
+>   但 core 的 CI **根本没有 staticcheck 步**（`grep -rn staticcheck .github/ Makefile`
+>   零命中；历史条目 X-CI-RACE-STATICCHECK 也只给 6 个服务仓 + agent + contracts 补，
+>   明文「core/kit 的 CI 未被改动」）。实测 `go run staticcheck@v0.8.2 ./...` 在 core
+>   报出**成片** U1000/S1009/SA4006/SA1019/ST1005（示例：`pkg/strategy/registry.go`
+>   5 条、`pkg/strategy/examples/value_momentum.go` 6 条、`pkg/trading/order_store.go`、
+>   `pkg/sync/worker.go` 的 kit 弃用符 …）。按 ④「不改业务代码」，**本单不新装
+>   这道门** —— 装了就是当场红，修它要动业务代码，超出本条范围。core 若要接这条
+>   staticcheck 腿，需另开一单：先清 finding（或引 baseline 机制）再接门。
+> - **core 能落的部分 = 工具版本钉死**：`.github/workflows/ci.yml` 的 Govulncheck
+>   由 `govulncheck@latest` 改为 `@v1.9.0`（施工时 `go list -m -versions
+>   golang.org/x/vuln` 确认的当前最高可用版；本仓实测 `./...` EXIT=0、0 个可达漏洞）。
+> - **③③ 在 core 无需改动**：core 一直是「一次全量 `go test ./... -count=1 -race`」，
+>   不存在「先全量再 -race 全量」的重复执行（`Test` 步只有一条 `go test ./...`）。
+>   护栏把这一形态钉住，防止将来被改成两遍。
+> - **新增护栏** `internal/repoguard/ci_tool_pin_test.go:TestCIToolVersionsArePinned`：
+>   run 里不得出现任何 `@latest`；`govulncheck@vX.Y.Z` 必须存在；`go-version`
+>   不得是 `stable`/`latest`/`1.26.x`；`go test ./...` 必须恰好出现 1 次且带 `-race`。
+> - 破坏验证：把 `@v1.9.0` 改回 `@latest` ⇒ 护栏 FAIL 并点名 `govulncheck@latest`；
+>   逐字节还原（`SHA256=994AE72D…3DE87` 一致）⇒ `go test ./internal/repoguard` 全 PASS。
+> - **对侧仓要求（回报给各仓）**：agent 仓需 ①加 `gofmt -l` 非空即红门（③②）；
+>   ② 若 agent 的 CI 沿用 `staticcheck@latest`，统一钉到已在 data/risk/strategy/
+>   contracts CI 上验证过的 `v0.8.2`；orchestration/broker 现为 `@latest`（见归档
+>   X-CI-RACE-STATICCHECK 对账表），同批收敛。core 侧**不代改**。
 
 ### X-CI-WINDOWS · Windows runner 是否纳入 CI [P3] ⏸ 待主任裁决
 

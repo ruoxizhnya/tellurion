@@ -55,8 +55,15 @@ jobs:
       # govulncheck 按“符号级可达性”判定，只对真正被调用到的漏洞报红；上游模块里的
       # 不可达漏洞只计数不失败（避免把无关 CVE 变成噪声红）。
       # 破坏验证：把 pgx 降回 v5.7.3 ⇒ 本步以 GO-2026-5004 exit 1；还原 v5.11.0 ⇒ EXIT=0。
+      #
+      # X-CI-BASELINE-PIN（2026-11-13）：版本由 `@latest` 钉成 `@v1.9.0`。
+      # `@latest` 让「同一份代码在昨天绿、今天红」只取决于上游发版 —— 也就是
+      # 一条没人改过的流水线会自己变色。选 v1.9.0 是施工时 `go list -m -versions
+      # golang.org/x/vuln` 确认的当前可用最高版，并在本仓实测 `./...` 全绿
+      # （EXIT=0，0 个可达漏洞）。升级版本是**显式动作**：改这里 + 重跑一次。
+      # 护栏：internal/repoguard/ci_tool_pin_test.go 会拦回 `@latest`。
       - name: Govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
       # AUD-38：windows-only 文件在 Linux-only CI 里**从不被编译**。
       #
